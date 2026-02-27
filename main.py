@@ -581,6 +581,7 @@ class PerssonModelGUI_V2:
         settings_menu = tk.Menu(menubar, tearoff=0, **menu_cfg)
         menubar.add_cascade(label="  Settings  ", menu=settings_menu)
         settings_menu.add_command(label="  레이아웃 설정...", command=self._open_layout_settings)
+        settings_menu.add_command(label="  초기변수 설정...", command=self._open_initial_var_settings)
 
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0, **menu_cfg)
@@ -6780,6 +6781,60 @@ class PerssonModelGUI_V2:
         ttk.Button(btn_frame, text="초기화", command=reset_defaults, width=12).pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text="취소", command=dialog.destroy, width=12).pack(side=tk.RIGHT, padx=5)
 
+    def _open_initial_var_settings(self):
+        """Open initial variable settings dialog."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("초기변수 설정")
+        dialog.resizable(True, True)
+        dialog.geometry("500x520")
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        C = self.COLORS
+
+        # Title
+        title_frame = tk.Frame(dialog, bg=C['sidebar'], pady=8)
+        title_frame.pack(fill=tk.X)
+        tk.Label(title_frame, text="초기변수 설정", bg=C['sidebar'], fg='white',
+                 font=self.FONTS['heading']).pack(anchor=tk.W, padx=15)
+
+        # Scrollable content
+        canvas = tk.Canvas(dialog, bg='white', highlightthickness=0)
+        scrollbar = ttk.Scrollbar(dialog, orient='vertical', command=canvas.yview)
+        content = tk.Frame(canvas, bg='white')
+        canvas.create_window((0, 0), window=content, anchor='nw')
+        canvas.configure(yscrollcommand=scrollbar.set)
+        content.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # ── Variable entries ──
+        vars_config = [
+            ("공칭 압력 σ₀ (MPa)", self.sigma_0_var),
+            ("γ (contact correction)", self.gamma_var),
+            ("φ 적분 점수", self.n_phi_var),
+            ("계산 온도 (°C)", self.mu_calc_temp_var),
+            ("Split1 (%)", self.split1_var),
+            ("Split2 (%)", self.split2_var),
+            ("N pts (평균 점수)", self.n_avg_pts_var),
+            ("Grid Max Strain (%)", self.extend_strain_var),
+            ("Smoothing Window", self.smooth_window_var),
+        ]
+
+        section = ttk.LabelFrame(content, text="주요 초기변수", padding=10)
+        section.pack(fill=tk.X, padx=15, pady=10)
+
+        for i, (label_text, var) in enumerate(vars_config):
+            row = ttk.Frame(section)
+            row.pack(fill=tk.X, pady=3)
+            ttk.Label(row, text=label_text, font=self.FONTS['body'], width=25, anchor='w').pack(side=tk.LEFT)
+            ttk.Entry(row, textvariable=var, width=12).pack(side=tk.LEFT, padx=5)
+
+        # Buttons
+        btn_frame = ttk.Frame(dialog)
+        btn_frame.pack(fill=tk.X, padx=15, pady=10)
+        ttk.Button(btn_frame, text="닫기", command=dialog.destroy, width=12).pack(side=tk.RIGHT, padx=5)
+
     def _show_about(self):
         """Show about dialog as a popup window."""
         dialog = tk.Toplevel(self.root)
@@ -7769,26 +7824,62 @@ class PerssonModelGUI_V2:
             width=15
         ).pack(anchor=tk.W, pady=2)
 
-        # 3. Persson Average f,g (RANK 1 최적 가중치 자동 적용)
+        # 3. Persson Average f,g
         persson_avg_frame = self._create_section(left_panel, "3) Persson average f,g")
 
-        # Split strain setting (RANK 1 default: 14.2%)
-        split_row = ttk.Frame(persson_avg_frame)
-        split_row.pack(fill=tk.X, pady=1)
-        ttk.Label(split_row, text="Split(%):", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.split_strain_var = tk.StringVar(value="14.2")
-        ttk.Entry(split_row, textvariable=self.split_strain_var, width=6).pack(side=tk.LEFT, padx=2)
-        ttk.Label(split_row, text="RANK1 최적", font=self.FONTS['small'], foreground='#2563EB').pack(side=tk.LEFT, padx=2)
+        # N pts row
+        npts_row = ttk.Frame(persson_avg_frame)
+        npts_row.pack(fill=tk.X, pady=1)
+        ttk.Label(npts_row, text="N pts:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.n_avg_pts_var = tk.StringVar(value="20")
+        ttk.Entry(npts_row, textvariable=self.n_avg_pts_var, width=5).pack(side=tk.LEFT, padx=2)
+        ttk.Label(npts_row, text="(strain 범위 자동 결정)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT, padx=4)
 
-        # RANK 1 weight info display
-        info_frame = ttk.Frame(persson_avg_frame)
-        info_frame.pack(fill=tk.X, pady=1)
-        weight_info = (
-            "f: low(0.02°C:10%,29.9°C:90%) high(29.9°C:30%,49.99°C:70%)\n"
-            "g: low(0.02°C:35%,49.99°C:65%) high(29.9°C:55%,49.99°C:45%)"
-        )
-        ttk.Label(info_frame, text=weight_info, font=self.FONTS['tiny'],
-                  foreground='#64748B', justify=tk.LEFT).pack(anchor=tk.W)
+        # Interpolation method description
+        ttk.Label(persson_avg_frame, text="Cubic spline 개별보간 → nanmean → log-spaced",
+                  font=self.FONTS['small'], foreground='#64748B').pack(anchor=tk.W, pady=1)
+
+        # Zone1 temperatures (< Split1)
+        zone1_row = ttk.Frame(persson_avg_frame)
+        zone1_row.pack(fill=tk.X, pady=1)
+        ttk.Label(zone1_row, text="Zone1 온도 (< Split1):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.zone1_temps_var = tk.StringVar(value="(f,g 곡선 계산 후 표시됩니다)")
+        ttk.Label(zone1_row, textvariable=self.zone1_temps_var, font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT, padx=4)
+
+        # Split1 row
+        split1_row = ttk.Frame(persson_avg_frame)
+        split1_row.pack(fill=tk.X, pady=1)
+        ttk.Label(split1_row, text="Split1 [%]:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.split1_var = tk.StringVar(value="10")
+        ttk.Entry(split1_row, textvariable=self.split1_var, width=6).pack(side=tk.LEFT, padx=2)
+
+        # Zone2 temperatures (Split1 ~ Split2)
+        zone2_row = ttk.Frame(persson_avg_frame)
+        zone2_row.pack(fill=tk.X, pady=1)
+        ttk.Label(zone2_row, text="Zone2 온도 (Split1~Split2):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.zone2_temps_var = tk.StringVar(value="(f,g 곡선 계산 후 표시됩니다)")
+        ttk.Label(zone2_row, textvariable=self.zone2_temps_var, font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT, padx=4)
+
+        # Split2 row
+        split2_row = ttk.Frame(persson_avg_frame)
+        split2_row.pack(fill=tk.X, pady=1)
+        ttk.Label(split2_row, text="Split2 [%]:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.split2_var = tk.StringVar(value="20")
+        ttk.Entry(split2_row, textvariable=self.split2_var, width=6).pack(side=tk.LEFT, padx=2)
+
+        # Zone3 temperatures (> Split2)
+        zone3_row = ttk.Frame(persson_avg_frame)
+        zone3_row.pack(fill=tk.X, pady=1)
+        ttk.Label(zone3_row, text="Zone3 온도 (> Split2):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.zone3_temps_var = tk.StringVar(value="(f,g 곡선 계산 후 표시됩니다)")
+        ttk.Label(zone3_row, textvariable=self.zone3_temps_var, font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT, padx=4)
+
+        # Backward compatibility: keep split_strain_var pointing to split1
+        self.split_strain_var = self.split1_var
 
         # Persson average f,g 계산 button
         ttk.Button(
@@ -7861,11 +7952,17 @@ class PerssonModelGUI_V2:
         integ_row = ttk.Frame(mu_settings_frame)
         integ_row.pack(fill=tk.X, pady=1)
         ttk.Label(integ_row, text="γ:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.gamma_var = tk.StringVar(value="0.55")
+        self.gamma_var = tk.StringVar(value="0.57")
         ttk.Entry(integ_row, textvariable=self.gamma_var, width=5).pack(side=tk.LEFT, padx=2)
-        ttk.Label(integ_row, text="φ점:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        ttk.Label(integ_row, text="φ접:", font=self.FONTS['body']).pack(side=tk.LEFT)
         self.n_phi_var = tk.StringVar(value="14")
         ttk.Entry(integ_row, textvariable=self.n_phi_var, width=5).pack(side=tk.LEFT, padx=2)
+
+        # S(q) method radio buttons
+        ttk.Label(integ_row, text="S(q):", font=self.FONTS['body']).pack(side=tk.LEFT, padx=(6, 0))
+        self.sq_method_var = tk.StringVar(value="P1")
+        ttk.Radiobutton(integ_row, text="P¹", variable=self.sq_method_var, value="P1").pack(side=tk.LEFT)
+        ttk.Radiobutton(integ_row, text="P²", variable=self.sq_method_var, value="P2").pack(side=tk.LEFT)
 
         # Smoothing in single row
         smooth_row = ttk.Frame(mu_settings_frame)
@@ -7876,13 +7973,13 @@ class PerssonModelGUI_V2:
         ttk.Combobox(smooth_row, textvariable=self.smooth_window_var,
                      values=["3", "5", "7", "9", "11"], width=4, state="readonly", font=self.FONTS['body']).pack(side=tk.LEFT, padx=2)
 
-        # ===== Temperature Shift Section =====
+        # ===== 온도, q1, 하중 조절 Section =====
         ttk.Separator(mu_settings_frame, orient='horizontal').pack(fill=tk.X, pady=3)
-        temp_frame = ttk.LabelFrame(mu_settings_frame, text="온도 시프트 (aT 적용)", padding=3)
+        temp_frame = ttk.LabelFrame(mu_settings_frame, text="온도, q1, 하중 조절", padding=3)
         temp_frame.pack(fill=tk.X, pady=2)
 
-        # Temperature input row (강조)
-        temp_row1_wrapper = tk.Frame(temp_frame, bg=self.COLORS['primary'], padx=1, pady=1)
+        # Temperature input row (강조 - blue border)
+        temp_row1_wrapper = tk.Frame(temp_frame, bg='#2563EB', padx=1, pady=1)
         temp_row1_wrapper.pack(fill=tk.X, pady=1)
         temp_row1 = ttk.Frame(temp_row1_wrapper)
         temp_row1.pack(fill=tk.X)
@@ -7892,15 +7989,37 @@ class PerssonModelGUI_V2:
         self.mu_calc_temp_entry.pack(side=tk.LEFT, padx=2)
         ttk.Label(temp_row1, text="°C", font=self.FONTS['body']).pack(side=tk.LEFT)
 
+        # q1 (q_max) input row (강조 - purple border)
+        q1_row_wrapper = tk.Frame(temp_frame, bg='#7C3AED', padx=1, pady=1)
+        q1_row_wrapper.pack(fill=tk.X, pady=1)
+        q1_row = ttk.Frame(q1_row_wrapper)
+        q1_row.pack(fill=tk.X)
+        ttk.Label(q1_row, text="q1 (q_max):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.mu_q1_var = tk.StringVar(value="")
+        self.mu_q1_entry = ttk.Entry(q1_row, textvariable=self.mu_q1_var, width=10)
+        self.mu_q1_entry.pack(side=tk.LEFT, padx=2)
+        ttk.Label(q1_row, text="1/m", font=self.FONTS['body']).pack(side=tk.LEFT)
+
+        # 하중 σ₀ input row (강조 - red border)
+        load_row_wrapper = tk.Frame(temp_frame, bg='#DC2626', padx=1, pady=1)
+        load_row_wrapper.pack(fill=tk.X, pady=1)
+        load_row = ttk.Frame(load_row_wrapper)
+        load_row.pack(fill=tk.X)
+        ttk.Label(load_row, text="하중 σ₀:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.mu_sigma0_var = tk.StringVar(value="")
+        self.mu_sigma0_entry = ttk.Entry(load_row, textvariable=self.mu_sigma0_var, width=8)
+        self.mu_sigma0_entry.pack(side=tk.LEFT, padx=2)
+        ttk.Label(load_row, text="MPa", font=self.FONTS['body']).pack(side=tk.LEFT)
+
         # aT status display
         self.mu_aT_status_var = tk.StringVar(value="aT: 미로드 (Tref에서 계산)")
         ttk.Label(temp_frame, textvariable=self.mu_aT_status_var,
                   font=self.FONTS['body'], foreground='#64748B').pack(anchor=tk.W)
 
-        # Temperature apply button
+        # 재계산 button
         temp_row2 = ttk.Frame(temp_frame)
         temp_row2.pack(fill=tk.X, pady=1)
-        ttk.Button(temp_row2, text="온도 적용 & G 재계산",
+        ttk.Button(temp_row2, text="재계산",
                    command=self._apply_temperature_shift, width=20).pack(side=tk.LEFT)
 
         # G calculation status
@@ -8035,6 +8154,12 @@ class PerssonModelGUI_V2:
         # Initialize piecewise result storage
         self.piecewise_result = None
 
+        # Sync mu tab q1/σ₀ fields with main parameter values
+        if hasattr(self, 'input_q1_var'):
+            self.mu_q1_var.set(self.input_q1_var.get())
+        if hasattr(self, 'sigma_0_var'):
+            self.mu_sigma0_var.set(self.sigma_0_var.get())
+
     def _select_all_temps(self):
         """Select all temperatures in both Group A and B listboxes."""
         for i in range(self.temp_listbox_A.size()):
@@ -8043,10 +8168,10 @@ class PerssonModelGUI_V2:
             self.temp_listbox_B.selection_set(i)
 
     def _persson_average_fg(self):
-        """Persson average f,g 계산: RANK 1 최적 가중치로 자동 계산.
+        """Persson average f,g 계산: Split1/Split2 기반 3-zone 가중 평균.
 
         1) fg_by_T가 없으면 먼저 f,g 곡선 계산 (strain data 필요)
-        2) DEFAULT_STRAIN_SPLIT (RANK 1) 가중치로 strain-split weighted average
+        2) Split1/Split2로 온도를 3개 Zone으로 분류
         3) interpolator 생성 → mu_visc 계산에 바로 사용 가능
         """
         # Step 1: fg_by_T가 없으면 자동으로 계산
@@ -8061,22 +8186,36 @@ class PerssonModelGUI_V2:
                 return  # 계산 실패
 
         try:
-            # Step 2: RANK 1 최적 설정으로 strain-split 구성
-            split_percent = float(self.split_strain_var.get())
-            split_strain = split_percent / 100.0
+            # Step 2: Split1/Split2 기반 strain-split 구성
+            split1_percent = float(self.split1_var.get())
+            split_strain = split1_percent / 100.0
 
             extend_percent = float(self.extend_strain_var.get())
             max_strain = extend_percent / 100.0
 
+            n_pts = int(self.n_avg_pts_var.get())
             use_persson = self.use_persson_grid_var.get()
-            grid_strain = create_strain_grid(30, max_strain, use_persson_grid=use_persson)
+            grid_strain = create_strain_grid(n_pts, max_strain, use_persson_grid=use_persson)
 
-            # DEFAULT_STRAIN_SPLIT (RANK 1) 가중치 + UI threshold 적용
+            # DEFAULT_STRAIN_SPLIT 가중치 + UI threshold 적용
             strain_split_cfg = dict(DEFAULT_STRAIN_SPLIT)
             strain_split_cfg['threshold'] = split_strain
 
-            # 모든 온도 자동 사용 (Group A/B 수동 선택 불필요)
-            all_temps = list(self.fg_by_T.keys())
+            # 모든 온도 자동 사용 + Zone 분류
+            all_temps = sorted(self.fg_by_T.keys())
+
+            # Zone classification (Split1/Split2)
+            split2_percent = float(self.split2_var.get())
+            zone1_temps = [t for t in all_temps if t < split1_percent]
+            zone2_temps = [t for t in all_temps if split1_percent <= t <= split2_percent]
+            zone3_temps = [t for t in all_temps if t > split2_percent]
+
+            # Update Zone temperature displays
+            def fmt_temps(temps):
+                return ", ".join(f"{t:.1f}°C" for t in temps) if temps else "(해당 없음)"
+            self.zone1_temps_var.set(fmt_temps(zone1_temps))
+            self.zone2_temps_var.set(fmt_temps(zone2_temps))
+            self.zone3_temps_var.set(fmt_temps(zone3_temps))
 
             result = average_fg_curves(
                 self.fg_by_T,
@@ -8146,10 +8285,12 @@ class PerssonModelGUI_V2:
             n_temps = len(all_temps)
             temps_str = ", ".join(f"{t:.1f}" for t in sorted(all_temps))
             self.persson_avg_status_var.set(
-                f"완료: Split={split_percent:.1f}%, {n_temps}개 온도 [{temps_str}°C]"
+                f"완료: Split1={split1_percent:.0f}%, Split2={split2_percent:.0f}%, "
+                f"{n_temps}개 온도 [{temps_str}°C]"
             )
             self.status_var.set(
-                f"Persson average f,g 완료: RANK1 가중치, Split={split_percent:.1f}%, "
+                f"Persson average f,g 완료: N={n_pts}, "
+                f"Split1={split1_percent:.0f}%, Split2={split2_percent:.0f}%, "
                 f"{n_temps}개 온도"
             )
 
@@ -9021,6 +9162,27 @@ class PerssonModelGUI_V2:
                 self.status_var.set("비선형 G(q) 재계산 완료 - μ_visc 계산 중...")
                 self.root.update()
 
+            # S(q) method: P¹ or P² exponent
+            sq_method = getattr(self, 'sq_method_var', None)
+            p_exponent = 1 if (sq_method and sq_method.get() == "P1") else 2
+
+            # Sync q1 and σ₀ from Section 4 fields if user entered values
+            if hasattr(self, 'mu_q1_var'):
+                mu_q1_str = self.mu_q1_var.get().strip()
+                if mu_q1_str:
+                    try:
+                        self.input_q1_var.set(mu_q1_str)
+                    except Exception:
+                        pass
+            if hasattr(self, 'mu_sigma0_var'):
+                mu_s0_str = self.mu_sigma0_var.get().strip()
+                if mu_s0_str:
+                    try:
+                        self.sigma_0_var.set(mu_s0_str)
+                        sigma_0 = float(mu_s0_str) * 1e6
+                    except Exception:
+                        pass
+
             # Create friction calculator with g_interpolator
             friction_calc = FrictionCalculator(
                 psd_func=self.psd_model,
@@ -9032,7 +9194,8 @@ class PerssonModelGUI_V2:
                 gamma=gamma,
                 n_angle_points=n_phi,
                 g_interpolator=g_interp,
-                strain_estimate=fixed_strain
+                strain_estimate=fixed_strain,
+                p_exponent=p_exponent
             )
 
             # Calculate mu_visc for all velocities

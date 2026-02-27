@@ -123,7 +123,8 @@ class FrictionCalculator:
         gamma: float = 0.6,
         n_angle_points: int = 72,
         g_interpolator: Optional[Callable[[float], float]] = None,
-        strain_estimate: float = 0.01
+        strain_estimate: float = 0.01,
+        p_exponent: int = 2
     ):
         """
         Initialize friction calculator.
@@ -151,6 +152,9 @@ class FrictionCalculator:
             Function g(strain) for nonlinear correction
         strain_estimate : float, optional
             Default strain estimate for nonlinear correction (default: 0.01 = 1%)
+        p_exponent : int, optional
+            Exponent for P in S(q) formula: S(q) = γ + (1-γ)·P^p_exponent
+            1 for P¹, 2 for P² (default: 2)
         """
         self.psd_func = psd_func
         self.loss_modulus_func = loss_modulus_func
@@ -162,6 +166,7 @@ class FrictionCalculator:
         self.n_angle_points = n_angle_points
         self.g_interpolator = g_interpolator
         self.strain_estimate = strain_estimate
+        self.p_exponent = p_exponent
 
         # Precompute constant factor: 1 / ((1 - nu^2) * sigma0)
         self.prefactor = 1.0 / ((1 - poisson_ratio**2) * sigma_0)
@@ -208,7 +213,7 @@ class FrictionCalculator:
         """
         Calculate contact correction factor S(q) from P(q).
 
-        S(q) = gamma + (1 - gamma) * P(q)
+        S(q) = gamma + (1 - gamma) * P(q)^p_exponent
 
         Parameters
         ----------
@@ -221,7 +226,7 @@ class FrictionCalculator:
             S(q) contact correction factor
         """
         P = np.asarray(P)
-        return self.gamma + (1 - self.gamma) * P
+        return self.gamma + (1 - self.gamma) * P ** self.p_exponent
 
     def _angle_integral_friction(
         self,
