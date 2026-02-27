@@ -1155,15 +1155,11 @@ def average_fg_curves(
         - 'Ts_used': list of temperatures used
         - 'n_eff': effective number of curves at each point
     """
-    # Collect all temperatures needed
+    # Collect temperatures: only use user-selected temperatures
+    selected_set = set(selected_temps)
     if strain_split is not None:
-        all_temps_needed = set()
-        for key in ('f_low', 'f_high', 'g_low', 'g_high'):
-            if key in strain_split:
-                all_temps_needed.update(strain_split[key].keys())
-        # Also include selected_temps as fallback pool
-        all_temps_needed.update(selected_temps)
-        Ts = [T for T in fg_by_T if _find_nearest_temp(list(all_temps_needed), T) is not None]
+        # strain_split 모드에서도 사용자가 선택한 온도만 사용
+        Ts = [T for T in fg_by_T if T in selected_set]
     else:
         Ts = [T for T in selected_temps if T in fg_by_T]
 

@@ -8331,13 +8331,13 @@ class PerssonModelGUI_V2:
             if not self.zone1_checkbuttons:
                 self._update_zone_checkboxes()
 
-            # 체크된 온도만 사용
-            selected_temps = []
+            # 체크된 온도만 사용 (3개 Zone에서 중복 제거)
+            selected_set = set()
             for zone_cbs in [self.zone1_checkbuttons, self.zone2_checkbuttons, self.zone3_checkbuttons]:
                 for var, T, _ in zone_cbs:
                     if var.get():
-                        selected_temps.append(T)
-            selected_temps = sorted(selected_temps)
+                        selected_set.add(T)
+            selected_temps = sorted(selected_set)
 
             if not selected_temps:
                 self._show_status("선택된 온도가 없습니다.\nZone 체크박스에서 최소 1개 온도를 선택하세요.", 'warning')
@@ -8370,17 +8370,7 @@ class PerssonModelGUI_V2:
             g_stitched = result['g_avg']
             n_eff_stitched = result['n_eff']
 
-            # Extend to 100% strain with hold extrapolation
-            max_data_strain = grid_strain[-1]
             original_len = len(grid_strain)
-            if max_data_strain < 1.0:
-                extend_strains = np.array([0.5, 0.7, 1.0])
-                extend_strains = extend_strains[extend_strains > max_data_strain]
-                if len(extend_strains) > 0:
-                    grid_strain = np.concatenate([grid_strain, extend_strains])
-                    f_stitched = np.concatenate([f_stitched, np.full(len(extend_strains), f_stitched[-1])])
-                    g_stitched = np.concatenate([g_stitched, np.full(len(extend_strains), g_stitched[-1])])
-                    n_eff_stitched = np.concatenate([n_eff_stitched, np.full(len(extend_strains), n_eff_stitched[-1])])
 
             # Store piecewise result (Persson average)
             self.piecewise_result = {
@@ -8450,9 +8440,11 @@ class PerssonModelGUI_V2:
                 self.ax_fg_curves.plot(s, g, 'r-', alpha=0.15, linewidth=0.8)
 
         # Plot Persson average results
+        x_max = 0.4  # 기본 x축 max
         if self.piecewise_result is not None:
             s = self.piecewise_result['strain']
             split = self.piecewise_result['split']
+            x_max = max(s[-1], 0.4) if len(s) > 0 else 0.4
 
             f_final = self.piecewise_result['f_avg']
             g_final = self.piecewise_result['g_avg']
@@ -8467,10 +8459,11 @@ class PerssonModelGUI_V2:
             s = self.fg_averaged['strain']
             f_avg = self.fg_averaged['f_avg']
             g_avg = self.fg_averaged['g_avg']
+            x_max = max(s[-1], 0.4) if len(s) > 0 else 0.4
             self.ax_fg_curves.plot(s, f_avg, 'b-', linewidth=3, label='f(ε) 평균')
             self.ax_fg_curves.plot(s, g_avg, 'r-', linewidth=3, label='g(ε) 평균')
 
-        self.ax_fg_curves.set_xlim(0, 1.0)
+        self.ax_fg_curves.set_xlim(0, x_max)
         self.ax_fg_curves.set_ylim(0, 1.1)
         self.ax_fg_curves.legend(loc='best', fontsize=8, ncol=2)
 
@@ -8901,9 +8894,11 @@ class PerssonModelGUI_V2:
                 self.ax_fg_curves.plot(s, g, 'r-', alpha=0.3, linewidth=1)
 
         # Plot Persson average if available
+        x_max = 0.4  # 기본 x축 max
         if self.piecewise_result is not None:
             s = self.piecewise_result['strain']
             split = self.piecewise_result['split']
+            x_max = max(s[-1], 0.4) if len(s) > 0 else 0.4
             f_final = self.piecewise_result['f_avg']
             g_final = self.piecewise_result['g_avg']
             self.ax_fg_curves.plot(s, f_final, 'b-', linewidth=3.5, label='f(ε) Persson Avg')
@@ -8915,11 +8910,12 @@ class PerssonModelGUI_V2:
             s = self.fg_averaged['strain']
             f_avg = self.fg_averaged['f_avg']
             g_avg = self.fg_averaged['g_avg']
+            x_max = max(s[-1], 0.4) if len(s) > 0 else 0.4
             self.ax_fg_curves.plot(s, f_avg, 'b-', linewidth=3, label='f(ε) 평균')
             self.ax_fg_curves.plot(s, g_avg, 'r-', linewidth=3, label='g(ε) 평균')
             self.ax_fg_curves.legend(loc='best')
 
-        self.ax_fg_curves.set_xlim(0, 1.0)
+        self.ax_fg_curves.set_xlim(0, x_max)
         self.ax_fg_curves.set_ylim(0, 1.1)
 
         self.canvas_mu_visc.draw()
