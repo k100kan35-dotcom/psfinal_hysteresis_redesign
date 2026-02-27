@@ -7846,7 +7846,7 @@ class PerssonModelGUI_V2:
                   foreground='#64748B').pack(side=tk.LEFT, padx=4)
 
         # Interpolation method description
-        ttk.Label(persson_avg_frame, text="Cubic spline 개별보간 → nanmean → log-spaced",
+        ttk.Label(persson_avg_frame, text="spline 개별보간 → nanmean → log-spaced",
                   font=self.FONTS['small'], foreground='#64748B').pack(anchor=tk.W, pady=1)
 
         # Zone1 온도 (< Split1) - header + dynamic checkbox area
