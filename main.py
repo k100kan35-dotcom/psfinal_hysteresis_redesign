@@ -7846,7 +7846,7 @@ class PerssonModelGUI_V2:
                   foreground='#64748B').pack(side=tk.LEFT, padx=4)
 
         # Interpolation method description
-        ttk.Label(persson_avg_frame, text="spline 개별보간 → nanmean → log-spaced",
+        ttk.Label(persson_avg_frame, text="Cubic spline 개별보간 → nanmean → log-spaced",
                   font=self.FONTS['small'], foreground='#64748B').pack(anchor=tk.W, pady=1)
 
         # Zone1 온도 (< Split1) - header + dynamic checkbox area
@@ -8650,7 +8650,13 @@ class PerssonModelGUI_V2:
             traceback.print_exc()
 
     def _update_zone_checkboxes(self):
-        """Update Zone1/2/3 checkbox areas based on fg_by_T data and Split1/Split2."""
+        """Update Zone1/2/3 checkbox areas based on fg_by_T data and Split1/Split2.
+
+        모든 Zone에 전체 온도를 표시하되, 초기 체크 상태가 다름:
+        - Zone1 (< Split1): Split1 이상 온도만 체크
+        - Zone2 (Split1~Split2): Split1 이상 온도만 체크
+        - Zone3 (> Split2): Split2 초과 온도만 체크
+        """
         if self.fg_by_T is None:
             return
 
@@ -8662,42 +8668,47 @@ class PerssonModelGUI_V2:
 
         temps = sorted(self.fg_by_T.keys())
 
-        # Classify temperatures into zones
-        zone1_temps = [T for T in temps if T < split1]
-        zone2_temps = [T for T in temps if split1 <= T <= split2]
-        zone3_temps = [T for T in temps if T > split2]
-
-        # Helper: populate a zone container with checkboxes
-        def populate_zone(container, placeholder, old_cbs, zone_temps):
+        # Helper: populate a zone container with ALL temperatures
+        # default_check_fn: function(T) -> bool to determine initial check state
+        def populate_zone(container, placeholder, old_cbs, default_check_fn):
             # Clear old widgets
             for _, _, w in old_cbs:
                 w.destroy()
             placeholder.pack_forget()
             new_cbs = []
 
-            if not zone_temps:
-                placeholder.config(text="(해당 온도 없음)")
+            if not temps:
+                placeholder.config(text="(f,g 곡선 계산 후 표시됩니다)")
                 placeholder.pack(anchor=tk.W)
             else:
-                for T in zone_temps:
+                for T in temps:
                     n_pts = len(self.fg_by_T[T]['strain'])
                     max_s = np.max(self.fg_by_T[T]['strain']) * 100
-                    var = tk.BooleanVar(value=True)
+                    checked = default_check_fn(T)
+                    var = tk.BooleanVar(value=checked)
                     cb_text = f"{T:.2f}°C  ({n_pts}pts, max {max_s:.1f}%)"
                     cb = ttk.Checkbutton(container, text=cb_text, variable=var)
                     cb.pack(anchor=tk.W)
                     new_cbs.append((var, T, cb))
             return new_cbs
 
+        # Zone1 (< Split1): Split1 이상 온도 체크
         self.zone1_checkbuttons = populate_zone(
             self.zone1_container, self.zone1_placeholder,
-            self.zone1_checkbuttons, zone1_temps)
+            self.zone1_checkbuttons,
+            lambda T: T >= split1)
+
+        # Zone2 (Split1~Split2): Split1 이상 온도 체크
         self.zone2_checkbuttons = populate_zone(
             self.zone2_container, self.zone2_placeholder,
-            self.zone2_checkbuttons, zone2_temps)
+            self.zone2_checkbuttons,
+            lambda T: T >= split1)
+
+        # Zone3 (> Split2): Split2 초과 온도만 체크
         self.zone3_checkbuttons = populate_zone(
             self.zone3_container, self.zone3_placeholder,
-            self.zone3_checkbuttons, zone3_temps)
+            self.zone3_checkbuttons,
+            lambda T: T > split2)
 
     def _average_fg_curves(self):
         """Average f,g curves from selected temperatures."""
