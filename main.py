@@ -207,7 +207,7 @@ class PerssonModelGUI_V2:
 
     # ── Standardised Dimensions (pixels, applied uniformly to every tab) ──
     DIMS = {
-        'panel_width':   400,     # Left control-panel width
+        'panel_width':   900,     # Left control-panel width
         'section_pad':   6,       # LabelFrame internal padding
         'section_gap_y': 3,       # Vertical gap between sections
         'row_gap_y':     2,       # Vertical gap between rows within a section
@@ -247,6 +247,15 @@ class PerssonModelGUI_V2:
         self.root.geometry("1600x1000")
         self.root.configure(bg=self.COLORS['bg'])
         self.root.minsize(1200, 700)
+
+        # ── 항상 전체화면(최대화)으로 시작 ──
+        try:
+            self.root.state('zoomed')          # Windows
+        except tk.TclError:
+            try:
+                self.root.attributes('-zoomed', True)   # Linux (X11)
+            except tk.TclError:
+                pass  # fallback: 기본 geometry 사용
 
         # Store DPI scale for any component that needs it
         self._dpi_scale = _get_system_dpi_scale()
@@ -6511,20 +6520,28 @@ class PerssonModelGUI_V2:
     def _apply_panel_width_recursive(self, widget, new_width):
         """Recursively find and resize left panel frames in a tab."""
         try:
-            # Check if this is a direct child Frame with pack_propagate(False)
-            # which indicates it's a fixed-width left panel
             info = widget.pack_info() if hasattr(widget, 'pack_info') else None
             if info and info.get('side') == 'left' and not info.get('expand'):
-                # Check if this frame has pack_propagate disabled (fixed-width panel)
                 if isinstance(widget, (ttk.Frame, tk.Frame)):
                     try:
                         current_w = widget.cget('width')
-                        if current_w and 300 < int(current_w) < 1200:
+                        if current_w and 200 < int(current_w) < 2000:
                             widget.configure(width=new_width)
                     except (tk.TclError, ValueError):
                         pass
         except (tk.TclError, AttributeError):
             pass
+
+        # Canvas 내부 content window 폭도 함께 업데이트
+        if isinstance(widget, tk.Canvas):
+            try:
+                for item in widget.find_all():
+                    if widget.type(item) == 'window':
+                        cw = widget.itemcget(item, 'width')
+                        if cw and 100 < int(float(cw)) < 2000:
+                            widget.itemconfigure(item, width=new_width - 18)
+            except (tk.TclError, ValueError):
+                pass
 
         # Recurse into children
         try:
@@ -6617,40 +6634,83 @@ class PerssonModelGUI_V2:
                                                 'DejaVu Sans Mono', 'Source Code Pro'])
         mono_font_combo.pack(side=tk.LEFT, padx=5)
 
-        # ── Section 2: Panel Width Settings ──
-        panel_frame = ttk.LabelFrame(content_frame, text="패널 폭 설정", padding=10)
-        panel_frame.pack(fill=tk.X, pady=(0, 10))
+        # ── Section 2: 프로그램 해상도 설정 ──
+        resolution_frame = ttk.LabelFrame(content_frame, text="프로그램 해상도", padding=10)
+        resolution_frame.pack(fill=tk.X, pady=(0, 10))
 
-        # Get current left panel width (default 600)
+        # 해상도 프리셋
+        RESOLUTION_PRESETS = {
+            'FHD (1920×1080)':  {'win_w': 1920, 'win_h': 1080, 'panel_w': 550},
+            'QHD (2560×1440)':  {'win_w': 2560, 'win_h': 1440, 'panel_w': 750},
+            '4K UHD (3840×2160)': {'win_w': 3840, 'win_h': 2160, 'panel_w': 1000},
+            '사용자 지정':       None,
+        }
+
+        row_preset = ttk.Frame(resolution_frame)
+        row_preset.pack(fill=tk.X, pady=3)
+        ttk.Label(row_preset, text="해상도 프리셋:", width=15).pack(side=tk.LEFT)
+        preset_var = tk.StringVar(value='사용자 지정')
+        preset_combo = ttk.Combobox(row_preset, textvariable=preset_var, width=22,
+                                     values=list(RESOLUTION_PRESETS.keys()), state='readonly')
+        preset_combo.pack(side=tk.LEFT, padx=5)
+
+        # 창 크기
         current_panel_width = self.DIMS['panel_width']
-
-        row5 = ttk.Frame(panel_frame)
-        row5.pack(fill=tk.X, pady=3)
-        ttk.Label(row5, text="컨트롤 패널 폭:", width=15).pack(side=tk.LEFT)
+        win_w_var = tk.IntVar(value=self.root.winfo_width())
+        win_h_var = tk.IntVar(value=self.root.winfo_height())
         panel_width_var = tk.IntVar(value=current_panel_width)
-        panel_width_scale = ttk.Scale(row5, from_=300, to=700, variable=panel_width_var,
+
+        row_win = ttk.Frame(resolution_frame)
+        row_win.pack(fill=tk.X, pady=3)
+        ttk.Label(row_win, text="창 크기:", width=15).pack(side=tk.LEFT)
+        win_w_spin = ttk.Spinbox(row_win, from_=1000, to=5000, textvariable=win_w_var, width=6)
+        win_w_spin.pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_win, text="x").pack(side=tk.LEFT)
+        win_h_spin = ttk.Spinbox(row_win, from_=600, to=3000, textvariable=win_h_var, width=6)
+        win_h_spin.pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_win, text="px", font=self.FONTS['tiny']).pack(side=tk.LEFT, padx=3)
+
+        # 컨트롤 패널 폭
+        row_panel = ttk.Frame(resolution_frame)
+        row_panel.pack(fill=tk.X, pady=3)
+        ttk.Label(row_panel, text="컨트롤 패널 폭:", width=15).pack(side=tk.LEFT)
+        panel_width_scale = ttk.Scale(row_panel, from_=300, to=1200, variable=panel_width_var,
                                        orient=tk.HORIZONTAL, length=250)
         panel_width_scale.pack(side=tk.LEFT, padx=5)
-        panel_width_label = ttk.Label(row5, text=f"{current_panel_width}px", width=8)
+        panel_width_label = ttk.Label(row_panel, text=f"{current_panel_width}px", width=8)
         panel_width_label.pack(side=tk.LEFT)
 
         def _update_panel_width_label(*args):
             panel_width_label.config(text=f"{panel_width_var.get()}px")
         panel_width_var.trace_add('write', _update_panel_width_label)
 
-        # ── Section 3: Window Settings ──
-        window_frame = ttk.LabelFrame(content_frame, text="창 설정", padding=10)
-        window_frame.pack(fill=tk.X, pady=(0, 10))
+        # 전체화면 체크박스
+        fullscreen_var = tk.BooleanVar(value=True)
+        try:
+            is_zoomed = (self.root.state() == 'zoomed')
+        except tk.TclError:
+            is_zoomed = bool(self.root.attributes('-zoomed'))
+        fullscreen_var.set(is_zoomed)
+        row_fs = ttk.Frame(resolution_frame)
+        row_fs.pack(fill=tk.X, pady=3)
+        ttk.Checkbutton(row_fs, text="시작 시 전체화면 (최대화)",
+                         variable=fullscreen_var).pack(side=tk.LEFT)
 
-        row6 = ttk.Frame(window_frame)
-        row6.pack(fill=tk.X, pady=3)
-        ttk.Label(row6, text="창 크기:", width=15).pack(side=tk.LEFT)
-        win_w_var = tk.IntVar(value=self.root.winfo_width())
-        win_h_var = tk.IntVar(value=self.root.winfo_height())
-        ttk.Spinbox(row6, from_=1000, to=3000, textvariable=win_w_var, width=6).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row6, text="x").pack(side=tk.LEFT)
-        ttk.Spinbox(row6, from_=600, to=2000, textvariable=win_h_var, width=6).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row6, text="px", font=self.FONTS['tiny']).pack(side=tk.LEFT, padx=3)
+        # 프리셋 선택 시 자동 반영
+        def _on_preset_change(event=None):
+            sel = preset_var.get()
+            vals = RESOLUTION_PRESETS.get(sel)
+            if vals is not None:
+                win_w_var.set(vals['win_w'])
+                win_h_var.set(vals['win_h'])
+                panel_width_var.set(vals['panel_w'])
+        preset_combo.bind('<<ComboboxSelected>>', _on_preset_change)
+
+        # 수동 변경 시 프리셋을 '사용자 지정'으로
+        def _on_manual_change(*args):
+            preset_var.set('사용자 지정')
+        for var in (win_w_var, win_h_var, panel_width_var):
+            var.trace_add('write', _on_manual_change)
 
         # ── Section 4: Plot Theme ──
         theme_frame = ttk.LabelFrame(content_frame, text="그래프 테마", padding=10)
@@ -6751,10 +6811,26 @@ class PerssonModelGUI_V2:
                 tab_widget = self.notebook.nametowidget(tab_id)
                 self._apply_panel_width_recursive(tab_widget, new_panel_w)
 
-            # 5. Update window size
-            new_win_w = win_w_var.get()
-            new_win_h = win_h_var.get()
-            self.root.geometry(f"{new_win_w}x{new_win_h}")
+            # 5. Update window size / fullscreen
+            if fullscreen_var.get():
+                try:
+                    self.root.state('zoomed')
+                except tk.TclError:
+                    try:
+                        self.root.attributes('-zoomed', True)
+                    except tk.TclError:
+                        pass
+            else:
+                try:
+                    self.root.state('normal')
+                except tk.TclError:
+                    try:
+                        self.root.attributes('-zoomed', False)
+                    except tk.TclError:
+                        pass
+                new_win_w = win_w_var.get()
+                new_win_h = win_h_var.get()
+                self.root.geometry(f"{new_win_w}x{new_win_h}")
 
             # 6. Re-apply theme with new fonts
             self._setup_modern_theme()
@@ -6772,10 +6848,12 @@ class PerssonModelGUI_V2:
             ui_size_var.set(17)
             plot_size_var.set(15)
             mono_font_var.set('Consolas')
-            panel_width_var.set(600)
-            win_w_var.set(1600)
-            win_h_var.set(1000)
+            panel_width_var.set(900)
+            win_w_var.set(1920)
+            win_h_var.set(1080)
             math_font_var.set('dejavusans')
+            preset_var.set('FHD (1920×1080)')
+            fullscreen_var.set(True)
 
         ttk.Button(btn_frame, text="적용", command=apply_settings, width=12).pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text="초기화", command=reset_defaults, width=12).pack(side=tk.RIGHT, padx=5)
