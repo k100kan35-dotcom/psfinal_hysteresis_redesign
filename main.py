@@ -7953,8 +7953,18 @@ class PerssonModelGUI_V2:
         ttk.Label(npts_row, text="(strain 범위 자동 결정)", font=self.FONTS['small'],
                   foreground='#64748B').pack(side=tk.LEFT, padx=4)
 
+        # Spline method selection
+        spline_row = ttk.Frame(persson_avg_frame)
+        spline_row.pack(fill=tk.X, pady=1)
+        ttk.Label(spline_row, text="보간:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.spline_method_var = tk.StringVar(value="loglog_linear")
+        ttk.Radiobutton(spline_row, text="Linear (log-log)",
+                        variable=self.spline_method_var, value="loglog_linear").pack(side=tk.LEFT, padx=(4, 8))
+        ttk.Radiobutton(spline_row, text="Cubic spline (log-log)",
+                        variable=self.spline_method_var, value="loglog_cubic").pack(side=tk.LEFT)
+
         # Interpolation method description
-        ttk.Label(persson_avg_frame, text="spline 개별보간 → nanmean → log-spaced",
+        ttk.Label(persson_avg_frame, text="개별보간 → nanmean → zone stitching",
                   font=self.FONTS['small'], foreground='#64748B').pack(anchor=tk.W, pady=1)
 
         # Zone1 온도 (< Split1) - header + dynamic checkbox area
@@ -8341,6 +8351,9 @@ class PerssonModelGUI_V2:
                 self._show_status("선택된 온도가 없습니다.\nZone 체크박스에서 최소 1개 온도를 선택하세요.", 'warning')
                 return
 
+            # 보간 방식 (UI 선택)
+            spline_kind = self.spline_method_var.get()  # 'loglog_linear' or 'loglog_cubic'
+
             # 각 온도의 f,g를 grid_strain에 보간
             F_by_T = {}
             G_by_T = {}
@@ -8353,7 +8366,7 @@ class PerssonModelGUI_V2:
                 if len(s) < 2:
                     continue
                 f_interp, g_interp = create_fg_interpolator(
-                    s, f, g, interp_kind='loglog_linear', extrap_mode='none'
+                    s, f, g, interp_kind=spline_kind, extrap_mode='none'
                 )
                 fq = np.array([f_interp(sv) for sv in grid_strain])
                 gq = np.array([g_interp(sv) for sv in grid_strain]) if g_interp else np.full_like(grid_strain, np.nan)
@@ -8445,7 +8458,7 @@ class PerssonModelGUI_V2:
             # Create interpolators with 'hold' extrapolation
             self.f_interpolator, self.g_interpolator = create_fg_interpolator(
                 grid_strain, f_stitched, g_stitched,
-                interp_kind='loglog_linear', extrap_mode='hold'
+                interp_kind=spline_kind, extrap_mode='hold'
             )
 
             # Update plot
@@ -8457,12 +8470,13 @@ class PerssonModelGUI_V2:
             z2_str = ", ".join(f"{t:.1f}" for t in zone2_temps) if zone2_temps else "없음"
             z3_str = ", ".join(f"{t:.1f}" for t in zone3_temps) if zone3_temps else "없음"
             zone_info = f"Z1:{len(zone1_temps)} Z2:{len(zone2_temps)} Z3:{len(zone3_temps)}"
+            spline_label = "Cubic" if spline_kind == "loglog_cubic" else "Linear"
             self.persson_avg_status_var.set(
-                f"완료: Split1={split1_percent:.0f}%, Split2={split2_percent:.0f}%, "
+                f"완료: {spline_label}, Split1={split1_percent:.0f}%, Split2={split2_percent:.0f}%, "
                 f"{n_sel}개 온도 ({zone_info})"
             )
             self.status_var.set(
-                f"Persson average f,g 완료: N={n_pts}, "
+                f"Persson average f,g 완료: {spline_label}, N={n_pts}, "
                 f"Split1={split1_percent:.0f}%, Split2={split2_percent:.0f}%, "
                 f"Z1:[{z1_str}°C] Z2:[{z2_str}°C] Z3:[{z3_str}°C]"
             )
