@@ -2578,7 +2578,7 @@ class PerssonModelGUI_V2:
 
         # Force update of scroll region after all widgets are added
         left_frame.update_idletasks()
-        mc_canvas.configure(scrollregion=mc_canvas.bbox("all"))
+        layout['canvas'].configure(scrollregion=layout['canvas'].bbox("all"))
 
         # ============== Right Panel: Plots ==============
 
