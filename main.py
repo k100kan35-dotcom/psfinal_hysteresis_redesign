@@ -4123,6 +4123,8 @@ class PerssonModelGUI_V2:
         ttk.Button(preset_q1_frame, text="삭제", command=self._delete_preset_surface_q1, width=4).pack(side=tk.LEFT, padx=1)
         ttk.Button(preset_q1_frame, text="현재값 저장", command=self._add_preset_surface_q1, width=8).pack(side=tk.LEFT, padx=1)
         self._refresh_preset_surface_q1_list()
+        # IDIADA 프리셋 자동 선택 및 로드
+        self.root.after(200, self._auto_load_idiada_preset)
 
         row += 1
         ttk.Label(input_frame, text="최대 파수 q_max (1/m):").grid(row=row, column=0, sticky=tk.W, pady=5)
@@ -4134,7 +4136,7 @@ class PerssonModelGUI_V2:
 
         row += 1
         ttk.Label(input_frame, text="파수 포인트 수:").grid(row=row, column=0, sticky=tk.W, pady=5)
-        self.n_q_var = tk.StringVar(value="100")
+        self.n_q_var = tk.StringVar(value="36")
         ttk.Entry(input_frame, textvariable=self.n_q_var, width=15).grid(row=row, column=1, pady=5)
 
         # Phi integration points for G(q) calculation
@@ -4146,7 +4148,7 @@ class PerssonModelGUI_V2:
         # G 보정 계수 (Norm Factor)
         row += 1
         ttk.Label(input_frame, text="G 보정 계수 (Norm Factor):").grid(row=row, column=0, sticky=tk.W, pady=5)
-        self.g_norm_factor_var = tk.StringVar(value="1.5625")
+        self.g_norm_factor_var = tk.StringVar(value="1.72414")
         norm_entry_frame = tk.Frame(input_frame, bg=self.COLORS['warning'], padx=1, pady=1)
         norm_entry_frame.grid(row=row, column=1, pady=5, sticky=tk.W)
         ttk.Entry(norm_entry_frame, textvariable=self.g_norm_factor_var, width=8).pack(side=tk.LEFT)
@@ -4363,6 +4365,18 @@ class PerssonModelGUI_V2:
             self.target_xi = float(new_value)
         except (ValueError, AttributeError):
             # Invalid value or variables not yet initialized
+            pass
+
+    def _auto_load_idiada_preset(self):
+        """프로그램 시작 시 IDIADA 프리셋 자동 선택 및 로드."""
+        try:
+            presets = list(self.surface_q1_combo['values'])
+            for name in presets:
+                if 'IDIADA' in name.upper():
+                    self.surface_q1_var.set(name)
+                    self._load_preset_surface_q1()
+                    return
+        except Exception:
             pass
 
     def _refresh_preset_surface_q1_list(self):
@@ -8072,7 +8086,7 @@ class PerssonModelGUI_V2:
 
         # S(q) method radio buttons
         ttk.Label(integ_row, text="S(q):", font=self.FONTS['body']).pack(side=tk.LEFT, padx=(6, 0))
-        self.sq_method_var = tk.StringVar(value="P1")
+        self.sq_method_var = tk.StringVar(value="P2")
         ttk.Radiobutton(integ_row, text="P¹", variable=self.sq_method_var, value="P1").pack(side=tk.LEFT)
         ttk.Radiobutton(integ_row, text="P²", variable=self.sq_method_var, value="P2").pack(side=tk.LEFT)
 
@@ -8313,8 +8327,9 @@ class PerssonModelGUI_V2:
             strain_split_cfg = dict(DEFAULT_STRAIN_SPLIT)
             strain_split_cfg['threshold'] = split_strain
 
-            # Zone 체크박스 업데이트 (Split 값 변경 반영)
-            self._update_zone_checkboxes()
+            # Zone 체크박스가 아직 없으면 초기 생성 (이미 있으면 사용자 선택 유지)
+            if not self.zone1_checkbuttons:
+                self._update_zone_checkboxes()
 
             # 체크된 온도만 사용
             selected_temps = []
@@ -8747,20 +8762,21 @@ class PerssonModelGUI_V2:
         """Update Zone1/2/3 checkbox areas based on fg_by_T data and Split1/Split2.
 
         모든 Zone에 전체 온도를 표시하되, 초기 체크 상태가 다름:
-        - Zone1 (< Split1): Split1 이상 온도만 체크
-        - Zone2 (Split1~Split2): Split1 이상 온도만 체크
-        - Zone3 (> Split2): Split2 초과 온도만 체크
+        - Zone1: 최저온도 제외, 나머지 모두 체크
+        - Zone2: 최저온도 + 두번째 최저온도 제외, 나머지 모두 체크
+        - Zone3: Split2 초과 온도만 체크
         """
         if self.fg_by_T is None:
             return
 
         try:
-            split1 = float(self.split1_var.get())
             split2 = float(self.split2_var.get())
         except ValueError:
-            split1, split2 = 10.0, 20.0
+            split2 = 20.0
 
         temps = sorted(self.fg_by_T.keys())
+        t_min = temps[0] if len(temps) >= 1 else None
+        t_2nd = temps[1] if len(temps) >= 2 else None
 
         # Helper: populate a zone container with ALL temperatures
         # default_check_fn: function(T) -> bool to determine initial check state
@@ -8786,19 +8802,19 @@ class PerssonModelGUI_V2:
                     new_cbs.append((var, T, cb))
             return new_cbs
 
-        # Zone1 (< Split1): Split1 이상 온도 체크
+        # Zone1: 최저온도 제외, 나머지 전부 체크
         self.zone1_checkbuttons = populate_zone(
             self.zone1_container, self.zone1_placeholder,
             self.zone1_checkbuttons,
-            lambda T: T >= split1)
+            lambda T: T != t_min)
 
-        # Zone2 (Split1~Split2): Split1 이상 온도 체크
+        # Zone2: 최저온도 + 두번째 최저온도 제외, 나머지 전부 체크
         self.zone2_checkbuttons = populate_zone(
             self.zone2_container, self.zone2_placeholder,
             self.zone2_checkbuttons,
-            lambda T: T >= split1)
+            lambda T: T != t_min and T != t_2nd)
 
-        # Zone3 (> Split2): Split2 초과 온도만 체크
+        # Zone3: Split2 초과 온도만 체크
         self.zone3_checkbuttons = populate_zone(
             self.zone3_container, self.zone3_placeholder,
             self.zone3_checkbuttons,
