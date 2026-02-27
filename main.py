@@ -46,12 +46,17 @@ matplotlib.rcParams.update({
     'axes.unicode_minus': False,       # ASCII 마이너스 (유니코드 − 깨짐 방지)
     'text.usetex': False,              # LaTeX 비활성화
     'mathtext.fontset': 'cm',  # 수식 폰트: Computer Modern (LaTeX 스타일, Cambria Math 유사)
-    'font.size': 11,
-    'axes.titlesize': 13,
-    'axes.labelsize': 11,
-    'xtick.labelsize': 10,
-    'ytick.labelsize': 10,
-    'legend.fontsize': 10,
+    'font.size': 9,
+    'axes.titlesize': 10,
+    'axes.labelsize': 9,
+    'xtick.labelsize': 8,
+    'ytick.labelsize': 8,
+    'legend.fontsize': 8,
+    'legend.loc': 'best',              # 데이터 겹침 최소화
+    'legend.framealpha': 0.85,         # 반투명 배경
+    'legend.edgecolor': '#CCCCCC',     # 연한 테두리
+    'legend.fancybox': True,
+    'axes.titlepad': 6,                # 제목-축 간격
 })
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
@@ -194,15 +199,15 @@ class PerssonModelGUI_V2:
     # On high-DPI displays, the Tk scaling factor is reset in main() so that
     # these point sizes render at the same physical size on every machine.
     FONTS = {
-        'heading':   ('Segoe UI', 15, 'bold'),
-        'subheading':('Segoe UI', 13, 'bold'),
-        'body':      ('Segoe UI', 12),
-        'body_bold': ('Segoe UI', 12, 'bold'),
-        'small':     ('Segoe UI', 11),
-        'small_bold':('Segoe UI', 11, 'bold'),
-        'tiny':      ('Segoe UI', 10),
-        'mono':      ('Consolas', 12),
-        'mono_small':('Consolas', 11),
+        'heading':   ('Segoe UI', 12, 'bold'),
+        'subheading':('Segoe UI', 11, 'bold'),
+        'body':      ('Segoe UI', 10),
+        'body_bold': ('Segoe UI', 10, 'bold'),
+        'small':     ('Segoe UI', 9),
+        'small_bold':('Segoe UI', 9, 'bold'),
+        'tiny':      ('Segoe UI', 8),
+        'mono':      ('Consolas', 10),
+        'mono_small':('Consolas', 9),
     }
 
     # ── Standardised Dimensions (pixels, applied uniformly to every tab) ──
@@ -228,15 +233,15 @@ class PerssonModelGUI_V2:
 
     # ── Plot Font Size Constants (base sizes for 1600px window) ──
     PLOT_FONTS = {
-        'title': 13,          # subplot titles
-        'label': 11,          # axis labels (x, y)
-        'tick': 10,           # tick labels
-        'legend': 10,         # legend text
-        'suptitle': 14,       # figure suptitle
-        'annotation': 10,     # annotation text
-        'title_sm': 11,       # titles in dense grids (strain map, VE advisor)
-        'label_sm': 10,       # labels in dense grids
-        'legend_sm': 9,       # legends in dense grids
+        'title': 10,          # subplot titles
+        'label': 9,           # axis labels (x, y)
+        'tick': 8,            # tick labels
+        'legend': 8,          # legend text
+        'suptitle': 11,       # figure suptitle
+        'annotation': 8,      # annotation text
+        'title_sm': 9,        # titles in dense grids (strain map, VE advisor)
+        'label_sm': 8,        # labels in dense grids
+        'legend_sm': 7,       # legends in dense grids
     }
     _REFERENCE_WIDTH = 1600   # reference window width for font scaling
 
@@ -602,10 +607,9 @@ class PerssonModelGUI_V2:
         """Create main application layout with tabs."""
         D = self.DIMS
 
-        # ── Header bar ──
-        header = tk.Frame(self.root, bg='#FFFFFF', height=D['header_height'])
+        # ── Header bar (높이는 폰트 크기에 따라 자동 조절) ──
+        header = tk.Frame(self.root, bg='#FFFFFF')
         header.pack(fill=tk.X, side=tk.TOP)
-        header.pack_propagate(False)
         tk.Label(header, text="NEXEN Rubber Friction Modelling Program",
                  bg='#FFFFFF', fg=self.COLORS['sidebar'],
                  font=self.FONTS['heading']).pack(side=tk.LEFT, padx=12)
@@ -771,7 +775,7 @@ class PerssonModelGUI_V2:
             for ax in fig.axes:
                 # Title
                 if ax.get_title():
-                    ax.title.set_fontsize(max(9, round(self.PLOT_FONTS['title'] * scale)))
+                    ax.title.set_fontsize(max(7, round(self.PLOT_FONTS['title'] * scale)))
                 # Axis labels
                 ax.xaxis.label.set_fontsize(max(8, round(self.PLOT_FONTS['label'] * scale)))
                 ax.yaxis.label.set_fontsize(max(8, round(self.PLOT_FONTS['label'] * scale)))
@@ -1434,7 +1438,7 @@ class PerssonModelGUI_V2:
         self.ax_psd_2d.set_yscale('log')
         self.ax_psd_2d.grid(True, alpha=0.3, which='both')
 
-        fig.subplots_adjust(left=0.10, right=0.96, top=0.95, bottom=0.08,
+        fig.subplots_adjust(left=0.10, right=0.96, top=0.96, bottom=0.08,
                             hspace=0.38, wspace=0.30)
 
     def _load_profile_data(self):
@@ -1531,9 +1535,9 @@ class PerssonModelGUI_V2:
         phi = n_top / len(h_detrended)
         self.ax_profile_hist.axvspan(0, np.max(h_detrended) * 1e6, alpha=0.2, color='green',
                                       label=f'Top (φ={phi:.2f})')
-        self.ax_profile_hist.legend(fontsize=10)
+        self.ax_profile_hist.legend(fontsize=8, loc='best')
 
-        self.fig_psd_profile.subplots_adjust(left=0.12, right=0.95, top=0.94, bottom=0.10, hspace=0.42, wspace=0.35)
+        self.fig_psd_profile.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08, hspace=0.50, wspace=0.35)
         self.canvas_psd_profile.draw()
 
     def _calculate_profile_psd(self):
@@ -1627,7 +1631,7 @@ class PerssonModelGUI_V2:
         self.ax_hrms_parseval.set_xlabel('Wavenumber q (1/m)', fontsize=11)
         self.ax_hrms_parseval.set_ylabel('누적 h_rms (μm)', fontsize=11)
         self.ax_hrms_parseval.grid(True, alpha=0.3, which='both')
-        self.ax_hrms_parseval.legend(fontsize=10)
+        self.ax_hrms_parseval.legend(fontsize=8, loc='best')
 
         # Plot 2D isotropic PSD
         self.ax_psd_2d.clear()
@@ -1682,9 +1686,9 @@ class PerssonModelGUI_V2:
         self.ax_psd_2d.set_xlabel('Wavenumber q (1/m)', fontsize=11)
         self.ax_psd_2d.set_ylabel('C(q) (m^4)', fontsize=11)
         self.ax_psd_2d.grid(True, alpha=0.3, which='both')
-        self.ax_psd_2d.legend(fontsize=10, loc='lower left')
+        self.ax_psd_2d.legend(fontsize=8, loc='best')
 
-        self.fig_psd_profile.subplots_adjust(left=0.12, right=0.95, top=0.94, bottom=0.10, hspace=0.42, wspace=0.35)
+        self.fig_psd_profile.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08, hspace=0.50, wspace=0.35)
         self.canvas_psd_profile.draw()
 
         # Auto-register graph data
@@ -2768,7 +2772,7 @@ class PerssonModelGUI_V2:
 
         # Add legend with limited entries
         if len(temps) <= 8:
-            self.ax_mc_raw.legend(fontsize=10, loc='upper left', ncol=2)
+            self.ax_mc_raw.legend(fontsize=8, loc='best', ncol=2)
 
         self.fig_mc.tight_layout()
         self.canvas_mc.draw()
@@ -3034,10 +3038,10 @@ class PerssonModelGUI_V2:
             # Combined legend
             lines = [line1, line2]
             labels = [l.get_label() for l in lines]
-            self.ax_mc_bT.legend(lines, labels, loc='upper right', fontsize=10)
+            self.ax_mc_bT.legend(lines, labels, loc='best', fontsize=8)
             self.ax_mc_bT.set_title('시프트 팩터 aT & bT (Persson)', fontweight='bold', fontsize=11)
         else:
-            self.ax_mc_bT.legend(loc='upper right', fontsize=10)
+            self.ax_mc_bT.legend(loc='best', fontsize=8)
             self.ax_mc_bT.set_title('시프트 팩터 aT (Persson)', fontweight='bold', fontsize=11)
 
         self.fig_mc.tight_layout()
@@ -3165,9 +3169,9 @@ class PerssonModelGUI_V2:
             self.ax_psd_2d.set_xlabel('파수 q (1/m)', fontsize=11)
             self.ax_psd_2d.set_ylabel(r'C(q) (m$^4$)', fontsize=11)
             self.ax_psd_2d.set_title(f"★ PSD 직접 로드: {data['filename']}", fontweight='bold', fontsize=11)
-            self.ax_psd_2d.legend(loc='upper right', fontsize=10)
+            self.ax_psd_2d.legend(loc='best', fontsize=8)
             self.ax_psd_2d.grid(True, alpha=0.3, which='both')
-            self.fig_psd_profile.subplots_adjust(left=0.12, right=0.95, top=0.94, bottom=0.10, hspace=0.42, wspace=0.35)
+            self.fig_psd_profile.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08, hspace=0.50, wspace=0.35)
             self.canvas_psd_profile.draw()
 
     def _plot_persson_master_curve(self):
@@ -3192,7 +3196,7 @@ class PerssonModelGUI_V2:
         self.ax_mc_master.set_xlabel('주파수 f (Hz)', fontsize=11)
         self.ax_mc_master.set_ylabel("E', E'' (MPa)", fontsize=11)
         self.ax_mc_master.set_title(f"★ Persson 정품 마스터 커브: {data['filename']}", fontweight='bold', fontsize=11)
-        self.ax_mc_master.legend(loc='upper left', fontsize=10)
+        self.ax_mc_master.legend(loc='best', fontsize=8)
         self.ax_mc_master.grid(True, alpha=0.3)
 
         # tan δ on the aT plot (bottom-left)
@@ -3201,7 +3205,7 @@ class PerssonModelGUI_V2:
         self.ax_mc_aT.set_xlabel('주파수 f (Hz)', fontsize=11)
         self.ax_mc_aT.set_ylabel('tan δ = E\'\'/E\'', fontsize=11)
         self.ax_mc_aT.set_title('tan δ (Persson 정품)', fontweight='bold', fontsize=11)
-        self.ax_mc_aT.legend(loc='upper right', fontsize=10)
+        self.ax_mc_aT.legend(loc='best', fontsize=8)
         self.ax_mc_aT.grid(True, alpha=0.3)
         self.ax_mc_aT.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5)
 
@@ -3358,13 +3362,13 @@ class PerssonModelGUI_V2:
         self.ax_mc_master.set_ylabel("E', E'' (MPa)", fontsize=11)
         smooth_info = f" (w={data.get('smooth_window', 'N/A')})" if data.get('smoothed') else ""
         self.ax_mc_master.set_title(f"★ Persson 마스터 커브{smooth_info}", fontweight='bold', fontsize=11)
-        self.ax_mc_master.legend(loc='upper left', fontsize=10)
+        self.ax_mc_master.legend(loc='best', fontsize=8)
         self.ax_mc_master.grid(True, alpha=0.3)
 
         self.ax_mc_aT.set_xlabel('주파수 f (Hz)', fontsize=11)
         self.ax_mc_aT.set_ylabel('tan δ = E\'\'/E\'', fontsize=11)
         self.ax_mc_aT.set_title('tan δ 비교', fontweight='bold', fontsize=11)
-        self.ax_mc_aT.legend(loc='upper right', fontsize=10)
+        self.ax_mc_aT.legend(loc='best', fontsize=8)
         self.ax_mc_aT.grid(True, alpha=0.3)
         self.ax_mc_aT.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5)
 
@@ -3409,14 +3413,14 @@ class PerssonModelGUI_V2:
         self.ax_mc_raw.set_xlabel('주파수 f (Hz)', fontsize=11)
         self.ax_mc_raw.set_ylabel("E' (MPa)", fontsize=11)
         self.ax_mc_raw.set_title("E' (저장 탄성률) 비교", fontweight='bold', fontsize=11)
-        self.ax_mc_raw.legend(loc='lower right', fontsize=10)
+        self.ax_mc_raw.legend(loc='best', fontsize=8)
         self.ax_mc_raw.grid(True, alpha=0.3)
 
         # Configure E'' plot
         self.ax_mc_master.set_xlabel('주파수 f (Hz)', fontsize=11)
         self.ax_mc_master.set_ylabel("E'' (MPa)", fontsize=11)
         self.ax_mc_master.set_title("E'' (손실 탄성률) 비교", fontweight='bold', fontsize=11)
-        self.ax_mc_master.legend(loc='lower right', fontsize=10)
+        self.ax_mc_master.legend(loc='best', fontsize=8)
         self.ax_mc_master.grid(True, alpha=0.3)
 
         # == Plot 3: tan δ comparison ==
@@ -3431,7 +3435,7 @@ class PerssonModelGUI_V2:
         self.ax_mc_aT.set_xlabel('주파수 f (Hz)', fontsize=11)
         self.ax_mc_aT.set_ylabel('tan δ = E\'\'/E\'', fontsize=11)
         self.ax_mc_aT.set_title('tan δ (손실 탄젠트) 비교', fontweight='bold', fontsize=11)
-        self.ax_mc_aT.legend(loc='upper right', fontsize=10)
+        self.ax_mc_aT.legend(loc='best', fontsize=8)
         self.ax_mc_aT.grid(True, alpha=0.3)
         self.ax_mc_aT.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5, label='tan δ = 1')
 
@@ -3459,7 +3463,7 @@ class PerssonModelGUI_V2:
             self.ax_mc_bT.set_xlabel('주파수 f (Hz)', fontsize=11)
             self.ax_mc_bT.set_ylabel("E'' 비율", fontsize=11)
             self.ax_mc_bT.set_title("E'' 비율 (정품/생성)", fontweight='bold', fontsize=11)
-            self.ax_mc_bT.legend(loc='upper right', fontsize=10)
+            self.ax_mc_bT.legend(loc='best', fontsize=8)
             self.ax_mc_bT.grid(True, alpha=0.3)
 
             # Print comparison summary
@@ -3627,7 +3631,7 @@ class PerssonModelGUI_V2:
                               'k-', linewidth=2, label="E' (Master)")
         self.ax_mc_master.plot(master_curve['f'], master_curve['E_loss'],
                               'k--', linewidth=2, label="E'' (Master)")
-        self.ax_mc_master.legend(fontsize=10)
+        self.ax_mc_master.legend(fontsize=8, loc='best')
 
         # Plot 2: aT vs Temperature
         self.ax_mc_aT.set_title('수평 이동 계수 aT', fontweight='bold', fontsize=11)
@@ -3644,7 +3648,7 @@ class PerssonModelGUI_V2:
             log_aT_fit = -wlf_result['C1'] * (T_fit - T_ref) / (wlf_result['C2'] + (T_fit - T_ref))
             self.ax_mc_aT.plot(T_fit, log_aT_fit, 'r-', linewidth=2,
                               label=f"WLF (C1={wlf_result['C1']:.2f}, C2={wlf_result['C2']:.1f})")
-        self.ax_mc_aT.legend(fontsize=10)
+        self.ax_mc_aT.legend(fontsize=8, loc='best')
         self.ax_mc_aT.axhline(0, color='gray', linestyle=':', alpha=0.5)
         self.ax_mc_aT.axvline(T_ref, color='green', linestyle='--', alpha=0.5, label=f'Tref={T_ref}°C')
 
@@ -3664,7 +3668,7 @@ class PerssonModelGUI_V2:
 
         self.ax_mc_bT.axhline(1, color='gray', linestyle=':', alpha=0.5)
         self.ax_mc_bT.axvline(T_ref, color='green', linestyle='--', alpha=0.5)
-        self.ax_mc_bT.legend(fontsize=10)
+        self.ax_mc_bT.legend(fontsize=8, loc='best')
 
         self.fig_mc.tight_layout()
         self.canvas_mc.draw()
@@ -5446,7 +5450,7 @@ class PerssonModelGUI_V2:
                     self.ax_psd_q.set_ylabel(r'C(q) (m$^4$)', fontweight='bold')
                     self.ax_psd_q.set_xscale('log'); self.ax_psd_q.set_yscale('log')
                     self.ax_psd_q.grid(True, alpha=0.25, linewidth=0.5)
-                    self.ax_psd_q.legend(loc='upper right', fontsize=10)
+                    self.ax_psd_q.legend(loc='best', fontsize=8)
                     self.ax_psd_q.set_title('PSD C(q) — 적분 범위 표시', fontweight='bold')
 
                 # TOP-RIGHT: DMA master curve
@@ -5890,7 +5894,7 @@ class PerssonModelGUI_V2:
         ax2.set_xlabel('응력 σ (MPa)', fontweight='bold', fontsize=LABEL_FONT, labelpad=3)
         ax2.set_ylabel('응력 분포 P(σ)', fontweight='bold', fontsize=LABEL_FONT, rotation=90, labelpad=5)
         ax2.set_title(f'(b) 파수별 국소 응력 확률 분포 (v={v_fixed:.2f} m/s 고정)', fontweight='bold', fontsize=TITLE_FONT, pad=TITLE_PAD)
-        ax2.legend(fontsize=LEGEND_FONT, ncol=2, loc='upper right')
+        ax2.legend(fontsize=LEGEND_FONT, ncol=2, loc='best')
         ax2.grid(True, alpha=0.3)
         # X축: σ0 주변 확대 (5개+ 파수 분포 경향 확인용)
         ax2.set_xlim(sigma_0_MPa - half_range, sigma_0_MPa + half_range)
@@ -6087,8 +6091,8 @@ class PerssonModelGUI_V2:
                     ha='center', va='center', transform=ax6.transAxes, fontsize=LABEL_FONT)
             ax6.set_title('(f) Parseval 정리', fontweight='bold', fontsize=TITLE_FONT, pad=TITLE_PAD)
 
-        self.fig_results.suptitle('G(q,v) 2D 행렬 계산 결과', fontweight='bold', fontsize=10, y=0.99)
-        self.fig_results.subplots_adjust(left=0.08, right=0.95, top=0.93, bottom=0.08, hspace=0.45, wspace=0.38)
+        self.fig_results.suptitle('G(q,v) 2D 행렬 계산 결과', fontweight='bold', fontsize=9, y=0.98)
+        self.fig_results.subplots_adjust(left=0.08, right=0.95, top=0.92, bottom=0.06, hspace=0.55, wspace=0.38)
         self.canvas_results.draw()
 
     def _save_detailed_csv(self):
@@ -6774,7 +6778,7 @@ class PerssonModelGUI_V2:
 
             # 2. Update plot font sizes
             new_plot_title = plot_size_var.get()
-            scale = new_plot_title / 15.0  # 15 is default title size
+            scale = new_plot_title / 10.0  # 10 is default title size
             self.PLOT_FONTS = {
                 'title': new_plot_title,
                 'label': max(8, round(13 * scale)),
@@ -6856,8 +6860,8 @@ class PerssonModelGUI_V2:
         def reset_defaults():
             """Reset to default settings."""
             ui_font_var.set('Segoe UI')
-            ui_size_var.set(17)
-            plot_size_var.set(15)
+            ui_size_var.set(10)
+            plot_size_var.set(10)
             mono_font_var.set('Consolas')
             panel_width_var.set(700)
             win_w_var.set(1920)
@@ -7066,7 +7070,7 @@ class PerssonModelGUI_V2:
                         label=f'q = {q_val:.0e} (v={v} m/s)')
             ax.set_xlabel(r'$\phi$ (degrees)', fontsize=10)
             ax.set_ylabel(r'$\omega$ (rad/s)', fontsize=10)
-            ax.legend(fontsize=10, loc='upper right')
+            ax.legend(fontsize=10, loc='best')
             ax.grid(True, alpha=0.3)
             ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
             ax.set_title(r'$\omega = q \cdot v \cdot \cos\phi$ — 각도에 따른 진동수 변화', fontsize=10, pad=10)
@@ -7088,7 +7092,7 @@ class PerssonModelGUI_V2:
             ax.loglog(omega, E_loss, '--', linewidth=2.5, color='#DC2626', label="E'' (손실 탄성률)")
             ax.set_xlabel(r'$\omega$ (rad/s)', fontsize=10)
             ax.set_ylabel('E (Pa)', fontsize=10)
-            ax.legend(fontsize=10)
+            ax.legend(fontsize=8, loc='best')
             ax.grid(True, alpha=0.3, which='both')
             ax.set_title("복소 탄성률 마스터 커브 (대표적 형상)", fontsize=10, pad=10)
         add_graph(_plot_master_curve)
@@ -7318,7 +7322,7 @@ class PerssonModelGUI_V2:
             ax.plot(eps, g_eps, '--', linewidth=2.5, color='#DC2626', label=r"g($\varepsilon$) — E'' 변화율")
             ax.set_xlabel(r'$\varepsilon$ (%)', fontsize=10)
             ax.set_ylabel('보정 계수', fontsize=10)
-            ax.legend(fontsize=10)
+            ax.legend(fontsize=8, loc='best')
             ax.grid(True, alpha=0.3)
             ax.set_ylim(0, 1.5)
             ax.axhline(y=1, color='gray', linestyle=':', alpha=0.5)
@@ -7491,7 +7495,7 @@ class PerssonModelGUI_V2:
         self.ax_psd_ref.set_yscale('log')
         self.ax_psd_ref.grid(True, alpha=0.3)
 
-        self.fig_rms.subplots_adjust(left=0.14, right=0.95, top=0.94, bottom=0.10, hspace=0.42, wspace=0.38)
+        self.fig_rms.subplots_adjust(left=0.14, right=0.95, top=0.96, bottom=0.08, hspace=0.50, wspace=0.38)
         self.canvas_rms.draw()
 
     def _sync_target_xi_from_tab2(self):
@@ -7653,7 +7657,7 @@ class PerssonModelGUI_V2:
         self.ax_local_strain.axhline(y=1, color='g', linestyle=':', alpha=0.5, label='1%')
         self.ax_local_strain.axhline(y=10, color='orange', linestyle=':', alpha=0.5, label='10%')
         self.ax_local_strain.axhline(y=100, color='red', linestyle=':', alpha=0.5, label='100%')
-        self.ax_local_strain.legend(loc='lower right', fontsize=10)
+        self.ax_local_strain.legend(loc='best', fontsize=8)
 
         if len(strain) > 0 and strain[-1] > 0:
             self.ax_local_strain.annotate(f'ε_max={strain[-1]*100:.2f}%',
@@ -7685,7 +7689,7 @@ class PerssonModelGUI_V2:
         self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=11)
         self.ax_psd_ref.grid(True, alpha=0.3)
 
-        self.fig_rms.subplots_adjust(left=0.14, right=0.95, top=0.94, bottom=0.10, hspace=0.42, wspace=0.38)
+        self.fig_rms.subplots_adjust(left=0.14, right=0.95, top=0.96, bottom=0.08, hspace=0.50, wspace=0.38)
         self.canvas_rms.draw()
 
     def _update_rms_result_text(self):
@@ -8250,7 +8254,7 @@ class PerssonModelGUI_V2:
         self.ax_ps.set_xscale('log')
         self.ax_ps.grid(True, alpha=0.3)
 
-        self.fig_mu_visc.subplots_adjust(left=0.12, right=0.90, top=0.94, bottom=0.10, hspace=0.42, wspace=0.38)
+        self.fig_mu_visc.subplots_adjust(left=0.12, right=0.90, top=0.96, bottom=0.08, hspace=0.50, wspace=0.38)
 
         self.canvas_mu_visc = FigureCanvasTkAgg(self.fig_mu_visc, plot_frame)
         self.canvas_mu_visc.draw()
@@ -8453,7 +8457,7 @@ class PerssonModelGUI_V2:
 
         self.ax_fg_curves.set_xlim(0, 1.0)
         self.ax_fg_curves.set_ylim(0, 1.1)
-        self.ax_fg_curves.legend(loc='upper right', fontsize=10, ncol=2)
+        self.ax_fg_curves.legend(loc='best', fontsize=8, ncol=2)
 
         self.canvas_mu_visc.draw()
 
@@ -8881,14 +8885,14 @@ class PerssonModelGUI_V2:
             self.ax_fg_curves.plot(s, g_final, 'r-', linewidth=3.5, label='g(ε) Persson Avg')
             self.ax_fg_curves.axvline(split, color='green', linewidth=2, linestyle=':', alpha=0.8,
                                       label=f'Split @ {split*100:.1f}%')
-            self.ax_fg_curves.legend(loc='upper right', fontsize=10, ncol=2)
+            self.ax_fg_curves.legend(loc='best', fontsize=8, ncol=2)
         elif self.fg_averaged is not None:
             s = self.fg_averaged['strain']
             f_avg = self.fg_averaged['f_avg']
             g_avg = self.fg_averaged['g_avg']
             self.ax_fg_curves.plot(s, f_avg, 'b-', linewidth=3, label='f(ε) 평균')
             self.ax_fg_curves.plot(s, g_avg, 'r-', linewidth=3, label='g(ε) 평균')
-            self.ax_fg_curves.legend(loc='upper right')
+            self.ax_fg_curves.legend(loc='best')
 
         self.ax_fg_curves.set_xlim(0, 1.0)
         self.ax_fg_curves.set_ylim(0, 1.1)
@@ -9751,7 +9755,7 @@ class PerssonModelGUI_V2:
             except Exception as e:
                 print(f"[DEBUG] 참조 μ_visc 플롯 오류: {e}")
 
-            self.ax_mu_v.legend(loc='upper left', fontsize=10)
+            self.ax_mu_v.legend(loc='best', fontsize=8)
 
             # Plot 2: Real Contact Area Ratio A/A0 = P(q_max) vs velocity
             P_qmax_array = np.zeros(len(v))
@@ -9849,8 +9853,8 @@ class PerssonModelGUI_V2:
             self.ax_ps.set_xlabel('파수 q (1/m)', fontsize=11)
             self.ax_ps.set_ylabel('P(q), S(q)', color='blue', fontsize=11)
             ax_twin.set_ylabel('누적 μ', color='green', fontsize=11)
-            self.ax_ps.legend(loc='upper left', fontsize=10)
-            ax_twin.legend(loc='upper right', fontsize=10)
+            self.ax_ps.legend(loc='best', fontsize=8)
+            ax_twin.legend(loc='best', fontsize=8)
             self.ax_ps.grid(True, alpha=0.3)
             self.ax_ps.set_ylim(0, 1.1)
 
@@ -9860,7 +9864,7 @@ class PerssonModelGUI_V2:
                 cumulative_max = 0.1
             ax_twin.set_ylim(0, cumulative_max * 1.2)
 
-            self.fig_mu_visc.subplots_adjust(left=0.12, right=0.90, top=0.94, bottom=0.10, hspace=0.42, wspace=0.38)
+            self.fig_mu_visc.subplots_adjust(left=0.12, right=0.90, top=0.96, bottom=0.08, hspace=0.50, wspace=0.38)
             self.canvas_mu_visc.draw()
 
             # Auto-register graph data for friction results
@@ -9927,7 +9931,7 @@ class PerssonModelGUI_V2:
                     self.ax_mu_cumulative.semilogx(10**log_v, area_vals, '-', color=color,
                                                     linewidth=1.8, alpha=0.8, label=f'참조: {name}')
 
-            self.ax_mu_v.legend(loc='upper left', fontsize=10)
+            self.ax_mu_v.legend(loc='best', fontsize=8)
             self.ax_mu_cumulative.legend(loc='best', fontsize=10)
             self.canvas_mu_visc.draw()
         except Exception as e:
@@ -11627,7 +11631,7 @@ class PerssonModelGUI_V2:
                ha='center', va='center', transform=self.ax_fg_factors.transAxes,
                fontsize=10, color='gray')
 
-        self.fig_strain_map.subplots_adjust(left=0.08, right=0.95, top=0.95, bottom=0.08, hspace=0.40, wspace=0.32)
+        self.fig_strain_map.subplots_adjust(left=0.08, right=0.95, top=0.96, bottom=0.06, hspace=0.50, wspace=0.32)
         self.canvas_strain_map.draw()
 
     def _calculate_strain_map(self):
@@ -12070,7 +12074,7 @@ class PerssonModelGUI_V2:
         self.ax_fg_factors.set_xlabel('Strain [%]', fontsize=10)
         self.ax_fg_factors.set_ylabel('Factor', fontsize=10)
         self.ax_fg_factors.set_ylim(0, 1.1)
-        self.ax_fg_factors.legend(fontsize=10, loc='lower left')
+        self.ax_fg_factors.legend(fontsize=8, loc='best')
         self.ax_fg_factors.grid(True, alpha=0.3)
 
         # G integrand 공유 범위 계산 (linear + nonlinear)
@@ -12171,7 +12175,7 @@ class PerssonModelGUI_V2:
             ax.set_ylim(q_crop_min, q_crop_max)
             ax.set_facecolor('white')  # 크롭 후 회색 배경 제거
 
-        self.fig_strain_map.subplots_adjust(left=0.08, right=0.95, top=0.95, bottom=0.08, hspace=0.35, wspace=0.30)
+        self.fig_strain_map.subplots_adjust(left=0.08, right=0.95, top=0.96, bottom=0.06, hspace=0.45, wspace=0.30)
         self.canvas_strain_map.draw()
 
     def _export_strain_map_csv(self):
@@ -12407,42 +12411,48 @@ class PerssonModelGUI_V2:
         plot_frame = ttk.LabelFrame(right_panel, text="피적분함수 그래프", padding=5)
         plot_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Create figure with 2x2 subplots
-        self.fig_integrand = Figure(figsize=(10, 8), dpi=100)
+        # Create figure with 2x2 square subplots (1:1 aspect)
+        self.fig_integrand = Figure(figsize=(10, 10), dpi=100)
+
+        PF = self.PLOT_FONTS
 
         # Top-left: Angle integrand |E(qv cosφ)|² vs φ
         self.ax_angle_integrand = self.fig_integrand.add_subplot(221)
-        self.ax_angle_integrand.set_title(r'G 각도 피적분함수: $|E(qv\cos\phi)|^2$ vs $\phi$', fontweight='bold', fontsize=10)
-        self.ax_angle_integrand.set_xlabel(r'$\phi$ (rad)', fontsize=11)
-        self.ax_angle_integrand.set_ylabel(r'$|E(\omega)/((1-\nu^2)\sigma_0)|^2$', fontsize=10)
+        self.ax_angle_integrand.set_title(r'G 각도 피적분함수 $|E|^2$ vs $\phi$', fontsize=PF['title'])
+        self.ax_angle_integrand.set_xlabel(r'$\phi$ (rad)', fontsize=PF['label'])
+        self.ax_angle_integrand.set_ylabel(r'$|E/((1-\nu^2)\sigma_0)|^2$', fontsize=PF['label'])
+        self.ax_angle_integrand.set_box_aspect(1)
         self.ax_angle_integrand.grid(True, alpha=0.3)
 
         # Top-right: G(q) integrand vs q
         self.ax_q_integrand = self.fig_integrand.add_subplot(222)
-        self.ax_q_integrand.set_title(r'G(q) 피적분함수: $q^3 C(q) \times$ (각도적분) vs q', fontweight='bold', fontsize=10)
-        self.ax_q_integrand.set_xlabel('q (1/m)', fontsize=11)
-        self.ax_q_integrand.set_ylabel(r'$q^3 C(q) \times \int|E|^2 d\phi$', fontsize=11)
+        self.ax_q_integrand.set_title(r'G(q) 피적분함수 vs q', fontsize=PF['title'])
+        self.ax_q_integrand.set_xlabel('q (1/m)', fontsize=PF['label'])
+        self.ax_q_integrand.set_ylabel(r'$q^3 C(q) \times \int|E|^2 d\phi$', fontsize=PF['label'])
         self.ax_q_integrand.set_xscale('log')
         self.ax_q_integrand.set_yscale('log')
+        self.ax_q_integrand.set_box_aspect(1)
         self.ax_q_integrand.grid(True, alpha=0.3)
 
         # Bottom-left: μ_visc integrand vs φ (Im[E] × cosφ)
         self.ax_mu_integrand = self.fig_integrand.add_subplot(223)
-        self.ax_mu_integrand.set_title(r'$\mu_{visc}$ 각도 피적분함수: $\cos\phi \times \mathrm{Im}[E]$ vs $\phi$', fontweight='bold', fontsize=10)
-        self.ax_mu_integrand.set_xlabel(r'$\phi$ (rad)', fontsize=11)
-        self.ax_mu_integrand.set_ylabel(r"$\cos\phi \times E''/((1-\nu^2)\sigma_0)$", fontsize=10)
+        self.ax_mu_integrand.set_title(r'$\mu_{visc}$ 각도 피적분함수 vs $\phi$', fontsize=PF['title'])
+        self.ax_mu_integrand.set_xlabel(r'$\phi$ (rad)', fontsize=PF['label'])
+        self.ax_mu_integrand.set_ylabel(r"$\cos\phi \times E''/(...)$", fontsize=PF['label'])
+        self.ax_mu_integrand.set_box_aspect(1)
         self.ax_mu_integrand.grid(True, alpha=0.3)
 
         # Bottom-right: Frequency range vs velocity
         self.ax_freq_range = self.fig_integrand.add_subplot(224)
-        self.ax_freq_range.set_title('속도별 주파수 스캔 범위', fontweight='bold', fontsize=10)
-        self.ax_freq_range.set_xlabel('속도 v (m/s)', fontsize=11)
-        self.ax_freq_range.set_ylabel('주파수 ω (rad/s)', fontsize=11)
+        self.ax_freq_range.set_title('속도별 주파수 스캔 범위', fontsize=PF['title'])
+        self.ax_freq_range.set_xlabel('속도 v (m/s)', fontsize=PF['label'])
+        self.ax_freq_range.set_ylabel('주파수 ω (rad/s)', fontsize=PF['label'])
         self.ax_freq_range.set_xscale('log')
         self.ax_freq_range.set_yscale('log')
+        self.ax_freq_range.set_box_aspect(1)
         self.ax_freq_range.grid(True, alpha=0.3)
 
-        self.fig_integrand.subplots_adjust(left=0.12, right=0.95, top=0.94, bottom=0.10, hspace=0.42, wspace=0.35)
+        self.fig_integrand.subplots_adjust(left=0.10, right=0.95, top=0.96, bottom=0.06, hspace=0.45, wspace=0.35)
 
         self.canvas_integrand = FigureCanvasTkAgg(self.fig_integrand, plot_frame)
         self.canvas_integrand.draw()
@@ -12492,28 +12502,33 @@ class PerssonModelGUI_V2:
             self.ax_freq_range.clear()
 
             # Set up axes labels and titles again
-            self.ax_angle_integrand.set_title(r'G 각도 피적분함수: $|E(qv\cos\phi)|^2$ vs $\phi$', fontweight='bold', fontsize=10)
-            self.ax_angle_integrand.set_xlabel(r'$\phi$ (rad)', fontsize=11)
-            self.ax_angle_integrand.set_ylabel(r'$|E(\omega)/((1-\nu^2)\sigma_0)|^2$', fontsize=10)
+            PF = self.PLOT_FONTS
+            self.ax_angle_integrand.set_title(r'G 각도 피적분함수 $|E|^2$ vs $\phi$', fontsize=PF['title'])
+            self.ax_angle_integrand.set_xlabel(r'$\phi$ (rad)', fontsize=PF['label'])
+            self.ax_angle_integrand.set_ylabel(r'$|E/((1-\nu^2)\sigma_0)|^2$', fontsize=PF['label'])
+            self.ax_angle_integrand.set_box_aspect(1)
             self.ax_angle_integrand.grid(True, alpha=0.3)
 
-            self.ax_q_integrand.set_title(r'G(q) 피적분함수: $q^3 C(q) \times$ (각도적분) vs q', fontweight='bold', fontsize=10)
-            self.ax_q_integrand.set_xlabel('q (1/m)', fontsize=11)
-            self.ax_q_integrand.set_ylabel(r'$q^3 C(q) \times \int|E|^2 d\phi$', fontsize=11)
+            self.ax_q_integrand.set_title(r'G(q) 피적분함수 vs q', fontsize=PF['title'])
+            self.ax_q_integrand.set_xlabel('q (1/m)', fontsize=PF['label'])
+            self.ax_q_integrand.set_ylabel(r'$q^3 C(q) \times \int|E|^2 d\phi$', fontsize=PF['label'])
             self.ax_q_integrand.set_xscale('log')
             self.ax_q_integrand.set_yscale('log')
+            self.ax_q_integrand.set_box_aspect(1)
             self.ax_q_integrand.grid(True, alpha=0.3)
 
-            self.ax_mu_integrand.set_title(r'$\mu_{visc}$ 각도 피적분함수: $\cos\phi \times \mathrm{Im}[E]$ vs $\phi$', fontweight='bold', fontsize=10)
-            self.ax_mu_integrand.set_xlabel(r'$\phi$ (rad)', fontsize=11)
-            self.ax_mu_integrand.set_ylabel(r"$\cos\phi \times E''/((1-\nu^2)\sigma_0)$", fontsize=10)
+            self.ax_mu_integrand.set_title(r'$\mu_{visc}$ 각도 피적분함수 vs $\phi$', fontsize=PF['title'])
+            self.ax_mu_integrand.set_xlabel(r'$\phi$ (rad)', fontsize=PF['label'])
+            self.ax_mu_integrand.set_ylabel(r"$\cos\phi \times E''/(...)$", fontsize=PF['label'])
+            self.ax_mu_integrand.set_box_aspect(1)
             self.ax_mu_integrand.grid(True, alpha=0.3)
 
-            self.ax_freq_range.set_title('속도별 주파수 스캔 범위', fontweight='bold', fontsize=10)
-            self.ax_freq_range.set_xlabel('속도 v (m/s)', fontsize=11)
-            self.ax_freq_range.set_ylabel('주파수 ω (rad/s)', fontsize=11)
+            self.ax_freq_range.set_title('속도별 주파수 스캔 범위', fontsize=PF['title'])
+            self.ax_freq_range.set_xlabel('속도 v (m/s)', fontsize=PF['label'])
+            self.ax_freq_range.set_ylabel('주파수 ω (rad/s)', fontsize=PF['label'])
             self.ax_freq_range.set_xscale('log')
             self.ax_freq_range.set_yscale('log')
+            self.ax_freq_range.set_box_aspect(1)
             self.ax_freq_range.grid(True, alpha=0.3)
 
             self.integrand_progress_var.set(20)
@@ -12601,8 +12616,8 @@ class PerssonModelGUI_V2:
                     self.integrand_result_text.insert(tk.END, f"  ε(q) = {strain_at_q:.4f}\n")
                 self.integrand_result_text.insert(tk.END, "\n")
 
-            self.ax_angle_integrand.legend(fontsize=10)
-            self.ax_mu_integrand.legend(fontsize=10)
+            self.ax_angle_integrand.legend(fontsize=8, loc='best')
+            self.ax_mu_integrand.legend(fontsize=8, loc='best')
 
             self.integrand_progress_var.set(50)
             self.root.update_idletasks()
@@ -12661,7 +12676,7 @@ class PerssonModelGUI_V2:
                     self.ax_q_integrand.axvline(q, color='r', linestyle='--', alpha=0.5)
                     self.ax_q_integrand.plot(q, G_integrand_values[idx], 'ro', markersize=8)
 
-            self.ax_q_integrand.legend(fontsize=10)
+            self.ax_q_integrand.legend(fontsize=8, loc='best')
 
             self.integrand_progress_var.set(70)
             self.root.update_idletasks()
@@ -12698,7 +12713,7 @@ class PerssonModelGUI_V2:
                 self.freq_range_text.insert(tk.END, f"  {omega_dma_min:.2e} ~ {omega_dma_max:.2e} rad/s\n")
 
             self.integrand_progress_var.set(100)
-            self.fig_integrand.subplots_adjust(left=0.12, right=0.95, top=0.94, bottom=0.10, hspace=0.42, wspace=0.35)
+            self.fig_integrand.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08, hspace=0.55, wspace=0.40)
             self.canvas_integrand.draw()
 
             self.status_var.set("피적분함수 계산 완료")
@@ -12792,7 +12807,7 @@ class PerssonModelGUI_V2:
             ax.loglog(omega, E_loss, '--', linewidth=2.5, color='#DC2626', label="E'' (손실)")
             ax.set_xlabel(r'$\omega$ (rad/s)', fontsize=10)
             ax.set_ylabel('E (Pa)', fontsize=10)
-            ax.legend(fontsize=10)
+            ax.legend(fontsize=8, loc='best')
             ax.grid(True, alpha=0.3, which='both')
             ax.set_title('DMA 마스터 커브 — 대표적 형상', fontsize=10, pad=10)
         add_graph(_plot_var_dma)
@@ -12826,7 +12841,7 @@ class PerssonModelGUI_V2:
             ax.plot(gamma, g_g, '--', linewidth=2.5, color='#DC2626', label=r"g($\gamma$) — E'' 변화")
             ax.set_xlabel(r'$\gamma$ (%)', fontsize=10)
             ax.set_ylabel('보정 계수', fontsize=10)
-            ax.legend(fontsize=10)
+            ax.legend(fontsize=8, loc='best')
             ax.grid(True, alpha=0.3)
             ax.axhline(y=1, color='gray', linestyle=':', alpha=0.5)
             ax.set_title('Strain Sweep — Payne 효과', fontsize=10, pad=10)
@@ -12904,7 +12919,7 @@ class PerssonModelGUI_V2:
             ax.plot(G, S, '--', linewidth=2.5, color='#059669', label='S(q)')
             ax.set_xlabel('G(q)', fontsize=10)
             ax.set_ylabel('값', fontsize=10)
-            ax.legend(fontsize=10)
+            ax.legend(fontsize=8, loc='best')
             ax.grid(True, alpha=0.3)
             ax.set_title('P(q)와 S(q) — G에 따른 변화', fontsize=10, pad=10)
         add_graph(_plot_var_PS)
@@ -12924,7 +12939,7 @@ class PerssonModelGUI_V2:
             ax.loglog(q, eps, '--', linewidth=2.5, color='#7C3AED', label=r"$\varepsilon(q) = 0.5 \cdot \xi$")
             ax.set_xlabel('q (1/m)', fontsize=10)
             ax.set_ylabel('값', fontsize=10)
-            ax.legend(fontsize=10)
+            ax.legend(fontsize=8, loc='best')
             ax.grid(True, alpha=0.3, which='both')
             ax.set_title(r"$\xi(q)$와 $\varepsilon(q)$ — 파수에 따른 변화", fontsize=10, pad=10)
         add_graph(_plot_var_xi_eps)
@@ -14495,7 +14510,7 @@ class PerssonModelGUI_V2:
 
         # GridSpec already handles spacing via hspace/wspace, so skip tight_layout
         # to avoid "Axes not compatible with tight_layout" warning
-        self.fig_ve_advisor.subplots_adjust(left=0.08, right=0.97, top=0.95, bottom=0.08)
+        self.fig_ve_advisor.subplots_adjust(left=0.08, right=0.97, top=0.96, bottom=0.06, hspace=0.45)
 
         self.canvas_ve_advisor = FigureCanvasTkAgg(self.fig_ve_advisor, plot_frame)
         self.canvas_ve_advisor.draw()
@@ -15102,7 +15117,7 @@ class PerssonModelGUI_V2:
             ax.set_title("E''(T) @10 Hz", fontweight='bold', fontsize=11)
         ax.grid(True, alpha=0.3)
 
-        self.fig_ve_advisor.subplots_adjust(left=0.08, right=0.97, top=0.95, bottom=0.08)
+        self.fig_ve_advisor.subplots_adjust(left=0.08, right=0.97, top=0.96, bottom=0.06, hspace=0.45)
         self.canvas_ve_advisor.draw()
 
 
