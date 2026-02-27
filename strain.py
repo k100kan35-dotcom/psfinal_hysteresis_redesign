@@ -223,6 +223,10 @@ def persson_strain_grid(max_strain_fraction):
     while s <= max_strain_fraction * 1.000001:
         out.append(s)
         s *= r
+    # Always include max_strain_fraction as the final point
+    # so the grid covers the full data range
+    if out and out[-1] < max_strain_fraction * 0.999:
+        out.append(max_strain_fraction)
     return np.array(out, dtype=float)
 
 

@@ -221,7 +221,7 @@ class PerssonModelGUI_V2:
         'btn_padx':      10,      # Button horizontal padding
         'btn_pady':      4,       # Button vertical padding
         'header_height': 40,      # Top header bar height
-        'log_height':    90,      # Activity-log panel (expanded)
+        'log_height':    135,     # Activity-log panel (expanded) — 1.5x
         'log_collapsed': 22,      # Activity-log panel (collapsed)
         'statusbar_height': 28,   # Bottom status bar
         'logo_height':   60,      # Logo area at bottom of control panel
@@ -9888,15 +9888,14 @@ class PerssonModelGUI_V2:
             # Calculate and display A/A0 gap with reference data
             self._update_area_gap_display(v, P_qmax_array)
 
-            # Color based on nonlinear correction
+            # Color: 계산값=BLUE 항상, 참조값=RED 항상
             if use_nonlinear:
-                label_str = 'A/A0 - 비선형 G(q)'
-                color = 'r'
+                label_str = 'A/A0 계산값 (비선형)'
                 title_suffix = ' (f,g 보정 적용)'
             else:
-                label_str = 'A/A0 - 선형 G(q)'
-                color = 'b'
+                label_str = 'A/A0 계산값 (선형)'
                 title_suffix = ''
+            color = 'b'  # 계산값은 항상 BLUE
 
             # Plot A/A0 = P(q_max)
             self.ax_mu_cumulative.semilogx(v, P_qmax_array, f'{color}-', linewidth=2,
@@ -9908,6 +9907,7 @@ class PerssonModelGUI_V2:
                     ref_v = self.reference_area_data['v']
                     ref_area = self.reference_area_data['area']
                     self.ax_mu_cumulative.semilogx(ref_v, ref_area, 'r-', linewidth=2,
+                                                    marker='o', markersize=3,
                                                     alpha=0.8, label='참조 A/A0 (Persson)', zorder=5)
                 # Plot multiple overlay reference datasets
                 if hasattr(self, 'plotted_ref_datasets'):
@@ -10779,7 +10779,8 @@ class PerssonModelGUI_V2:
     def _update_area_gap_display(self, v, P_qmax_array):
         """Calculate and display A/A0 gap between calculated and reference values.
 
-        Compares at v = 10^-4, 10^-2, 10^0 m/s as requested.
+        Shows gaps at representative velocities in the label,
+        and logs per-velocity-interval differences (%) to the work log.
         """
         try:
             if not hasattr(self, 'area_gap_var'):
@@ -10801,29 +10802,48 @@ class PerssonModelGUI_V2:
             ref_interp = interp1d(np.log10(ref_v), ref_area, kind='linear',
                                   bounds_error=False, fill_value='extrapolate')
 
-            # Target velocities: 10^-4, 10^-2, 10^0 m/s
+            # Target velocities for label: 10^-4, 10^-2, 10^0 m/s
             target_velocities = [1e-4, 1e-2, 1e0]
             gaps = []
 
             for target_v in target_velocities:
-                # Find closest velocity index
                 idx = np.argmin(np.abs(np.log10(v) - np.log10(target_v)))
                 actual_v = v[idx]
-
-                # Get calculated and reference values
                 calc_val = P_qmax_array[idx]
                 ref_val = ref_interp(np.log10(actual_v))
-
-                # Calculate percentage gap
                 if ref_val > 0:
                     gap = (calc_val - ref_val) / ref_val * 100
                 else:
                     gap = 0
                 gaps.append((actual_v, gap))
 
-            # Format display: show gaps at 10^-4, 10^-2, 10^0
             gap_strs = [f"v={v_:.0e}: {g:+.1f}%" for v_, g in gaps]
             self.area_gap_var.set(f"A/A0 Gap: " + ", ".join(gap_strs))
+
+            # Log per-velocity-interval differences to work log
+            self._append_log("── 실접촉 면적비율 A/A0: 속도 구간별 참조값 vs 계산값 차이 ──", 'info')
+            self._append_log(
+                f"{'속도(m/s)':>12s} | {'참조(ref)':>10s} | {'계산(calc)':>10s} | {'차이(%)':>10s}",
+                'info')
+            all_gaps = []
+            for i in range(len(v)):
+                calc_val = P_qmax_array[i]
+                ref_val = float(ref_interp(np.log10(v[i])))
+                if ref_val > 0:
+                    pct_diff = (calc_val - ref_val) / ref_val * 100
+                else:
+                    pct_diff = 0.0
+                all_gaps.append(pct_diff)
+                self._append_log(
+                    f"{v[i]:12.4e} | {ref_val:10.4f} | {calc_val:10.4f} | {pct_diff:+10.1f}%",
+                    'info')
+
+            # Summary
+            avg_abs_gap = np.mean(np.abs(all_gaps))
+            max_gap = max(all_gaps, key=abs)
+            self._append_log(
+                f"  평균|차이|: {avg_abs_gap:.1f}%,  최대 차이: {max_gap:+.1f}%",
+                'warning' if avg_abs_gap > 20 else 'success')
 
         except Exception as e:
             print(f"[DEBUG] A/A0 gap 계산 오류: {e}")
