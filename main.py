@@ -249,7 +249,7 @@ class PerssonModelGUI_V2:
         """Initialize enhanced GUI."""
         self.root = root
         self.root.title("NEXEN Rubber Friction Modelling Program  v3.0")
-        self.root.geometry("1600x1000")
+        self.root.geometry("1920x1040")
         self.root.configure(bg=self.COLORS['bg'])
         self.root.minsize(1200, 700)
 
@@ -15217,26 +15217,27 @@ class PerssonModelGUI_V2:
 
 
 def _enable_dpi_awareness():
-    """Enable High-DPI awareness BEFORE any window is created (Windows 10+).
+    """Enable DPI awareness BEFORE any window is created (Windows 10+).
 
-    SetProcessDpiAwareness must be called before tk.Tk() or any GUI element
-    is instantiated.  Value 1 = System DPI Aware, 2 = Per-Monitor DPI Aware.
-    We use Per-Monitor V2 first (most accurate), falling back to System-aware.
+    System DPI Aware (1) is used so that the title bar (non-client area)
+    and application content scale uniformly.  Per-Monitor V2 (2) causes
+    a mismatch where the OS renders the title bar at system DPI while the
+    app content stays at a different scale, making the title bar appear
+    disproportionately large on standard FHD (1920x1080) displays.
     """
     if sys.platform != 'win32':
         return
     try:
         from ctypes import windll
-        # Try Per-Monitor V2 awareness (Windows 10 1703+)
+        # System DPI Aware – uniform scaling for title bar and content
         try:
-            windll.shcore.SetProcessDpiAwareness(2)
+            windll.shcore.SetProcessDpiAwareness(1)
         except Exception:
-            # Fallback to System DPI Aware
+            # Legacy fallback (Windows Vista+)
             try:
-                windll.shcore.SetProcessDpiAwareness(1)
-            except Exception:
-                # Legacy fallback (Windows Vista+)
                 windll.user32.SetProcessDPIAware()
+            except Exception:
+                pass
     except Exception:
         pass
 
@@ -15274,14 +15275,12 @@ def main():
 
     # ── Detect system DPI scaling and adjust Tk scaling factor ──
     dpi_scale = _get_system_dpi_scale()
-    # Tk internally uses a scaling factor (default ~1.33 on 96 DPI).
-    # When the OS scale > 1.0, we need to compensate so that hardcoded
-    # font sizes do not get double-scaled by both Windows and Tk.
-    if dpi_scale > 1.05:
-        # Reset Tk scaling to neutralise the OS-level magnification.
-        # Default Tk scaling at 96 DPI ≈ 1.333;  at 144 DPI (150%) the OS
-        # already enlarges everything, so we keep Tk at the 96-DPI baseline.
-        root.tk.call('tk', 'scaling', 96.0 / 72.0)   # = 1.333 (96 DPI base)
+    # With System DPI Aware (1), Tk's default scaling already matches
+    # the system DPI.  We only intervene at extreme scales (≥150%)
+    # to prevent widgets/fonts from becoming excessively large.
+    if dpi_scale >= 1.5:
+        # Cap Tk scaling at 125% equivalent to keep UI usable
+        root.tk.call('tk', 'scaling', 1.25 * 96.0 / 72.0)   # ≈ 1.667
 
     app = PerssonModelGUI_V2(root)
     root.mainloop()
