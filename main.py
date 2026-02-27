@@ -2582,8 +2582,7 @@ class PerssonModelGUI_V2:
 
         # ============== Right Panel: Plots ==============
 
-        right_panel = ttk.Frame(main_container)
-        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
+        right_panel = layout['right']
 
         plot_frame = ttk.LabelFrame(right_panel, text="시각화", padding=5)
         plot_frame.pack(fill=tk.BOTH, expand=True)
