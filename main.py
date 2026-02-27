@@ -207,7 +207,7 @@ class PerssonModelGUI_V2:
 
     # ── Standardised Dimensions (pixels, applied uniformly to every tab) ──
     DIMS = {
-        'panel_width':   900,     # Left control-panel width
+        'panel_width':   700,     # Left control-panel width
         'section_pad':   6,       # LabelFrame internal padding
         'section_gap_y': 3,       # Vertical gap between sections
         'row_gap_y':     2,       # Vertical gap between rows within a section
@@ -906,10 +906,15 @@ class PerssonModelGUI_V2:
             lambda e: scroll_canvas.configure(
                 scrollregion=scroll_canvas.bbox('all')))
 
-        scroll_canvas.create_window(
+        _cw_id = scroll_canvas.create_window(
             (0, 0), window=content, anchor='nw',
             width=D['panel_width'] - 18)
         scroll_canvas.configure(yscrollcommand=scrollbar.set)
+
+        # canvas 크기 변경 시 content window 폭 자동 동기화
+        scroll_canvas.bind('<Configure>',
+                           lambda e, _c=scroll_canvas, _id=_cw_id:
+                               _c.itemconfigure(_id, width=e.width))
 
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         scroll_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
@@ -1103,7 +1108,7 @@ class PerssonModelGUI_V2:
 
         # Load button
         ttk.Button(load_frame, text="프로파일 데이터 로드 (.txt, .csv)",
-                   command=self._load_profile_data).pack(fill=tk.X, pady=2)
+                   command=self._load_profile_data).pack(anchor=tk.W, pady=2)
 
         # ===== 내장 PSD 선택 섹션 =====
         ttk.Separator(load_frame, orient='horizontal').pack(fill=tk.X, pady=5)
@@ -1135,7 +1140,7 @@ class PerssonModelGUI_V2:
 
         ttk.Button(psd_direct_btn_frame, text="PSD 직접 로드 (q, C(q))",
                    command=self._load_psd_direct,
-                   style='Accent.TButton').pack(side=tk.LEFT, fill=tk.X, expand=True)
+                   style='Accent.TButton').pack(side=tk.LEFT)
 
         ttk.Button(psd_direct_btn_frame, text="→ 리스트 추가",
                    command=self._add_preset_psd, width=10).pack(side=tk.LEFT, padx=(3, 0))
@@ -1244,7 +1249,8 @@ class PerssonModelGUI_V2:
 
         # Calculate button
         ttk.Button(calc_frame, text="PSD 계산",
-                   command=self._calculate_profile_psd).pack(fill=tk.X, pady=5)
+                   command=self._calculate_profile_psd,
+                   style='Accent.TButton').pack(anchor=tk.W, pady=5)
 
         # 4. Fitting Settings
         fit_frame = ttk.LabelFrame(left_scrollable, text="3. Self-Affine 피팅", padding=5)
@@ -1279,7 +1285,7 @@ class PerssonModelGUI_V2:
 
         # Fit button
         ttk.Button(fit_frame, text="Self-Affine 피팅 실행",
-                   command=self._fit_profile_psd).pack(fill=tk.X, pady=5)
+                   command=self._fit_profile_psd).pack(anchor=tk.W, pady=5)
 
         # 4. q1 Extrapolation Settings
         extrap_frame = ttk.LabelFrame(left_scrollable, text="4. q1 외삽 (Extrapolation)", padding=5)
@@ -1310,7 +1316,7 @@ class PerssonModelGUI_V2:
 
         # Apply extrapolation button
         ttk.Button(extrap_frame, text="외삽 적용 및 그래프 업데이트",
-                   command=self._apply_q1_extrapolation).pack(fill=tk.X, pady=5)
+                   command=self._apply_q1_extrapolation).pack(anchor=tk.W, pady=5)
 
         # 5. Parameter-based PSD Generation
         param_psd_frame = ttk.LabelFrame(left_scrollable, text="5. 파라미터 PSD 생성", padding=5)
@@ -2327,7 +2333,7 @@ class PerssonModelGUI_V2:
             load_frame,
             text="다중 온도 DMA 데이터 로드 (CSV/Excel)",
             command=self._load_multi_temp_dma
-        ).pack(fill=tk.X, pady=2)
+        ).pack(anchor=tk.W, pady=2)
 
         # ===== 내장 마스터 커브/aT 선택 섹션 =====
         ttk.Separator(load_frame, orient='horizontal').pack(fill=tk.X, pady=5)
@@ -2376,7 +2382,7 @@ class PerssonModelGUI_V2:
             text="마스터 커브 로드 (f, E', E'')",
             command=self._load_persson_master_curve,
             style='Accent.TButton'
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ).pack(side=tk.LEFT)
 
         ttk.Button(mc_direct_btn_frame, text="→ 리스트 추가",
                    command=self._add_preset_mastercurve, width=10).pack(side=tk.LEFT, padx=(3, 0))
@@ -2390,7 +2396,7 @@ class PerssonModelGUI_V2:
             text="aT 시프트 팩터 로드 (T, aT)",
             command=self._load_persson_aT,
             style='Accent.TButton'
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ).pack(side=tk.LEFT)
 
         ttk.Button(aT_direct_btn_frame, text="→ 리스트 추가",
                    command=self._add_preset_aT, width=10).pack(side=tk.LEFT, padx=(3, 0))
@@ -2530,9 +2536,10 @@ class PerssonModelGUI_V2:
         self.mc_calc_btn = ttk.Button(
             calc_frame,
             text="마스터 커브 생성",
-            command=self._generate_master_curve
+            command=self._generate_master_curve,
+            style='Accent.TButton'
         )
-        self.mc_calc_btn.pack(fill=tk.X)
+        self.mc_calc_btn.pack(anchor=tk.W)
 
         # Progress bar
         self.mc_progress_var = tk.IntVar()
@@ -2575,14 +2582,15 @@ class PerssonModelGUI_V2:
         ttk.Button(
             export_frame, text="마스터 커브 CSV 내보내기",
             command=self._export_master_curve
-        ).pack(fill=tk.X, pady=2)
+        ).pack(anchor=tk.W, pady=2)
 
         # Make this button more prominent
         finalize_btn = ttk.Button(
-            export_frame, text="▶ 마스터 커브 확정 → Tab 3 (계산설정)",
-            command=self._finalize_master_curve_to_tab3
+            export_frame, text="▶ 마스터 커브 확정 → Tab 3",
+            command=self._finalize_master_curve_to_tab3,
+            style='Accent.TButton'
         )
-        finalize_btn.pack(fill=tk.X, pady=2)
+        finalize_btn.pack(anchor=tk.W, pady=2)
 
         # (Persson 확정 버튼은 '데이터 로드' 섹션으로 이동됨)
 
@@ -4329,7 +4337,7 @@ class PerssonModelGUI_V2:
             save_btn_frame,
             text="계산 과정 그래프 저장",
             command=lambda: self._save_plot(self.fig_calc_progress, "calculation_progress")
-        ).pack(fill=tk.X)
+        ).pack(anchor=tk.W)
 
     def _on_target_hrms_changed(self, *args):
         """Callback when target h'rms value is changed in Tab 2.
@@ -6640,10 +6648,10 @@ class PerssonModelGUI_V2:
 
         # 해상도 프리셋
         RESOLUTION_PRESETS = {
-            'FHD (1920×1080)':  {'win_w': 1920, 'win_h': 1080, 'panel_w': 550},
-            'QHD (2560×1440)':  {'win_w': 2560, 'win_h': 1440, 'panel_w': 750},
-            '4K UHD (3840×2160)': {'win_w': 3840, 'win_h': 2160, 'panel_w': 1000},
-            '사용자 지정':       None,
+            'FHD (1920×1080)':    {'win_w': 1920, 'win_h': 1080, 'panel_w': 600},
+            'QHD (2560×1440)':    {'win_w': 2560, 'win_h': 1440, 'panel_w': 800},
+            '4K UHD (3840×2160)': {'win_w': 3840, 'win_h': 2160, 'panel_w': 1100},
+            '사용자 지정':         None,
         }
 
         row_preset = ttk.Frame(resolution_frame)
@@ -6832,10 +6840,13 @@ class PerssonModelGUI_V2:
                 new_win_h = win_h_var.get()
                 self.root.geometry(f"{new_win_w}x{new_win_h}")
 
-            # 6. Re-apply theme with new fonts
+            # 6. Force geometry recalculation
+            self.root.update_idletasks()
+
+            # 7. Re-apply theme with new fonts
             self._setup_modern_theme()
 
-            # 7. Rescale all existing plot fonts
+            # 8. Rescale all existing plot fonts
             self._font_scale = 0  # force rescale
             self._rescale_all_fonts()
 
@@ -6848,11 +6859,11 @@ class PerssonModelGUI_V2:
             ui_size_var.set(17)
             plot_size_var.set(15)
             mono_font_var.set('Consolas')
-            panel_width_var.set(900)
+            panel_width_var.set(700)
             win_w_var.set(1920)
             win_h_var.set(1080)
             math_font_var.set('dejavusans')
-            preset_var.set('FHD (1920×1080)')
+            preset_var.set('사용자 지정')
             fullscreen_var.set(True)
 
         ttk.Button(btn_frame, text="적용", command=apply_settings, width=12).pack(side=tk.RIGHT, padx=5)
@@ -7403,9 +7414,10 @@ class PerssonModelGUI_V2:
         self.rms_calc_btn = ttk.Button(
             calc_frame,
             text="h'rms slope / Local Strain 계산",
-            command=self._calculate_rms_slope
+            command=self._calculate_rms_slope,
+            style='Accent.TButton'
         )
-        self.rms_calc_btn.pack(fill=tk.X)
+        self.rms_calc_btn.pack(anchor=tk.W)
 
         # Progress bar
         self.rms_progress_var = tk.IntVar()
@@ -7430,13 +7442,13 @@ class PerssonModelGUI_V2:
             text="μ_visc 탭에 Local Strain 적용",
             command=self._apply_local_strain_to_mu_visc
         )
-        self.apply_strain_btn.pack(fill=tk.X, pady=2)
+        self.apply_strain_btn.pack(anchor=tk.W, pady=2)
 
         ttk.Button(
             action_frame,
             text="CSV 내보내기",
             command=self._export_rms_slope_data
-        ).pack(fill=tk.X, pady=2)
+        ).pack(anchor=tk.W, pady=2)
 
         # ============== Right Panel: Plots ==============
 
@@ -7822,7 +7834,7 @@ class PerssonModelGUI_V2:
             text="Strain Sweep 로드",
             command=self._load_strain_sweep_data,
             style='Accent.TButton'
-        ).pack(side=tk.LEFT, fill=tk.X, expand=True)
+        ).pack(side=tk.LEFT)
 
         ttk.Button(ss_btn_frame, text="-> 추가",
                    command=self._add_preset_strain_sweep, width=7).pack(side=tk.LEFT, padx=(3, 0))
@@ -11373,8 +11385,9 @@ class PerssonModelGUI_V2:
         # Plot button (separate row for visibility)
         plot_btn_frame = ttk.Frame(right_frame)
         plot_btn_frame.pack(fill=tk.X, pady=3)
-        plot_btn = ttk.Button(plot_btn_frame, text="체크된 데이터 플롯", command=plot_selected_datasets)
-        plot_btn.pack(fill=tk.X, padx=3, ipady=4)
+        plot_btn = ttk.Button(plot_btn_frame, text="체크된 데이터 플롯", command=plot_selected_datasets,
+                              style='Accent.TButton')
+        plot_btn.pack(anchor=tk.W, padx=3, ipady=4)
 
         # Plot clear and reset buttons
         plot_ctrl_frame = ttk.Frame(right_frame)
@@ -12362,9 +12375,10 @@ class PerssonModelGUI_V2:
         self.integrand_calc_btn = ttk.Button(
             calc_frame,
             text="피적분함수 계산",
-            command=self._calculate_integrand_visualization
+            command=self._calculate_integrand_visualization,
+            style='Accent.TButton'
         )
-        self.integrand_calc_btn.pack(fill=tk.X)
+        self.integrand_calc_btn.pack(anchor=tk.W)
 
         # Progress bar
         self.integrand_progress_var = tk.IntVar()
@@ -14415,7 +14429,7 @@ class PerssonModelGUI_V2:
             btn_frame, text="주파수 감도 분석 실행",
             command=self._run_ve_advisor_analysis,
             style='Accent.TButton')
-        self.ve_run_btn.pack(fill=tk.X, pady=2)
+        self.ve_run_btn.pack(anchor=tk.W, pady=2)
 
         self.ve_progress_var = tk.DoubleVar(value=0)
         ttk.Progressbar(btn_frame, variable=self.ve_progress_var,
