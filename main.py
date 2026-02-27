@@ -7187,7 +7187,7 @@ class PerssonModelGUI_V2:
         tk.Frame(scrollable_frame, bg='white', height=80).pack(fill=tk.X)
 
         # Force scrollregion update after all widgets are added
-        self.root.after(100, _update_scrollregion)
+        self.root.after(100, lambda: _canvas.configure(scrollregion=_canvas.bbox("all")))
 
     def _create_rms_slope_tab(self, parent):
         """Create h'rms / Local Strain calculation tab."""
@@ -12609,7 +12609,7 @@ class PerssonModelGUI_V2:
         tk.Frame(scrollable_frame, bg='white', height=80).pack(fill=tk.X)
 
         # Force scrollregion update after all widgets are added
-        self.root.after(100, _update_scrollregion)
+        self.root.after(100, lambda: _canvas.configure(scrollregion=_canvas.bbox("all")))
 
     def _create_debug_tab(self, parent):
         """Create debug log tab for monitoring calculation values."""
