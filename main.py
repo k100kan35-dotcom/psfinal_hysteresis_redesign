@@ -8294,11 +8294,12 @@ class PerssonModelGUI_V2:
             self.temp_listbox_B.selection_set(i)
 
     def _persson_average_fg(self):
-        """Persson average f,g 계산: Split1/Split2 기반 3-zone 가중 평균.
+        """Persson average f,g 계산: Zone별 독립 평균 → Split1/Split2 기준 stitching.
 
         1) fg_by_T가 없으면 먼저 f,g 곡선 계산 (strain data 필요)
-        2) Split1/Split2로 온도를 3개 Zone으로 분류
-        3) interpolator 생성 → mu_visc 계산에 바로 사용 가능
+        2) Zone1/2/3 각각의 체크된 온도로 독립적으로 f,g 평균 계산
+        3) Split1/Split2를 strain 경계로 3개 Zone 결과를 stitching
+        4) interpolator 생성 → mu_visc 계산에 바로 사용 가능
         """
         # Step 1: fg_by_T가 없으면 자동으로 계산
         if self.fg_by_T is None:
@@ -8312,9 +8313,11 @@ class PerssonModelGUI_V2:
                 return  # 계산 실패
 
         try:
-            # Step 2: Split1/Split2 기반 strain-split 구성
+            # Step 2: Split1/Split2 파라미터
             split1_percent = float(self.split1_var.get())
-            split_strain = split1_percent / 100.0
+            split1_strain = split1_percent / 100.0
+            split2_percent = float(self.split2_var.get())
+            split2_strain = split2_percent / 100.0
 
             extend_percent = float(self.extend_strain_var.get())
             max_strain = extend_percent / 100.0
@@ -8323,52 +8326,94 @@ class PerssonModelGUI_V2:
             use_persson = self.use_persson_grid_var.get()
             grid_strain = create_strain_grid(n_pts, max_strain, use_persson_grid=use_persson)
 
-            # DEFAULT_STRAIN_SPLIT 가중치 + UI threshold 적용
-            strain_split_cfg = dict(DEFAULT_STRAIN_SPLIT)
-            strain_split_cfg['threshold'] = split_strain
-
             # Zone 체크박스가 아직 없으면 초기 생성 (이미 있으면 사용자 선택 유지)
             if not self.zone1_checkbuttons:
                 self._update_zone_checkboxes()
 
-            # 체크된 온도만 사용 (3개 Zone에서 중복 제거)
-            selected_set = set()
-            for zone_cbs in [self.zone1_checkbuttons, self.zone2_checkbuttons, self.zone3_checkbuttons]:
-                for var, T, _ in zone_cbs:
-                    if var.get():
-                        selected_set.add(T)
-            selected_temps = sorted(selected_set)
+            # Zone별 선택된 온도 수집
+            zone1_temps = sorted(T for var, T, _ in self.zone1_checkbuttons if var.get())
+            zone2_temps = sorted(T for var, T, _ in self.zone2_checkbuttons if var.get())
+            zone3_temps = sorted(T for var, T, _ in self.zone3_checkbuttons if var.get())
 
-            if not selected_temps:
+            all_selected = sorted(set(zone1_temps + zone2_temps + zone3_temps))
+
+            if not all_selected:
                 self._show_status("선택된 온도가 없습니다.\nZone 체크박스에서 최소 1개 온도를 선택하세요.", 'warning')
                 return
 
-            # Zone classification for status display
-            split2_percent = float(self.split2_var.get())
-            zone1_temps = [t for t in selected_temps if t < split1_percent]
-            zone2_temps = [t for t in selected_temps if split1_percent <= t <= split2_percent]
-            zone3_temps = [t for t in selected_temps if t > split2_percent]
+            # 각 온도의 f,g를 grid_strain에 보간
+            F_by_T = {}
+            G_by_T = {}
+            for T in all_selected:
+                if T not in self.fg_by_T:
+                    continue
+                s = self.fg_by_T[T]['strain']
+                f = self.fg_by_T[T]['f']
+                g = self.fg_by_T[T]['g']
+                if len(s) < 2:
+                    continue
+                f_interp, g_interp = create_fg_interpolator(
+                    s, f, g, interp_kind='loglog_linear', extrap_mode='none'
+                )
+                fq = np.array([f_interp(sv) for sv in grid_strain])
+                gq = np.array([g_interp(sv) for sv in grid_strain]) if g_interp else np.full_like(grid_strain, np.nan)
+                # Forward fill NaN (trailing edge)
+                for arr in (fq, gq):
+                    last_valid = np.nan
+                    for i in range(len(arr)):
+                        if np.isfinite(arr[i]):
+                            last_valid = arr[i]
+                        elif np.isfinite(last_valid):
+                            arr[i] = last_valid
+                F_by_T[T] = fq
+                G_by_T[T] = gq
 
-            result = average_fg_curves(
-                self.fg_by_T,
-                selected_temps,
-                grid_strain,
-                interp_kind='loglog_linear',
-                avg_mode='mean',
-                clip_leq_1=self.clip_fg_var.get(),
-                strain_split=strain_split_cfg
-            )
-
-            if result is None:
-                messagebox.showerror("오류",
-                    "Persson average 실패: 데이터가 부족합니다.\n"
-                    "DEFAULT_STRAIN_SPLIT 온도(0.02, 29.9, 49.99°C)와\n"
-                    "데이터 온도가 매칭되지 않을 수 있습니다.")
+            if not F_by_T:
+                messagebox.showerror("오류", "보간 가능한 온도 데이터가 없습니다.")
                 return
 
-            f_stitched = result['f_avg']
-            g_stitched = result['g_avg']
-            n_eff_stitched = result['n_eff']
+            # Zone별 평균 계산 (equal-weight mean)
+            def _zone_mean(temps):
+                valid = [T for T in temps if T in F_by_T]
+                if not valid:
+                    return None, None
+                F = np.vstack([F_by_T[T] for T in valid])
+                G = np.vstack([G_by_T[T] for T in valid])
+                return np.nanmean(F, axis=0), np.nanmean(G, axis=0)
+
+            f1, g1 = _zone_mean(zone1_temps)
+            f2, g2 = _zone_mean(zone2_temps)
+            f3, g3 = _zone_mean(zone3_temps)
+
+            # Fallback: Zone 데이터가 없으면 다른 Zone에서 대체
+            fallback_f, fallback_g = _zone_mean(all_selected)
+
+            n_grid = len(grid_strain)
+            f_stitched = np.empty(n_grid)
+            g_stitched = np.empty(n_grid)
+            n_eff_stitched = np.ones(n_grid, dtype=int)
+
+            for i in range(n_grid):
+                eps = grid_strain[i]
+                if eps < split1_strain:
+                    # Zone1 영역
+                    fv = f1[i] if f1 is not None and np.isfinite(f1[i]) else (fallback_f[i] if fallback_f is not None else 1.0)
+                    gv = g1[i] if g1 is not None and np.isfinite(g1[i]) else (fallback_g[i] if fallback_g is not None else 1.0)
+                elif eps <= split2_strain:
+                    # Zone2 영역
+                    fv = f2[i] if f2 is not None and np.isfinite(f2[i]) else (fallback_f[i] if fallback_f is not None else 1.0)
+                    gv = g2[i] if g2 is not None and np.isfinite(g2[i]) else (fallback_g[i] if fallback_g is not None else 1.0)
+                else:
+                    # Zone3 영역
+                    fv = f3[i] if f3 is not None and np.isfinite(f3[i]) else (fallback_f[i] if fallback_f is not None else 1.0)
+                    gv = g3[i] if g3 is not None and np.isfinite(g3[i]) else (fallback_g[i] if fallback_g is not None else 1.0)
+                f_stitched[i] = fv
+                g_stitched[i] = gv
+
+            # Clip f,g <= 1
+            if self.clip_fg_var.get():
+                f_stitched = np.clip(f_stitched, 0, 1)
+                g_stitched = np.clip(g_stitched, 0, 1)
 
             original_len = len(grid_strain)
 
@@ -8379,10 +8424,13 @@ class PerssonModelGUI_V2:
                 'f_avg': f_stitched,
                 'g_avg': g_stitched,
                 'n_eff': n_eff_stitched,
-                'split': split_strain,
-                'temps_A': selected_temps,
-                'temps_B': selected_temps,
-                'strain_split_cfg': strain_split_cfg
+                'split': split1_strain,
+                'split2': split2_strain,
+                'temps_A': zone1_temps,
+                'temps_B': zone3_temps,
+                'zone1_temps': zone1_temps,
+                'zone2_temps': zone2_temps,
+                'zone3_temps': zone3_temps,
             }
 
             # Set as main averaged result for mu_visc calculation
@@ -8390,7 +8438,7 @@ class PerssonModelGUI_V2:
                 'strain': grid_strain.copy(),
                 'f_avg': f_stitched,
                 'g_avg': g_stitched,
-                'Ts_used': selected_temps,
+                'Ts_used': all_selected,
                 'n_eff': n_eff_stitched
             }
 
@@ -8404,17 +8452,19 @@ class PerssonModelGUI_V2:
             self._update_fg_plot_persson_avg()
 
             # Update status
-            n_sel = len(selected_temps)
-            temps_str = ", ".join(f"{t:.1f}" for t in selected_temps)
-            zone_info = (f"Z1:{len(zone1_temps)} Z2:{len(zone2_temps)} Z3:{len(zone3_temps)}")
+            n_sel = len(all_selected)
+            z1_str = ", ".join(f"{t:.1f}" for t in zone1_temps) if zone1_temps else "없음"
+            z2_str = ", ".join(f"{t:.1f}" for t in zone2_temps) if zone2_temps else "없음"
+            z3_str = ", ".join(f"{t:.1f}" for t in zone3_temps) if zone3_temps else "없음"
+            zone_info = f"Z1:{len(zone1_temps)} Z2:{len(zone2_temps)} Z3:{len(zone3_temps)}"
             self.persson_avg_status_var.set(
                 f"완료: Split1={split1_percent:.0f}%, Split2={split2_percent:.0f}%, "
-                f"{n_sel}개 온도 ({zone_info}) [{temps_str}°C]"
+                f"{n_sel}개 온도 ({zone_info})"
             )
             self.status_var.set(
                 f"Persson average f,g 완료: N={n_pts}, "
                 f"Split1={split1_percent:.0f}%, Split2={split2_percent:.0f}%, "
-                f"{n_sel}개 온도 ({zone_info})"
+                f"Z1:[{z1_str}°C] Z2:[{z2_str}°C] Z3:[{z3_str}°C]"
             )
 
         except Exception as e:
@@ -8443,7 +8493,8 @@ class PerssonModelGUI_V2:
         x_max = 0.4  # 기본 x축 max
         if self.piecewise_result is not None:
             s = self.piecewise_result['strain']
-            split = self.piecewise_result['split']
+            split1 = self.piecewise_result['split']
+            split2 = self.piecewise_result.get('split2', None)
             x_max = max(s[-1], 0.4) if len(s) > 0 else 0.4
 
             f_final = self.piecewise_result['f_avg']
@@ -8451,9 +8502,13 @@ class PerssonModelGUI_V2:
             self.ax_fg_curves.plot(s, f_final, 'b-', linewidth=3.5, label='f(ε) Persson Avg')
             self.ax_fg_curves.plot(s, g_final, 'r-', linewidth=3.5, label='g(ε) Persson Avg')
 
-            # Split line
-            self.ax_fg_curves.axvline(split, color='green', linewidth=2, linestyle=':', alpha=0.8,
-                                      label=f'Split @ {split*100:.1f}%')
+            # Split1 line
+            self.ax_fg_curves.axvline(split1, color='green', linewidth=2, linestyle=':', alpha=0.8,
+                                      label=f'Split1 @ {split1*100:.1f}%')
+            # Split2 line
+            if split2 is not None:
+                self.ax_fg_curves.axvline(split2, color='orange', linewidth=2, linestyle=':', alpha=0.8,
+                                          label=f'Split2 @ {split2*100:.1f}%')
 
         elif self.fg_averaged is not None:
             s = self.fg_averaged['strain']
@@ -8510,10 +8565,15 @@ class PerssonModelGUI_V2:
                 writer.writerow(['# 계산온도(°C)', f'{calc_temp:.1f}'])
                 writer.writerow(['# 비선형보정적용', '예' if nonlinear_applied else '아니오'])
                 if self.piecewise_result is not None:
-                    split = self.piecewise_result['split']
-                    writer.writerow(['# Split Strain(%)', f'{split*100:.2f}'])
-                    writer.writerow(['# Method', 'Persson Average (RANK1 weighted)'])
-                    writer.writerow(['# Temps used', str(self.piecewise_result.get("temps_A", []))])
+                    split1 = self.piecewise_result['split']
+                    split2 = self.piecewise_result.get('split2', None)
+                    writer.writerow(['# Split1 Strain(%)', f'{split1*100:.2f}'])
+                    if split2 is not None:
+                        writer.writerow(['# Split2 Strain(%)', f'{split2*100:.2f}'])
+                    writer.writerow(['# Method', 'Persson Average (3-zone)'])
+                    writer.writerow(['# Zone1 Temps', str(self.piecewise_result.get("zone1_temps", []))])
+                    writer.writerow(['# Zone2 Temps', str(self.piecewise_result.get("zone2_temps", []))])
+                    writer.writerow(['# Zone3 Temps', str(self.piecewise_result.get("zone3_temps", []))])
                 writer.writerow([])  # 빈 줄
                 writer.writerow(['strain_fraction', 'f_value', 'g_value', 'n_eff'])
 
