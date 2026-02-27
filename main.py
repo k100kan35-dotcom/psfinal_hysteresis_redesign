@@ -199,15 +199,15 @@ class PerssonModelGUI_V2:
     # On high-DPI displays, the Tk scaling factor is reset in main() so that
     # these point sizes render at the same physical size on every machine.
     FONTS = {
-        'heading':   ('Segoe UI', 12, 'bold'),
-        'subheading':('Segoe UI', 11, 'bold'),
-        'body':      ('Segoe UI', 10),
-        'body_bold': ('Segoe UI', 10, 'bold'),
-        'small':     ('Segoe UI', 9),
-        'small_bold':('Segoe UI', 9, 'bold'),
-        'tiny':      ('Segoe UI', 8),
-        'mono':      ('Consolas', 10),
-        'mono_small':('Consolas', 9),
+        'heading':   ('Segoe UI', 17, 'bold'),
+        'subheading':('Segoe UI', 15, 'bold'),
+        'body':      ('Segoe UI', 12),
+        'body_bold': ('Segoe UI', 12, 'bold'),
+        'small':     ('Segoe UI', 11),
+        'small_bold':('Segoe UI', 11, 'bold'),
+        'tiny':      ('Segoe UI', 10),
+        'mono':      ('Consolas', 12),
+        'mono_small':('Consolas', 11),
     }
 
     # ── Standardised Dimensions (pixels, applied uniformly to every tab) ──
@@ -6874,7 +6874,7 @@ class PerssonModelGUI_V2:
         def reset_defaults():
             """Reset to default settings."""
             ui_font_var.set('Segoe UI')
-            ui_size_var.set(10)
+            ui_size_var.set(12)
             plot_size_var.set(10)
             mono_font_var.set('Consolas')
             panel_width_var.set(700)
@@ -7957,7 +7957,7 @@ class PerssonModelGUI_V2:
         spline_row = ttk.Frame(persson_avg_frame)
         spline_row.pack(fill=tk.X, pady=1)
         ttk.Label(spline_row, text="보간:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.spline_method_var = tk.StringVar(value="loglog_linear")
+        self.spline_method_var = tk.StringVar(value="loglog_cubic")
         ttk.Radiobutton(spline_row, text="Linear (log-log)",
                         variable=self.spline_method_var, value="loglog_linear").pack(side=tk.LEFT, padx=(4, 8))
         ttk.Radiobutton(spline_row, text="Cubic spline (log-log)",
@@ -8332,6 +8332,15 @@ class PerssonModelGUI_V2:
             extend_percent = float(self.extend_strain_var.get())
             max_strain = extend_percent / 100.0
 
+            # Clamp max_strain to actual dataset max (never exceed data range)
+            if self.fg_by_T is not None:
+                data_max_strain = max(
+                    np.max(self.fg_by_T[T]['strain']) for T in self.fg_by_T
+                )
+                if max_strain > data_max_strain:
+                    max_strain = data_max_strain
+                    self.extend_strain_var.set(f"{data_max_strain * 100:.2f}")
+
             n_pts = int(self.n_avg_pts_var.get())
             use_persson = self.use_persson_grid_var.get()
             grid_strain = create_strain_grid(n_pts, max_strain, use_persson_grid=use_persson)
@@ -8503,13 +8512,16 @@ class PerssonModelGUI_V2:
                 self.ax_fg_curves.plot(s, f, 'b-', alpha=0.15, linewidth=0.8)
                 self.ax_fg_curves.plot(s, g, 'r-', alpha=0.15, linewidth=0.8)
 
+        # Determine x_max from actual dataset max strain
+        x_max = 0.4  # fallback
+        if self.fg_by_T is not None and self.fg_by_T:
+            x_max = max(np.max(self.fg_by_T[T]['strain']) for T in self.fg_by_T)
+
         # Plot Persson average results
-        x_max = 0.4  # 기본 x축 max
         if self.piecewise_result is not None:
             s = self.piecewise_result['strain']
             split1 = self.piecewise_result['split']
             split2 = self.piecewise_result.get('split2', None)
-            x_max = max(s[-1], 0.4) if len(s) > 0 else 0.4
 
             f_final = self.piecewise_result['f_avg']
             g_final = self.piecewise_result['g_avg']
@@ -8528,7 +8540,6 @@ class PerssonModelGUI_V2:
             s = self.fg_averaged['strain']
             f_avg = self.fg_averaged['f_avg']
             g_avg = self.fg_averaged['g_avg']
-            x_max = max(s[-1], 0.4) if len(s) > 0 else 0.4
             self.ax_fg_curves.plot(s, f_avg, 'b-', linewidth=3, label='f(ε) 평균')
             self.ax_fg_curves.plot(s, g_avg, 'r-', linewidth=3, label='g(ε) 평균')
 
@@ -8759,13 +8770,19 @@ class PerssonModelGUI_V2:
                 self.temp_listbox.insert(tk.END, f"{T:.2f} °C")
                 self.temp_listbox.selection_set(tk.END)
 
+            # Auto-set Grid Max Strain to dataset's actual max strain
+            global_max_strain = max(
+                np.max(self.fg_by_T[T]['strain']) for T in self.fg_by_T
+            )
+            self.extend_strain_var.set(f"{global_max_strain * 100:.2f}")
+
             # Plot individual curves
             self._update_fg_plot()
 
             # Update Zone checkboxes with temperature classification
             self._update_zone_checkboxes()
 
-            self.status_var.set(f"f,g 곡선 계산 완료: {len(self.fg_by_T)}개 온도")
+            self.status_var.set(f"f,g 곡선 계산 완료: {len(self.fg_by_T)}개 온도, Grid Max={global_max_strain*100:.2f}%")
 
         except Exception as e:
             messagebox.showerror("오류", f"f,g 계산 실패:\n{str(e)}")
@@ -8912,9 +8929,9 @@ class PerssonModelGUI_V2:
             temps = sorted(self.fg_by_T.keys())
             selected_temps = [temps[i] for i in selections]
 
-            # Create strain grid
+            # Create strain grid (use global dataset max strain)
             max_strain = max(
-                np.max(self.fg_by_T[T]['strain']) for T in selected_temps
+                np.max(self.fg_by_T[T]['strain']) for T in self.fg_by_T
             )
             grid_strain = create_strain_grid(30, max_strain, use_persson_grid=True)
 
@@ -8967,12 +8984,15 @@ class PerssonModelGUI_V2:
                 self.ax_fg_curves.plot(s, f, 'b-', alpha=0.3, linewidth=1)
                 self.ax_fg_curves.plot(s, g, 'r-', alpha=0.3, linewidth=1)
 
+        # Determine x_max from actual dataset max strain
+        x_max = 0.4  # fallback
+        if self.fg_by_T is not None and self.fg_by_T:
+            x_max = max(np.max(self.fg_by_T[T]['strain']) for T in self.fg_by_T)
+
         # Plot Persson average if available
-        x_max = 0.4  # 기본 x축 max
         if self.piecewise_result is not None:
             s = self.piecewise_result['strain']
             split = self.piecewise_result['split']
-            x_max = max(s[-1], 0.4) if len(s) > 0 else 0.4
             f_final = self.piecewise_result['f_avg']
             g_final = self.piecewise_result['g_avg']
             self.ax_fg_curves.plot(s, f_final, 'b-', linewidth=3.5, label='f(ε) Persson Avg')
@@ -8984,7 +9004,6 @@ class PerssonModelGUI_V2:
             s = self.fg_averaged['strain']
             f_avg = self.fg_averaged['f_avg']
             g_avg = self.fg_averaged['g_avg']
-            x_max = max(s[-1], 0.4) if len(s) > 0 else 0.4
             self.ax_fg_curves.plot(s, f_avg, 'b-', linewidth=3, label='f(ε) 평균')
             self.ax_fg_curves.plot(s, g_avg, 'r-', linewidth=3, label='g(ε) 평균')
             self.ax_fg_curves.legend(loc='best')
