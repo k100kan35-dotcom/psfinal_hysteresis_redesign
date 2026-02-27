@@ -7815,14 +7815,23 @@ class PerssonModelGUI_V2:
         self.use_persson_grid_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(row2, text="Persson Grid", variable=self.use_persson_grid_var).pack(side=tk.LEFT)
 
-        # Compute f,g button
+        # Compute f,g button row (f,g 계산 + f,g 외삽)
+        fg_btn_row = ttk.Frame(fg_settings_frame)
+        fg_btn_row.pack(fill=tk.X, pady=2)
         ttk.Button(
-            fg_settings_frame,
+            fg_btn_row,
             text="f,g 계산",
             command=self._compute_fg_curves,
             style='Accent.TButton',
-            width=15
-        ).pack(anchor=tk.W, pady=2)
+            width=12
+        ).pack(side=tk.LEFT, padx=(0, 3))
+        ttk.Button(
+            fg_btn_row,
+            text="f,g 외삽",
+            command=self._extrapolate_fg_curves,
+            style='Accent.TButton',
+            width=12
+        ).pack(side=tk.LEFT)
 
         # 3. Persson Average f,g
         persson_avg_frame = self._create_section(left_panel, "3) Persson average f,g")
@@ -7837,16 +7846,19 @@ class PerssonModelGUI_V2:
                   foreground='#64748B').pack(side=tk.LEFT, padx=4)
 
         # Interpolation method description
-        ttk.Label(persson_avg_frame, text="Cubic spline 개별보간 → nanmean → log-spaced",
+        ttk.Label(persson_avg_frame, text="spline 개별보간 → nanmean → log-spaced",
                   font=self.FONTS['small'], foreground='#64748B').pack(anchor=tk.W, pady=1)
 
-        # Zone1 temperatures (< Split1)
-        zone1_row = ttk.Frame(persson_avg_frame)
-        zone1_row.pack(fill=tk.X, pady=1)
-        ttk.Label(zone1_row, text="Zone1 온도 (< Split1):", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.zone1_temps_var = tk.StringVar(value="(f,g 곡선 계산 후 표시됩니다)")
-        ttk.Label(zone1_row, textvariable=self.zone1_temps_var, font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT, padx=4)
+        # Zone1 온도 (< Split1) - header + dynamic checkbox area
+        zone1_header = ttk.Frame(persson_avg_frame)
+        zone1_header.pack(fill=tk.X, pady=(3, 0))
+        ttk.Label(zone1_header, text="Zone1 온도 (< Split1):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.zone1_container = ttk.Frame(persson_avg_frame)
+        self.zone1_container.pack(fill=tk.X, padx=(15, 0))
+        self.zone1_placeholder = ttk.Label(self.zone1_container,
+            text="(f,g 곡선 계산 후 표시됩니다)", font=self.FONTS['small'], foreground='#64748B')
+        self.zone1_placeholder.pack(anchor=tk.W)
+        self.zone1_checkbuttons = []  # [(var, T, widget), ...]
 
         # Split1 row
         split1_row = ttk.Frame(persson_avg_frame)
@@ -7855,13 +7867,16 @@ class PerssonModelGUI_V2:
         self.split1_var = tk.StringVar(value="10")
         ttk.Entry(split1_row, textvariable=self.split1_var, width=6).pack(side=tk.LEFT, padx=2)
 
-        # Zone2 temperatures (Split1 ~ Split2)
-        zone2_row = ttk.Frame(persson_avg_frame)
-        zone2_row.pack(fill=tk.X, pady=1)
-        ttk.Label(zone2_row, text="Zone2 온도 (Split1~Split2):", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.zone2_temps_var = tk.StringVar(value="(f,g 곡선 계산 후 표시됩니다)")
-        ttk.Label(zone2_row, textvariable=self.zone2_temps_var, font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT, padx=4)
+        # Zone2 온도 (Split1 ~ Split2) - header + dynamic checkbox area
+        zone2_header = ttk.Frame(persson_avg_frame)
+        zone2_header.pack(fill=tk.X, pady=(3, 0))
+        ttk.Label(zone2_header, text="Zone2 온도 (Split1~Split2):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.zone2_container = ttk.Frame(persson_avg_frame)
+        self.zone2_container.pack(fill=tk.X, padx=(15, 0))
+        self.zone2_placeholder = ttk.Label(self.zone2_container,
+            text="(f,g 곡선 계산 후 표시됩니다)", font=self.FONTS['small'], foreground='#64748B')
+        self.zone2_placeholder.pack(anchor=tk.W)
+        self.zone2_checkbuttons = []
 
         # Split2 row
         split2_row = ttk.Frame(persson_avg_frame)
@@ -7870,13 +7885,16 @@ class PerssonModelGUI_V2:
         self.split2_var = tk.StringVar(value="20")
         ttk.Entry(split2_row, textvariable=self.split2_var, width=6).pack(side=tk.LEFT, padx=2)
 
-        # Zone3 temperatures (> Split2)
-        zone3_row = ttk.Frame(persson_avg_frame)
-        zone3_row.pack(fill=tk.X, pady=1)
-        ttk.Label(zone3_row, text="Zone3 온도 (> Split2):", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.zone3_temps_var = tk.StringVar(value="(f,g 곡선 계산 후 표시됩니다)")
-        ttk.Label(zone3_row, textvariable=self.zone3_temps_var, font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT, padx=4)
+        # Zone3 온도 (> Split2) - header + dynamic checkbox area
+        zone3_header = ttk.Frame(persson_avg_frame)
+        zone3_header.pack(fill=tk.X, pady=(3, 0))
+        ttk.Label(zone3_header, text="Zone3 온도 (> Split2):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.zone3_container = ttk.Frame(persson_avg_frame)
+        self.zone3_container.pack(fill=tk.X, padx=(15, 0))
+        self.zone3_placeholder = ttk.Label(self.zone3_container,
+            text="(f,g 곡선 계산 후 표시됩니다)", font=self.FONTS['small'], foreground='#64748B')
+        self.zone3_placeholder.pack(anchor=tk.W)
+        self.zone3_checkbuttons = []
 
         # Backward compatibility: keep split_strain_var pointing to split1
         self.split_strain_var = self.split1_var
@@ -8201,25 +8219,30 @@ class PerssonModelGUI_V2:
             strain_split_cfg = dict(DEFAULT_STRAIN_SPLIT)
             strain_split_cfg['threshold'] = split_strain
 
-            # 모든 온도 자동 사용 + Zone 분류
-            all_temps = sorted(self.fg_by_T.keys())
+            # Zone 체크박스 업데이트 (Split 값 변경 반영)
+            self._update_zone_checkboxes()
 
-            # Zone classification (Split1/Split2)
+            # 체크된 온도만 사용
+            selected_temps = []
+            for zone_cbs in [self.zone1_checkbuttons, self.zone2_checkbuttons, self.zone3_checkbuttons]:
+                for var, T, _ in zone_cbs:
+                    if var.get():
+                        selected_temps.append(T)
+            selected_temps = sorted(selected_temps)
+
+            if not selected_temps:
+                self._show_status("선택된 온도가 없습니다.\nZone 체크박스에서 최소 1개 온도를 선택하세요.", 'warning')
+                return
+
+            # Zone classification for status display
             split2_percent = float(self.split2_var.get())
-            zone1_temps = [t for t in all_temps if t < split1_percent]
-            zone2_temps = [t for t in all_temps if split1_percent <= t <= split2_percent]
-            zone3_temps = [t for t in all_temps if t > split2_percent]
-
-            # Update Zone temperature displays
-            def fmt_temps(temps):
-                return ", ".join(f"{t:.1f}°C" for t in temps) if temps else "(해당 없음)"
-            self.zone1_temps_var.set(fmt_temps(zone1_temps))
-            self.zone2_temps_var.set(fmt_temps(zone2_temps))
-            self.zone3_temps_var.set(fmt_temps(zone3_temps))
+            zone1_temps = [t for t in selected_temps if t < split1_percent]
+            zone2_temps = [t for t in selected_temps if split1_percent <= t <= split2_percent]
+            zone3_temps = [t for t in selected_temps if t > split2_percent]
 
             result = average_fg_curves(
                 self.fg_by_T,
-                all_temps,
+                selected_temps,
                 grid_strain,
                 interp_kind='loglog_linear',
                 avg_mode='mean',
@@ -8258,8 +8281,8 @@ class PerssonModelGUI_V2:
                 'g_avg': g_stitched,
                 'n_eff': n_eff_stitched,
                 'split': split_strain,
-                'temps_A': all_temps,
-                'temps_B': all_temps,
+                'temps_A': selected_temps,
+                'temps_B': selected_temps,
                 'strain_split_cfg': strain_split_cfg
             }
 
@@ -8268,7 +8291,7 @@ class PerssonModelGUI_V2:
                 'strain': grid_strain.copy(),
                 'f_avg': f_stitched,
                 'g_avg': g_stitched,
-                'Ts_used': all_temps,
+                'Ts_used': selected_temps,
                 'n_eff': n_eff_stitched
             }
 
@@ -8282,16 +8305,17 @@ class PerssonModelGUI_V2:
             self._update_fg_plot_persson_avg()
 
             # Update status
-            n_temps = len(all_temps)
-            temps_str = ", ".join(f"{t:.1f}" for t in sorted(all_temps))
+            n_sel = len(selected_temps)
+            temps_str = ", ".join(f"{t:.1f}" for t in selected_temps)
+            zone_info = (f"Z1:{len(zone1_temps)} Z2:{len(zone2_temps)} Z3:{len(zone3_temps)}")
             self.persson_avg_status_var.set(
                 f"완료: Split1={split1_percent:.0f}%, Split2={split2_percent:.0f}%, "
-                f"{n_temps}개 온도 [{temps_str}°C]"
+                f"{n_sel}개 온도 ({zone_info}) [{temps_str}°C]"
             )
             self.status_var.set(
                 f"Persson average f,g 완료: N={n_pts}, "
                 f"Split1={split1_percent:.0f}%, Split2={split2_percent:.0f}%, "
-                f"{n_temps}개 온도"
+                f"{n_sel}개 온도 ({zone_info})"
             )
 
         except Exception as e:
@@ -8562,12 +8586,118 @@ class PerssonModelGUI_V2:
             # Plot individual curves
             self._update_fg_plot()
 
+            # Update Zone checkboxes with temperature classification
+            self._update_zone_checkboxes()
+
             self.status_var.set(f"f,g 곡선 계산 완료: {len(self.fg_by_T)}개 온도")
 
         except Exception as e:
             messagebox.showerror("오류", f"f,g 계산 실패:\n{str(e)}")
             import traceback
             traceback.print_exc()
+
+    def _extrapolate_fg_curves(self):
+        """f,g 외삽: 모든 온도의 f,g를 max strain까지 외삽 (마지막 값 유지).
+
+        불러와진 모든 범위 내에서 가장 큰 max strain을 기준으로,
+        해당 strain에 도달하지 못한 데이터셋은 마지막 보정계수를 일정하게
+        max strain까지 적용한다.
+        """
+        if self.fg_by_T is None:
+            self._show_status("먼저 f,g 곡선을 계산하세요.", 'warning')
+            return
+
+        try:
+            # 전체 온도에서 최대 strain 찾기
+            global_max_strain = max(
+                np.max(self.fg_by_T[T]['strain']) for T in self.fg_by_T
+            )
+
+            extrap_count = 0
+            for T in self.fg_by_T:
+                data = self.fg_by_T[T]
+                strain = data['strain']
+                f_vals = data['f']
+                g_vals = data['g']
+                local_max = np.max(strain)
+
+                if local_max < global_max_strain:
+                    # 외삽 필요: 마지막 값으로 max strain까지 연장
+                    n_extend = 20  # 외삽 포인트 수
+                    extend_strains = np.linspace(local_max * 1.01, global_max_strain, n_extend)
+                    f_last = f_vals[-1]
+                    g_last = g_vals[-1]
+
+                    data['strain'] = np.concatenate([strain, extend_strains])
+                    data['f'] = np.concatenate([f_vals, np.full(n_extend, f_last)])
+                    data['g'] = np.concatenate([g_vals, np.full(n_extend, g_last)])
+                    extrap_count += 1
+
+            # Re-plot
+            self._update_fg_plot()
+
+            # Update Zone checkboxes (data point count changed)
+            self._update_zone_checkboxes()
+
+            self._show_status(
+                f"f,g 외삽 완료: {extrap_count}개 온도 외삽됨\n"
+                f"최대 strain = {global_max_strain*100:.1f}% (모든 온도 동일하게 적용)",
+                'success')
+
+        except Exception as e:
+            messagebox.showerror("오류", f"f,g 외삽 실패:\n{str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    def _update_zone_checkboxes(self):
+        """Update Zone1/2/3 checkbox areas based on fg_by_T data and Split1/Split2."""
+        if self.fg_by_T is None:
+            return
+
+        try:
+            split1 = float(self.split1_var.get())
+            split2 = float(self.split2_var.get())
+        except ValueError:
+            split1, split2 = 10.0, 20.0
+
+        temps = sorted(self.fg_by_T.keys())
+
+        # Classify temperatures into zones
+        zone1_temps = [T for T in temps if T < split1]
+        zone2_temps = [T for T in temps if split1 <= T <= split2]
+        zone3_temps = [T for T in temps if T > split2]
+
+        # Helper: populate a zone container with checkboxes
+        def populate_zone(container, placeholder, old_cbs, zone_temps):
+            # Clear old widgets
+            for _, _, w in old_cbs:
+                w.destroy()
+            placeholder.pack_forget()
+            new_cbs = []
+
+            if not zone_temps:
+                placeholder.config(text="(해당 온도 없음)")
+                placeholder.pack(anchor=tk.W)
+            else:
+                for T in zone_temps:
+                    n_pts = len(self.fg_by_T[T]['strain'])
+                    max_s = np.max(self.fg_by_T[T]['strain']) * 100
+                    var = tk.BooleanVar(value=True)
+                    cb_text = f"{T:.2f}°C  ({n_pts}pts, max {max_s:.1f}%)"
+                    cb = ttk.Checkbutton(container, text=cb_text, variable=var)
+                    cb.pack(anchor=tk.W)
+                    new_cbs.append((var, T, cb))
+            return new_cbs
+
+        self.zone1_checkbuttons = populate_zone(
+            self.zone1_container, self.zone1_placeholder,
+            self.zone1_checkbuttons, zone1_temps)
+        self.zone2_checkbuttons = populate_zone(
+            self.zone2_container, self.zone2_placeholder,
+            self.zone2_checkbuttons, zone2_temps)
+        self.zone3_checkbuttons = populate_zone(
+            self.zone3_container, self.zone3_placeholder,
+            self.zone3_checkbuttons, zone3_temps)
 
     def _average_fg_curves(self):
         """Average f,g curves from selected temperatures."""
