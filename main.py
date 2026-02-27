@@ -8761,7 +8761,8 @@ class PerssonModelGUI_V2:
     def _update_zone_checkboxes(self):
         """Update Zone1/2/3 checkbox areas based on fg_by_T data and Split1/Split2.
 
-        모든 Zone에 전체 온도를 표시하되, 초기 체크 상태가 다름:
+        기존 체크박스가 있으면 사용자 선택 상태를 보존하고,
+        처음 생성할 때만 기본 체크 상태를 적용:
         - Zone1: 최저온도 제외, 나머지 모두 체크
         - Zone2: 최저온도 + 두번째 최저온도 제외, 나머지 모두 체크
         - Zone3: Split2 초과 온도만 체크
@@ -8779,8 +8780,12 @@ class PerssonModelGUI_V2:
         t_2nd = temps[1] if len(temps) >= 2 else None
 
         # Helper: populate a zone container with ALL temperatures
-        # default_check_fn: function(T) -> bool to determine initial check state
+        # 기존 체크박스가 있으면 사용자 선택 상태를 보존
         def populate_zone(container, placeholder, old_cbs, default_check_fn):
+            # 기존 사용자 선택 상태 저장 (온도 → 체크 여부)
+            prev_states = {T: var.get() for var, T, _ in old_cbs}
+            has_prev = len(prev_states) > 0
+
             # Clear old widgets
             for _, _, w in old_cbs:
                 w.destroy()
@@ -8794,7 +8799,11 @@ class PerssonModelGUI_V2:
                 for T in temps:
                     n_pts = len(self.fg_by_T[T]['strain'])
                     max_s = np.max(self.fg_by_T[T]['strain']) * 100
-                    checked = default_check_fn(T)
+                    # 기존 선택이 있으면 보존, 새 온도만 기본값 적용
+                    if has_prev and T in prev_states:
+                        checked = prev_states[T]
+                    else:
+                        checked = default_check_fn(T)
                     var = tk.BooleanVar(value=checked)
                     cb_text = f"{T:.2f}°C  ({n_pts}pts, max {max_s:.1f}%)"
                     cb = ttk.Checkbutton(container, text=cb_text, variable=var)
