@@ -14071,7 +14071,8 @@ class PerssonModelGUI_V2:
         ve_scroll_r.pack(side=tk.RIGHT, fill=tk.Y)
 
         # ── Right panel (plots, 2 rows x 3 cols) ──
-        plot_frame = ttk.Frame(main_container)
+        right_panel = layout['right']
+        plot_frame = ttk.Frame(right_panel)
         plot_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
         self.fig_ve_advisor = Figure(figsize=(14, 8), dpi=100)
