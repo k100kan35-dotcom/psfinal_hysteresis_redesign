@@ -288,6 +288,7 @@ class PerssonModelGUI_V2:
         self.f_interpolator = None  # f(strain) function
         self.g_interpolator = None  # g(strain) function
         self.mu_visc_results = None  # mu_visc calculation results
+        self.G_matrix_linear = None  # Linear G(q,v) before nonlinear correction (for strain map)
 
         # h'rms / Local Strain related variables
         self.rms_slope_calculator = None  # RMSSlopeCalculator instance
@@ -9758,6 +9759,9 @@ class PerssonModelGUI_V2:
             self.results['2d_results']['P_matrix'] = P_matrix_corrected
             self.results['2d_results']['G_integrand_matrix'] = G_integrand_corrected
 
+            # Preserve linear G matrix for strain map (before nonlinear correction)
+            self.G_matrix_linear = G_matrix_corrected.copy()
+
             self.status_var.set("G(q) 재계산 완료")
             self.root.update()
 
@@ -9890,7 +9894,11 @@ class PerssonModelGUI_V2:
                 'mu': mu_array,
                 'mu_raw': mu_array_raw,
                 'details': details,
-                'smoothed': smooth_mu
+                'smoothed': smooth_mu,
+                'q': q,
+                'strain_method': strain_est_method,
+                'use_fg': use_fg,
+                'G_matrix_linear': self.G_matrix_linear.copy() if self.G_matrix_linear is not None else None,
             }
 
             # Update plots
@@ -12108,7 +12116,15 @@ class PerssonModelGUI_V2:
             results_2d = self.results['2d_results']
             q_orig = results_2d['q']
             v_orig = results_2d['v']
-            G_matrix_orig = results_2d['G_matrix']  # Tab 3에서 계산된 G(q,v)
+
+            # Use linear (pre-nonlinear-correction) G matrix if available,
+            # to avoid double-applying f,g correction.
+            # G_matrix_linear is saved by _calculate_mu_visc before nonlinear correction.
+            # If mu_visc hasn't run yet, fall back to results_2d['G_matrix'].
+            if self.G_matrix_linear is not None and self.G_matrix_linear.shape == results_2d['G_matrix'].shape:
+                G_matrix_for_strain_map = self.G_matrix_linear
+            else:
+                G_matrix_for_strain_map = results_2d['G_matrix']
 
             # Tab 2 설정의 유효 파수 범위 사용 (results 범위와 교집합)
             q_min_setting = float(self.q_min_var.get())
@@ -12122,12 +12138,13 @@ class PerssonModelGUI_V2:
             q_array = np.logspace(np.log10(q_min), np.log10(q_max), n_q)
             v_array = np.logspace(np.log10(v_min), np.log10(v_max), n_v)
 
-            # Create 2D interpolator for G(q, v) from Tab 3 results
+            # Create 2D interpolator for G(q, v) using LINEAR G matrix
+            # This ensures strain map starts from linear G and applies its own f,g correction
             from scipy.interpolate import RegularGridInterpolator
             # Use log scale for better interpolation
             log_q_orig = np.log10(q_orig)
             log_v_orig = np.log10(v_orig)
-            log_G_orig = np.log10(np.maximum(G_matrix_orig, 1e-30))  # Avoid log(0)
+            log_G_orig = np.log10(np.maximum(G_matrix_for_strain_map, 1e-30))  # Avoid log(0)
 
             G_interp = RegularGridInterpolator(
                 (log_q_orig, log_v_orig), log_G_orig,
@@ -12282,7 +12299,9 @@ class PerssonModelGUI_V2:
             self._update_strain_map_plots()
 
             self.strain_map_progress['value'] = 100
-            self.status_var.set("Local Strain Map 계산 완료")
+            g_src = "linear (mu_visc 보존)" if (self.G_matrix_linear is not None and
+                    self.G_matrix_linear.shape == results_2d['G_matrix'].shape) else "2d_results"
+            self.status_var.set(f"Local Strain Map 계산 완료 (G소스: {g_src})")
 
         except Exception as e:
             import traceback
