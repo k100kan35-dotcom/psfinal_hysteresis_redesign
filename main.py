@@ -4294,44 +4294,51 @@ class PerssonModelGUI_V2:
         # Bottom-right: Contact area A(q)/A₀ evolution
         self.ax_contact_live = self.fig_calc_progress.add_subplot(224)
 
+        # ── Modern styling helper for all 4 subplots ──────────
+        _calc_axes = [self.ax_psd_q, self.ax_dma_progress,
+                      self.ax_gq_live, self.ax_contact_live]
+        for _ax in _calc_axes:
+            _ax.set_facecolor('#FAFBFC')
+            for spine in _ax.spines.values():
+                spine.set_color('#D1D5DB')
+                spine.set_linewidth(0.8)
+            _ax.tick_params(colors='#4B5563', labelsize=9, length=4, width=0.7)
+            _ax.grid(True, alpha=0.18, linewidth=0.6, color='#9CA3AF', linestyle='--')
+
         # Initialize PSD(q) plot - top-left
-        self.ax_psd_q.set_xlabel('파수 q (1/m)', fontweight='bold', fontsize=11)
-        self.ax_psd_q.set_ylabel(r'PSD C(q) (m$^4$)', fontweight='bold', fontsize=11)
+        self.ax_psd_q.set_xlabel('파수 q (1/m)', fontsize=10, color='#374151')
+        self.ax_psd_q.set_ylabel(r'C(q) (m$^4$)', fontsize=10, color='#374151')
         self.ax_psd_q.set_xscale('log')
         self.ax_psd_q.set_yscale('log')
-        self.ax_psd_q.grid(True, alpha=0.3)
-        self.ax_psd_q.set_title('PSD C(q)', fontweight='bold', fontsize=11)
+        self.ax_psd_q.set_title('PSD C(q)', fontweight='bold', fontsize=11, color='#1F2937', pad=8)
 
         # Initialize DMA plot - top-right
-        self.ax_dma_progress.set_xlabel('주파수 f (Hz)', fontweight='bold', fontsize=11)
-        self.ax_dma_progress.set_ylabel('탄성률 (Pa)', fontweight='bold', fontsize=11)
+        self.ax_dma_progress.set_xlabel('주파수 f (Hz)', fontsize=10, color='#374151')
+        self.ax_dma_progress.set_ylabel('탄성률 (Pa)', fontsize=10, color='#374151')
         self.ax_dma_progress.set_xscale('log')
         self.ax_dma_progress.set_yscale('log')
-        self.ax_dma_progress.grid(True, alpha=0.3)
-        self.ax_dma_progress.set_title('DMA 마스터 곡선', fontweight='bold', fontsize=11)
+        self.ax_dma_progress.set_title('DMA 마스터 곡선', fontweight='bold', fontsize=11, color='#1F2937', pad=8)
 
         # Initialize G(q) live plot - bottom-left
-        self.ax_gq_live.set_xlabel('파수 q (1/m)', fontweight='bold', fontsize=11)
-        self.ax_gq_live.set_ylabel('G(q)', fontweight='bold', fontsize=11)
+        self.ax_gq_live.set_xlabel('파수 q (1/m)', fontsize=10, color='#374151')
+        self.ax_gq_live.set_ylabel('G(q)', fontsize=10, color='#374151')
         self.ax_gq_live.set_xscale('log')
         self.ax_gq_live.set_yscale('log')
-        self.ax_gq_live.grid(True, alpha=0.3)
-        self.ax_gq_live.set_title('실시간 G(q) 적분 누적', fontweight='bold', fontsize=11)
+        self.ax_gq_live.set_title('실시간 G(q) 적분 누적', fontweight='bold', fontsize=11, color='#1F2937', pad=8)
         self.ax_gq_live.text(0.5, 0.5, '계산 대기 중...',
                              transform=self.ax_gq_live.transAxes,
-                             ha='center', va='center', fontsize=10,
-                             color='#94A3B8', style='italic')
+                             ha='center', va='center', fontsize=12,
+                             color='#CBD5E1', fontweight='light')
 
         # Initialize contact area live plot - bottom-right
-        self.ax_contact_live.set_xlabel('파수 q (1/m)', fontweight='bold', fontsize=11)
-        self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontweight='bold', fontsize=11)
+        self.ax_contact_live.set_xlabel('파수 q (1/m)', fontsize=10, color='#374151')
+        self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontsize=10, color='#374151')
         self.ax_contact_live.set_xscale('log')
-        self.ax_contact_live.grid(True, alpha=0.3)
-        self.ax_contact_live.set_title(r'접촉 면적비 A(q)/A$_0$ 변화', fontweight='bold', fontsize=11)
+        self.ax_contact_live.set_title(r'접촉 면적비 A(q)/A$_0$', fontweight='bold', fontsize=11, color='#1F2937', pad=8)
         self.ax_contact_live.text(0.5, 0.5, '계산 대기 중...',
                                   transform=self.ax_contact_live.transAxes,
-                                  ha='center', va='center', fontsize=10,
-                                  color='#94A3B8', style='italic')
+                                  ha='center', va='center', fontsize=12,
+                                  color='#CBD5E1', fontweight='light')
 
         self.fig_calc_progress.tight_layout(pad=2.5)
 
@@ -5428,10 +5435,20 @@ class PerssonModelGUI_V2:
                 self.ax_dma_progress.clear()
                 self.ax_gq_live.clear()
                 self.ax_contact_live.clear()
+                self.fig_calc_progress.set_facecolor('#F3F4F6')
 
-                # Colour map for velocity-indexed curves
+                # Colour map for velocity-indexed curves (viridis for clarity)
                 _n_v_total = len(v_array)
-                _cmap = plt.get_cmap('plasma')
+                _cmap = plt.get_cmap('viridis')
+
+                # ── Helper: apply modern axis styling ──
+                def _style_calc_ax(ax):
+                    ax.set_facecolor('#FAFBFC')
+                    for spine in ax.spines.values():
+                        spine.set_color('#D1D5DB')
+                        spine.set_linewidth(0.8)
+                    ax.tick_params(colors='#4B5563', labelsize=9, length=4, width=0.7)
+                    ax.grid(True, alpha=0.18, linewidth=0.6, color='#9CA3AF', linestyle='--')
 
                 # TOP-LEFT: PSD(q) with integration range
                 if self.psd_model is not None:
@@ -5448,24 +5465,33 @@ class PerssonModelGUI_V2:
 
                     q_plot = np.logspace(np.log10(q_plot_min), np.log10(q_plot_max), 300)
                     C_q = self.psd_model(q_plot)
-                    self.ax_psd_q.loglog(q_plot, C_q, color='#3B82F6', linewidth=2.5, label='C(q)')
+                    # Main PSD curve with subtle glow
+                    self.ax_psd_q.loglog(q_plot, C_q, color='#6366F1', linewidth=4, alpha=0.15, zorder=2)  # glow
+                    self.ax_psd_q.loglog(q_plot, C_q, color='#6366F1', linewidth=1.8, alpha=0.9, label='C(q)', zorder=3)
 
                     if hasattr(self.psd_model, 'q0'):
                         q0_psd = self.psd_model.q0
                         if q_plot_min < q0_psd:
-                            self.ax_psd_q.axvspan(q_plot_min, q0_psd, alpha=0.10, facecolor='#F59E0B',
-                                                 label=r'플래토 (q<q$_0$)')
-                            self.ax_psd_q.axvline(x=q0_psd, color='#F59E0B', linestyle='--', linewidth=1.2, alpha=0.6)
+                            self.ax_psd_q.axvline(x=q0_psd, color='#F59E0B', linestyle=':', linewidth=1.0, alpha=0.7,
+                                                 label=r'q$_0$ (플래토 경계)')
 
-                    # Integration range shading
-                    self.ax_psd_q.axvspan(q_min, q_max, alpha=0.08, facecolor='#06B6D4',
-                                         edgecolor='#0891B2', linewidth=1.5, label='적분 q 범위')
-                    self.ax_psd_q.set_xlabel('파수 q (1/m)', fontweight='bold')
-                    self.ax_psd_q.set_ylabel(r'C(q) (m$^4$)', fontweight='bold')
+                    # Integration range: clean boundary lines instead of heavy fill
+                    self.ax_psd_q.axvline(x=q_min, color='#06B6D4', linestyle='-', linewidth=1.5, alpha=0.7, zorder=4)
+                    self.ax_psd_q.axvline(x=q_max, color='#06B6D4', linestyle='-', linewidth=1.5, alpha=0.7, zorder=4)
+                    # Very subtle shading between boundaries
+                    self.ax_psd_q.axvspan(q_min, q_max, alpha=0.04, facecolor='#06B6D4', label='적분 q 범위')
+                    # Progress marker line (will be updated in callback)
+                    self._psd_progress_line = self.ax_psd_q.axvline(
+                        x=q_min, color='#EF4444', linestyle='-', linewidth=1.2, alpha=0.0, zorder=5)
+
+                    _style_calc_ax(self.ax_psd_q)
+                    self.ax_psd_q.set_xlabel('파수 q (1/m)', fontsize=10, color='#374151')
+                    self.ax_psd_q.set_ylabel(r'C(q) (m$^4$)', fontsize=10, color='#374151')
                     self.ax_psd_q.set_xscale('log'); self.ax_psd_q.set_yscale('log')
-                    self.ax_psd_q.grid(True, alpha=0.25, linewidth=0.5)
-                    self.ax_psd_q.legend(loc='best', fontsize=8)
-                    self.ax_psd_q.set_title('PSD C(q) — 적분 범위 표시', fontweight='bold')
+                    self.ax_psd_q.legend(loc='best', fontsize=8, framealpha=0.8,
+                                         edgecolor='#E5E7EB', fancybox=False)
+                    self.ax_psd_q.set_title('PSD C(q) — 적분 범위', fontweight='bold',
+                                            fontsize=11, color='#1F2937', pad=8)
 
                 # TOP-RIGHT: DMA master curve
                 if self.material is not None:
@@ -5473,36 +5499,46 @@ class PerssonModelGUI_V2:
                     f_plot = omega_plot / (2 * np.pi)
                     E_prime = self.material.get_storage_modulus(omega_plot)
                     E_double_prime = self.material.get_loss_modulus(omega_plot)
-                    self.ax_dma_progress.plot(f_plot, E_prime, color='#3B82F6', linewidth=2.5, label="E'")
-                    self.ax_dma_progress.plot(f_plot, E_double_prime, color='#EF4444', linewidth=2, linestyle='--', label="E''")
-                    self.ax_dma_progress.set_xlabel('주파수 f (Hz)', fontweight='bold')
-                    self.ax_dma_progress.set_ylabel('탄성률 (Pa)', fontweight='bold')
+                    # E' with glow
+                    self.ax_dma_progress.plot(f_plot, E_prime, color='#3B82F6', linewidth=4, alpha=0.12, zorder=2)
+                    self.ax_dma_progress.plot(f_plot, E_prime, color='#3B82F6', linewidth=1.8, alpha=0.9, label="E'", zorder=3)
+                    # E'' with glow
+                    self.ax_dma_progress.plot(f_plot, E_double_prime, color='#F97316', linewidth=3.5, alpha=0.12, zorder=2)
+                    self.ax_dma_progress.plot(f_plot, E_double_prime, color='#F97316', linewidth=1.8,
+                                              linestyle='--', alpha=0.9, label="E''", zorder=3)
+
+                    _style_calc_ax(self.ax_dma_progress)
+                    self.ax_dma_progress.set_xlabel('주파수 f (Hz)', fontsize=10, color='#374151')
+                    self.ax_dma_progress.set_ylabel('탄성률 (Pa)', fontsize=10, color='#374151')
                     self.ax_dma_progress.set_xscale('log'); self.ax_dma_progress.set_yscale('log')
-                    self.ax_dma_progress.grid(True, alpha=0.25, linewidth=0.5)
-                    self.ax_dma_progress.legend(loc='best')
-                    self.ax_dma_progress.set_title('DMA 마스터 곡선 — 주파수 윈도우', fontweight='bold')
+                    self.ax_dma_progress.legend(loc='best', fontsize=9, framealpha=0.8,
+                                                edgecolor='#E5E7EB', fancybox=False)
+                    self.ax_dma_progress.set_title('DMA 마스터 곡선 — 주파수 스캔', fontweight='bold',
+                                                   fontsize=11, color='#1F2937', pad=8)
 
                 # BOTTOM-LEFT: G(q) live accumulation placeholder
-                self.ax_gq_live.set_xlabel('파수 q (1/m)', fontweight='bold')
-                self.ax_gq_live.set_ylabel('G(q)', fontweight='bold')
+                _style_calc_ax(self.ax_gq_live)
+                self.ax_gq_live.set_xlabel('파수 q (1/m)', fontsize=10, color='#374151')
+                self.ax_gq_live.set_ylabel('G(q)', fontsize=10, color='#374151')
                 self.ax_gq_live.set_xscale('log'); self.ax_gq_live.set_yscale('log')
-                self.ax_gq_live.grid(True, alpha=0.25, linewidth=0.5)
-                self.ax_gq_live.set_title('실시간 G(q) 적분 누적', fontweight='bold', fontsize=11)
+                self.ax_gq_live.set_title('실시간 G(q) 적분 누적', fontweight='bold',
+                                          fontsize=11, color='#1F2937', pad=8)
                 self.ax_gq_live.text(0.5, 0.5, '적분 시작 대기 중 …',
                                      transform=self.ax_gq_live.transAxes,
-                                     ha='center', va='center', fontsize=10,
-                                     color='#94A3B8', style='italic')
+                                     ha='center', va='center', fontsize=12,
+                                     color='#CBD5E1', fontweight='light')
 
                 # BOTTOM-RIGHT: Contact area placeholder
-                self.ax_contact_live.set_xlabel('파수 q (1/m)', fontweight='bold', fontsize=11)
-                self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontweight='bold', fontsize=11)
+                _style_calc_ax(self.ax_contact_live)
+                self.ax_contact_live.set_xlabel('파수 q (1/m)', fontsize=10, color='#374151')
+                self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontsize=10, color='#374151')
                 self.ax_contact_live.set_xscale('log')
-                self.ax_contact_live.grid(True, alpha=0.25, linewidth=0.5)
-                self.ax_contact_live.set_title(r'접촉 면적비 A(q)/A$_0$ 변화', fontweight='bold', fontsize=11)
+                self.ax_contact_live.set_title(r'접촉 면적비 A(q)/A$_0$', fontweight='bold',
+                                               fontsize=11, color='#1F2937', pad=8)
                 self.ax_contact_live.text(0.5, 0.5, '적분 시작 대기 중 …',
                                           transform=self.ax_contact_live.transAxes,
-                                          ha='center', va='center', fontsize=10,
-                                          color='#94A3B8', style='italic')
+                                          ha='center', va='center', fontsize=12,
+                                          color='#CBD5E1', fontweight='light')
 
                 self.fig_calc_progress.tight_layout(pad=2.5)
                 self.canvas_calc_progress.draw()
@@ -5514,8 +5550,11 @@ class PerssonModelGUI_V2:
             # ── Real-time visualisation callback ──────────────────────
             # Track whether we've cleared the placeholder text
             _placeholder_cleared = {'gq': False, 'contact': False}
-            # Keep track of previously swept DMA bands for trail effect
-            _prev_dma_bands = []
+            # Keep track of DMA scan lines for trail effect
+            _prev_dma_lines = []
+            # Keep track of glow lines for cleanup
+            _prev_gq_glow = [None]
+            _prev_contact_glow = [None]
 
             def progress_callback(percent, v_idx=None, current_v=None,
                                   G_col=None, P_col=None):
@@ -5548,104 +5587,161 @@ class PerssonModelGUI_V2:
 
                 _color = _cmap(v_idx / max(1, _n_v_total - 1))
 
-                # ── DMA frequency window (top-right) ──────────
+                # ── DMA frequency window (top-right) — scanning lines ──
                 try:
-                    # Fade previous bands
-                    for old_band in _prev_dma_bands:
+                    # Fade previous scan lines (graduated trail)
+                    for old_lines in _prev_dma_lines:
                         try:
-                            old_band.set_alpha(max(0.03, old_band.get_alpha() * 0.5))
+                            cur_a = old_lines[0].get_alpha()
+                            new_a = max(0.0, cur_a * 0.35)
+                            for ln in old_lines:
+                                if new_a < 0.02:
+                                    ln.remove()
+                                else:
+                                    ln.set_alpha(new_a)
                         except Exception:
                             pass
-                    # Remove any current highlight
-                    for artist in self.ax_dma_progress.collections[:]:
-                        if hasattr(artist, '_is_highlight_current'):
+                    _prev_dma_lines[:] = [g for g in _prev_dma_lines
+                                          if g[0].axes is not None]
+
+                    # Remove any current highlight lines
+                    for artist in list(self.ax_dma_progress.lines):
+                        if hasattr(artist, '_is_scan_current'):
                             artist.remove()
-                    # Draw new active band with velocity colour
-                    band = self.ax_dma_progress.axvspan(
-                        f_min_cb, f_max_cb,
-                        alpha=0.25, facecolor=_color,
-                        edgecolor=(*_color[:3], 0.8), linewidth=1.5,
-                        zorder=0)
-                    band._is_highlight_current = True
-                    _prev_dma_bands.append(band)
+
+                    # Draw scanning line pair at f_min and f_max
+                    ln_min_glow = self.ax_dma_progress.axvline(
+                        x=f_min_cb, color=_color, linewidth=5, alpha=0.15, zorder=4)
+                    ln_min = self.ax_dma_progress.axvline(
+                        x=f_min_cb, color=_color, linewidth=1.2, alpha=0.8, zorder=5)
+                    ln_max_glow = self.ax_dma_progress.axvline(
+                        x=f_max_cb, color=_color, linewidth=5, alpha=0.15, zorder=4)
+                    ln_max = self.ax_dma_progress.axvline(
+                        x=f_max_cb, color=_color, linewidth=1.2, alpha=0.8, zorder=5)
+                    for ln in [ln_min, ln_min_glow, ln_max, ln_max_glow]:
+                        ln._is_scan_current = True
+                    _prev_dma_lines.append([ln_min, ln_min_glow, ln_max, ln_max_glow])
+
+                    # Update PSD progress marker (top-left)
+                    try:
+                        if hasattr(self, '_psd_progress_line'):
+                            # Show progress as midpoint in q-space
+                            q_mid = np.sqrt(q_array[0] * q_array[-1])
+                            self._psd_progress_line.set_xdata([q_mid, q_mid])
+                            self._psd_progress_line.set_alpha(0.6)
+                            self._psd_progress_line.set_color(_color)
+                    except Exception:
+                        pass
                 except Exception:
                     pass
 
-                # ── G(q) live accumulation (bottom-left) ──────
+                # ── G(q) live accumulation (bottom-left) — glow trail ──
                 if G_col is not None:
                     try:
                         if not _placeholder_cleared['gq']:
                             self.ax_gq_live.clear()
-                            self.ax_gq_live.set_xlabel('파수 q (1/m)', fontweight='bold', fontsize=11)
-                            self.ax_gq_live.set_ylabel('G(q)', fontweight='bold', fontsize=11)
+                            _style_calc_ax(self.ax_gq_live)
+                            self.ax_gq_live.set_xlabel('파수 q (1/m)', fontsize=10, color='#374151')
+                            self.ax_gq_live.set_ylabel('G(q)', fontsize=10, color='#374151')
                             self.ax_gq_live.set_xscale('log')
                             self.ax_gq_live.set_yscale('log')
-                            self.ax_gq_live.grid(True, alpha=0.25, linewidth=0.5)
-                            self.ax_gq_live.set_title('실시간 G(q) 적분 누적', fontweight='bold', fontsize=11)
+                            self.ax_gq_live.set_title('실시간 G(q) 적분 누적', fontweight='bold',
+                                                      fontsize=11, color='#1F2937', pad=8)
                             _placeholder_cleared['gq'] = True
 
-                        # Fade already-plotted curves
-                        for line in self.ax_gq_live.lines:
-                            line.set_alpha(max(0.12, line.get_alpha() * 0.7))
+                        # Remove previous glow line
+                        if _prev_gq_glow[0] is not None:
+                            try:
+                                _prev_gq_glow[0].remove()
+                            except Exception:
+                                pass
+                            _prev_gq_glow[0] = None
 
-                        # Plot fresh G(q) curve
+                        # Graduated trail: fade older curves more aggressively
+                        for line in self.ax_gq_live.lines:
+                            cur_a = line.get_alpha() or 1.0
+                            cur_lw = line.get_linewidth()
+                            line.set_alpha(max(0.08, cur_a * 0.55))
+                            line.set_linewidth(max(0.6, cur_lw * 0.85))
+
+                        # Plot fresh G(q) curve with neon glow
                         valid = G_col > 0
                         if np.any(valid):
+                            # Glow layer (thick, semi-transparent)
+                            glow_line, = self.ax_gq_live.loglog(
+                                q_array[valid], G_col[valid],
+                                color=_color, linewidth=5, alpha=0.18, zorder=4)
+                            _prev_gq_glow[0] = glow_line
+
+                            # Solid main line
                             self.ax_gq_live.loglog(
                                 q_array[valid], G_col[valid],
-                                color=_color, linewidth=2.2, alpha=0.92,
-                                label=f'v={current_v:.1e}')
+                                color=_color, linewidth=1.6, alpha=0.95,
+                                label=f'v={current_v:.1e}', zorder=5)
 
-                            # Fill under the latest curve for emphasis
-                            self.ax_gq_live.fill_between(
-                                q_array[valid], G_col[valid],
-                                alpha=0.08, color=_color)
-
-                        # Legend only every few curves to avoid clutter
-                        if v_idx % max(1, _n_v_total // 6) == 0 or v_idx == _n_v_total - 1:
+                        # Sparse legend: only a few representative entries
+                        if v_idx % max(1, _n_v_total // 5) == 0 or v_idx == _n_v_total - 1:
                             handles = [l for l in self.ax_gq_live.lines
-                                       if l.get_alpha() and l.get_alpha() > 0.5]
+                                       if (l.get_alpha() or 0) > 0.5 and l.get_linewidth() < 3]
                             if handles:
                                 self.ax_gq_live.legend(
-                                    handles=handles[-6:], loc='upper left',
-                                    fontsize=10, framealpha=0.7)
+                                    handles=handles[-5:], loc='upper left',
+                                    fontsize=8, framealpha=0.85,
+                                    edgecolor='#E5E7EB', fancybox=False)
                     except Exception:
                         pass
 
-                # ── Contact area live (bottom-right) ──────────
+                # ── Contact area live (bottom-right) — glow trail ──
                 if P_col is not None:
                     try:
                         if not _placeholder_cleared['contact']:
                             self.ax_contact_live.clear()
-                            self.ax_contact_live.set_xlabel('파수 q (1/m)', fontweight='bold', fontsize=11)
-                            self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontweight='bold', fontsize=11)
+                            _style_calc_ax(self.ax_contact_live)
+                            self.ax_contact_live.set_xlabel('파수 q (1/m)', fontsize=10, color='#374151')
+                            self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontsize=10, color='#374151')
                             self.ax_contact_live.set_xscale('log')
-                            self.ax_contact_live.grid(True, alpha=0.25, linewidth=0.5)
-                            self.ax_contact_live.set_title(r'접촉 면적비 A(q)/A$_0$ 변화', fontweight='bold', fontsize=11)
+                            self.ax_contact_live.set_title(r'접촉 면적비 A(q)/A$_0$', fontweight='bold',
+                                                           fontsize=11, color='#1F2937', pad=8)
                             _placeholder_cleared['contact'] = True
 
-                        # Fade previous curves
+                        # Remove previous glow line
+                        if _prev_contact_glow[0] is not None:
+                            try:
+                                _prev_contact_glow[0].remove()
+                            except Exception:
+                                pass
+                            _prev_contact_glow[0] = None
+
+                        # Graduated trail for previous curves
                         for line in self.ax_contact_live.lines:
-                            line.set_alpha(max(0.12, line.get_alpha() * 0.7))
+                            cur_a = line.get_alpha() or 1.0
+                            cur_lw = line.get_linewidth()
+                            line.set_alpha(max(0.08, cur_a * 0.55))
+                            line.set_linewidth(max(0.6, cur_lw * 0.85))
 
                         valid = np.isfinite(P_col) & (P_col > 0)
                         if np.any(valid):
+                            # Glow layer
+                            glow_line, = self.ax_contact_live.plot(
+                                q_array[valid], P_col[valid],
+                                color=_color, linewidth=5, alpha=0.18, zorder=4)
+                            _prev_contact_glow[0] = glow_line
+
+                            # Solid main line
                             self.ax_contact_live.plot(
                                 q_array[valid], P_col[valid],
-                                color=_color, linewidth=2.2, alpha=0.92,
-                                label=f'v={current_v:.1e}')
+                                color=_color, linewidth=1.6, alpha=0.95,
+                                label=f'v={current_v:.1e}', zorder=5)
 
-                            self.ax_contact_live.fill_between(
-                                q_array[valid], P_col[valid],
-                                alpha=0.06, color=_color)
-
-                        if v_idx % max(1, _n_v_total // 6) == 0 or v_idx == _n_v_total - 1:
+                        # Sparse legend
+                        if v_idx % max(1, _n_v_total // 5) == 0 or v_idx == _n_v_total - 1:
                             handles = [l for l in self.ax_contact_live.lines
-                                       if l.get_alpha() and l.get_alpha() > 0.5]
+                                       if (l.get_alpha() or 0) > 0.5 and l.get_linewidth() < 3]
                             if handles:
                                 self.ax_contact_live.legend(
-                                    handles=handles[-6:], loc='upper right',
-                                    fontsize=10, framealpha=0.7)
+                                    handles=handles[-5:], loc='upper right',
+                                    fontsize=8, framealpha=0.85,
+                                    edgecolor='#E5E7EB', fancybox=False)
                     except Exception:
                         pass
 
@@ -5664,24 +5760,42 @@ class PerssonModelGUI_V2:
 
             # ── Post-calculation: clean up and finalise plots ─────
             try:
-                # Remove transient DMA bands
-                for artist in self.ax_dma_progress.collections[:]:
-                    if hasattr(artist, '_is_highlight_current') or hasattr(artist, '_is_highlight'):
+                # Remove transient DMA scan lines
+                for artist in list(self.ax_dma_progress.lines):
+                    if hasattr(artist, '_is_scan_current'):
                         artist.remove()
-                for band in _prev_dma_bands:
-                    try:
-                        band.remove()
-                    except Exception:
-                        pass
+                for line_group in _prev_dma_lines:
+                    for ln in line_group:
+                        try:
+                            ln.remove()
+                        except Exception:
+                            pass
+                _prev_dma_lines.clear()
 
-                # Final G(q) and Contact area — keep accumulated curves as-is,
-                # but ensure last curves are fully opaque
-                for line in self.ax_gq_live.lines[-1:]:
-                    line.set_alpha(1.0)
-                    line.set_linewidth(2.5)
-                for line in self.ax_contact_live.lines[-1:]:
-                    line.set_alpha(1.0)
-                    line.set_linewidth(2.5)
+                # Remove PSD progress marker
+                try:
+                    if hasattr(self, '_psd_progress_line'):
+                        self._psd_progress_line.set_alpha(0.0)
+                except Exception:
+                    pass
+
+                # Remove glow lines
+                for glow_ref in [_prev_gq_glow, _prev_contact_glow]:
+                    if glow_ref[0] is not None:
+                        try:
+                            glow_ref[0].remove()
+                        except Exception:
+                            pass
+                        glow_ref[0] = None
+
+                # Final G(q) and Contact area — emphasise the last curve
+                # (last solid line, skip any remaining glow lines)
+                for ax in [self.ax_gq_live, self.ax_contact_live]:
+                    solid_lines = [l for l in ax.lines if (l.get_linewidth() or 0) < 3]
+                    if solid_lines:
+                        last = solid_lines[-1]
+                        last.set_alpha(1.0)
+                        last.set_linewidth(2.0)
 
                 self.calc_status_label.config(
                     text=f"계산 완료!  |  총 {len(v_array)}개 속도 × {len(q_array)}개 파수",
