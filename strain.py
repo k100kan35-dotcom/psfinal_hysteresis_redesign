@@ -445,6 +445,59 @@ def stitch_two_ranges(resA, resB, split_strain_fraction):
     }
 
 
+def stitch_n_ranges(results, split_strain_fractions):
+    """
+    Piecewise stitch N regions:
+      results: list of N averaging results
+      split_strain_fractions: sorted list of N-1 split strain fractions
+
+    Region 0: strain <= splits[0]
+    Region i: splits[i-1] < strain <= splits[i]
+    Region N-1: strain > splits[-1]
+    """
+    n = len(results)
+    if n == 0:
+        return None
+    if any(r is None for r in results):
+        return None
+
+    s = results[0]["strain"]
+    for r in results[1:]:
+        if r["strain"].shape != s.shape or np.any(r["strain"] != s):
+            return None
+
+    splits = sorted(float(sp) for sp in split_strain_fractions)
+
+    f = np.empty_like(results[0]["f_avg"])
+    g = np.empty_like(results[0]["g_avg"])
+    n_eff = np.empty_like(results[0]["n_eff"])
+
+    for i in range(n):
+        if i == 0:
+            mask = s <= splits[0]
+        elif i < n - 1:
+            mask = (s > splits[i - 1]) & (s <= splits[i])
+        else:
+            mask = s > splits[-1]
+
+        f[mask] = results[i]["f_avg"][mask]
+        g[mask] = results[i]["g_avg"][mask]
+        n_eff[mask] = results[i]["n_eff"][mask]
+
+    result = {
+        "strain": s.copy(),
+        "f_avg": f,
+        "g_avg": g,
+        "n_eff": n_eff,
+        "splits": list(splits),
+    }
+    for i in range(n):
+        result["Ts_used_%d" % i] = list(results[i]["Ts_used"])
+        result["res_%d" % i] = results[i]
+
+    return result
+
+
 # -----------------------------
 # GUI helpers
 # -----------------------------
@@ -479,11 +532,10 @@ class App(tk.Tk):
         self.data_by_T = {}
         self.fg_by_T = {}
 
-        self.temp_vars_A = {}
-        self.temp_vars_B = {}
+        self.N_REGIONS = 5
+        self.temp_vars_list = [{} for _ in range(self.N_REGIONS)]
 
-        self.resA = None
-        self.resB = None
+        self.region_results = [None] * self.N_REGIONS
         self.stitched = None
         self.snapshots = []
 
@@ -605,24 +657,40 @@ class App(tk.Tk):
         ttk.Label(row2, text="Extend to strain (%):").pack(side="left")
         ttk.Entry(row2, textvariable=self.extend_to, width=10).pack(side="left", padx=6)
 
-        pw = ttk.LabelFrame(parent, text="6) Piecewise temperature selection by strain range")
+        pw = ttk.LabelFrame(parent, text="6) Piecewise temperature selection by strain range (5-region)")
         pw.pack(fill="x", **pad)
 
-        self.split_strain = tk.StringVar(value="15.0")
+        # 4 split points → 5 regions
+        self.split_strains = [
+            tk.StringVar(value="5.0"),
+            tk.StringVar(value="10.0"),
+            tk.StringVar(value="15.0"),
+            tk.StringVar(value="20.0"),
+        ]
         row = ttk.Frame(pw); row.pack(fill="x", padx=8, pady=4)
-        ttk.Label(row, text="Split strain at (%):").pack(side="left")
-        ttk.Entry(row, textvariable=self.split_strain, width=10).pack(side="left", padx=6)
-        ttk.Label(row, text="(≤ split uses Group A, > split uses Group B)").pack(side="left", padx=6)
+        ttk.Label(row, text="Split strains (%):").pack(side="left")
+        for i, sv in enumerate(self.split_strains):
+            ttk.Entry(row, textvariable=sv, width=6).pack(side="left", padx=3)
+            if i < len(self.split_strains) - 1:
+                ttk.Label(row, text=",").pack(side="left")
 
-        self.temp_frame_A = ttk.LabelFrame(pw, text="Group A temps (low strain)")
-        self.temp_frame_A.pack(fill="x", padx=8, pady=6)
-        self.temp_inner_A = ttk.Frame(self.temp_frame_A)
-        self.temp_inner_A.pack(fill="x", padx=6, pady=6)
+        # 5 region tabs for temperature selection
+        self.region_nb = ttk.Notebook(pw)
+        self.region_nb.pack(fill="x", padx=8, pady=6)
 
-        self.temp_frame_B = ttk.LabelFrame(pw, text="Group B temps (high strain)")
-        self.temp_frame_B.pack(fill="x", padx=8, pady=6)
-        self.temp_inner_B = ttk.Frame(self.temp_frame_B)
-        self.temp_inner_B.pack(fill="x", padx=6, pady=6)
+        region_labels = [
+            "R1 (0-5%)", "R2 (5-10%)", "R3 (10-15%)",
+            "R4 (15-20%)", "R5 (>20%)"
+        ]
+        self.temp_frames = []
+        self.temp_inners = []
+        for i in range(self.N_REGIONS):
+            tab = ttk.Frame(self.region_nb)
+            self.region_nb.add(tab, text=region_labels[i])
+            inner = ttk.Frame(tab)
+            inner.pack(fill="x", padx=6, pady=6)
+            self.temp_frames.append(tab)
+            self.temp_inners.append(inner)
 
         pc = ttk.LabelFrame(parent, text="7) Plot / Compare / Export")
         pc.pack(fill="x", **pad)
@@ -717,29 +785,25 @@ class App(tk.Tk):
         self.file_label.config(text=os.path.basename(path))
         self.status.config(text="Loaded %d temperature blocks." % len(data_by_T))
 
-        # rebuild temp checkboxes
-        for w in self.temp_inner_A.winfo_children():
-            w.destroy()
-        for w in self.temp_inner_B.winfo_children():
-            w.destroy()
-
-        self.temp_vars_A = {}
-        self.temp_vars_B = {}
+        # rebuild temp checkboxes for all regions
+        for region_idx in range(self.N_REGIONS):
+            for w in self.temp_inners[region_idx].winfo_children():
+                w.destroy()
+            self.temp_vars_list[region_idx] = {}
 
         temps = sorted(self.data_by_T.keys())
-        for i, T in enumerate(temps):
-            varA = tk.BooleanVar(value=True)
-            varB = tk.BooleanVar(value=True)
-            self.temp_vars_A[T] = varA
-            self.temp_vars_B[T] = varB
-
-            cbA = ttk.Checkbutton(self.temp_inner_A, text="%.3f °C" % T, variable=varA, command=self.on_compute)
-            cbB = ttk.Checkbutton(self.temp_inner_B, text="%.3f °C" % T, variable=varB, command=self.on_compute)
-
-            r = i // 2
-            c = i % 2
-            cbA.grid(row=r, column=c, sticky="w", padx=6, pady=2)
-            cbB.grid(row=r, column=c, sticky="w", padx=6, pady=2)
+        for region_idx in range(self.N_REGIONS):
+            for i, T in enumerate(temps):
+                var = tk.BooleanVar(value=True)
+                self.temp_vars_list[region_idx][T] = var
+                cb = ttk.Checkbutton(
+                    self.temp_inners[region_idx],
+                    text="%.3f °C" % T, variable=var,
+                    command=self.on_compute
+                )
+                r = i // 3
+                c = i % 3
+                cb.grid(row=r, column=c, sticky="w", padx=4, pady=2)
 
         self.on_compute()
 
@@ -793,8 +857,11 @@ class App(tk.Tk):
         max_strain = extend_percent / 100.0
         use_persson = bool(self.use_persson_grid.get())
 
-        split_percent = self._read_float(self.split_strain, 15.0)
-        split = split_percent / 100.0
+        # Read 4 split points
+        split_defaults = [5.0, 10.0, 15.0, 20.0]
+        splits_percent = [self._read_float(sv, split_defaults[i])
+                          for i, sv in enumerate(self.split_strains)]
+        splits_fraction = [sp / 100.0 for sp in sorted(splits_percent)]
 
         self.fg_by_T = compute_fg_by_T(
             self.data_by_T,
@@ -812,45 +879,49 @@ class App(tk.Tk):
 
         grid = make_grid(n_grid, max_strain, use_persson_grid=use_persson)
 
-        TsA = self._selected_temps(self.temp_vars_A)
-        TsB = self._selected_temps(self.temp_vars_B)
-        if len(TsA) == 0 or len(TsB) == 0:
-            messagebox.showwarning("Selection", "Select at least one temperature in BOTH Group A and Group B.")
-            return
+        # Compute averages for each of the 5 regions
+        region_temps = []
+        for ri in range(self.N_REGIONS):
+            ts = self._selected_temps(self.temp_vars_list[ri])
+            if len(ts) == 0:
+                messagebox.showwarning(
+                    "Selection",
+                    "Select at least one temperature in Region %d." % (ri + 1)
+                )
+                return
+            region_temps.append(ts)
 
-        self.resA = average_fg_on_grid(
-            self.fg_by_T, TsA, grid,
-            interp_kind=interp_kind,
-            extrap_mode=extrap_mode,
-            missing_policy=missing_policy,
-            avg_mode=avg_mode,
-            n_min=n_min,
-            clip_leq_1=clip
-        )
-        self.resB = average_fg_on_grid(
-            self.fg_by_T, TsB, grid,
-            interp_kind=interp_kind,
-            extrap_mode=extrap_mode,
-            missing_policy=missing_policy,
-            avg_mode=avg_mode,
-            n_min=n_min,
-            clip_leq_1=clip
-        )
+        self.region_results = []
+        for ri in range(self.N_REGIONS):
+            res = average_fg_on_grid(
+                self.fg_by_T, region_temps[ri], grid,
+                interp_kind=interp_kind,
+                extrap_mode=extrap_mode,
+                missing_policy=missing_policy,
+                avg_mode=avg_mode,
+                n_min=n_min,
+                clip_leq_1=clip
+            )
+            if res is None:
+                messagebox.showerror(
+                    "Compute failed",
+                    "Averaging failed for Region %d (insufficient data)." % (ri + 1)
+                )
+                return
+            self.region_results.append(res)
 
-        if self.resA is None or self.resB is None:
-            messagebox.showerror("Compute failed", "Averaging failed for A or B (insufficient data).")
-            return
-
-        self.stitched = stitch_two_ranges(self.resA, self.resB, split)
+        self.stitched = stitch_n_ranges(self.region_results, splits_fraction)
         if self.stitched is None:
             messagebox.showerror("Compute failed", "Stitch failed (grid mismatch).")
             return
 
         self._redraw_plot()
+        splits_str = ", ".join("%.1f%%" % sp for sp in splits_percent)
+        temps_str = ", ".join("R%d=%d" % (i + 1, len(self.region_results[i]["Ts_used"]))
+                              for i in range(self.N_REGIONS))
         self.status.config(
-            text="Computed. Split=%.2f%% | A temps=%d, B temps=%d | Missing=%s | N_min=%d | GridN=%d"
-                 % (split_percent, len(self.resA["Ts_used"]), len(self.resB["Ts_used"]),
-                    missing_policy, n_min, grid.size)
+            text="Computed. Splits=[%s] | %s | Missing=%s | N_min=%d | GridN=%d"
+                 % (splits_str, temps_str, missing_policy, n_min, grid.size)
         )
 
     def _redraw_plot(self):
@@ -861,9 +932,11 @@ class App(tk.Tk):
         self.ax.tick_params(labelsize=12)
         self.ax.grid(True, alpha=0.4)
 
-        # show individual T curves (thin), union of A/B selected
+        # show individual T curves (thin), union of all region-selected temps
         if self.fg_by_T:
-            Ts_union = set(self._selected_temps(self.temp_vars_A)) | set(self._selected_temps(self.temp_vars_B))
+            Ts_union = set()
+            for ri in range(self.N_REGIONS):
+                Ts_union |= set(self._selected_temps(self.temp_vars_list[ri]))
             for T, d in self.fg_by_T.items():
                 if T not in Ts_union:
                     continue
@@ -873,25 +946,30 @@ class App(tk.Tk):
                 self.ax.plot(s, f, linewidth=1.0, alpha=0.18)
                 self.ax.plot(s, g, linewidth=1.0, alpha=0.18)
 
-        # group averages
-        if self.resA is not None:
-            s = self.resA["strain"]
-            self.ax.plot(s, self.resA["f_avg"], linewidth=2.6, label="Group A avg f(ε)")
-            self.ax.plot(s, self.resA["g_avg"], linewidth=2.6, label="Group A avg g(ε)")
-        if self.resB is not None:
-            s = self.resB["strain"]
-            self.ax.plot(s, self.resB["f_avg"], linewidth=2.6, linestyle="--", label="Group B avg f(ε)")
-            self.ax.plot(s, self.resB["g_avg"], linewidth=2.6, linestyle="--", label="Group B avg g(ε)")
+        # region averages (thin dashed)
+        region_colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd']
+        for ri in range(self.N_REGIONS):
+            if ri < len(self.region_results) and self.region_results[ri] is not None:
+                s = self.region_results[ri]["strain"]
+                color = region_colors[ri % len(region_colors)]
+                self.ax.plot(s, self.region_results[ri]["f_avg"],
+                             linewidth=1.8, linestyle="--", color=color, alpha=0.5,
+                             label="R%d f" % (ri + 1))
+                self.ax.plot(s, self.region_results[ri]["g_avg"],
+                             linewidth=1.8, linestyle=":", color=color, alpha=0.5,
+                             label="R%d g" % (ri + 1))
 
         # stitched final
         if self.stitched is not None:
             s = self.stitched["strain"]
             f = self.stitched["f_avg"]
             g = self.stitched["g_avg"]
-            split = self.stitched["split"]
-            self.ax.plot(s, f, linewidth=4.0, label="STITCHED f(ε)")
-            self.ax.plot(s, g, linewidth=4.0, label="STITCHED g(ε)")
-            self.ax.axvline(split, linewidth=1.8, alpha=0.7)
+            self.ax.plot(s, f, linewidth=4.0, color='black', label="STITCHED f(ε)")
+            self.ax.plot(s, g, linewidth=4.0, color='red', label="STITCHED g(ε)")
+            # draw split lines
+            splits = self.stitched.get("splits", [])
+            for sp in splits:
+                self.ax.axvline(sp, linewidth=1.2, alpha=0.5, color='gray', linestyle='--')
 
         # snapshots
         for snap in self.snapshots:
@@ -918,17 +996,21 @@ class App(tk.Tk):
         if self.stitched is None:
             return
         idx = len(self.snapshots) + 1
-        label = "stitch_%d (split=%.2f%%)" % (idx, self.stitched["split"] * 100.0)
+        splits = self.stitched.get("splits", [])
+        splits_str = ",".join("%.1f%%" % (sp * 100.0) for sp in splits)
+        label = "stitch_%d (splits=[%s])" % (idx, splits_str)
         snap = {
             "label": label,
             "strain": self.stitched["strain"].copy(),
             "f_avg": self.stitched["f_avg"].copy(),
             "g_avg": self.stitched["g_avg"].copy(),
             "n_eff": self.stitched["n_eff"].copy(),
-            "split": float(self.stitched["split"]),
-            "Ts_used_A": list(self.stitched["Ts_used_A"]),
-            "Ts_used_B": list(self.stitched["Ts_used_B"]),
+            "splits": list(splits),
         }
+        for i in range(self.N_REGIONS):
+            key = "Ts_used_%d" % i
+            if key in self.stitched:
+                snap[key] = list(self.stitched[key])
         self.snapshots.append(snap)
         self.snapshot_list.insert("end", label)
         self._redraw_plot()
@@ -970,8 +1052,9 @@ class App(tk.Tk):
         if self.stitched is None:
             messagebox.showinfo("Export", "No stitched result to export.")
             return
-        splitp = self.stitched["split"] * 100.0
-        self._export_result_to_csv(self.stitched, default_name="stitched_fg_split_%.1fpct.csv" % splitp)
+        splits = self.stitched.get("splits", [])
+        splits_tag = "_".join("%.0f" % (sp * 100.0) for sp in splits)
+        self._export_result_to_csv(self.stitched, default_name="stitched_fg_splits_%spct.csv" % splits_tag)
 
     def on_export_snapshot(self):
         sel = self.snapshot_list.curselection()

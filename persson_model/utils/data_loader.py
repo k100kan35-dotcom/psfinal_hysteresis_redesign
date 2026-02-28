@@ -1036,6 +1036,22 @@ def create_fg_interpolator(
 
 
 DEFAULT_STRAIN_SPLIT = {
+    'thresholds': [0.05, 0.10, 0.15, 0.20],   # 5%, 10%, 15%, 20%
+    'f_regions': [
+        {0.02: 0.10, 29.9: 0.90},   # region 0: ε ≤ 5%
+        {0.02: 0.10, 29.9: 0.90},   # region 1: 5% < ε ≤ 10%
+        {29.9: 0.30, 49.99: 0.70},  # region 2: 10% < ε ≤ 15%
+        {29.9: 0.30, 49.99: 0.70},  # region 3: 15% < ε ≤ 20%
+        {29.9: 0.30, 49.99: 0.70},  # region 4: ε > 20%
+    ],
+    'g_regions': [
+        {0.02: 0.35, 49.99: 0.65},  # region 0: ε ≤ 5%
+        {0.02: 0.35, 49.99: 0.65},  # region 1: 5% < ε ≤ 10%
+        {29.9: 0.55, 49.99: 0.45},  # region 2: 10% < ε ≤ 15%
+        {29.9: 0.55, 49.99: 0.45},  # region 3: 15% < ε ≤ 20%
+        {29.9: 0.55, 49.99: 0.45},  # region 4: ε > 20%
+    ],
+    # Legacy 2-split fields (backward compatibility)
     'threshold': 0.142,
     'f_low':  {0.02: 0.10, 29.9: 0.90},
     'f_high': {29.9: 0.30, 49.99: 0.70},
@@ -1132,7 +1148,17 @@ def average_fg_curves(
     strain_split : dict or None, optional
         Strain-split weighted averaging configuration. When provided,
         f and g are independently averaged with different temperature
-        weights for low/high strain regions. Format::
+        weights per strain region.
+
+        Multi-region format (4-split, 5 regions)::
+
+            {
+                'thresholds': [0.05, 0.10, 0.15, 0.20],
+                'f_regions': [{temp: weight}, ...],  # len = len(thresholds)+1
+                'g_regions': [{temp: weight}, ...],
+            }
+
+        Legacy 2-split format::
 
             {
                 'threshold': 0.142,
@@ -1208,48 +1234,86 @@ def average_fg_curves(
 
     # ── Strain-split weighted averaging ─────────────────────
     if strain_split is not None:
-        threshold = strain_split['threshold']
-        lo_mask = grid_strain < threshold
-        hi_mask = ~lo_mask
-
         f_avg = np.full(len(grid_strain), np.nan)
         g_avg = np.full(len(grid_strain), np.nan)
 
-        # f: low strain
-        if np.any(lo_mask) and 'f_low' in strain_split:
-            f_lo = _weighted_avg_1d(
-                {T: F_by_T[T][lo_mask] for T in available_temps},
-                strain_split['f_low'], available_temps
-            )
-            if f_lo is not None:
-                f_avg[lo_mask] = f_lo
+        # ── Multi-region mode (thresholds + f_regions/g_regions) ──
+        if 'thresholds' in strain_split and 'f_regions' in strain_split:
+            thresholds = sorted(strain_split['thresholds'])
+            f_regions = strain_split['f_regions']
+            g_regions = strain_split['g_regions']
+            n_regions = len(thresholds) + 1
 
-        # f: high strain
-        if np.any(hi_mask) and 'f_high' in strain_split:
-            f_hi = _weighted_avg_1d(
-                {T: F_by_T[T][hi_mask] for T in available_temps},
-                strain_split['f_high'], available_temps
-            )
-            if f_hi is not None:
-                f_avg[hi_mask] = f_hi
+            for ri in range(n_regions):
+                if ri == 0:
+                    mask = grid_strain <= thresholds[0]
+                elif ri < n_regions - 1:
+                    mask = (grid_strain > thresholds[ri - 1]) & (grid_strain <= thresholds[ri])
+                else:
+                    mask = grid_strain > thresholds[-1]
 
-        # g: low strain
-        if np.any(lo_mask) and 'g_low' in strain_split:
-            g_lo = _weighted_avg_1d(
-                {T: G_by_T[T][lo_mask] for T in available_temps},
-                strain_split['g_low'], available_temps
-            )
-            if g_lo is not None:
-                g_avg[lo_mask] = g_lo
+                if not np.any(mask):
+                    continue
 
-        # g: high strain
-        if np.any(hi_mask) and 'g_high' in strain_split:
-            g_hi = _weighted_avg_1d(
-                {T: G_by_T[T][hi_mask] for T in available_temps},
-                strain_split['g_high'], available_temps
-            )
-            if g_hi is not None:
-                g_avg[hi_mask] = g_hi
+                # f for this region
+                if ri < len(f_regions):
+                    f_r = _weighted_avg_1d(
+                        {T: F_by_T[T][mask] for T in available_temps},
+                        f_regions[ri], available_temps
+                    )
+                    if f_r is not None:
+                        f_avg[mask] = f_r
+
+                # g for this region
+                if ri < len(g_regions):
+                    g_r = _weighted_avg_1d(
+                        {T: G_by_T[T][mask] for T in available_temps},
+                        g_regions[ri], available_temps
+                    )
+                    if g_r is not None:
+                        g_avg[mask] = g_r
+
+        # ── Legacy 2-split mode (threshold + f_low/f_high/g_low/g_high) ──
+        else:
+            threshold = strain_split['threshold']
+            lo_mask = grid_strain < threshold
+            hi_mask = ~lo_mask
+
+            # f: low strain
+            if np.any(lo_mask) and 'f_low' in strain_split:
+                f_lo = _weighted_avg_1d(
+                    {T: F_by_T[T][lo_mask] for T in available_temps},
+                    strain_split['f_low'], available_temps
+                )
+                if f_lo is not None:
+                    f_avg[lo_mask] = f_lo
+
+            # f: high strain
+            if np.any(hi_mask) and 'f_high' in strain_split:
+                f_hi = _weighted_avg_1d(
+                    {T: F_by_T[T][hi_mask] for T in available_temps},
+                    strain_split['f_high'], available_temps
+                )
+                if f_hi is not None:
+                    f_avg[hi_mask] = f_hi
+
+            # g: low strain
+            if np.any(lo_mask) and 'g_low' in strain_split:
+                g_lo = _weighted_avg_1d(
+                    {T: G_by_T[T][lo_mask] for T in available_temps},
+                    strain_split['g_low'], available_temps
+                )
+                if g_lo is not None:
+                    g_avg[lo_mask] = g_lo
+
+            # g: high strain
+            if np.any(hi_mask) and 'g_high' in strain_split:
+                g_hi = _weighted_avg_1d(
+                    {T: G_by_T[T][hi_mask] for T in available_temps},
+                    strain_split['g_high'], available_temps
+                )
+                if g_hi is not None:
+                    g_avg[hi_mask] = g_hi
 
         n_eff = np.ones(len(grid_strain), dtype=int)
 
