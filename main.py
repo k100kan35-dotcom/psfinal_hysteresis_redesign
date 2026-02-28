@@ -7177,20 +7177,21 @@ class PerssonModelGUI_V2:
         def add_separator():
             tk.Frame(scrollable_frame, bg='#CBD5E1', height=2).pack(fill=tk.X, padx=10, pady=10)
 
-        def add_graph(plot_func, fig_height=4.2):
-            """Add an illustrative matplotlib graph."""
+        def add_graph(plot_func, fig_height=7.0):
+            """Add an illustrative matplotlib graph (1:1 aspect ratio)."""
             import numpy as np
-            fig = Figure(figsize=(9, fig_height), facecolor='#FAFBFC')
+            fig_size = fig_height  # 1:1 ratio
+            fig = Figure(figsize=(fig_size, fig_size), facecolor='#FAFBFC')
             ax = fig.add_subplot(111)
             ax.set_facecolor('#FAFBFC')
             plot_func(ax, np)
-            ax.tick_params(labelsize=11)
+            ax.tick_params(labelsize=13)
             for spine in ax.spines.values():
                 spine.set_color('#CBD5E1')
-            fig.tight_layout(pad=2.0)
+            fig.tight_layout(pad=2.5)
             graph_canvas = FigureCanvasTkAgg(fig, master=scrollable_frame)
             graph_canvas.draw()
-            graph_canvas.get_tk_widget().configure(height=int(fig_height * 82))
+            graph_canvas.get_tk_widget().configure(height=int(fig_size * 82))
             graph_canvas.get_tk_widget().pack(fill=tk.X, padx=30, pady=(6, 14))
 
         # === Title ===
@@ -7226,6 +7227,85 @@ class PerssonModelGUI_V2:
             ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
             ax.set_title(r'$\omega = q \cdot v \cdot \cos\phi$ — 각도에 따른 진동수 변화', fontsize=12, pad=10)
         add_graph(_plot_omega_vs_phi)
+
+        add_separator()
+        add_text('왜 슬립 속도 하나(v)에서 다양한 주파수가 생기는가? — 프랙탈 노면의 역할',
+                 bold=True, fg='#7C3AED', pady=(8, 0))
+        add_text('', pady=2)
+        add_text('  핵심: 노면은 프랙탈(fractal) 구조 → 거칠기가 모든 스케일에 동시에 존재',
+                 font_size=17, bold=True, fg='#1E293B')
+        add_text('', pady=2)
+        add_text('  실제 도로 표면은 하나의 파장이 아니라, 수mm ~ 수μm까지 다양한 스케일의 요철이 겹쳐져 있습니다.',
+                 font_size=17, fg='#64748B')
+        add_text('  이를 수학적으로 분해하면 파수(q)가 q₀ ~ q₁까지 넓은 범위에 걸쳐 C(q) > 0 입니다.',
+                 font_size=17, fg='#64748B')
+        add_text('', pady=2)
+        add_text('  고무가 v = 1 m/s로 미끄러질 때:', font_size=17, bold=True, fg='#1E293B')
+        add_text('    • q = 10² (파장 ~6cm, 큰 돌) → ω = 10² rad/s (느린 진동)',
+                 font_size=17, fg='#059669')
+        add_text('    • q = 10⁴ (파장 ~0.6mm, 모래알) → ω = 10⁴ rad/s (빠른 진동)',
+                 font_size=17, fg='#2563EB')
+        add_text('    • q = 10⁶ (파장 ~6μm, 미세 결정) → ω = 10⁶ rad/s (매우 빠른 진동)',
+                 font_size=17, fg='#DC2626')
+        add_text('    • q = 10⁸ (파장 ~60nm, 나노 스케일) → ω = 10⁸ rad/s (초고주파)',
+                 font_size=17, fg='#7C3AED')
+        add_text('', pady=2)
+        add_text('  → 속도 v는 하나이지만, 프랙탈 노면의 q가 10²~10⁸까지 분포하므로',
+                 font_size=17, fg='#64748B')
+        add_text('    고무가 동시에 느끼는 ω도 6자릿수 이상의 범위를 가짐!',
+                 font_size=17, bold=True, fg='#DC2626')
+        add_text('  → 이것이 G(q) 적분에서 q₀→q₁ 넓은 범위를 적분해야 하는 이유입니다.',
+                 font_size=17, fg='#64748B')
+
+        def _plot_fractal_omega(ax, np):
+            """Show how single velocity generates diverse frequencies on fractal surface."""
+            q = np.logspace(2, 8, 500)
+            v = 1.0  # 1 m/s
+            omega = q * v
+
+            # Fractal PSD shape
+            C_q = 1e-10 * (q / 1e2)**(-2.2)
+            C_q_norm = C_q / np.max(C_q)
+
+            ax2 = ax.twinx()
+
+            # Plot omega vs q
+            ax.loglog(q, omega, '-', linewidth=3.0, color='#DC2626',
+                      label=r'$\omega = q \times v$ (v=1 m/s)')
+            # Plot PSD
+            ax2.loglog(q, C_q, '-', linewidth=2.5, color='#059669', alpha=0.7,
+                       label='C(q) — 프랙탈 PSD')
+            ax2.fill_between(q, C_q, alpha=0.08, color='#059669')
+
+            ax.set_xlabel('파수 q (1/m)', fontsize=13)
+            ax.set_ylabel(r'주파수 $\omega$ (rad/s)', fontsize=13, color='#DC2626')
+            ax2.set_ylabel('C(q) (m⁴)', fontsize=13, color='#059669')
+
+            ax.tick_params(axis='y', labelcolor='#DC2626')
+            ax2.tick_params(axis='y', labelcolor='#059669')
+
+            # Annotate key points
+            for q_pt, label_txt, color in [
+                (1e2, 'q=10² → ω=10²\n(큰 돌)', '#059669'),
+                (1e4, 'q=10⁴ → ω=10⁴\n(모래알)', '#2563EB'),
+                (1e6, 'q=10⁶ → ω=10⁶\n(미세 결정)', '#DC2626'),
+            ]:
+                omega_pt = q_pt * v
+                ax.plot(q_pt, omega_pt, 'o', color=color, markersize=10, zorder=5)
+                ax.annotate(label_txt, xy=(q_pt, omega_pt), fontsize=10,
+                            color=color, fontweight='bold',
+                            xytext=(q_pt * 3, omega_pt * 0.25),
+                            arrowprops=dict(arrowstyle='->', color=color, lw=1.5))
+
+            lines1, labels1 = ax.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            ax.legend(lines1 + lines2, labels1 + labels2, fontsize=11,
+                      loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.grid(True, alpha=0.3, which='both')
+            ax.set_title('프랙탈 노면: 속도 v=1m/s 하나로 다양한 ω 생성', fontsize=13, pad=10)
+        add_graph(_plot_fractal_omega)
+
+        add_separator()
 
         add_text('유효 탄성률 (평면 변형 상태):', bold=True, pady=(10, 0))
         add_equation(r'$E^*(\omega) = \frac{E(\omega)}{1-\nu^2}$', fig_height=1.0)
@@ -7311,6 +7391,84 @@ class PerssonModelGUI_V2:
         add_text('  → 한 마디로: "천천히 누르면 잘 밀착, 빨리 밀면 접촉이 확 줄어든다"',
                  font_size=17, bold=True, fg='#DC2626')
 
+        add_text('', pady=6)
+        add_text('▼ G의 구체적인 값이 의미하는 것 — "이 숫자가 대체 뭔데?"',
+                 bold=True, fg='#7C3AED', pady=(6, 0))
+        add_text('', pady=2)
+        add_text('  G(q₁)은 파수 적분의 최종 누적합입니다. 파수 q₀부터 q₁까지 모든 스케일의 거칠기 기여를 더한 것.',
+                 font_size=17, fg='#1E293B')
+        add_text('  각 파수 q에서 ΔG ∝ q³·C(q)·|E/σ₀|² 만큼의 기여가 쌓여 최종 G(q₁)이 결정됩니다.',
+                 font_size=17, fg='#64748B')
+        add_text('', pady=2)
+        add_text('  직관적 해석: G는 "(고무의 뻣뻣함 × 바닥 기울기)² / 압력²" 의 누적합',
+                 font_size=17, bold=True, fg='#1E293B')
+        add_text('  → 즉, 고무가 변형되며 저장해야 할 탄성 에너지가 누르는 힘(σ₀)에 비해 얼마나 큰가의 척도',
+                 font_size=17, fg='#64748B')
+        add_text('', pady=2)
+        add_text('  G값 → 접촉면적 변환 (A/A₀ = erf(1/(2√G)))으로 체감하면:',
+                 font_size=17, bold=True, fg='#1E293B')
+        add_text('    G ≈ 0.1   →  A/A₀ ≈ 94%  (거의 완전 밀착 — 매우 유연한 고무 + 완만한 바닥)',
+                 font_size=17, fg='#059669')
+        add_text('    G ≈ 1     →  A/A₀ ≈ 43%  (절반 가까이 접촉 — 일반적인 저속 조건)',
+                 font_size=17, fg='#059669')
+        add_text('    G ≈ 10    →  A/A₀ ≈ 16%  (상당히 접촉 감소 — 중속 영역)',
+                 font_size=17, fg='#F59E0B')
+        add_text('    G ≈ 100   →  A/A₀ ≈ 5%   (접촉 거의 없음 — 고속 또는 뻣뻣한 고무)',
+                 font_size=17, fg='#DC2626')
+        add_text('    G ≈ 1000  →  A/A₀ ≈ 1.6% (극히 미미한 접촉 — 유리 전이 영역 고속)',
+                 font_size=17, fg='#DC2626')
+        add_text('    G ≈ 10000 →  A/A₀ ≈ 0.5% (사실상 접촉 없음)',
+                 font_size=17, fg='#7C3AED')
+        add_text('', pady=2)
+        add_text('  요약: G는 "접촉을 방해하는 총 에너지 장벽"의 크기.',
+                 font_size=17, bold=True, fg='#DC2626')
+        add_text('  작을수록 고무가 바닥에 잘 눌러붙고, 클수록 접촉이 어렵습니다.',
+                 font_size=17, fg='#64748B')
+        add_text('  G 자체는 무차원이지만, 실질적으로는 "(E/σ₀)² × (기울기)²"에 비례하는 양이라',
+                 font_size=17, fg='#64748B')
+        add_text('  탄성률이 높거나 압력이 낮거나 기울기가 가파르면 G가 빠르게 커집니다.',
+                 font_size=17, fg='#64748B')
+
+        def _plot_G_to_contact(ax, np):
+            """Show G value to contact area mapping intuitively."""
+            from scipy.special import erf
+            G = np.logspace(-1, 4.5, 500)
+            AA0 = erf(1 / (2 * np.sqrt(G))) * 100
+
+            ax.semilogx(G, AA0, '-', linewidth=3.0, color='#2563EB')
+            ax.fill_between(G, AA0, alpha=0.08, color='#2563EB')
+
+            # Annotate key G values
+            key_points = [
+                (0.1, '#059669', 'G=0.1\n→ 94%'),
+                (1.0, '#059669', 'G=1\n→ 43%'),
+                (10.0, '#F59E0B', 'G=10\n→ 16%'),
+                (100.0, '#DC2626', 'G=100\n→ 5%'),
+                (1000.0, '#DC2626', 'G=1000\n→ 1.6%'),
+                (10000.0, '#7C3AED', 'G=10⁴\n→ 0.5%'),
+            ]
+            for g_val, color, txt in key_points:
+                aa0_val = erf(1 / (2 * np.sqrt(g_val))) * 100
+                ax.plot(g_val, aa0_val, 'o', color=color, markersize=10, zorder=5)
+                offset_y = 8 if aa0_val > 50 else 5
+                ax.annotate(txt, xy=(g_val, aa0_val), fontsize=11,
+                            color=color, fontweight='bold',
+                            xytext=(g_val * 1.8, aa0_val + offset_y),
+                            arrowprops=dict(arrowstyle='->', color=color, lw=1.5))
+
+            # Background zones
+            ax.axhspan(50, 100, alpha=0.06, color='#059669')
+            ax.axhspan(10, 50, alpha=0.06, color='#F59E0B')
+            ax.axhspan(0, 10, alpha=0.06, color='#DC2626')
+
+            ax.set_xlabel('G (무차원 — 탄성 에너지 누적합)', fontsize=13)
+            ax.set_ylabel('A/A₀ (%)', fontsize=13)
+            ax.set_ylim(-2, 105)
+            ax.grid(True, alpha=0.3, which='both')
+            ax.set_title('G값이 구체적으로 의미하는 접촉면적 — 한눈에 보는 변환표',
+                         fontsize=13, pad=10)
+        add_graph(_plot_G_to_contact)
+
         add_text('', pady=4)
         add_text('▼ 실측 데이터: 3개 샘플의 속도별 G(q₁) 값',
                  bold=True, fg='#059669', pady=(6, 0))
@@ -7320,49 +7478,62 @@ class PerssonModelGUI_V2:
         def _plot_G_vs_v_real(ax, np):
             """Plot measured G(q1) vs velocity for 3 rubber samples."""
             v = np.array([
-                1e-5, 1.81e-5, 3.28e-5, 5.95e-5, 1.08e-4, 1.95e-4,
-                3.53e-4, 6.4e-4, 1.16e-3, 2.1e-3, 3.81e-3, 6.9e-3,
-                1.25e-2, 2.26e-2, 4.1e-2, 7.43e-2, 1.35e-1, 2.44e-1,
-                4.42e-1, 8e-1, 1.45, 2.63, 4.76, 8.62, 15.6, 28.3,
+                1.00e-5, 1.81e-5, 3.28e-5, 5.95e-5, 1.08e-4, 1.95e-4,
+                3.53e-4, 6.40e-4, 1.16e-3, 2.10e-3, 3.81e-3, 6.90e-3,
+                1.25e-2, 2.26e-2, 4.10e-2, 7.43e-2, 1.35e-1, 2.44e-1,
+                4.42e-1, 8.00e-1, 1.45, 2.63, 4.76, 8.62, 15.6, 28.3,
                 51.2, 92.8, 168, 305, 552, 1000])
             G_S100 = np.array([
-                1.91, 2.03, 2.17, 2.31, 2.48, 2.66, 2.86, 3.08,
-                3.33, 3.62, 3.95, 4.33, 4.79, 5.34, 6.01, 6.81,
-                7.83, 9.15, 10.9, 13.1, 16.5, 21.2, 28.2, 39.2,
-                57.0, 87.1, 138, 238, 428, 791, 1310, 2120])
+                1.89e+1, 2.01e+1, 2.15e+1, 2.29e+1, 2.45e+1, 2.63e+1,
+                2.82e+1, 3.04e+1, 3.28e+1, 3.56e+1, 3.87e+1, 4.23e+1,
+                4.67e+1, 5.18e+1, 5.81e+1, 6.54e+1, 7.48e+1, 8.67e+1,
+                1.02e+2, 1.21e+2, 1.50e+2, 1.89e+2, 2.45e+2, 3.31e+2,
+                4.65e+2, 6.84e+2, 1.04e+3, 1.72e+3, 2.99e+3, 5.35e+3,
+                8.74e+3, 1.40e+4])
             G_S120 = np.array([
-                0.488, 0.526, 0.569, 0.613, 0.665, 0.724, 0.789,
-                0.862, 0.951, 1.06, 1.18, 1.32, 1.49, 1.70, 1.96,
-                2.26, 2.67, 3.20, 3.90, 4.87, 6.31, 8.40, 11.6,
-                16.6, 24.7, 36.9, 58.0, 98.7, 181, 360, 644, 1080])
+                8.73e+0, 9.41e+0, 1.02e+1, 1.10e+1, 1.19e+1, 1.30e+1,
+                1.41e+1, 1.55e+1, 1.71e+1, 1.90e+1, 2.12e+1, 2.37e+1,
+                2.68e+1, 3.06e+1, 3.51e+1, 4.06e+1, 4.80e+1, 5.75e+1,
+                7.00e+1, 8.63e+1, 1.12e+2, 1.50e+2, 2.08e+2, 2.94e+2,
+                4.24e+2, 6.33e+2, 9.79e+2, 1.66e+3, 3.03e+3, 5.84e+3,
+                1.01e+4, 1.66e+4])
             G_S140 = np.array([
-                0.431, 0.476, 0.527, 0.584, 0.650, 0.730, 0.819,
-                0.919, 1.04, 1.18, 1.36, 1.56, 1.80, 2.10, 2.47,
-                2.92, 3.51, 4.27, 5.29, 6.72, 8.71, 11.4, 15.2,
-                21.1, 31.0, 46.7, 70.2, 106, 166, 264, 417, 623])
+                8.78e+0, 9.71e+0, 1.07e+1, 1.19e+1, 1.32e+1, 1.48e+1,
+                1.66e+1, 1.86e+1, 2.10e+1, 2.39e+1, 2.73e+1, 3.12e+1,
+                3.60e+1, 4.19e+1, 4.92e+1, 5.82e+1, 6.95e+1, 8.43e+1,
+                1.04e+2, 1.30e+2, 1.66e+2, 2.15e+2, 2.89e+2, 4.06e+2,
+                5.88e+2, 8.54e+2, 1.22e+3, 1.76e+3, 2.71e+3, 4.47e+3,
+                7.64e+3, 1.21e+4])
             ax.loglog(v, G_S100, 'o-', linewidth=2.5, color='#DC2626',
-                      markersize=3.5, label='S100 (G 최대)')
+                      markersize=3.5, label='S100')
             ax.loglog(v, G_S120, 's-', linewidth=2.5, color='#2563EB',
-                      markersize=3.5, label='S120 (G 중간)')
+                      markersize=3.5, label='S120')
             ax.loglog(v, G_S140, '^-', linewidth=2.5, color='#059669',
-                      markersize=3.5, label='S140 (G 최소)')
-            ax.fill_between(v, G_S140, G_S100, alpha=0.08, color='#7C3AED')
-            ax.set_xlabel('슬라이딩 속도 v (m/s)', fontsize=12)
-            ax.set_ylabel('G(q₁)', fontsize=12)
-            ax.legend(fontsize=10, loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
+                      markersize=3.5, label='S140')
+            ax.fill_between(v, np.minimum(G_S100, np.minimum(G_S120, G_S140)),
+                            np.maximum(G_S100, np.maximum(G_S120, G_S140)),
+                            alpha=0.08, color='#7C3AED')
+            ax.set_xlabel('슬라이딩 속도 v (m/s)', fontsize=13)
+            ax.set_ylabel('G(q₁)', fontsize=13)
+            ax.legend(fontsize=11, loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('실측: 속도별 G(q₁) — 속도↑ → 고무 뻣뻣 → G↑', fontsize=12, pad=10)
+            ax.set_title('실측: 속도별 G(q₁) — 속도↑ → G↑', fontsize=13, pad=10)
             ax.annotate('속도 증가 →\nG 급격히 상승',
-                        xy=(50, G_S100[26]), fontsize=10, color='#DC2626',
+                        xy=(50, G_S100[26]), fontsize=11, color='#DC2626',
                         fontweight='bold',
-                        xytext=(5e-3, 300),
+                        xytext=(5e-3, 500),
                         arrowprops=dict(arrowstyle='->', color='#DC2626', lw=1.5))
-        add_graph(_plot_G_vs_v_real, fig_height=5.0)
+            ax.annotate('고속에서 S120이\nS100을 추월',
+                        xy=(300, G_S120[29]), fontsize=10, color='#2563EB',
+                        fontweight='bold',
+                        xytext=(1e-2, 5000),
+                        arrowprops=dict(arrowstyle='->', color='#2563EB', lw=1.5))
+        add_graph(_plot_G_vs_v_real)
 
-        add_text('  → S100: 모든 속도에서 G가 가장 큼 — 가장 뻣뻣한 고무 → 요철을 가장 못 따라감',
+        add_text('  → 저속: S100이 G 최대 (가장 뻣뻣) → S140 ≈ S120 (유사한 수준)',
                  font_size=17, fg='#DC2626')
-        add_text('  → S140: G가 가장 작음 — 가장 유연한 고무 → 요철에 상대적으로 잘 밀착',
-                 font_size=17, fg='#059669')
+        add_text('  → 고속 (v > 100 m/s): S120이 S100을 추월하여 G 최대 — 유리 전이 영역에서의 E 차이',
+                 font_size=17, fg='#2563EB')
         add_text('  → 공통점: 모든 샘플에서 속도↑ → G 급증 (고주파에서 유리 전이 → 고무가 뻣뻣해짐)',
                  font_size=17, fg='#64748B')
 
@@ -7380,26 +7551,32 @@ class PerssonModelGUI_V2:
             """Convert measured G to A/A0 and show contact area vs velocity."""
             from scipy.special import erf
             v = np.array([
-                1e-5, 1.81e-5, 3.28e-5, 5.95e-5, 1.08e-4, 1.95e-4,
-                3.53e-4, 6.4e-4, 1.16e-3, 2.1e-3, 3.81e-3, 6.9e-3,
-                1.25e-2, 2.26e-2, 4.1e-2, 7.43e-2, 1.35e-1, 2.44e-1,
-                4.42e-1, 8e-1, 1.45, 2.63, 4.76, 8.62, 15.6, 28.3,
+                1.00e-5, 1.81e-5, 3.28e-5, 5.95e-5, 1.08e-4, 1.95e-4,
+                3.53e-4, 6.40e-4, 1.16e-3, 2.10e-3, 3.81e-3, 6.90e-3,
+                1.25e-2, 2.26e-2, 4.10e-2, 7.43e-2, 1.35e-1, 2.44e-1,
+                4.42e-1, 8.00e-1, 1.45, 2.63, 4.76, 8.62, 15.6, 28.3,
                 51.2, 92.8, 168, 305, 552, 1000])
             G_S100 = np.array([
-                1.91, 2.03, 2.17, 2.31, 2.48, 2.66, 2.86, 3.08,
-                3.33, 3.62, 3.95, 4.33, 4.79, 5.34, 6.01, 6.81,
-                7.83, 9.15, 10.9, 13.1, 16.5, 21.2, 28.2, 39.2,
-                57.0, 87.1, 138, 238, 428, 791, 1310, 2120])
+                1.89e+1, 2.01e+1, 2.15e+1, 2.29e+1, 2.45e+1, 2.63e+1,
+                2.82e+1, 3.04e+1, 3.28e+1, 3.56e+1, 3.87e+1, 4.23e+1,
+                4.67e+1, 5.18e+1, 5.81e+1, 6.54e+1, 7.48e+1, 8.67e+1,
+                1.02e+2, 1.21e+2, 1.50e+2, 1.89e+2, 2.45e+2, 3.31e+2,
+                4.65e+2, 6.84e+2, 1.04e+3, 1.72e+3, 2.99e+3, 5.35e+3,
+                8.74e+3, 1.40e+4])
             G_S120 = np.array([
-                0.488, 0.526, 0.569, 0.613, 0.665, 0.724, 0.789,
-                0.862, 0.951, 1.06, 1.18, 1.32, 1.49, 1.70, 1.96,
-                2.26, 2.67, 3.20, 3.90, 4.87, 6.31, 8.40, 11.6,
-                16.6, 24.7, 36.9, 58.0, 98.7, 181, 360, 644, 1080])
+                8.73e+0, 9.41e+0, 1.02e+1, 1.10e+1, 1.19e+1, 1.30e+1,
+                1.41e+1, 1.55e+1, 1.71e+1, 1.90e+1, 2.12e+1, 2.37e+1,
+                2.68e+1, 3.06e+1, 3.51e+1, 4.06e+1, 4.80e+1, 5.75e+1,
+                7.00e+1, 8.63e+1, 1.12e+2, 1.50e+2, 2.08e+2, 2.94e+2,
+                4.24e+2, 6.33e+2, 9.79e+2, 1.66e+3, 3.03e+3, 5.84e+3,
+                1.01e+4, 1.66e+4])
             G_S140 = np.array([
-                0.431, 0.476, 0.527, 0.584, 0.650, 0.730, 0.819,
-                0.919, 1.04, 1.18, 1.36, 1.56, 1.80, 2.10, 2.47,
-                2.92, 3.51, 4.27, 5.29, 6.72, 8.71, 11.4, 15.2,
-                21.1, 31.0, 46.7, 70.2, 106, 166, 264, 417, 623])
+                8.78e+0, 9.71e+0, 1.07e+1, 1.19e+1, 1.32e+1, 1.48e+1,
+                1.66e+1, 1.86e+1, 2.10e+1, 2.39e+1, 2.73e+1, 3.12e+1,
+                3.60e+1, 4.19e+1, 4.92e+1, 5.82e+1, 6.95e+1, 8.43e+1,
+                1.04e+2, 1.30e+2, 1.66e+2, 2.15e+2, 2.89e+2, 4.06e+2,
+                5.88e+2, 8.54e+2, 1.22e+3, 1.76e+3, 2.71e+3, 4.47e+3,
+                7.64e+3, 1.21e+4])
             P_S100 = erf(1 / (2 * np.sqrt(G_S100))) * 100
             P_S120 = erf(1 / (2 * np.sqrt(G_S120))) * 100
             P_S140 = erf(1 / (2 * np.sqrt(G_S140))) * 100
@@ -7410,39 +7587,36 @@ class PerssonModelGUI_V2:
             ax.semilogx(v, P_S140, '^-', linewidth=2.5, color='#059669',
                         markersize=3.5, label='S140')
             # Reference bands
-            ax.axhspan(50, 100, alpha=0.06, color='#059669')
-            ax.axhspan(10, 50, alpha=0.06, color='#F59E0B')
+            ax.axhspan(10, 30, alpha=0.06, color='#F59E0B')
             ax.axhspan(0, 10, alpha=0.06, color='#DC2626')
-            ax.axhline(y=50, color='#059669', linestyle=':', alpha=0.5, linewidth=1)
             ax.axhline(y=10, color='#DC2626', linestyle=':', alpha=0.5, linewidth=1)
-            ax.text(1.5e-5, 75, '양호한 접촉', fontsize=9, color='#059669',
+            ax.text(1.5e-5, 14, '중간 접촉', fontsize=10, color='#B45309',
                     fontweight='bold', alpha=0.7)
-            ax.text(1.5e-5, 28, '중간 접촉', fontsize=9, color='#B45309',
+            ax.text(1.5e-5, 3, '접촉 거의 없음', fontsize=10, color='#DC2626',
                     fontweight='bold', alpha=0.7)
-            ax.text(1.5e-5, 4, '접촉 거의 없음', fontsize=9, color='#DC2626',
-                    fontweight='bold', alpha=0.7)
-            ax.set_xlabel('슬라이딩 속도 v (m/s)', fontsize=12)
-            ax.set_ylabel('A/A₀ (%)', fontsize=12)
-            ax.set_ylim(-2, 82)
-            ax.legend(fontsize=10, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel('슬라이딩 속도 v (m/s)', fontsize=13)
+            ax.set_ylabel('A/A₀ (%)', fontsize=13)
+            ax.set_ylim(-1, 22)
+            ax.legend(fontsize=11, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3)
-            ax.set_title('G → A/A₀ 변환 결과: 속도↑ → G↑ → 접촉면적 급감', fontsize=12, pad=10)
-            # Annotate the dramatic drop
-            ax.annotate('S140: 저속 ~72%\n→ 고속 ~1%',
-                        xy=(500, P_S140[-2]), fontsize=10, color='#059669',
+            ax.set_title('G → A/A₀ 변환 결과: 속도↑ → G↑ → 접촉면적 급감', fontsize=13, pad=10)
+            ax.annotate('S120: 저속 ~17%\n→ 고속 <1%',
+                        xy=(500, P_S120[-2]), fontsize=10, color='#2563EB',
                         fontweight='bold',
-                        xytext=(1e-1, 62),
-                        arrowprops=dict(arrowstyle='->', color='#059669', lw=1.5))
-        add_graph(_plot_AA0_vs_v_real, fig_height=5.5)
+                        xytext=(1e-2, 18),
+                        arrowprops=dict(arrowstyle='->', color='#2563EB', lw=1.5))
+        add_graph(_plot_AA0_vs_v_real)
 
         add_text('  해석:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  → 저속 (v < 0.01 m/s): S140은 ~72%, S120은 ~56%, S100은 ~39% 접촉',
+        add_text('  → 저속 (v < 0.01 m/s): S120 ≈ S140 ≈ 17%, S100 ≈ 12% 접촉 (G가 이미 크므로 접촉면적 작음)',
                  font_size=17, fg='#64748B')
-        add_text('  → 고속 (v > 100 m/s): 모든 샘플에서 접촉면적이 10% 미만으로 급감',
+        add_text('  → 중속 (v ≈ 1 m/s): 모든 샘플에서 접촉면적 5% 이하로 급감',
+                 font_size=17, fg='#64748B')
+        add_text('  → 고속 (v > 100 m/s): 접촉면적 1% 미만 — 거의 접촉 없음',
                  font_size=17, fg='#64748B')
         add_text('  → 핵심: G가 커지면 erf(1/(2√G))가 급격히 0에 수렴 → 접촉면적 비선형 급감',
                  font_size=17, bold=True, fg='#DC2626')
-        add_text('    (G=1 → A/A₀≈43%,  G=4 → ≈24%,  G=25 → ≈10%,  G=100 → ≈5%)',
+        add_text('    (G=10 → A/A₀≈16%,  G=25 → ≈10%,  G=100 → ≈5%,  G=1000 → ≈1.6%)',
                  font_size=17, fg='#64748B')
 
         add_separator()
@@ -13296,20 +13470,21 @@ class PerssonModelGUI_V2:
         def add_separator():
             tk.Frame(scrollable_frame, bg='#CBD5E1', height=2).pack(fill=tk.X, padx=10, pady=10)
 
-        def add_graph(plot_func, fig_height=4.2):
-            """Add an illustrative matplotlib graph."""
+        def add_graph(plot_func, fig_height=7.0):
+            """Add an illustrative matplotlib graph (1:1 aspect ratio)."""
             import numpy as np
-            fig = Figure(figsize=(9, fig_height), facecolor='#FAFBFC')
+            fig_size = fig_height  # 1:1 ratio
+            fig = Figure(figsize=(fig_size, fig_size), facecolor='#FAFBFC')
             ax = fig.add_subplot(111)
             ax.set_facecolor('#FAFBFC')
             plot_func(ax, np)
-            ax.tick_params(labelsize=11)
+            ax.tick_params(labelsize=13)
             for spine in ax.spines.values():
                 spine.set_color('#CBD5E1')
-            fig.tight_layout(pad=2.0)
+            fig.tight_layout(pad=2.5)
             graph_canvas = FigureCanvasTkAgg(fig, master=scrollable_frame)
             graph_canvas.draw()
-            graph_canvas.get_tk_widget().configure(height=int(fig_height * 82))
+            graph_canvas.get_tk_widget().configure(height=int(fig_size * 82))
             graph_canvas.get_tk_widget().pack(fill=tk.X, padx=30, pady=(6, 14))
 
         # === Title ===
