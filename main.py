@@ -7160,7 +7160,7 @@ class PerssonModelGUI_V2:
 
         def add_equation(latex_str, fig_height=1.2, font_size=16):
             """Add a LaTeX equation rendered via matplotlib."""
-            fig = Figure(figsize=(14, fig_height), facecolor='white')
+            fig = Figure(figsize=(11, fig_height), facecolor='white')
             ax = fig.add_subplot(111)
             ax.axis('off')
             ax.text(0.02, 0.5, latex_str, transform=ax.transAxes,
@@ -7176,20 +7176,20 @@ class PerssonModelGUI_V2:
         def add_separator():
             tk.Frame(scrollable_frame, bg='#CBD5E1', height=2).pack(fill=tk.X, padx=10, pady=10)
 
-        def add_graph(plot_func, fig_height=3.5):
+        def add_graph(plot_func, fig_height=4.2):
             """Add an illustrative matplotlib graph."""
             import numpy as np
-            fig = Figure(figsize=(12, fig_height), facecolor='#FAFBFC')
+            fig = Figure(figsize=(9, fig_height), facecolor='#FAFBFC')
             ax = fig.add_subplot(111)
             ax.set_facecolor('#FAFBFC')
             plot_func(ax, np)
-            ax.tick_params(labelsize=14)
+            ax.tick_params(labelsize=11)
             for spine in ax.spines.values():
                 spine.set_color('#CBD5E1')
-            fig.tight_layout(pad=1.5)
+            fig.tight_layout(pad=2.0)
             graph_canvas = FigureCanvasTkAgg(fig, master=scrollable_frame)
             graph_canvas.draw()
-            graph_canvas.get_tk_widget().configure(height=int(fig_height * 72))
+            graph_canvas.get_tk_widget().configure(height=int(fig_height * 82))
             graph_canvas.get_tk_widget().pack(fill=tk.X, padx=30, pady=(6, 14))
 
         # === Title ===
@@ -7218,12 +7218,12 @@ class PerssonModelGUI_V2:
                 omega = q_val * v * np.cos(phi)
                 ax.plot(np.degrees(phi), omega, linewidth=2.5, color=c,
                         label=f'q = {q_val:.0e} (v={v} m/s)')
-            ax.set_xlabel(r'$\phi$ (degrees)', fontsize=10)
-            ax.set_ylabel(r'$\omega$ (rad/s)', fontsize=10)
-            ax.legend(fontsize=10, loc='best')
+            ax.set_xlabel(r'$\phi$ (degrees)', fontsize=12)
+            ax.set_ylabel(r'$\omega$ (rad/s)', fontsize=12)
+            ax.legend(fontsize=10, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3)
             ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
-            ax.set_title(r'$\omega = q \cdot v \cdot \cos\phi$ — 각도에 따른 진동수 변화', fontsize=10, pad=10)
+            ax.set_title(r'$\omega = q \cdot v \cdot \cos\phi$ — 각도에 따른 진동수 변화', fontsize=12, pad=10)
         add_graph(_plot_omega_vs_phi)
 
         add_text('유효 탄성률 (평면 변형 상태):', bold=True, pady=(10, 0))
@@ -7240,11 +7240,11 @@ class PerssonModelGUI_V2:
             E_loss = 0.35e9 * (omega / 1e4)**0.5 / (1 + (omega / 1e4)**0.85)
             ax.loglog(omega, E_stor, '-', linewidth=2.5, color='#2563EB', label="E' (저장 탄성률)")
             ax.loglog(omega, E_loss, '--', linewidth=2.5, color='#DC2626', label="E'' (손실 탄성률)")
-            ax.set_xlabel(r'$\omega$ (rad/s)', fontsize=10)
-            ax.set_ylabel('E (Pa)', fontsize=10)
-            ax.legend(fontsize=8, loc='best')
+            ax.set_xlabel(r'$\omega$ (rad/s)', fontsize=12)
+            ax.set_ylabel('E (Pa)', fontsize=12)
+            ax.legend(fontsize=10, loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title("복소 탄성률 마스터 커브 (대표적 형상)", fontsize=10, pad=10)
+            ax.set_title("복소 탄성률 마스터 커브 (대표적 형상)", fontsize=12, pad=10)
         add_graph(_plot_master_curve)
 
         # ═══════════════════════════════════════════════════════
@@ -7270,11 +7270,11 @@ class PerssonModelGUI_V2:
             q = np.logspace(2, 8, 500)
             G = 0.01 * (q / 1e2)**1.2 / (1 + (q / 1e7)**0.3)
             ax.loglog(q, G, '-', linewidth=2.5, color='#2563EB')
-            ax.set_xlabel('q (1/m)', fontsize=10)
-            ax.set_ylabel('G(q)', fontsize=10)
+            ax.set_xlabel('q (1/m)', fontsize=12)
+            ax.set_ylabel('G(q)', fontsize=12)
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('G(q) — 탄성 에너지 누적 적분', fontsize=10, pad=10)
-            ax.annotate('G 증가 → 접촉면적 감소', xy=(1e6, 50), fontsize=10, color='#DC2626',
+            ax.set_title('G(q) — 탄성 에너지 누적 적분', fontsize=12, pad=10)
+            ax.annotate('G 증가 → 접촉면적 감소', xy=(1e6, 50), fontsize=11, color='#DC2626',
                         fontweight='bold')
         add_graph(_plot_G_vs_q)
 
@@ -7303,13 +7303,13 @@ class PerssonModelGUI_V2:
             G = np.linspace(0.01, 20, 500)
             P = erf(1 / (2 * np.sqrt(G)))
             ax.plot(G, P, '-', linewidth=2.5, color='#2563EB')
-            ax.set_xlabel('G(q)', fontsize=10)
-            ax.set_ylabel(r'P(q) = A(q)/A$_0$', fontsize=10)
+            ax.set_xlabel('G(q)', fontsize=12)
+            ax.set_ylabel(r'P(q) = A(q)/A$_0$', fontsize=12)
             ax.grid(True, alpha=0.3)
             ax.set_ylim(-0.02, 1.05)
-            ax.set_title('P(q) = erf(1/(2√G)) — G 증가에 따른 접촉면적 비율 감소', fontsize=10, pad=10)
-            ax.annotate('G 작음 → 완전접촉', xy=(0.5, 0.92), fontsize=10, color='#059669', fontweight='bold')
-            ax.annotate('G 큼 → 접촉감소', xy=(12, 0.15), fontsize=10, color='#DC2626', fontweight='bold')
+            ax.set_title('P(q) = erf(1/(2√G)) — G 증가에 따른 접촉면적 비율 감소', fontsize=12, pad=10)
+            ax.annotate('G 작음 → 완전접촉', xy=(0.5, 0.92), fontsize=11, color='#059669', fontweight='bold')
+            ax.annotate('G 큼 → 접촉감소', xy=(12, 0.15), fontsize=11, color='#DC2626', fontweight='bold')
         add_graph(_plot_P_erf)
 
         add_text('erf(x) 함수란?', bold=True, fg='#7C3AED', pady=(10, 0))
@@ -7324,13 +7324,13 @@ class PerssonModelGUI_V2:
             from scipy.special import erf
             x = np.linspace(-3, 3, 500)
             ax.plot(x, erf(x), '-', linewidth=2.5, color='#7C3AED')
-            ax.set_xlabel('x', fontsize=10)
-            ax.set_ylabel('erf(x)', fontsize=10)
+            ax.set_xlabel('x', fontsize=12)
+            ax.set_ylabel('erf(x)', fontsize=12)
             ax.grid(True, alpha=0.3)
             ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
             ax.axhline(y=1, color='gray', linestyle=':', alpha=0.4)
             ax.axhline(y=-1, color='gray', linestyle=':', alpha=0.4)
-            ax.set_title('erf(x) — 오차 함수', fontsize=10, pad=10)
+            ax.set_title('erf(x) — 오차 함수', fontsize=12, pad=10)
         add_graph(_plot_erf)
 
         add_text('왜 A/A₀ = erf(1/(2√G)) 인가?', bold=True, fg='#7C3AED', pady=(10, 0))
@@ -7366,13 +7366,13 @@ class PerssonModelGUI_V2:
             integrand = q**3 * np.exp(-0.5 * ((np.log10(q) - 5) / 1.2)**2) * 1e-20
             ax.semilogx(q, integrand, '-', linewidth=2.5, color='#DC2626')
             ax.fill_between(q, integrand, alpha=0.15, color='#DC2626')
-            ax.set_xlabel('q (1/m)', fontsize=10)
-            ax.set_ylabel(r'$\mu$ 피적분함수', fontsize=10)
+            ax.set_xlabel('q (1/m)', fontsize=12)
+            ax.set_ylabel(r'$\mu$ 피적분함수', fontsize=12)
             ax.grid(True, alpha=0.3)
-            ax.set_title(r'$\mu_{visc}$ 피적분함수 — 파수별 마찰 기여도', fontsize=10, pad=10)
+            ax.set_title(r'$\mu_{visc}$ 피적분함수 — 파수별 마찰 기여도', fontsize=12, pad=10)
             peak_idx = np.argmax(integrand)
             ax.annotate('마찰 기여 피크', xy=(q[peak_idx], integrand[peak_idx]),
-                        fontsize=10, fontweight='bold', color='#DC2626',
+                        fontsize=11, fontweight='bold', color='#DC2626',
                         xytext=(q[peak_idx]*5, integrand[peak_idx]*0.8),
                         arrowprops=dict(arrowstyle='->', color='#DC2626'))
         add_graph(_plot_mu_integrand)
@@ -7386,13 +7386,13 @@ class PerssonModelGUI_V2:
             gamma = 0.5
             S = gamma + (1 - gamma) * P**2
             ax.plot(P, S, '-', linewidth=2.5, color='#059669')
-            ax.set_xlabel('P(q)', fontsize=10)
-            ax.set_ylabel('S(q)', fontsize=10)
+            ax.set_xlabel('P(q)', fontsize=12)
+            ax.set_ylabel('S(q)', fontsize=12)
             ax.grid(True, alpha=0.3)
             ax.set_ylim(0.4, 1.05)
-            ax.set_title(r'S(q) = $\gamma$ + (1-$\gamma$)P²  (보정 계수, $\gamma$=0.5)', fontsize=10, pad=10)
+            ax.set_title(r'S(q) = $\gamma$ + (1-$\gamma$)P²  (보정 계수, $\gamma$=0.5)', fontsize=12, pad=10)
             ax.axhline(y=0.5, color='gray', linestyle=':', alpha=0.5)
-            ax.annotate(r'$\gamma$ = 0.5 (최솟값)', xy=(0.05, 0.52), fontsize=10, color='#059669')
+            ax.annotate(r'$\gamma$ = 0.5 (최솟값)', xy=(0.05, 0.52), fontsize=11, color='#059669')
         add_graph(_plot_S_correction)
 
         # ═══════════════════════════════════════════════════════
@@ -7413,12 +7413,12 @@ class PerssonModelGUI_V2:
             q = np.logspace(2, 8, 500)
             hrms = 1e-5 * (1 - np.exp(-q / 1e4))
             ax.semilogx(q, hrms * 1e6, '-', linewidth=2.5, color='#2563EB')
-            ax.set_xlabel('q (1/m)', fontsize=10)
-            ax.set_ylabel(r'$h_{rms}$ ($\mu$m)', fontsize=10)
+            ax.set_xlabel('q (1/m)', fontsize=12)
+            ax.set_ylabel(r'$h_{rms}$ ($\mu$m)', fontsize=12)
             ax.grid(True, alpha=0.3)
-            ax.set_title(r'$h_{rms}(q)$ — 누적 RMS 높이 (큰 파장이 지배)', fontsize=10, pad=10)
+            ax.set_title(r'$h_{rms}(q)$ — 누적 RMS 높이 (큰 파장이 지배)', fontsize=12, pad=10)
             ax.annotate('긴 파장(작은 q)에서\n빠르게 포화', xy=(5e3, hrms[100]*1e6),
-                        fontsize=10, color='#2563EB', fontweight='bold',
+                        fontsize=11, color='#2563EB', fontweight='bold',
                         xytext=(1e5, hrms[100]*1e6*0.5),
                         arrowprops=dict(arrowstyle='->', color='#2563EB'))
         add_graph(_plot_hrms)
@@ -7438,12 +7438,12 @@ class PerssonModelGUI_V2:
             q = np.logspace(2, 8, 500)
             hrms_slope = 0.001 * (q / 1e2)**0.8
             ax.loglog(q, hrms_slope, '-', linewidth=2.5, color='#DC2626')
-            ax.set_xlabel('q (1/m)', fontsize=10)
-            ax.set_ylabel(r"$h'_{rms} = \xi(q)$", fontsize=10)
+            ax.set_xlabel('q (1/m)', fontsize=12)
+            ax.set_ylabel(r"$h'_{rms} = \xi(q)$", fontsize=12)
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title(r"$h'_{rms}(q)$ — 누적 RMS 기울기 (짧은 파장이 지배)", fontsize=10, pad=10)
+            ax.set_title(r"$h'_{rms}(q)$ — 누적 RMS 기울기 (짧은 파장이 지배)", fontsize=12, pad=10)
             ax.annotate('짧은 파장(큰 q)에서\n계속 증가', xy=(1e6, 0.5),
-                        fontsize=10, color='#DC2626', fontweight='bold')
+                        fontsize=11, color='#DC2626', fontweight='bold')
         add_graph(_plot_hrms_slope)
 
         add_separator()
@@ -7470,15 +7470,15 @@ class PerssonModelGUI_V2:
             g_eps = (1 + 2.5 * (eps / 10)) / (1 + 3 * (eps / 10)**1.4)
             ax.plot(eps, f_eps, '-', linewidth=2.5, color='#2563EB', label=r"f($\varepsilon$) — E' 감소율")
             ax.plot(eps, g_eps, '--', linewidth=2.5, color='#DC2626', label=r"g($\varepsilon$) — E'' 변화율")
-            ax.set_xlabel(r'$\varepsilon$ (%)', fontsize=10)
-            ax.set_ylabel('보정 계수', fontsize=10)
-            ax.legend(fontsize=8, loc='best')
+            ax.set_xlabel(r'$\varepsilon$ (%)', fontsize=12)
+            ax.set_ylabel('보정 계수', fontsize=12)
+            ax.legend(fontsize=10, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3)
             ax.set_ylim(0, 1.5)
             ax.axhline(y=1, color='gray', linestyle=':', alpha=0.5)
-            ax.set_title('Payne 효과 — 대변형 시 탄성률 보정 계수', fontsize=10, pad=10)
-            ax.annotate('E\' 연화', xy=(30, f_eps[120]), fontsize=10, color='#2563EB', fontweight='bold')
-            ax.annotate('E\'\' 피크 후 감소', xy=(15, max(g_eps)*0.95), fontsize=10, color='#DC2626', fontweight='bold')
+            ax.set_title('Payne 효과 — 대변형 시 탄성률 보정 계수', fontsize=12, pad=10)
+            ax.annotate('E\' 연화', xy=(30, f_eps[120]), fontsize=11, color='#2563EB', fontweight='bold')
+            ax.annotate('E\'\' 피크 후 감소', xy=(15, max(g_eps)*0.95), fontsize=11, color='#DC2626', fontweight='bold')
         add_graph(_plot_payne_effect)
 
         # Bottom padding for scroll
@@ -13018,7 +13018,7 @@ class PerssonModelGUI_V2:
             lbl.pack(fill=tk.X, padx=padx, pady=pady, anchor='w')
 
         def add_equation(latex_str, fig_height=1.2, font_size=16):
-            fig = Figure(figsize=(14, fig_height), facecolor='white')
+            fig = Figure(figsize=(11, fig_height), facecolor='white')
             ax = fig.add_subplot(111)
             ax.axis('off')
             ax.text(0.02, 0.5, latex_str, transform=ax.transAxes,
@@ -13034,20 +13034,20 @@ class PerssonModelGUI_V2:
         def add_separator():
             tk.Frame(scrollable_frame, bg='#CBD5E1', height=2).pack(fill=tk.X, padx=10, pady=10)
 
-        def add_graph(plot_func, fig_height=3.5):
+        def add_graph(plot_func, fig_height=4.2):
             """Add an illustrative matplotlib graph."""
             import numpy as np
-            fig = Figure(figsize=(12, fig_height), facecolor='#FAFBFC')
+            fig = Figure(figsize=(9, fig_height), facecolor='#FAFBFC')
             ax = fig.add_subplot(111)
             ax.set_facecolor('#FAFBFC')
             plot_func(ax, np)
-            ax.tick_params(labelsize=14)
+            ax.tick_params(labelsize=11)
             for spine in ax.spines.values():
                 spine.set_color('#CBD5E1')
-            fig.tight_layout(pad=1.5)
+            fig.tight_layout(pad=2.0)
             graph_canvas = FigureCanvasTkAgg(fig, master=scrollable_frame)
             graph_canvas.draw()
-            graph_canvas.get_tk_widget().configure(height=int(fig_height * 72))
+            graph_canvas.get_tk_widget().configure(height=int(fig_height * 82))
             graph_canvas.get_tk_widget().pack(fill=tk.X, padx=30, pady=(6, 14))
 
         # === Title ===
@@ -13075,11 +13075,11 @@ class PerssonModelGUI_V2:
             E_loss = 0.35e9 * (omega / 1e4)**0.5 / (1 + (omega / 1e4)**0.85)
             ax.loglog(omega, E_stor, '-', linewidth=2.5, color='#2563EB', label="E' (저장)")
             ax.loglog(omega, E_loss, '--', linewidth=2.5, color='#DC2626', label="E'' (손실)")
-            ax.set_xlabel(r'$\omega$ (rad/s)', fontsize=10)
-            ax.set_ylabel('E (Pa)', fontsize=10)
-            ax.legend(fontsize=8, loc='best')
+            ax.set_xlabel(r'$\omega$ (rad/s)', fontsize=12)
+            ax.set_ylabel('E (Pa)', fontsize=12)
+            ax.legend(fontsize=10, loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('DMA 마스터 커브 — 대표적 형상', fontsize=10, pad=10)
+            ax.set_title('DMA 마스터 커브 — 대표적 형상', fontsize=12, pad=10)
         add_graph(_plot_var_dma)
 
         add_separator()
@@ -13091,10 +13091,10 @@ class PerssonModelGUI_V2:
             q = np.logspace(2, 8, 500)
             C = 1e-10 * (q / 1e2)**(-2.2)
             ax.loglog(q, C, '-', linewidth=2.5, color='#059669')
-            ax.set_xlabel('q (1/m)', fontsize=10)
-            ax.set_ylabel(r'C(q) (m$^4$)', fontsize=10)
+            ax.set_xlabel('q (1/m)', fontsize=12)
+            ax.set_ylabel(r'C(q) (m$^4$)', fontsize=12)
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('PSD — 파워 스펙트럼 밀도 (대표적 형상)', fontsize=10, pad=10)
+            ax.set_title('PSD — 파워 스펙트럼 밀도 (대표적 형상)', fontsize=12, pad=10)
         add_graph(_plot_var_psd)
 
         add_separator()
@@ -13109,12 +13109,12 @@ class PerssonModelGUI_V2:
             g_g = (1 + 2.5 * (gamma / 10)) / (1 + 3 * (gamma / 10)**1.4)
             ax.plot(gamma, f_g, '-', linewidth=2.5, color='#2563EB', label=r"f($\gamma$) — E' 감소")
             ax.plot(gamma, g_g, '--', linewidth=2.5, color='#DC2626', label=r"g($\gamma$) — E'' 변화")
-            ax.set_xlabel(r'$\gamma$ (%)', fontsize=10)
-            ax.set_ylabel('보정 계수', fontsize=10)
-            ax.legend(fontsize=8, loc='best')
+            ax.set_xlabel(r'$\gamma$ (%)', fontsize=12)
+            ax.set_ylabel('보정 계수', fontsize=12)
+            ax.legend(fontsize=10, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3)
             ax.axhline(y=1, color='gray', linestyle=':', alpha=0.5)
-            ax.set_title('Strain Sweep — Payne 효과', fontsize=10, pad=10)
+            ax.set_title('Strain Sweep — Payne 효과', fontsize=12, pad=10)
         add_graph(_plot_var_strain)
 
         # ═══════════════════════════════════════════════════════
@@ -13164,10 +13164,10 @@ class PerssonModelGUI_V2:
             q = np.logspace(2, 8, 500)
             G = 0.01 * (q / 1e2)**1.2 / (1 + (q / 1e7)**0.3)
             ax.loglog(q, G, '-', linewidth=2.5, color='#2563EB')
-            ax.set_xlabel('q (1/m)', fontsize=10)
-            ax.set_ylabel('G(q)', fontsize=10)
+            ax.set_xlabel('q (1/m)', fontsize=12)
+            ax.set_ylabel('G(q)', fontsize=12)
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('G(q) — 탄성 에너지 누적 함수', fontsize=10, pad=10)
+            ax.set_title('G(q) — 탄성 에너지 누적 함수', fontsize=12, pad=10)
         add_graph(_plot_var_G)
 
         add_text('  [비선형 보정 시]', font_size=17, bold=True, fg='#64748B')
@@ -13187,11 +13187,11 @@ class PerssonModelGUI_V2:
             gamma = 0.5
             S = gamma + (1 - gamma) * P**2
             ax.plot(G, S, '--', linewidth=2.5, color='#059669', label='S(q)')
-            ax.set_xlabel('G(q)', fontsize=10)
-            ax.set_ylabel('값', fontsize=10)
-            ax.legend(fontsize=8, loc='best')
+            ax.set_xlabel('G(q)', fontsize=12)
+            ax.set_ylabel('값', fontsize=12)
+            ax.legend(fontsize=10, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3)
-            ax.set_title('P(q)와 S(q) — G에 따른 변화', fontsize=10, pad=10)
+            ax.set_title('P(q)와 S(q) — G에 따른 변화', fontsize=12, pad=10)
         add_graph(_plot_var_PS)
 
         add_separator()
@@ -13207,11 +13207,11 @@ class PerssonModelGUI_V2:
             eps = 0.5 * xi
             ax.loglog(q, xi, '-', linewidth=2.5, color='#DC2626', label=r"$\xi(q) = h'_{rms}$")
             ax.loglog(q, eps, '--', linewidth=2.5, color='#7C3AED', label=r"$\varepsilon(q) = 0.5 \cdot \xi$")
-            ax.set_xlabel('q (1/m)', fontsize=10)
-            ax.set_ylabel('값', fontsize=10)
-            ax.legend(fontsize=8, loc='best')
+            ax.set_xlabel('q (1/m)', fontsize=12)
+            ax.set_ylabel('값', fontsize=12)
+            ax.legend(fontsize=10, loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title(r"$\xi(q)$와 $\varepsilon(q)$ — 파수에 따른 변화", fontsize=10, pad=10)
+            ax.set_title(r"$\xi(q)$와 $\varepsilon(q)$ — 파수에 따른 변화", fontsize=12, pad=10)
         add_graph(_plot_var_xi_eps)
 
         # ═══════════════════════════════════════════════════════
@@ -13230,13 +13230,13 @@ class PerssonModelGUI_V2:
             v = np.logspace(-6, 2, 500)
             mu = 0.8 * np.exp(-0.5 * ((np.log10(v) + 2) / 2)**2) + 0.1
             ax.semilogx(v, mu, '-', linewidth=2.5, color='#DC2626')
-            ax.set_xlabel('v (m/s)', fontsize=10)
-            ax.set_ylabel(r'$\mu_{visc}$', fontsize=10)
+            ax.set_xlabel('v (m/s)', fontsize=12)
+            ax.set_ylabel(r'$\mu_{visc}$', fontsize=12)
             ax.grid(True, alpha=0.3)
-            ax.set_title(r'$\mu_{visc}$ vs 슬라이딩 속도 (대표적 형상)', fontsize=10, pad=10)
+            ax.set_title(r'$\mu_{visc}$ vs 슬라이딩 속도 (대표적 형상)', fontsize=12, pad=10)
             peak_idx = np.argmax(mu)
             ax.annotate('마찰 피크', xy=(v[peak_idx], mu[peak_idx]),
-                        fontsize=10, fontweight='bold', color='#DC2626',
+                        fontsize=11, fontweight='bold', color='#DC2626',
                         xytext=(v[peak_idx]*20, mu[peak_idx]*0.85),
                         arrowprops=dict(arrowstyle='->', color='#DC2626'))
         add_graph(_plot_var_mu)
