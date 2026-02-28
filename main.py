@@ -330,6 +330,28 @@ class PerssonModelGUI_V2:
         # Load default measured data
         self._load_default_data()
 
+        # ── 창이 완전히 표시된 후 모든 그래프 레이아웃 재계산 ──
+        # Figure는 __init__ 중에 figsize 기준으로 tight_layout이 호출되지만,
+        # 이 시점에서는 실제 위젯 크기를 모르므로 서브플롯 배치가 어긋남.
+        # 윈도우가 화면에 표시된 후 한 번 더 recalc하면 정상 배치됨.
+        self.root.after(200, self._initial_layout_refresh)
+
+    def _initial_layout_refresh(self):
+        """창이 화면에 표시된 후 모든 Figure의 레이아웃을 재계산."""
+        for fig, canvas in self._get_all_figures_and_canvases():
+            try:
+                fig.tight_layout()
+            except Exception:
+                pass
+            try:
+                canvas.draw_idle()
+            except Exception:
+                pass
+        # 폰트 스케일도 현재 윈도우 크기에 맞게 한 번 보정
+        self._font_scale = 0.0          # force _rescale_all_fonts to run
+        self._last_resize_width = self.root.winfo_width()
+        self._rescale_all_fonts()
+
     # ================================================================
     #  THEME / STYLE  CONFIGURATION
     # ================================================================
