@@ -12024,7 +12024,7 @@ class PerssonModelGUI_V2:
         # 3x4 subplots layout:
         # Row 1: Local Strain | E' Storage (linear) | E'' Loss (linear) | E''*g Loss (nonlinear)
         # Row 2: f,g Factors  | E'*f Storage (nl)   | G(q) (lin)        | G(q) (nl)
-        # Row 3: (empty)      | (empty)              | A/A0 (linear)     | A/A0 (nonlinear)
+        # Row 3: G(q_max) vs v | G(q_max) vs v (nl) | A/A0 (linear)     | A/A0 (nonlinear)
         self.ax_strain_contour = self.fig_strain_map.add_subplot(3, 4, 1)
         self.ax_E_storage = self.fig_strain_map.add_subplot(3, 4, 2)
         self.ax_E_loss_linear = self.fig_strain_map.add_subplot(3, 4, 3)
@@ -12033,6 +12033,8 @@ class PerssonModelGUI_V2:
         self.ax_E_storage_nonlinear = self.fig_strain_map.add_subplot(3, 4, 6)
         self.ax_G_integrand_linear = self.fig_strain_map.add_subplot(3, 4, 7)
         self.ax_G_integrand = self.fig_strain_map.add_subplot(3, 4, 8)
+        self.ax_G_cumul_linear = self.fig_strain_map.add_subplot(3, 4, 9)
+        self.ax_G_cumul_nonlinear = self.fig_strain_map.add_subplot(3, 4, 10)
         self.ax_contact_linear = self.fig_strain_map.add_subplot(3, 4, 11)
         self.ax_contact_nonlinear = self.fig_strain_map.add_subplot(3, 4, 12)
 
@@ -12074,6 +12076,16 @@ class PerssonModelGUI_V2:
         self.ax_fg_factors.text(0.5, 0.5, 'No data',
                ha='center', va='center', transform=self.ax_fg_factors.transAxes,
                fontsize=10, color='gray')
+
+        # G cumulative vs velocity graph placeholders
+        for ax, title in [(self.ax_G_cumul_linear, 'G(q_max) vs v (lin)'),
+                          (self.ax_G_cumul_nonlinear, 'G(q_max) vs v (nl)')]:
+            ax.set_title(title, fontweight='bold', fontsize=10)
+            ax.set_xlabel('log10(v) [m/s]', fontsize=10)
+            ax.set_ylabel('G(q_max)', fontsize=10)
+            ax.text(0.5, 0.5, 'No data',
+                   ha='center', va='center', transform=ax.transAxes,
+                   fontsize=10, color='gray')
 
         self.fig_strain_map.subplots_adjust(left=0.08, right=0.95, top=0.96, bottom=0.06, hspace=0.50, wspace=0.32)
         self.canvas_strain_map.draw()
@@ -12279,6 +12291,10 @@ class PerssonModelGUI_V2:
                         self.strain_map_progress['value'] = (count / total) * 100
                         self.root.update()
 
+            # Calculate G cumulative at q_max for each velocity (1D curves)
+            G_cumul_lin = G_integrand_linear[-1, :]  # G(q_max, v) linear
+            G_cumul_nl = G_integrand_nonlinear[-1, :]  # G(q_max, v) nonlinear
+
             # Store results
             self.strain_map_results = {
                 'q': q_array,
@@ -12291,6 +12307,8 @@ class PerssonModelGUI_V2:
                 'E_loss_nonlinear': E_loss_nonlinear,
                 'G_integrand_linear': G_integrand_linear,
                 'G_integrand_nonlinear': G_integrand_nonlinear,
+                'G_cumul_linear': G_cumul_lin,
+                'G_cumul_nonlinear': G_cumul_nl,
                 'contact_linear': contact_linear,
                 'contact_nonlinear': contact_nonlinear
             }
@@ -12309,12 +12327,12 @@ class PerssonModelGUI_V2:
             self.status_var.set("오류 발생")
 
     def _update_strain_map_plots(self):
-        """Update strain map heatmap plots (3x4 grid, 10 plots + f,g graph).
+        """Update strain map heatmap plots (3x4 grid, 12 plots).
 
         Layout:
-        Row 1: Local Strain | E' Storage | E'' Loss | E''×g
-        Row 2: f,g Factors  | E'×f       | G(q) lin | G(q) nl
-        Row 3: (empty)      | (empty)    | A/A0 lin | A/A0 nl
+        Row 1: Local Strain | E' Storage   | E'' Loss   | E''×g
+        Row 2: f,g Factors  | E'×f         | G(q) lin   | G(q) nl
+        Row 3: G(q_max) lin | G(q_max) nl  | A/A0 lin   | A/A0 nl
 
         - E' + E'' LogNorm 공유, E'×f + E''×g LogNorm 공유
         - G(q) lin/nl 공유 범위, Y축 유효영역 크롭
@@ -12353,6 +12371,7 @@ class PerssonModelGUI_V2:
                     self.ax_E_loss_linear, self.ax_E_loss_nonlinear,
                     self.ax_fg_factors, self.ax_E_storage_nonlinear,
                     self.ax_G_integrand_linear, self.ax_G_integrand,
+                    self.ax_G_cumul_linear, self.ax_G_cumul_nonlinear,
                     self.ax_contact_linear, self.ax_contact_nonlinear]
         for ax in all_axes:
             ax.clear()
@@ -12573,6 +12592,60 @@ class PerssonModelGUI_V2:
             self._strain_map_colorbars.append(cbar7b)
             crop_axes.append(self.ax_G_integrand)
 
+        # ===== Row 3 (left pair): G(q_max) cumulative vs velocity =====
+        # Extract G at q_max (last row of q) for each velocity → 1D curve
+        # This shows how the cumulative G value varies with sliding velocity
+        # Linear G(q_max, v)
+        if G_int_lin is not None:
+            # G_int_lin[i,j] = G(q_i, v_j), take the last q index = q_max
+            G_qmax_lin = G_int_lin[-1, :]  # shape (n_v,)
+            self.ax_G_cumul_linear.set_facecolor('white')
+            self.ax_G_cumul_linear.plot(log_v, G_qmax_lin, 'b-', linewidth=2, label='G(q_max)')
+            self.ax_G_cumul_linear.set_title('G(q_max) vs v (lin)', fontweight='bold', fontsize=10)
+            self.ax_G_cumul_linear.set_xlabel('log10(v) [m/s]', fontsize=10)
+            self.ax_G_cumul_linear.set_ylabel('G(q_max)', fontsize=10)
+            self.ax_G_cumul_linear.grid(True, alpha=0.3)
+            # Add a few intermediate q lines for reference
+            n_q_plot = len(q)
+            q_indices = [n_q_plot // 4, n_q_plot // 2, 3 * n_q_plot // 4]
+            q_colors = ['#aaaaff', '#7777dd', '#4444aa']
+            for qi, qc in zip(q_indices, q_colors):
+                if qi < n_q_plot:
+                    G_qi = G_int_lin[qi, :]
+                    self.ax_G_cumul_linear.plot(log_v, G_qi, color=qc, linewidth=1, alpha=0.6,
+                                                label=f'q={q[qi]:.0e}')
+            self.ax_G_cumul_linear.legend(fontsize=7, loc='best')
+            # Annotate max G value
+            G_max_lin = np.max(G_qmax_lin)
+            v_at_max = log_v[np.argmax(G_qmax_lin)]
+            self.ax_G_cumul_linear.text(0.02, 0.98,
+                f'G_max={G_max_lin:.4f}\nv={10**v_at_max:.2e} m/s',
+                transform=self.ax_G_cumul_linear.transAxes, fontsize=9, va='top',
+                bbox=dict(boxstyle='round', fc='white', alpha=0.8))
+
+        # Nonlinear G(q_max, v)
+        if G_int_nl is not None:
+            G_qmax_nl = G_int_nl[-1, :]  # shape (n_v,)
+            self.ax_G_cumul_nonlinear.set_facecolor('white')
+            self.ax_G_cumul_nonlinear.plot(log_v, G_qmax_nl, 'r-', linewidth=2, label='G(q_max) nl')
+            # Overlay linear for comparison
+            if G_int_lin is not None:
+                G_qmax_lin_ref = G_int_lin[-1, :]
+                self.ax_G_cumul_nonlinear.plot(log_v, G_qmax_lin_ref, 'b--', linewidth=1.2,
+                                                alpha=0.5, label='G(q_max) lin')
+            self.ax_G_cumul_nonlinear.set_title('G(q_max) vs v (nl)', fontweight='bold', fontsize=10)
+            self.ax_G_cumul_nonlinear.set_xlabel('log10(v) [m/s]', fontsize=10)
+            self.ax_G_cumul_nonlinear.set_ylabel('G(q_max)', fontsize=10)
+            self.ax_G_cumul_nonlinear.grid(True, alpha=0.3)
+            self.ax_G_cumul_nonlinear.legend(fontsize=7, loc='best')
+            # Annotate max G value
+            G_max_nl = np.max(G_qmax_nl)
+            v_at_max_nl = log_v[np.argmax(G_qmax_nl)]
+            self.ax_G_cumul_nonlinear.text(0.02, 0.98,
+                f'G_max={G_max_nl:.4f}\nv={10**v_at_max_nl:.2e} m/s',
+                transform=self.ax_G_cumul_nonlinear.transAxes, fontsize=9, va='top',
+                bbox=dict(boxstyle='round', fc='white', alpha=0.8))
+
         # Plot 9: A/A0 (linear) — 유효 영역만
         if contact_lin is not None:
             c_lin_masked = _masked(contact_lin)
@@ -12680,6 +12753,8 @@ class PerssonModelGUI_V2:
             ("E'×f Storage [Pa]", "E_storage_nonlinear", True),
             ("G(q) (linear)", "G_integrand_linear", True),
             ("G(q) (nonlinear)", "G_integrand_nonlinear", True),
+            ("G(q_max) vs v (linear)", "G_cumul_linear", False),
+            ("G(q_max) vs v (nonlinear)", "G_cumul_nonlinear", False),
             ("A/A0 Contact (linear)", "contact_linear", True),
             ("A/A0 Contact (nonlinear)", "contact_nonlinear", True),
         ]
@@ -12740,19 +12815,21 @@ class PerssonModelGUI_V2:
                     filepath = os.path.join(save_dir, filename)
 
                     # Build CSV content
-                    # First row: header with v values
-                    # First column: q values
-                    # Format: rows = q, columns = v
                     lines = []
 
-                    # Header row: empty cell + v values
-                    header = ["q \\ v"] + [f"{vi:.6e}" for vi in v]
-                    lines.append(",".join(header))
-
-                    # Data rows
-                    for i, qi in enumerate(q):
-                        row_data = [f"{qi:.6e}"] + [f"{data[i, j]:.6e}" for j in range(len(v))]
+                    if data.ndim == 1:
+                        # 1D data (e.g., G_cumul vs velocity): single row per v
+                        header = ["v"] + [f"{vi:.6e}" for vi in v]
+                        lines.append(",".join(header))
+                        row_data = ["value"] + [f"{data[j]:.6e}" for j in range(len(v))]
                         lines.append(",".join(row_data))
+                    else:
+                        # 2D data: rows = q, columns = v
+                        header = ["q \\ v"] + [f"{vi:.6e}" for vi in v]
+                        lines.append(",".join(header))
+                        for i, qi in enumerate(q):
+                            row_data = [f"{qi:.6e}"] + [f"{data[i, j]:.6e}" for j in range(len(v))]
+                            lines.append(",".join(row_data))
 
                     # Write file
                     with open(filepath, 'w', encoding='utf-8-sig', newline='') as f:
