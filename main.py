@@ -7278,6 +7278,172 @@ class PerssonModelGUI_V2:
                         fontweight='bold')
         add_graph(_plot_G_vs_q)
 
+        # ── G(q) 직관적 이해: 속도 의존성과 실측 데이터 ──
+        add_separator()
+        add_text('G(q)를 직관적으로 이해하기 — "고무가 바닥을 얼마나 못 따라가는가"',
+                 bold=True, fg='#7C3AED', pady=(8, 0))
+        add_text('', pady=2)
+        add_text('  G(q)를 한 마디로: "고무가 바닥 요철을 따라가기가 얼마나 힘든가"를 나타내는 숫자',
+                 font_size=17, fg='#1E293B')
+        add_text('', pady=2)
+        add_text('  비유: 부드러운 이불을 울퉁불퉁한 바닥에 덮는다고 상상해 보세요:',
+                 font_size=17, fg='#64748B')
+        add_text('    • 요철이 작고 완만하면 → 이불이 바닥에 쉽게 밀착 → G 작음 → 접촉면적 넓음',
+                 font_size=17, fg='#059669')
+        add_text('    • 요철이 크고 날카로우면 → 이불 아래 빈 공간이 많이 생김 → G 큼 → 접촉면적 좁음',
+                 font_size=17, fg='#DC2626')
+        add_text('', pady=4)
+        add_text('  핵심: G는 "바닥의 거칠기(PSD)"와 "고무의 뻣뻣함(E)"을 모두 반영한 종합 지표',
+                 font_size=17, bold=True, fg='#1E293B')
+        add_text('  → 같은 바닥이라도 고무가 뻣뻣하면 G↑, 유연하면 G↓',
+                 font_size=17, fg='#64748B')
+        add_text('  → 같은 고무라도 거칠기가 심하면 G↑, 매끈하면 G↓',
+                 font_size=17, fg='#64748B')
+        add_text('', pady=4)
+        add_text('  G가 속도(v)에도 의존하는 이유:', font_size=17, bold=True, fg='#1E293B')
+        add_text('  G 수식 안의 E(ω)는 주파수 의존적입니다 (ω = q·v·cosφ)',
+                 font_size=17, fg='#64748B')
+        add_text('  → 속도 v↑ → ω 증가 → 고주파에서 고무가 유리 전이 근처로 이동 → E 크게 증가',
+                 font_size=17, fg='#64748B')
+        add_text('  → 뻣뻣해진 고무는 요철을 더 못 따라감 → G 급격히 증가',
+                 font_size=17, fg='#64748B')
+        add_text('  → 한 마디로: "천천히 누르면 잘 밀착, 빨리 밀면 접촉이 확 줄어든다"',
+                 font_size=17, bold=True, fg='#DC2626')
+
+        add_text('', pady=4)
+        add_text('▼ 실측 데이터: 3개 샘플의 속도별 G(q₁) 값',
+                 bold=True, fg='#059669', pady=(6, 0))
+        add_text('  동일한 바닥면(PSD) 위에서 3개 샘플을 다양한 속도로 측정한 결과입니다.',
+                 font_size=17, fg='#64748B')
+
+        def _plot_G_vs_v_real(ax, np):
+            """Plot measured G(q1) vs velocity for 3 rubber samples."""
+            v = np.array([
+                1e-5, 1.81e-5, 3.28e-5, 5.95e-5, 1.08e-4, 1.95e-4,
+                3.53e-4, 6.4e-4, 1.16e-3, 2.1e-3, 3.81e-3, 6.9e-3,
+                1.25e-2, 2.26e-2, 4.1e-2, 7.43e-2, 1.35e-1, 2.44e-1,
+                4.42e-1, 8e-1, 1.45, 2.63, 4.76, 8.62, 15.6, 28.3,
+                51.2, 92.8, 168, 305, 552, 1000])
+            G_S100 = np.array([
+                1.91, 2.03, 2.17, 2.31, 2.48, 2.66, 2.86, 3.08,
+                3.33, 3.62, 3.95, 4.33, 4.79, 5.34, 6.01, 6.81,
+                7.83, 9.15, 10.9, 13.1, 16.5, 21.2, 28.2, 39.2,
+                57.0, 87.1, 138, 238, 428, 791, 1310, 2120])
+            G_S120 = np.array([
+                0.488, 0.526, 0.569, 0.613, 0.665, 0.724, 0.789,
+                0.862, 0.951, 1.06, 1.18, 1.32, 1.49, 1.70, 1.96,
+                2.26, 2.67, 3.20, 3.90, 4.87, 6.31, 8.40, 11.6,
+                16.6, 24.7, 36.9, 58.0, 98.7, 181, 360, 644, 1080])
+            G_S140 = np.array([
+                0.431, 0.476, 0.527, 0.584, 0.650, 0.730, 0.819,
+                0.919, 1.04, 1.18, 1.36, 1.56, 1.80, 2.10, 2.47,
+                2.92, 3.51, 4.27, 5.29, 6.72, 8.71, 11.4, 15.2,
+                21.1, 31.0, 46.7, 70.2, 106, 166, 264, 417, 623])
+            ax.loglog(v, G_S100, 'o-', linewidth=2.5, color='#DC2626',
+                      markersize=3.5, label='S100 (G 최대)')
+            ax.loglog(v, G_S120, 's-', linewidth=2.5, color='#2563EB',
+                      markersize=3.5, label='S120 (G 중간)')
+            ax.loglog(v, G_S140, '^-', linewidth=2.5, color='#059669',
+                      markersize=3.5, label='S140 (G 최소)')
+            ax.fill_between(v, G_S140, G_S100, alpha=0.08, color='#7C3AED')
+            ax.set_xlabel('슬라이딩 속도 v (m/s)', fontsize=12)
+            ax.set_ylabel('G(q₁)', fontsize=12)
+            ax.legend(fontsize=10, loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.grid(True, alpha=0.3, which='both')
+            ax.set_title('실측: 속도별 G(q₁) — 속도↑ → 고무 뻣뻣 → G↑', fontsize=12, pad=10)
+            ax.annotate('속도 증가 →\nG 급격히 상승',
+                        xy=(50, G_S100[26]), fontsize=10, color='#DC2626',
+                        fontweight='bold',
+                        xytext=(5e-3, 300),
+                        arrowprops=dict(arrowstyle='->', color='#DC2626', lw=1.5))
+        add_graph(_plot_G_vs_v_real, fig_height=5.0)
+
+        add_text('  → S100: 모든 속도에서 G가 가장 큼 — 가장 뻣뻣한 고무 → 요철을 가장 못 따라감',
+                 font_size=17, fg='#DC2626')
+        add_text('  → S140: G가 가장 작음 — 가장 유연한 고무 → 요철에 상대적으로 잘 밀착',
+                 font_size=17, fg='#059669')
+        add_text('  → 공통점: 모든 샘플에서 속도↑ → G 급증 (고주파에서 유리 전이 → 고무가 뻣뻣해짐)',
+                 font_size=17, fg='#64748B')
+
+        add_text('', pady=6)
+        add_text('▼ 위의 G 값이 접촉면적 A/A₀에 어떻게 반영되는가?',
+                 bold=True, fg='#DC2626', pady=(6, 0))
+        add_equation(
+            r'$\frac{A}{A_0} = \mathrm{erf}\!\left(\frac{1}{2\sqrt{G}}\right)'
+            r' \quad \longleftarrow \text{ 위의 G를 이 수식에 대입}$',
+            fig_height=1.1)
+        add_text('  G가 커지면 erf의 인자 1/(2√G)가 작아지고 → erf 값이 0에 가까워짐 → 접촉면적 급감',
+                 font_size=17, fg='#64748B')
+
+        def _plot_AA0_vs_v_real(ax, np):
+            """Convert measured G to A/A0 and show contact area vs velocity."""
+            from scipy.special import erf
+            v = np.array([
+                1e-5, 1.81e-5, 3.28e-5, 5.95e-5, 1.08e-4, 1.95e-4,
+                3.53e-4, 6.4e-4, 1.16e-3, 2.1e-3, 3.81e-3, 6.9e-3,
+                1.25e-2, 2.26e-2, 4.1e-2, 7.43e-2, 1.35e-1, 2.44e-1,
+                4.42e-1, 8e-1, 1.45, 2.63, 4.76, 8.62, 15.6, 28.3,
+                51.2, 92.8, 168, 305, 552, 1000])
+            G_S100 = np.array([
+                1.91, 2.03, 2.17, 2.31, 2.48, 2.66, 2.86, 3.08,
+                3.33, 3.62, 3.95, 4.33, 4.79, 5.34, 6.01, 6.81,
+                7.83, 9.15, 10.9, 13.1, 16.5, 21.2, 28.2, 39.2,
+                57.0, 87.1, 138, 238, 428, 791, 1310, 2120])
+            G_S120 = np.array([
+                0.488, 0.526, 0.569, 0.613, 0.665, 0.724, 0.789,
+                0.862, 0.951, 1.06, 1.18, 1.32, 1.49, 1.70, 1.96,
+                2.26, 2.67, 3.20, 3.90, 4.87, 6.31, 8.40, 11.6,
+                16.6, 24.7, 36.9, 58.0, 98.7, 181, 360, 644, 1080])
+            G_S140 = np.array([
+                0.431, 0.476, 0.527, 0.584, 0.650, 0.730, 0.819,
+                0.919, 1.04, 1.18, 1.36, 1.56, 1.80, 2.10, 2.47,
+                2.92, 3.51, 4.27, 5.29, 6.72, 8.71, 11.4, 15.2,
+                21.1, 31.0, 46.7, 70.2, 106, 166, 264, 417, 623])
+            P_S100 = erf(1 / (2 * np.sqrt(G_S100))) * 100
+            P_S120 = erf(1 / (2 * np.sqrt(G_S120))) * 100
+            P_S140 = erf(1 / (2 * np.sqrt(G_S140))) * 100
+            ax.semilogx(v, P_S100, 'o-', linewidth=2.5, color='#DC2626',
+                        markersize=3.5, label='S100')
+            ax.semilogx(v, P_S120, 's-', linewidth=2.5, color='#2563EB',
+                        markersize=3.5, label='S120')
+            ax.semilogx(v, P_S140, '^-', linewidth=2.5, color='#059669',
+                        markersize=3.5, label='S140')
+            # Reference bands
+            ax.axhspan(50, 100, alpha=0.06, color='#059669')
+            ax.axhspan(10, 50, alpha=0.06, color='#F59E0B')
+            ax.axhspan(0, 10, alpha=0.06, color='#DC2626')
+            ax.axhline(y=50, color='#059669', linestyle=':', alpha=0.5, linewidth=1)
+            ax.axhline(y=10, color='#DC2626', linestyle=':', alpha=0.5, linewidth=1)
+            ax.text(1.5e-5, 75, '양호한 접촉', fontsize=9, color='#059669',
+                    fontweight='bold', alpha=0.7)
+            ax.text(1.5e-5, 28, '중간 접촉', fontsize=9, color='#B45309',
+                    fontweight='bold', alpha=0.7)
+            ax.text(1.5e-5, 4, '접촉 거의 없음', fontsize=9, color='#DC2626',
+                    fontweight='bold', alpha=0.7)
+            ax.set_xlabel('슬라이딩 속도 v (m/s)', fontsize=12)
+            ax.set_ylabel('A/A₀ (%)', fontsize=12)
+            ax.set_ylim(-2, 82)
+            ax.legend(fontsize=10, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.grid(True, alpha=0.3)
+            ax.set_title('G → A/A₀ 변환 결과: 속도↑ → G↑ → 접촉면적 급감', fontsize=12, pad=10)
+            # Annotate the dramatic drop
+            ax.annotate('S140: 저속 ~72%\n→ 고속 ~1%',
+                        xy=(500, P_S140[-2]), fontsize=10, color='#059669',
+                        fontweight='bold',
+                        xytext=(1e-1, 62),
+                        arrowprops=dict(arrowstyle='->', color='#059669', lw=1.5))
+        add_graph(_plot_AA0_vs_v_real, fig_height=5.5)
+
+        add_text('  해석:', font_size=17, bold=True, fg='#1E293B')
+        add_text('  → 저속 (v < 0.01 m/s): S140은 ~72%, S120은 ~56%, S100은 ~39% 접촉',
+                 font_size=17, fg='#64748B')
+        add_text('  → 고속 (v > 100 m/s): 모든 샘플에서 접촉면적이 10% 미만으로 급감',
+                 font_size=17, fg='#64748B')
+        add_text('  → 핵심: G가 커지면 erf(1/(2√G))가 급격히 0에 수렴 → 접촉면적 비선형 급감',
+                 font_size=17, bold=True, fg='#DC2626')
+        add_text('    (G=1 → A/A₀≈43%,  G=4 → ≈24%,  G=25 → ≈10%,  G=100 → ≈5%)',
+                 font_size=17, fg='#64748B')
+
         add_separator()
 
         # ── 각도 적분의 물리적 의미 ──
