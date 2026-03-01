@@ -15398,7 +15398,7 @@ class PerssonModelGUI_V2:
         bounds_row2.pack(fill=tk.X, pady=1)
         ttk.Label(bounds_row2, text="v₀* 범위:", font=self.FONTS['body']).pack(side=tk.LEFT)
         self.fit_v0_min_var = tk.StringVar(value="1e-6")
-        self.fit_v0_max_var = tk.StringVar(value="1.0")
+        self.fit_v0_max_var = tk.StringVar(value="50")
         ttk.Entry(bounds_row2, textvariable=self.fit_v0_min_var, width=6).pack(side=tk.LEFT, padx=1)
         ttk.Label(bounds_row2, text="~", font=self.FONTS['body']).pack(side=tk.LEFT)
         ttk.Entry(bounds_row2, textvariable=self.fit_v0_max_var, width=6).pack(side=tk.LEFT, padx=1)
@@ -15429,8 +15429,14 @@ class PerssonModelGUI_V2:
                                      command=self._run_auto_fit_mu_dry, width=15,
                                      style='Accent.TButton')
         self.fit_button.pack(side=tk.LEFT, padx=2)
-        ttk.Button(fit_btn_row, text="피팅 결과 적용",
-                   command=self._apply_fit_results, width=12).pack(side=tk.LEFT, padx=2)
+        self.fit_complete_button = ttk.Button(
+            fit_btn_row, text="mu_adh 피팅 완료",
+            command=self._complete_adh_fitting, width=15)
+        self.fit_complete_button.pack(side=tk.LEFT, padx=2)
+        self.fit_reset_button = ttk.Button(
+            fit_btn_row, text="피팅 초기화",
+            command=self._reset_adh_fitting, width=10)
+        self.fit_reset_button.pack(side=tk.LEFT, padx=2)
 
         self.fit_status_var = tk.StringVar(value="실측 데이터 입력 후 피팅 실행")
         ttk.Label(fit_frame, textvariable=self.fit_status_var,
@@ -15442,6 +15448,7 @@ class PerssonModelGUI_V2:
 
         # Internal storage for fit results
         self._fit_results = None
+        self._adh_fitting_completed = False  # True after user presses "피팅 완료"
 
         # 4. Adhesion Material Parameters
         mat_frame = self._create_section(left_panel, "4) 점착 물성 파라미터")
@@ -15699,7 +15706,10 @@ class PerssonModelGUI_V2:
 
             # ── Auto temperature shift: recalculate μ_visc if temperature changed ──
             # When calculation temperature differs from μ_visc calculation temperature,
-            # automatically trigger temperature shift + G recalculation + μ_visc recalculation
+            # automatically trigger temperature shift + G recalculation + μ_visc recalculation.
+            # Note: After fitting is completed (_adh_fitting_completed=True), this is NOT
+            # re-fitting. The fitted parameters (τ_f0, v₀*, c) are fixed. Temperature
+            # changes only shift the τ_f curve via the Arrhenius factor aT'.
             need_mu_visc_recalc = False
             if (hasattr(self, 'persson_aT_interp') and self.persson_aT_interp is not None
                     and hasattr(self, 'persson_master_curve') and self.persson_master_curve is not None):
@@ -15717,7 +15727,13 @@ class PerssonModelGUI_V2:
                     need_mu_visc_recalc = True
 
             if need_mu_visc_recalc:
-                self.status_var.set(f"계산 온도 변경 감지 ({mu_visc_temp:.1f}→{T_calc_C:.1f}°C): μ_visc 재계산 중...")
+                if self._adh_fitting_completed:
+                    self.status_var.set(
+                        f"온도 변경 ({mu_visc_temp:.1f}→{T_calc_C:.1f}°C): "
+                        f"전단응력 곡선 이동 중 (피팅 파라미터 고정)...")
+                else:
+                    self.status_var.set(
+                        f"계산 온도 변경 감지 ({mu_visc_temp:.1f}→{T_calc_C:.1f}°C): μ_visc 재계산 중...")
                 self.root.update()
 
                 # Sync the temperature to mu_visc tab
@@ -15879,13 +15895,22 @@ class PerssonModelGUI_V2:
                     f"  v={v_array[i]:.2e}: τ_f={tau_f[i]/1e6:.4f}MPa, A/A0={A_ratio[i]:.4f}, μ_adh={smart_fmt(mu_adh[i])}\n")
 
             self.adh_progress_var.set(100)
-            self.status_var.set("μ_adh 계산 완료")
+            if self._adh_fitting_completed:
+                self.status_var.set(f"μ_adh 계산 완료 (피팅 확정 — T={T_calc_C:.1f}°C)")
+            else:
+                self.status_var.set("μ_adh 계산 완료")
             self.adh_calc_button.config(state='normal')
 
-            self._show_status(
-                f"μ_adh 계산 완료\n"
-                f"범위: {smart_fmt(mu_min)} ~ {smart_fmt(mu_max)}\n"
-                f"최대: μ_adh={smart_fmt(peak_mu)} @ v={v_array[peak_idx]:.4f} m/s", 'success')
+            if self._adh_fitting_completed:
+                self._show_status(
+                    f"μ_adh 계산 완료 (피팅 확정 파라미터, T={T_calc_C:.1f}°C)\n"
+                    f"범위: {smart_fmt(mu_min)} ~ {smart_fmt(mu_max)}\n"
+                    f"최대: μ_adh={smart_fmt(peak_mu)} @ v={v_array[peak_idx]:.4f} m/s", 'success')
+            else:
+                self._show_status(
+                    f"μ_adh 계산 완료\n"
+                    f"범위: {smart_fmt(mu_min)} ~ {smart_fmt(mu_max)}\n"
+                    f"최대: μ_adh={smart_fmt(peak_mu)} @ v={v_array[peak_idx]:.4f} m/s", 'success')
 
             # Register graph data
             self._register_graph_data(
@@ -16518,6 +16543,107 @@ class PerssonModelGUI_V2:
         self._show_status(
             f"피팅 결과가 파라미터에 적용되었습니다.\n"
             f"τ_f0={tau_f0:.4f} MPa, v₀*={v0_star:.4e} m/s, c={c:.6f}", 'success')
+
+    def _complete_adh_fitting(self):
+        """Finalize μ_adh fitting - apply results and exit fitting mode.
+
+        After pressing this button:
+        - Fitted parameters (τ_f0, v₀*, c) are applied and locked
+        - Fitting controls are disabled
+        - Temperature changes only shift the τ_f curve via Arrhenius (no re-fitting)
+        """
+        if self._fit_results is None:
+            self._show_status("피팅 결과가 없습니다. 먼저 자동 피팅을 실행하세요.", 'warning')
+            return
+
+        # Apply fit results to parameter fields
+        self._apply_fit_results()
+
+        # Mark fitting as completed
+        self._adh_fitting_completed = True
+
+        # Disable fitting controls
+        self.fit_button.config(state='disabled')
+        self.fit_complete_button.config(state='disabled')
+
+        # Update status
+        r_sq = self._fit_results.get('r_squared', 0)
+        rmse = self._fit_results.get('rmse', 0)
+        self.fit_status_var.set(
+            f"피팅 확정 완료 (R²={r_sq:.4f}) — 온도 변경 시 전단응력 곡선만 이동됩니다")
+
+        self._show_status(
+            "mu_adh 피팅이 확정되었습니다.\n"
+            "이제 계산 온도를 변경하면 완성된 전단응력 곡선이\n"
+            "Arrhenius 이동만 적용됩니다.\n"
+            "피팅을 다시 하려면 '피팅 초기화' 버튼을 누르세요.", 'success')
+
+    def _reset_adh_fitting(self):
+        """Reset μ_adh fitting state to allow re-fitting from scratch.
+
+        - Clears all fit results
+        - Re-enables fitting controls
+        - Resets parameter fields to defaults
+        """
+        # Clear fitting state
+        self._adh_fitting_completed = False
+        self._fit_results = None
+
+        # Re-enable fitting controls
+        self.fit_button.config(state='normal')
+        self.fit_complete_button.config(state='normal')
+
+        # Reset parameter fields to defaults
+        self.adh_tau_f0_var.set("6.5")
+        self.adh_v0_star_var.set("10")
+        self.adh_c_var.set("0.1")
+
+        # Reset fitting bounds to defaults
+        self.fit_tau_min_var.set("0.1")
+        self.fit_tau_max_var.set("50.0")
+        self.fit_v0_min_var.set("1e-6")
+        self.fit_v0_max_var.set("50")
+        self.fit_c_min_var.set("0.001")
+        self.fit_c_max_var.set("5.0")
+        self.fit_de_count_var.set("3")
+
+        # Clear fit result text
+        self.fit_result_text.delete(1.0, tk.END)
+
+        # Clear stored μ_adh results
+        self.mu_adh_results = None
+
+        # Clear plots
+        self.ax_adh_tau.clear()
+        self.ax_adh_mu.clear()
+        self.ax_adh_total.clear()
+        self.ax_adh_area.clear()
+        for ax in [self.ax_adh_tau, self.ax_adh_mu, self.ax_adh_total, self.ax_adh_area]:
+            ax.set_xscale('log')
+            ax.grid(True, alpha=0.3)
+        self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v)', fontweight='bold', fontsize=11)
+        self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=11)
+        self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=11)
+        self.ax_adh_mu.set_title('μ_adh(v) 곡선', fontweight='bold', fontsize=11)
+        self.ax_adh_mu.set_xlabel('속도 v (m/s)', fontsize=11)
+        self.ax_adh_mu.set_ylabel('마찰 계수 μ_adh', fontsize=11)
+        self.ax_adh_total.set_title('μ_total = μ_visc + μ_adh', fontweight='bold', fontsize=11)
+        self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=11)
+        self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=11)
+        self.ax_adh_area.set_title('실접촉 면적비 A/A0 (μ_visc)', fontweight='bold', fontsize=11)
+        self.ax_adh_area.set_xlabel('속도 v (m/s)', fontsize=11)
+        self.ax_adh_area.set_ylabel('A/A0', fontsize=11)
+        self.canvas_mu_adh.draw_idle()
+
+        # Clear result text
+        self.adh_result_text.delete(1.0, tk.END)
+
+        # Update status
+        self.fit_status_var.set("피팅 초기화 완료 — 실측 데이터 입력 후 피팅 실행")
+
+        self._show_status(
+            "μ_adh 피팅이 초기화되었습니다.\n"
+            "처음부터 피팅을 다시 시작할 수 있습니다.", 'success')
 
 
     # ================================================================
