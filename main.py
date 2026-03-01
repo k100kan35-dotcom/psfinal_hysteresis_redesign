@@ -15301,162 +15301,22 @@ class PerssonModelGUI_V2:
 
         # ============== Left Panel: Controls ==============
 
-        # 1. Adhesion Material Parameters
-        mat_frame = self._create_section(left_panel, "1) 점착 물성 파라미터")
-
-        # tau_f0 - maximum adhesion shear stress
-        row_tau = ttk.Frame(mat_frame)
-        row_tau.pack(fill=tk.X, pady=1)
-        ttk.Label(row_tau, text="τ_f0:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.adh_tau_f0_var = tk.StringVar(value="6.5")
-        ttk.Entry(row_tau, textvariable=self.adh_tau_f0_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row_tau, text="MPa  (최대 점착 전단 응력)", font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT)
-
-        # v_0_star - reference velocity at peak shear stress
-        row_v0 = ttk.Frame(mat_frame)
-        row_v0.pack(fill=tk.X, pady=1)
-        ttk.Label(row_v0, text="v₀*:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.adh_v0_star_var = tk.StringVar(value="0.005")
-        ttk.Entry(row_v0, textvariable=self.adh_v0_star_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row_v0, text="m/s  (기준 속도)", font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT)
-
-        # c - Gaussian width constant
-        row_c = ttk.Frame(mat_frame)
-        row_c.pack(fill=tk.X, pady=1)
-        ttk.Label(row_c, text="c:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.adh_c_var = tk.StringVar(value="0.1")
-        ttk.Entry(row_c, textvariable=self.adh_c_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row_c, text="(가우시안 폭 상수)", font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT)
-
-        # epsilon - activation energy
-        row_eps = ttk.Frame(mat_frame)
-        row_eps.pack(fill=tk.X, pady=1)
-        ttk.Label(row_eps, text="ε:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.adh_epsilon_var = tk.StringVar(value="0.97")
-        ttk.Entry(row_eps, textvariable=self.adh_epsilon_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row_eps, text="eV  (활성화 에너지)", font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT)
-
-        # T_ref - reference temperature
-        row_tref = ttk.Frame(mat_frame)
-        row_tref.pack(fill=tk.X, pady=1)
-        ttk.Label(row_tref, text="T_ref:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.adh_T_ref_var = tk.StringVar(value="293.15")
-        ttk.Entry(row_tref, textvariable=self.adh_T_ref_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row_tref, text="K  (기준 온도)", font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT)
-
-        # k_B - Boltzmann constant (display only)
-        row_kb = ttk.Frame(mat_frame)
-        row_kb.pack(fill=tk.X, pady=1)
-        ttk.Label(row_kb, text="k_B:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        ttk.Label(row_kb, text="8.6173 × 10⁻⁵ eV/K  (볼츠만 상수)",
-                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=2)
-
-        # 2. Operating Conditions
-        cond_frame = self._create_section(left_panel, "2) 계산 조건")
-
-        # Temperature (synced from mu_visc or manual)
-        temp_row_wrapper = tk.Frame(cond_frame, bg='#2563EB', padx=1, pady=1)
-        temp_row_wrapper.pack(fill=tk.X, pady=1)
-        temp_row = ttk.Frame(temp_row_wrapper)
-        temp_row.pack(fill=tk.X)
-        ttk.Label(temp_row, text="계산 온도:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.adh_calc_temp_var = tk.StringVar(value="20.0")
-        ttk.Entry(temp_row, textvariable=self.adh_calc_temp_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(temp_row, text="°C", font=self.FONTS['body']).pack(side=tk.LEFT)
-
-        # Nominal contact pressure p0
-        p0_row_wrapper = tk.Frame(cond_frame, bg='#DC2626', padx=1, pady=1)
-        p0_row_wrapper.pack(fill=tk.X, pady=1)
-        p0_row = ttk.Frame(p0_row_wrapper)
-        p0_row.pack(fill=tk.X)
-        ttk.Label(p0_row, text="하중 p₀:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.adh_p0_var = tk.StringVar(value="")
-        ttk.Entry(p0_row, textvariable=self.adh_p0_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(p0_row, text="MPa  (명목 접촉 압력)", font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT)
-
-        # Sync buttons
-        sync_row = ttk.Frame(cond_frame)
-        sync_row.pack(fill=tk.X, pady=2)
-        ttk.Button(sync_row, text="μ_visc 조건 동기화",
-                   command=self._sync_adh_from_mu_visc, width=20).pack(side=tk.LEFT, padx=2)
-        self.adh_sync_status_var = tk.StringVar(value="(μ_visc 결과 필요)")
-        ttk.Label(sync_row, textvariable=self.adh_sync_status_var,
-                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=4)
-
-        # 3. A/A0 Source
-        area_frame = self._create_section(left_panel, "3) A/A0 입력 (실접촉 면적비)")
-
-        self.adh_area_source_var = tk.StringVar(value="from_mu_visc")
-        src_row1 = ttk.Frame(area_frame)
-        src_row1.pack(fill=tk.X, pady=1)
-        ttk.Radiobutton(src_row1, text="μ_visc 결과에서 가져오기",
-                        variable=self.adh_area_source_var, value="from_mu_visc").pack(side=tk.LEFT)
-
-        src_row2 = ttk.Frame(area_frame)
-        src_row2.pack(fill=tk.X, pady=1)
-        ttk.Radiobutton(src_row2, text="고정값 사용:",
-                        variable=self.adh_area_source_var, value="fixed").pack(side=tk.LEFT)
-        self.adh_fixed_area_var = tk.StringVar(value="0.05")
-        ttk.Entry(src_row2, textvariable=self.adh_fixed_area_var, width=8).pack(side=tk.LEFT, padx=2)
-
-        # A/A0 status display
-        self.adh_area_status_var = tk.StringVar(value="A/A0: μ_visc 결과 대기 중")
-        ttk.Label(area_frame, textvariable=self.adh_area_status_var,
-                  font=self.FONTS['body'], foreground='#2563EB').pack(anchor=tk.W, pady=2)
-
-        # 4. Calculate
-        calc_frame = self._create_section(left_panel, "4) μ_adh 계산")
-
-        calc_row = ttk.Frame(calc_frame)
-        calc_row.pack(fill=tk.X, pady=2)
-        self.adh_calc_button = ttk.Button(calc_row, text="μ_adh 계산",
-                                          command=self._calculate_mu_adh, width=15,
-                                          style='Accent.TButton')
-        self.adh_calc_button.pack(side=tk.LEFT, padx=2)
-
-        self.adh_progress_var = tk.IntVar()
-        self.adh_progress_bar = ttk.Progressbar(calc_row, variable=self.adh_progress_var,
-                                                 maximum=100, length=150)
-        self.adh_progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
-
-        # Show total friction option
-        self.adh_show_total_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(calc_frame, text="μ_total = μ_visc + μ_adh 표시",
-                        variable=self.adh_show_total_var).pack(anchor=tk.W, pady=1)
-
-        # 5. Results
-        result_frame = self._create_section(left_panel, "5) 결과")
-
-        self.adh_result_text = tk.Text(result_frame, height=10, font=self.FONTS['mono_small'], wrap=tk.WORD)
-        self.adh_result_text.pack(fill=tk.X)
-
-        # Export buttons
-        export_row = ttk.Frame(result_frame)
-        export_row.pack(fill=tk.X, pady=2)
-        ttk.Button(export_row, text="μ_adh CSV", command=self._export_mu_adh_csv, width=12).pack(side=tk.LEFT, padx=1)
-        ttk.Button(export_row, text="μ_total CSV", command=self._export_mu_total_csv, width=12).pack(side=tk.LEFT, padx=1)
-
-        # 6. Measured mu_dry Data Input
-        meas_frame = self._create_section(left_panel, "6) 실측 μ_dry 데이터 입력")
+        # 1. Measured mu_dry Data Input (FILE INPUT - at the top)
+        meas_frame = self._create_section(left_panel, "1) 실측 μ_dry 데이터 입력")
 
         meas_desc = ttk.Label(meas_frame,
-                              text="속도(m/s)와 실측 μ_dry 값 입력 (피팅 기준)",
+                              text="log₁₀(v) (m/s)와 실측 μ_dry 값 입력 (피팅 기준)\n"
+                                   "※ 속도는 로그스케일 값으로 입력 (예: -3 → 0.001 m/s)",
                               font=self.FONTS['small'], foreground='#64748B')
         meas_desc.pack(anchor=tk.W, pady=(0, 2))
 
-        # Input row: velocity + mu_dry
+        # Input row: log10(velocity) + mu_dry
         input_row = ttk.Frame(meas_frame)
         input_row.pack(fill=tk.X, pady=1)
-        ttk.Label(input_row, text="v:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        ttk.Label(input_row, text="log₁₀(v):", font=self.FONTS['body']).pack(side=tk.LEFT)
         self.meas_v_entry_var = tk.StringVar()
         ttk.Entry(input_row, textvariable=self.meas_v_entry_var, width=10).pack(side=tk.LEFT, padx=2)
-        ttk.Label(input_row, text="m/s   μ_dry:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        ttk.Label(input_row, text="μ_dry:", font=self.FONTS['body']).pack(side=tk.LEFT)
         self.meas_mu_entry_var = tk.StringVar()
         ttk.Entry(input_row, textvariable=self.meas_mu_entry_var, width=10).pack(side=tk.LEFT, padx=2)
         ttk.Button(input_row, text="추가", command=self._add_measured_mu_dry, width=5).pack(side=tk.LEFT, padx=2)
@@ -15465,7 +15325,7 @@ class PerssonModelGUI_V2:
         tree_frame = ttk.Frame(meas_frame)
         tree_frame.pack(fill=tk.X, pady=2)
         self.meas_mu_tree = ttk.Treeview(tree_frame, columns=('v', 'mu_dry'), show='headings', height=5)
-        self.meas_mu_tree.heading('v', text='속도 v (m/s)')
+        self.meas_mu_tree.heading('v', text='log₁₀(v) (m/s)')
         self.meas_mu_tree.heading('mu_dry', text='μ_dry (실측)')
         self.meas_mu_tree.column('v', width=100, anchor=tk.CENTER)
         self.meas_mu_tree.column('mu_dry', width=100, anchor=tk.CENTER)
@@ -15481,8 +15341,8 @@ class PerssonModelGUI_V2:
         ttk.Button(meas_btn_row, text="전체 삭제", command=self._clear_measured_mu_dry, width=10).pack(side=tk.LEFT, padx=1)
         ttk.Button(meas_btn_row, text="CSV 로드", command=self._load_measured_mu_dry_csv, width=10).pack(side=tk.LEFT, padx=1)
 
-        # 7. Auto-Fitting
-        fit_frame = self._create_section(left_panel, "7) 자동 피팅 (τ_f0, v₀*, c)")
+        # 2. Auto-Fitting (right below input)
+        fit_frame = self._create_section(left_panel, "2) 자동 피팅 (τ_f0, v₀*, c)")
 
         fit_desc = ttk.Label(fit_frame,
                              text="실측 μ_dry에 맞게 점착 파라미터 자동 최적화\n"
@@ -15540,6 +15400,147 @@ class PerssonModelGUI_V2:
 
         # Internal storage for fit results
         self._fit_results = None
+
+        # 3. Adhesion Material Parameters
+        mat_frame = self._create_section(left_panel, "3) 점착 물성 파라미터")
+
+        # tau_f0 - maximum adhesion shear stress
+        row_tau = ttk.Frame(mat_frame)
+        row_tau.pack(fill=tk.X, pady=1)
+        ttk.Label(row_tau, text="τ_f0:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.adh_tau_f0_var = tk.StringVar(value="6.5")
+        ttk.Entry(row_tau, textvariable=self.adh_tau_f0_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_tau, text="MPa  (최대 점착 전단 응력)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # v_0_star - reference velocity at peak shear stress
+        row_v0 = ttk.Frame(mat_frame)
+        row_v0.pack(fill=tk.X, pady=1)
+        ttk.Label(row_v0, text="v₀*:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.adh_v0_star_var = tk.StringVar(value="0.005")
+        ttk.Entry(row_v0, textvariable=self.adh_v0_star_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_v0, text="m/s  (기준 속도)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # c - Gaussian width constant
+        row_c = ttk.Frame(mat_frame)
+        row_c.pack(fill=tk.X, pady=1)
+        ttk.Label(row_c, text="c:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.adh_c_var = tk.StringVar(value="0.1")
+        ttk.Entry(row_c, textvariable=self.adh_c_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_c, text="(가우시안 폭 상수)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # epsilon - activation energy
+        row_eps = ttk.Frame(mat_frame)
+        row_eps.pack(fill=tk.X, pady=1)
+        ttk.Label(row_eps, text="ε:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.adh_epsilon_var = tk.StringVar(value="0.97")
+        ttk.Entry(row_eps, textvariable=self.adh_epsilon_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_eps, text="eV  (활성화 에너지)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # T_ref - reference temperature
+        row_tref = ttk.Frame(mat_frame)
+        row_tref.pack(fill=tk.X, pady=1)
+        ttk.Label(row_tref, text="T_ref:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.adh_T_ref_var = tk.StringVar(value="293.15")
+        ttk.Entry(row_tref, textvariable=self.adh_T_ref_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_tref, text="K  (기준 온도)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # k_B - Boltzmann constant (display only)
+        row_kb = ttk.Frame(mat_frame)
+        row_kb.pack(fill=tk.X, pady=1)
+        ttk.Label(row_kb, text="k_B:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        ttk.Label(row_kb, text="8.6173 × 10⁻⁵ eV/K  (볼츠만 상수)",
+                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=2)
+
+        # 4. Operating Conditions
+        cond_frame = self._create_section(left_panel, "4) 계산 조건")
+
+        # Temperature (synced from mu_visc or manual)
+        temp_row_wrapper = tk.Frame(cond_frame, bg='#2563EB', padx=1, pady=1)
+        temp_row_wrapper.pack(fill=tk.X, pady=1)
+        temp_row = ttk.Frame(temp_row_wrapper)
+        temp_row.pack(fill=tk.X)
+        ttk.Label(temp_row, text="계산 온도:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.adh_calc_temp_var = tk.StringVar(value="20.0")
+        ttk.Entry(temp_row, textvariable=self.adh_calc_temp_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(temp_row, text="°C", font=self.FONTS['body']).pack(side=tk.LEFT)
+
+        # Nominal contact pressure p0
+        p0_row_wrapper = tk.Frame(cond_frame, bg='#DC2626', padx=1, pady=1)
+        p0_row_wrapper.pack(fill=tk.X, pady=1)
+        p0_row = ttk.Frame(p0_row_wrapper)
+        p0_row.pack(fill=tk.X)
+        ttk.Label(p0_row, text="하중 p₀:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.adh_p0_var = tk.StringVar(value="")
+        ttk.Entry(p0_row, textvariable=self.adh_p0_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(p0_row, text="MPa  (명목 접촉 압력)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # Sync buttons
+        sync_row = ttk.Frame(cond_frame)
+        sync_row.pack(fill=tk.X, pady=2)
+        ttk.Button(sync_row, text="μ_visc 조건 동기화",
+                   command=self._sync_adh_from_mu_visc, width=20).pack(side=tk.LEFT, padx=2)
+        self.adh_sync_status_var = tk.StringVar(value="(μ_visc 결과 필요)")
+        ttk.Label(sync_row, textvariable=self.adh_sync_status_var,
+                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=4)
+
+        # 5. A/A0 Source
+        area_frame = self._create_section(left_panel, "5) A/A0 입력 (실접촉 면적비)")
+
+        self.adh_area_source_var = tk.StringVar(value="from_mu_visc")
+        src_row1 = ttk.Frame(area_frame)
+        src_row1.pack(fill=tk.X, pady=1)
+        ttk.Radiobutton(src_row1, text="μ_visc 결과에서 가져오기",
+                        variable=self.adh_area_source_var, value="from_mu_visc").pack(side=tk.LEFT)
+
+        src_row2 = ttk.Frame(area_frame)
+        src_row2.pack(fill=tk.X, pady=1)
+        ttk.Radiobutton(src_row2, text="고정값 사용:",
+                        variable=self.adh_area_source_var, value="fixed").pack(side=tk.LEFT)
+        self.adh_fixed_area_var = tk.StringVar(value="0.05")
+        ttk.Entry(src_row2, textvariable=self.adh_fixed_area_var, width=8).pack(side=tk.LEFT, padx=2)
+
+        # A/A0 status display
+        self.adh_area_status_var = tk.StringVar(value="A/A0: μ_visc 결과 대기 중")
+        ttk.Label(area_frame, textvariable=self.adh_area_status_var,
+                  font=self.FONTS['body'], foreground='#2563EB').pack(anchor=tk.W, pady=2)
+
+        # 6. Calculate
+        calc_frame = self._create_section(left_panel, "6) μ_adh 계산")
+
+        calc_row = ttk.Frame(calc_frame)
+        calc_row.pack(fill=tk.X, pady=2)
+        self.adh_calc_button = ttk.Button(calc_row, text="μ_adh 계산",
+                                          command=self._calculate_mu_adh, width=15,
+                                          style='Accent.TButton')
+        self.adh_calc_button.pack(side=tk.LEFT, padx=2)
+
+        self.adh_progress_var = tk.IntVar()
+        self.adh_progress_bar = ttk.Progressbar(calc_row, variable=self.adh_progress_var,
+                                                 maximum=100, length=150)
+        self.adh_progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        # Show total friction option
+        self.adh_show_total_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(calc_frame, text="μ_total = μ_visc + μ_adh 표시",
+                        variable=self.adh_show_total_var).pack(anchor=tk.W, pady=1)
+
+        # 7. Results
+        result_frame = self._create_section(left_panel, "7) 결과")
+
+        self.adh_result_text = tk.Text(result_frame, height=10, font=self.FONTS['mono_small'], wrap=tk.WORD)
+        self.adh_result_text.pack(fill=tk.X)
+
+        # Export buttons
+        export_row = ttk.Frame(result_frame)
+        export_row.pack(fill=tk.X, pady=2)
+        ttk.Button(export_row, text="μ_adh CSV", command=self._export_mu_adh_csv, width=12).pack(side=tk.LEFT, padx=1)
+        ttk.Button(export_row, text="μ_total CSV", command=self._export_mu_total_csv, width=12).pack(side=tk.LEFT, padx=1)
 
         # ============== Right Panel: Plots ==============
         right_panel = layout['right']
@@ -16026,19 +16027,19 @@ class PerssonModelGUI_V2:
     # ── Measured μ_dry data management ──
 
     def _add_measured_mu_dry(self):
-        """Add a single measured μ_dry data point to the table."""
+        """Add a single measured μ_dry data point to the table.
+
+        Velocity is expected in log10 scale (e.g., -3 means v = 0.001 m/s).
+        """
         try:
             v_str = self.meas_v_entry_var.get().strip()
             mu_str = self.meas_mu_entry_var.get().strip()
             if not v_str or not mu_str:
-                self._show_status("속도(v)와 μ_dry 값을 모두 입력하세요.", 'warning')
+                self._show_status("log₁₀(v)와 μ_dry 값을 모두 입력하세요.", 'warning')
                 return
-            v_val = float(v_str)
+            log_v_val = float(v_str)
             mu_val = float(mu_str)
-            if v_val <= 0:
-                self._show_status("속도는 양수여야 합니다.", 'warning')
-                return
-            self.meas_mu_tree.insert('', tk.END, values=(f"{v_val:.4e}", f"{mu_val:.6f}"))
+            self.meas_mu_tree.insert('', tk.END, values=(f"{log_v_val:.4f}", f"{mu_val:.6f}"))
             self.meas_v_entry_var.set("")
             self.meas_mu_entry_var.set("")
         except ValueError:
@@ -16062,7 +16063,8 @@ class PerssonModelGUI_V2:
     def _load_measured_mu_dry_csv(self):
         """Load measured μ_dry data from CSV/TXT file.
 
-        Expected format: two columns (velocity, mu_dry) separated by tab, comma, or space.
+        Expected format: two columns (log10(velocity), mu_dry) separated by tab, comma, or space.
+        Velocity column is in log10 scale (e.g., -3 means v = 0.001 m/s).
         Lines starting with '#' are comments.
         """
         filepath = filedialog.askopenfilename(
@@ -16083,12 +16085,11 @@ class PerssonModelGUI_V2:
                         parts = line.split(sep)
                         if len(parts) >= 2:
                             try:
-                                v_val = float(parts[0].strip())
+                                log_v_val = float(parts[0].strip())
                                 mu_val = float(parts[1].strip())
-                                if v_val > 0:
-                                    self.meas_mu_tree.insert('', tk.END,
-                                                             values=(f"{v_val:.4e}", f"{mu_val:.6f}"))
-                                    count += 1
+                                self.meas_mu_tree.insert('', tk.END,
+                                                         values=(f"{log_v_val:.4f}", f"{mu_val:.6f}"))
+                                count += 1
                                 break
                             except ValueError:
                                 continue
@@ -16099,8 +16100,11 @@ class PerssonModelGUI_V2:
     def _get_measured_mu_dry_data(self):
         """Get measured μ_dry data as numpy arrays.
 
+        The treeview stores log10(v). This function converts to linear velocity.
+
         Returns:
             tuple: (v_measured, mu_dry_measured) or (None, None) if no data.
+                   v_measured is in linear scale (m/s), converted from log10.
         """
         items = self.meas_mu_tree.get_children()
         if not items:
@@ -16109,7 +16113,8 @@ class PerssonModelGUI_V2:
         mu_list = []
         for item in items:
             vals = self.meas_mu_tree.item(item, 'values')
-            v_list.append(float(vals[0]))
+            log_v = float(vals[0])
+            v_list.append(10.0 ** log_v)  # Convert from log10 to linear
             mu_list.append(float(vals[1]))
         # Sort by velocity
         v_arr = np.array(v_list)
