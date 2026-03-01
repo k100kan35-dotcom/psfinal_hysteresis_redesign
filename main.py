@@ -341,7 +341,7 @@ class PerssonModelGUI_V2:
         """창이 화면에 표시된 후 모든 Figure의 레이아웃을 재계산."""
         # 위젯 geometry 확정
         self.root.update_idletasks()
-        for fig, canvas in self._get_all_figures_and_canvases():
+        for _, fig, canvas in self._get_all_figures_and_canvases():
             try:
                 widget = canvas.get_tk_widget()
                 w = widget.winfo_width()
@@ -804,7 +804,7 @@ class PerssonModelGUI_V2:
             matplotlib.rcParams[key] = max(8, round(base_size * scale))
 
         # Update all existing figures
-        for fig, canvas in self._get_all_figures_and_canvases():
+        for fig_attr, fig, canvas in self._get_all_figures_and_canvases():
             for ax in fig.axes:
                 # Title
                 if ax.get_title():
@@ -830,35 +830,54 @@ class PerssonModelGUI_V2:
             except Exception:
                 pass
             try:
-                if fig is getattr(self, 'fig_psd_profile', None):
-                    # fig_psd_profile uses explicit subplots_adjust — skip tight_layout
-                    fig.subplots_adjust(left=0.12, right=0.95, top=0.96,
-                                        bottom=0.08, hspace=0.50, wspace=0.35)
+                fixed = self._FIXED_SUBPLOT_PARAMS.get(fig_attr)
+                if fixed is not None:
+                    fig.subplots_adjust(**fixed)
                 else:
                     fig.tight_layout()
             except Exception:
                 pass
             canvas.draw_idle()
 
+    # ── Fixed subplot layout params (figures that must NOT use tight_layout) ──
+    _FIXED_SUBPLOT_PARAMS = {
+        'fig_psd_profile': dict(left=0.12, right=0.95, top=0.96, bottom=0.08,
+                                hspace=0.50, wspace=0.35),
+        'fig_results':     dict(left=0.08, right=0.95, top=0.92, bottom=0.06,
+                                hspace=0.55, wspace=0.38),
+        'fig_rms':         dict(left=0.14, right=0.95, top=0.96, bottom=0.08,
+                                hspace=0.50, wspace=0.38),
+        'fig_mu_visc':     dict(left=0.12, right=0.90, top=0.96, bottom=0.08,
+                                hspace=0.50, wspace=0.38),
+        'fig_strain_map':  dict(left=0.08, right=0.95, top=0.96, bottom=0.06,
+                                hspace=0.45, wspace=0.30),
+        'fig_integrand':   dict(left=0.12, right=0.95, top=0.96, bottom=0.08,
+                                hspace=0.55, wspace=0.40),
+        'fig_ve_advisor':  dict(left=0.08, right=0.97, top=0.96, bottom=0.06,
+                                hspace=0.45),
+    }
+
+    _ALL_FIG_CANVAS_PAIRS = [
+        ('fig_psd_profile', 'canvas_psd_profile'),
+        ('fig_mc', 'canvas_mc'),
+        ('fig_calc_progress', 'canvas_calc_progress'),
+        ('fig_results', 'canvas_results'),
+        ('fig_rms', 'canvas_rms'),
+        ('fig_mu_visc', 'canvas_mu_visc'),
+        ('fig_strain_map', 'canvas_strain_map'),
+        ('fig_integrand', 'canvas_integrand'),
+        ('fig_ve_advisor', 'canvas_ve_advisor'),
+    ]
+
     def _get_all_figures_and_canvases(self):
-        """Return list of (figure, canvas) tuples for all plot figures."""
-        pairs = []
-        for attr_fig, attr_canvas in [
-            ('fig_psd_profile', 'canvas_psd_profile'),
-            ('fig_mc', 'canvas_mc'),
-            ('fig_calc_progress', 'canvas_calc_progress'),
-            ('fig_results', 'canvas_results'),
-            ('fig_rms', 'canvas_rms'),
-            ('fig_mu_visc', 'canvas_mu_visc'),
-            ('fig_strain_map', 'canvas_strain_map'),
-            ('fig_integrand', 'canvas_integrand'),
-            ('fig_ve_advisor', 'canvas_ve_advisor'),
-        ]:
+        """Return list of (fig_attr, figure, canvas) tuples for all plot figures."""
+        triples = []
+        for attr_fig, attr_canvas in self._ALL_FIG_CANVAS_PAIRS:
             fig = getattr(self, attr_fig, None)
             canvas = getattr(self, attr_canvas, None)
             if fig is not None and canvas is not None:
-                pairs.append((fig, canvas))
-        return pairs
+                triples.append((attr_fig, fig, canvas))
+        return triples
 
     def _add_logo_to_panel(self, parent_frame):
         """Add company logo fixed at the bottom of a left panel frame.
