@@ -830,7 +830,12 @@ class PerssonModelGUI_V2:
             except Exception:
                 pass
             try:
-                fig.tight_layout()
+                if fig is getattr(self, 'fig_psd_profile', None):
+                    # fig_psd_profile uses explicit subplots_adjust — skip tight_layout
+                    fig.subplots_adjust(left=0.12, right=0.95, top=0.96,
+                                        bottom=0.08, hspace=0.50, wspace=0.35)
+                else:
+                    fig.tight_layout()
             except Exception:
                 pass
             canvas.draw_idle()
