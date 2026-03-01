@@ -15413,6 +15413,15 @@ class PerssonModelGUI_V2:
         ttk.Label(bounds_row3, text="~", font=self.FONTS['body']).pack(side=tk.LEFT)
         ttk.Entry(bounds_row3, textvariable=self.fit_c_max_var, width=6).pack(side=tk.LEFT, padx=1)
 
+        # DE restart count setting
+        de_row = ttk.Frame(fit_frame)
+        de_row.pack(fill=tk.X, pady=1)
+        ttk.Label(de_row, text="DE 횟수:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fit_de_count_var = tk.StringVar(value="3")
+        ttk.Entry(de_row, textvariable=self.fit_de_count_var, width=4).pack(side=tk.LEFT, padx=1)
+        ttk.Label(de_row, text="× 4전략  (클수록 정밀, 느림)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT, padx=2)
+
         # Fit button and status
         fit_btn_row = ttk.Frame(fit_frame)
         fit_btn_row.pack(fill=tk.X, pady=3)
@@ -16190,12 +16199,13 @@ class PerssonModelGUI_V2:
     def _run_auto_fit_mu_dry(self):
         """Auto-fit adhesion parameters (τ_f0, v₀*, c) to match measured μ_dry.
 
-        Uses multi-start Nelder-Mead optimization to maximize R².
+        Uses multi-restart differential evolution (n_restarts × 4 strategies)
+        followed by Nelder-Mead local refinement to maximize R².
 
         Minimizes: sum[(μ_dry_model(v_i) - μ_dry_measured(v_i))²]
         where μ_dry_model = μ_visc(v_i) + μ_adh(v_i; τ_f0, v₀*, c)
         """
-        from scipy.optimize import minimize
+        from scipy.optimize import differential_evolution, minimize
         from scipy.interpolate import interp1d
 
         try:
@@ -16267,6 +16277,8 @@ class PerssonModelGUI_V2:
             c_min = float(self.fit_c_min_var.get())
             c_max = float(self.fit_c_max_var.get())
 
+            bounds = [(tau_min, tau_max), (v0_min, v0_max), (c_min, c_max)]
+
             # ── Objective function ──
             def objective(params):
                 tau_f0, v0_star, c = params
@@ -16278,31 +16290,60 @@ class PerssonModelGUI_V2:
                 residual = mu_dry_model - mu_dry_meas
                 return np.sum(residual**2)
 
-            # ── Multi-start Nelder-Mead optimization ──
+            # ── Run multi-restart differential evolution for best R² ──
             best_result = None
             best_cost = np.inf
+            try:
+                n_restarts = max(1, int(self.fit_de_count_var.get()))
+            except (ValueError, AttributeError):
+                n_restarts = 3
+            strategies = ['best1bin', 'best2bin', 'rand1bin', 'randtobest1bin']
+            total_trials = n_restarts * len(strategies)
+            trial_count = 0
 
+            for i_restart in range(n_restarts):
+                for strategy in strategies:
+                    trial_count += 1
+                    self.fit_status_var.set(
+                        f"DE 탐색 중... ({trial_count}/{total_trials})"
+                        f"{f'  현재 최적: {best_cost:.2e}' if best_cost < np.inf else ''}")
+                    self.root.update()
+                    try:
+                        res = differential_evolution(
+                            objective, bounds,
+                            seed=i_restart * 7 + 3,
+                            strategy=strategy,
+                            maxiter=2000,
+                            tol=1e-12,
+                            popsize=30,
+                            mutation=(0.5, 1.5),
+                            recombination=0.9,
+                            init='sobol' if i_restart % 2 == 0 else 'latinhypercube',
+                            polish=True,
+                            disp=False)
+                        if res.fun < best_cost:
+                            best_cost = res.fun
+                            best_result = res
+                    except Exception:
+                        continue
+
+            self.fit_status_var.set("로컬 최적화 (Nelder-Mead) 실행 중...")
+            self.root.update()
+            # Also try Nelder-Mead from multiple initial guesses
             tau_mid = (tau_min + tau_max) / 2
             v0_mid = np.sqrt(v0_min * v0_max)
             c_mid = (c_min + c_max) / 2
-
             initial_guesses = [
                 [tau_mid, v0_mid, c_mid],
                 [tau_min, v0_min, c_min],
                 [tau_max, v0_max, c_max],
                 [tau_mid, v0_min, c_max],
                 [tau_max, v0_min, c_min],
-                [tau_min, v0_max, c_mid],
-                [tau_max, v0_mid, c_min],
-                [tau_mid, v0_max, c_min],
             ]
+            if best_result is not None:
+                initial_guesses.append(list(best_result.x))
 
-            total_trials = len(initial_guesses)
-            for trial_idx, x0 in enumerate(initial_guesses):
-                self.fit_status_var.set(
-                    f"Nelder-Mead 피팅 중... ({trial_idx + 1}/{total_trials})"
-                    f"{f'  현재 최적: {best_cost:.2e}' if best_cost < np.inf else ''}")
-                self.root.update()
+            for x0 in initial_guesses:
                 try:
                     res_nm = minimize(objective, x0, method='Nelder-Mead',
                                      options={'maxiter': 10000, 'xatol': 1e-12,
@@ -16356,8 +16397,8 @@ class PerssonModelGUI_V2:
 
             # ── Display fit results ──
             self.fit_result_text.delete(1.0, tk.END)
-            self.fit_result_text.insert(tk.END, "=== 자동 피팅 결과 (Nelder-Mead) ===\n")
-            self.fit_result_text.insert(tk.END, f"  탐색: Nelder-Mead {total_trials}회\n")
+            self.fit_result_text.insert(tk.END, "=== 자동 피팅 결과 (DE + Nelder-Mead) ===\n")
+            self.fit_result_text.insert(tk.END, f"  탐색: DE {total_trials}회 + Nelder-Mead {len(initial_guesses)}회\n")
             self.fit_result_text.insert(tk.END, f"  τ_f0  = {opt_tau_f0/1e6:.4f} MPa\n")
             self.fit_result_text.insert(tk.END, f"  v₀*   = {opt_v0_star:.6e} m/s\n")
             self.fit_result_text.insert(tk.END, f"  c     = {opt_c:.6f}\n")
