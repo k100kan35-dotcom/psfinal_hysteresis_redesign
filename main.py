@@ -15301,8 +15301,41 @@ class PerssonModelGUI_V2:
 
         # ============== Left Panel: Controls ==============
 
-        # 1. Measured mu_dry Data Input (FILE INPUT - at the top)
-        meas_frame = self._create_section(left_panel, "1) 실측 μ_dry 데이터 입력")
+        # 1. Operating Conditions (계산 조건 - moved to top)
+        cond_frame = self._create_section(left_panel, "1) 계산 조건")
+
+        # Temperature (synced from mu_visc or manual)
+        temp_row_wrapper = tk.Frame(cond_frame, bg='#2563EB', padx=1, pady=1)
+        temp_row_wrapper.pack(fill=tk.X, pady=1)
+        temp_row = ttk.Frame(temp_row_wrapper)
+        temp_row.pack(fill=tk.X)
+        ttk.Label(temp_row, text="계산 온도:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.adh_calc_temp_var = tk.StringVar(value="20.0")
+        ttk.Entry(temp_row, textvariable=self.adh_calc_temp_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(temp_row, text="°C", font=self.FONTS['body']).pack(side=tk.LEFT)
+
+        # Nominal contact pressure p0
+        p0_row_wrapper = tk.Frame(cond_frame, bg='#DC2626', padx=1, pady=1)
+        p0_row_wrapper.pack(fill=tk.X, pady=1)
+        p0_row = ttk.Frame(p0_row_wrapper)
+        p0_row.pack(fill=tk.X)
+        ttk.Label(p0_row, text="하중 p₀:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.adh_p0_var = tk.StringVar(value="")
+        ttk.Entry(p0_row, textvariable=self.adh_p0_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(p0_row, text="MPa  (명목 접촉 압력)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # Sync buttons
+        sync_row = ttk.Frame(cond_frame)
+        sync_row.pack(fill=tk.X, pady=2)
+        ttk.Button(sync_row, text="μ_visc 조건 동기화",
+                   command=self._sync_adh_from_mu_visc, width=20).pack(side=tk.LEFT, padx=2)
+        self.adh_sync_status_var = tk.StringVar(value="(μ_visc 결과 필요)")
+        ttk.Label(sync_row, textvariable=self.adh_sync_status_var,
+                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=4)
+
+        # 2. Measured mu_dry Data Input
+        meas_frame = self._create_section(left_panel, "2) 실측 μ_dry 데이터 입력")
 
         meas_desc = ttk.Label(meas_frame,
                               text="log₁₀(v) (m/s)와 실측 μ_dry 값 입력 (피팅 기준)\n"
@@ -15341,8 +15374,8 @@ class PerssonModelGUI_V2:
         ttk.Button(meas_btn_row, text="전체 삭제", command=self._clear_measured_mu_dry, width=10).pack(side=tk.LEFT, padx=1)
         ttk.Button(meas_btn_row, text="CSV 로드", command=self._load_measured_mu_dry_csv, width=10).pack(side=tk.LEFT, padx=1)
 
-        # 2. Auto-Fitting (right below input)
-        fit_frame = self._create_section(left_panel, "2) 자동 피팅 (τ_f0, v₀*, c)")
+        # 3. Auto-Fitting (right below input)
+        fit_frame = self._create_section(left_panel, "3) 자동 피팅 (τ_f0, v₀*, c)")
 
         fit_desc = ttk.Label(fit_frame,
                              text="실측 μ_dry에 맞게 점착 파라미터 자동 최적화\n"
@@ -15401,8 +15434,8 @@ class PerssonModelGUI_V2:
         # Internal storage for fit results
         self._fit_results = None
 
-        # 3. Adhesion Material Parameters
-        mat_frame = self._create_section(left_panel, "3) 점착 물성 파라미터")
+        # 4. Adhesion Material Parameters
+        mat_frame = self._create_section(left_panel, "4) 점착 물성 파라미터")
 
         # tau_f0 - maximum adhesion shear stress
         row_tau = ttk.Frame(mat_frame)
@@ -15417,7 +15450,7 @@ class PerssonModelGUI_V2:
         row_v0 = ttk.Frame(mat_frame)
         row_v0.pack(fill=tk.X, pady=1)
         ttk.Label(row_v0, text="v₀*:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.adh_v0_star_var = tk.StringVar(value="0.005")
+        self.adh_v0_star_var = tk.StringVar(value="10")
         ttk.Entry(row_v0, textvariable=self.adh_v0_star_var, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_v0, text="m/s  (기준 속도)", font=self.FONTS['small'],
                   foreground='#64748B').pack(side=tk.LEFT)
@@ -15446,7 +15479,7 @@ class PerssonModelGUI_V2:
         ttk.Label(row_tref, text="T_ref:", font=self.FONTS['body']).pack(side=tk.LEFT)
         self.adh_T_ref_var = tk.StringVar(value="293.15")
         ttk.Entry(row_tref, textvariable=self.adh_T_ref_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row_tref, text="K  (기준 온도)", font=self.FONTS['small'],
+        ttk.Label(row_tref, text="K  (기준 온도 - Tab2 aT에서 자동 동기화)", font=self.FONTS['small'],
                   foreground='#64748B').pack(side=tk.LEFT)
 
         # k_B - Boltzmann constant (display only)
@@ -15455,39 +15488,6 @@ class PerssonModelGUI_V2:
         ttk.Label(row_kb, text="k_B:", font=self.FONTS['body']).pack(side=tk.LEFT)
         ttk.Label(row_kb, text="8.6173 × 10⁻⁵ eV/K  (볼츠만 상수)",
                   font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=2)
-
-        # 4. Operating Conditions
-        cond_frame = self._create_section(left_panel, "4) 계산 조건")
-
-        # Temperature (synced from mu_visc or manual)
-        temp_row_wrapper = tk.Frame(cond_frame, bg='#2563EB', padx=1, pady=1)
-        temp_row_wrapper.pack(fill=tk.X, pady=1)
-        temp_row = ttk.Frame(temp_row_wrapper)
-        temp_row.pack(fill=tk.X)
-        ttk.Label(temp_row, text="계산 온도:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.adh_calc_temp_var = tk.StringVar(value="20.0")
-        ttk.Entry(temp_row, textvariable=self.adh_calc_temp_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(temp_row, text="°C", font=self.FONTS['body']).pack(side=tk.LEFT)
-
-        # Nominal contact pressure p0
-        p0_row_wrapper = tk.Frame(cond_frame, bg='#DC2626', padx=1, pady=1)
-        p0_row_wrapper.pack(fill=tk.X, pady=1)
-        p0_row = ttk.Frame(p0_row_wrapper)
-        p0_row.pack(fill=tk.X)
-        ttk.Label(p0_row, text="하중 p₀:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.adh_p0_var = tk.StringVar(value="")
-        ttk.Entry(p0_row, textvariable=self.adh_p0_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(p0_row, text="MPa  (명목 접촉 압력)", font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT)
-
-        # Sync buttons
-        sync_row = ttk.Frame(cond_frame)
-        sync_row.pack(fill=tk.X, pady=2)
-        ttk.Button(sync_row, text="μ_visc 조건 동기화",
-                   command=self._sync_adh_from_mu_visc, width=20).pack(side=tk.LEFT, padx=2)
-        self.adh_sync_status_var = tk.StringVar(value="(μ_visc 결과 필요)")
-        ttk.Label(sync_row, textvariable=self.adh_sync_status_var,
-                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=4)
 
         # 5. A/A0 Source
         area_frame = self._create_section(left_panel, "5) A/A0 입력 (실접촉 면적비)")
@@ -15612,6 +15612,13 @@ class PerssonModelGUI_V2:
             elif hasattr(self, 'sigma_0_var'):
                 self.adh_p0_var.set(self.sigma_0_var.get())
 
+            # Sync T_ref from Tab 2 aT data
+            if hasattr(self, 'persson_aT_data') and self.persson_aT_data is not None:
+                T_ref_C = self.persson_aT_data.get('T_ref', None)
+                if T_ref_C is not None:
+                    T_ref_K = T_ref_C + 273.15
+                    self.adh_T_ref_var.set(f"{T_ref_K:.2f}")
+
             # Check A/A0 availability
             if self.mu_visc_results is not None and 'P_qmax' in self.mu_visc_results:
                 P_qmax = self.mu_visc_results['P_qmax']
@@ -15639,12 +15646,23 @@ class PerssonModelGUI_V2:
                 τ_f = τ_f0 × exp[-c × (log10(v_eff / v₀*))²]
         Step 4: Adhesion friction coefficient
                 μ_adh = (τ_f / p₀) × A_ratio
+
+        When calculation temperature differs from μ_visc temperature,
+        automatically re-runs temperature shift + μ_visc recalculation
+        so that μ_visc and A/A0 data are consistent with the new temperature.
         """
         try:
             self.adh_calc_button.config(state='disabled')
             self.adh_progress_var.set(0)
             self.status_var.set("μ_adh 계산 중...")
             self.root.update()
+
+            # ── Auto-sync T_ref from Tab 2 aT data ──
+            if hasattr(self, 'persson_aT_data') and self.persson_aT_data is not None:
+                T_ref_C = self.persson_aT_data.get('T_ref', None)
+                if T_ref_C is not None:
+                    T_ref_K = T_ref_C + 273.15
+                    self.adh_T_ref_var.set(f"{T_ref_K:.2f}")
 
             # ── Read parameters ──
             tau_f0 = float(self.adh_tau_f0_var.get()) * 1e6     # MPa → Pa
@@ -15669,6 +15687,51 @@ class PerssonModelGUI_V2:
                 self._show_status("p₀(명목 접촉 압력)는 양수여야 합니다.", 'warning')
                 self.adh_calc_button.config(state='normal')
                 return
+
+            # ── Auto temperature shift: recalculate μ_visc if temperature changed ──
+            # When calculation temperature differs from μ_visc calculation temperature,
+            # automatically trigger temperature shift + G recalculation + μ_visc recalculation
+            need_mu_visc_recalc = False
+            if (hasattr(self, 'persson_aT_interp') and self.persson_aT_interp is not None
+                    and hasattr(self, 'persson_master_curve') and self.persson_master_curve is not None):
+                # Check if temperature differs from what was used for mu_visc
+                mu_visc_temp = None
+                if hasattr(self, 'current_temp_shift') and self.current_temp_shift is not None:
+                    mu_visc_temp = self.current_temp_shift.get('T_target', None)
+                elif hasattr(self, 'mu_calc_temp_var'):
+                    try:
+                        mu_visc_temp = float(self.mu_calc_temp_var.get())
+                    except (ValueError, AttributeError):
+                        pass
+
+                if mu_visc_temp is not None and abs(T_calc_C - mu_visc_temp) > 0.01:
+                    need_mu_visc_recalc = True
+
+            if need_mu_visc_recalc:
+                self.status_var.set(f"계산 온도 변경 감지 ({mu_visc_temp:.1f}→{T_calc_C:.1f}°C): μ_visc 재계산 중...")
+                self.root.update()
+
+                # Sync the temperature to mu_visc tab
+                self.mu_calc_temp_var.set(str(T_calc_C))
+
+                # Sync pressure if needed
+                if p0_str:
+                    self.mu_sigma0_var.set(p0_str.strip() if isinstance(p0_str, str) else f"{float(p0_str):.4f}")
+
+                # Apply temperature shift (recalculates G(q,v) with shifted master curve)
+                try:
+                    self._apply_temperature_shift()
+                except Exception as e_shift:
+                    print(f"Temperature shift error: {e_shift}")
+
+                # Recalculate μ_visc at new temperature
+                try:
+                    self._calculate_mu_visc()
+                except Exception as e_mu:
+                    print(f"μ_visc recalculation error: {e_mu}")
+
+                self.status_var.set("μ_adh 계산 계속...")
+                self.root.update()
 
             # ── Determine velocity array and A/A0 ──
             area_source = self.adh_area_source_var.get()
@@ -16127,13 +16190,12 @@ class PerssonModelGUI_V2:
     def _run_auto_fit_mu_dry(self):
         """Auto-fit adhesion parameters (τ_f0, v₀*, c) to match measured μ_dry.
 
-        Uses multi-restart differential evolution (10 seeds × 4 strategies)
-        followed by Nelder-Mead local refinement to maximize R².
+        Uses multi-start Nelder-Mead optimization to maximize R².
 
         Minimizes: sum[(μ_dry_model(v_i) - μ_dry_measured(v_i))²]
         where μ_dry_model = μ_visc(v_i) + μ_adh(v_i; τ_f0, v₀*, c)
         """
-        from scipy.optimize import differential_evolution
+        from scipy.optimize import minimize
         from scipy.interpolate import interp1d
 
         try:
@@ -16205,8 +16267,6 @@ class PerssonModelGUI_V2:
             c_min = float(self.fit_c_min_var.get())
             c_max = float(self.fit_c_max_var.get())
 
-            bounds = [(tau_min, tau_max), (v0_min, v0_max), (c_min, c_max)]
-
             # ── Objective function ──
             def objective(params):
                 tau_f0, v0_star, c = params
@@ -16218,59 +16278,31 @@ class PerssonModelGUI_V2:
                 residual = mu_dry_model - mu_dry_meas
                 return np.sum(residual**2)
 
-            # ── Run multi-restart differential evolution for best R² ──
-            from scipy.optimize import minimize
-
+            # ── Multi-start Nelder-Mead optimization ──
             best_result = None
             best_cost = np.inf
-            n_restarts = 10
-            strategies = ['best1bin', 'best2bin', 'rand1bin', 'randtobest1bin']
-            total_trials = n_restarts * len(strategies)
-            trial_count = 0
 
-            for i_restart in range(n_restarts):
-                for strategy in strategies:
-                    trial_count += 1
-                    self.fit_status_var.set(
-                        f"DE 탐색 중... ({trial_count}/{total_trials})"
-                        f"{f'  현재 최적: {best_cost:.2e}' if best_cost < np.inf else ''}")
-                    self.root.update()
-                    try:
-                        res = differential_evolution(
-                            objective, bounds,
-                            seed=i_restart * 7 + 3,
-                            strategy=strategy,
-                            maxiter=2000,
-                            tol=1e-12,
-                            popsize=30,
-                            mutation=(0.5, 1.5),
-                            recombination=0.9,
-                            init='sobol' if i_restart % 2 == 0 else 'latinhypercube',
-                            polish=True,
-                            disp=False)
-                        if res.fun < best_cost:
-                            best_cost = res.fun
-                            best_result = res
-                    except Exception:
-                        continue
-
-            self.fit_status_var.set("로컬 최적화 (Nelder-Mead) 실행 중...")
-            self.root.update()
-            # Also try Nelder-Mead from multiple initial guesses
             tau_mid = (tau_min + tau_max) / 2
             v0_mid = np.sqrt(v0_min * v0_max)
             c_mid = (c_min + c_max) / 2
+
             initial_guesses = [
                 [tau_mid, v0_mid, c_mid],
                 [tau_min, v0_min, c_min],
                 [tau_max, v0_max, c_max],
                 [tau_mid, v0_min, c_max],
                 [tau_max, v0_min, c_min],
+                [tau_min, v0_max, c_mid],
+                [tau_max, v0_mid, c_min],
+                [tau_mid, v0_max, c_min],
             ]
-            if best_result is not None:
-                initial_guesses.append(list(best_result.x))
 
-            for x0 in initial_guesses:
+            total_trials = len(initial_guesses)
+            for trial_idx, x0 in enumerate(initial_guesses):
+                self.fit_status_var.set(
+                    f"Nelder-Mead 피팅 중... ({trial_idx + 1}/{total_trials})"
+                    f"{f'  현재 최적: {best_cost:.2e}' if best_cost < np.inf else ''}")
+                self.root.update()
                 try:
                     res_nm = minimize(objective, x0, method='Nelder-Mead',
                                      options={'maxiter': 10000, 'xatol': 1e-12,
@@ -16283,6 +16315,12 @@ class PerssonModelGUI_V2:
                         best_result = res_nm
                 except Exception:
                     continue
+
+            if best_result is None:
+                self._show_status("피팅 실패: 유효한 결과를 찾지 못했습니다.", 'warning')
+                self.fit_status_var.set("피팅 실패")
+                self.fit_button.config(state='normal')
+                return
 
             result = best_result
             opt_tau_f0, opt_v0_star, opt_c = result.x
@@ -16318,8 +16356,8 @@ class PerssonModelGUI_V2:
 
             # ── Display fit results ──
             self.fit_result_text.delete(1.0, tk.END)
-            self.fit_result_text.insert(tk.END, "=== 자동 피팅 결과 (Multi-restart) ===\n")
-            self.fit_result_text.insert(tk.END, f"  탐색: DE {total_trials}회 + Nelder-Mead {len(initial_guesses)}회\n")
+            self.fit_result_text.insert(tk.END, "=== 자동 피팅 결과 (Nelder-Mead) ===\n")
+            self.fit_result_text.insert(tk.END, f"  탐색: Nelder-Mead {total_trials}회\n")
             self.fit_result_text.insert(tk.END, f"  τ_f0  = {opt_tau_f0/1e6:.4f} MPa\n")
             self.fit_result_text.insert(tk.END, f"  v₀*   = {opt_v0_star:.6e} m/s\n")
             self.fit_result_text.insert(tk.END, f"  c     = {opt_c:.6f}\n")
@@ -16361,6 +16399,13 @@ class PerssonModelGUI_V2:
         Same as _calculate_mu_adh but uses provided parameters instead of GUI values.
         """
         try:
+            # Auto-sync T_ref from Tab 2 aT data
+            if hasattr(self, 'persson_aT_data') and self.persson_aT_data is not None:
+                T_ref_C = self.persson_aT_data.get('T_ref', None)
+                if T_ref_C is not None:
+                    T_ref_K = T_ref_C + 273.15
+                    self.adh_T_ref_var.set(f"{T_ref_K:.2f}")
+
             epsilon = float(self.adh_epsilon_var.get())
             T_ref = float(self.adh_T_ref_var.get())
             k_B = 8.6173e-5
