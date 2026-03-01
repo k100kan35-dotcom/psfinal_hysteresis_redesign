@@ -7222,11 +7222,13 @@ class PerssonModelGUI_V2:
             tk.Frame(scrollable_frame, bg='#CBD5E1', height=2).pack(fill=tk.X, padx=10, pady=10)
 
         def add_graph(plot_func, fig_height=7.0):
-            """Add an illustrative matplotlib graph (1:1 aspect ratio)."""
+            """Add an illustrative matplotlib graph (1.5:1 aspect ratio, left-aligned)."""
             import numpy as np
-            fig_size = fig_height  # 1:1 ratio
-            px = int(fig_size * 100)       # dpi=100 default
-            fig = Figure(figsize=(fig_size, fig_size), facecolor='#FAFBFC')
+            fig_w = fig_height * 1.5       # 가로:세로 = 1.5:1
+            fig_h = fig_height
+            px_w = int(fig_w * 100)        # dpi=100 default
+            px_h = int(fig_h * 100)
+            fig = Figure(figsize=(fig_w, fig_h), facecolor='#FAFBFC')
             ax = fig.add_subplot(111)
             ax.set_facecolor('#FAFBFC')
             plot_func(ax, np)
@@ -7234,14 +7236,14 @@ class PerssonModelGUI_V2:
             for spine in ax.spines.values():
                 spine.set_color('#CBD5E1')
             fig.tight_layout(pad=2.5)
-            # Wrapper frame to centre the square graph
+            # Wrapper frame for left-aligned graph
             wrapper = tk.Frame(scrollable_frame, bg='white')
             wrapper.pack(fill=tk.X, padx=30, pady=(6, 14))
             graph_canvas = FigureCanvasTkAgg(fig, master=wrapper)
             graph_canvas.draw()
             w = graph_canvas.get_tk_widget()
-            w.configure(width=px, height=px)
-            w.pack(anchor='center')                # no fill → keeps 1:1
+            w.configure(width=px_w, height=px_h)
+            w.pack(anchor='w')                     # 좌측 정렬
             w.pack_propagate(False) if hasattr(w, 'pack_propagate') else None
 
         # === Title ===
@@ -13521,11 +13523,13 @@ class PerssonModelGUI_V2:
             tk.Frame(scrollable_frame, bg='#CBD5E1', height=2).pack(fill=tk.X, padx=10, pady=10)
 
         def add_graph(plot_func, fig_height=7.0):
-            """Add an illustrative matplotlib graph (1:1 aspect ratio)."""
+            """Add an illustrative matplotlib graph (1.5:1 aspect ratio, left-aligned)."""
             import numpy as np
-            fig_size = fig_height  # 1:1 ratio
-            px = int(fig_size * 100)       # dpi=100 default
-            fig = Figure(figsize=(fig_size, fig_size), facecolor='#FAFBFC')
+            fig_w = fig_height * 1.5       # 가로:세로 = 1.5:1
+            fig_h = fig_height
+            px_w = int(fig_w * 100)        # dpi=100 default
+            px_h = int(fig_h * 100)
+            fig = Figure(figsize=(fig_w, fig_h), facecolor='#FAFBFC')
             ax = fig.add_subplot(111)
             ax.set_facecolor('#FAFBFC')
             plot_func(ax, np)
@@ -13533,14 +13537,14 @@ class PerssonModelGUI_V2:
             for spine in ax.spines.values():
                 spine.set_color('#CBD5E1')
             fig.tight_layout(pad=2.5)
-            # Wrapper frame to centre the square graph
+            # Wrapper frame for left-aligned graph
             wrapper = tk.Frame(scrollable_frame, bg='white')
             wrapper.pack(fill=tk.X, padx=30, pady=(6, 14))
             graph_canvas = FigureCanvasTkAgg(fig, master=wrapper)
             graph_canvas.draw()
             w = graph_canvas.get_tk_widget()
-            w.configure(width=px, height=px)
-            w.pack(anchor='center')                # no fill → keeps 1:1
+            w.configure(width=px_w, height=px_h)
+            w.pack(anchor='w')                     # 좌측 정렬
             w.pack_propagate(False) if hasattr(w, 'pack_propagate') else None
 
         # === Title ===
