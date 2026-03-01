@@ -289,6 +289,7 @@ class PerssonModelGUI_V2:
         self.g_interpolator = None  # g(strain) function
         self.mu_visc_results = None  # mu_visc calculation results
         self.mu_adh_results = None   # mu_adh (adhesion friction) calculation results
+        self._fit_results = None     # Auto-fitting results for adhesion parameters
         self.G_matrix_linear = None  # Linear G(q,v) before nonlinear correction (for strain map)
 
         # h'rms / Local Strain related variables
@@ -15441,6 +15442,105 @@ class PerssonModelGUI_V2:
         ttk.Button(export_row, text="μ_adh CSV", command=self._export_mu_adh_csv, width=12).pack(side=tk.LEFT, padx=1)
         ttk.Button(export_row, text="μ_total CSV", command=self._export_mu_total_csv, width=12).pack(side=tk.LEFT, padx=1)
 
+        # 6. Measured mu_dry Data Input
+        meas_frame = self._create_section(left_panel, "6) 실측 μ_dry 데이터 입력")
+
+        meas_desc = ttk.Label(meas_frame,
+                              text="속도(m/s)와 실측 μ_dry 값 입력 (피팅 기준)",
+                              font=self.FONTS['small'], foreground='#64748B')
+        meas_desc.pack(anchor=tk.W, pady=(0, 2))
+
+        # Input row: velocity + mu_dry
+        input_row = ttk.Frame(meas_frame)
+        input_row.pack(fill=tk.X, pady=1)
+        ttk.Label(input_row, text="v:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.meas_v_entry_var = tk.StringVar()
+        ttk.Entry(input_row, textvariable=self.meas_v_entry_var, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Label(input_row, text="m/s   μ_dry:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.meas_mu_entry_var = tk.StringVar()
+        ttk.Entry(input_row, textvariable=self.meas_mu_entry_var, width=10).pack(side=tk.LEFT, padx=2)
+        ttk.Button(input_row, text="추가", command=self._add_measured_mu_dry, width=5).pack(side=tk.LEFT, padx=2)
+
+        # Treeview table for measured data
+        tree_frame = ttk.Frame(meas_frame)
+        tree_frame.pack(fill=tk.X, pady=2)
+        self.meas_mu_tree = ttk.Treeview(tree_frame, columns=('v', 'mu_dry'), show='headings', height=5)
+        self.meas_mu_tree.heading('v', text='속도 v (m/s)')
+        self.meas_mu_tree.heading('mu_dry', text='μ_dry (실측)')
+        self.meas_mu_tree.column('v', width=100, anchor=tk.CENTER)
+        self.meas_mu_tree.column('mu_dry', width=100, anchor=tk.CENTER)
+        tree_scroll = ttk.Scrollbar(tree_frame, orient=tk.VERTICAL, command=self.meas_mu_tree.yview)
+        self.meas_mu_tree.configure(yscrollcommand=tree_scroll.set)
+        self.meas_mu_tree.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+        # Buttons: delete selected, clear all, load CSV
+        meas_btn_row = ttk.Frame(meas_frame)
+        meas_btn_row.pack(fill=tk.X, pady=2)
+        ttk.Button(meas_btn_row, text="선택 삭제", command=self._delete_selected_measured, width=10).pack(side=tk.LEFT, padx=1)
+        ttk.Button(meas_btn_row, text="전체 삭제", command=self._clear_measured_mu_dry, width=10).pack(side=tk.LEFT, padx=1)
+        ttk.Button(meas_btn_row, text="CSV 로드", command=self._load_measured_mu_dry_csv, width=10).pack(side=tk.LEFT, padx=1)
+
+        # 7. Auto-Fitting
+        fit_frame = self._create_section(left_panel, "7) 자동 피팅 (τ_f0, v₀*, c)")
+
+        fit_desc = ttk.Label(fit_frame,
+                             text="실측 μ_dry에 맞게 점착 파라미터 자동 최적화\n"
+                                  "μ_dry(model) = μ_visc + μ_adh(τ_f0, v₀*, c)",
+                             font=self.FONTS['small'], foreground='#64748B')
+        fit_desc.pack(anchor=tk.W, pady=(0, 3))
+
+        # Fitting parameter bounds
+        bounds_row1 = ttk.Frame(fit_frame)
+        bounds_row1.pack(fill=tk.X, pady=1)
+        ttk.Label(bounds_row1, text="τ_f0 범위:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fit_tau_min_var = tk.StringVar(value="0.1")
+        self.fit_tau_max_var = tk.StringVar(value="50.0")
+        ttk.Entry(bounds_row1, textvariable=self.fit_tau_min_var, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Label(bounds_row1, text="~", font=self.FONTS['body']).pack(side=tk.LEFT)
+        ttk.Entry(bounds_row1, textvariable=self.fit_tau_max_var, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Label(bounds_row1, text="MPa", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=2)
+
+        bounds_row2 = ttk.Frame(fit_frame)
+        bounds_row2.pack(fill=tk.X, pady=1)
+        ttk.Label(bounds_row2, text="v₀* 범위:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fit_v0_min_var = tk.StringVar(value="1e-6")
+        self.fit_v0_max_var = tk.StringVar(value="1.0")
+        ttk.Entry(bounds_row2, textvariable=self.fit_v0_min_var, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Label(bounds_row2, text="~", font=self.FONTS['body']).pack(side=tk.LEFT)
+        ttk.Entry(bounds_row2, textvariable=self.fit_v0_max_var, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Label(bounds_row2, text="m/s", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=2)
+
+        bounds_row3 = ttk.Frame(fit_frame)
+        bounds_row3.pack(fill=tk.X, pady=1)
+        ttk.Label(bounds_row3, text="c 범위:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fit_c_min_var = tk.StringVar(value="0.001")
+        self.fit_c_max_var = tk.StringVar(value="5.0")
+        ttk.Entry(bounds_row3, textvariable=self.fit_c_min_var, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Label(bounds_row3, text="~", font=self.FONTS['body']).pack(side=tk.LEFT)
+        ttk.Entry(bounds_row3, textvariable=self.fit_c_max_var, width=6).pack(side=tk.LEFT, padx=1)
+
+        # Fit button and status
+        fit_btn_row = ttk.Frame(fit_frame)
+        fit_btn_row.pack(fill=tk.X, pady=3)
+        self.fit_button = ttk.Button(fit_btn_row, text="자동 피팅 실행",
+                                     command=self._run_auto_fit_mu_dry, width=15,
+                                     style='Accent.TButton')
+        self.fit_button.pack(side=tk.LEFT, padx=2)
+        ttk.Button(fit_btn_row, text="피팅 결과 적용",
+                   command=self._apply_fit_results, width=12).pack(side=tk.LEFT, padx=2)
+
+        self.fit_status_var = tk.StringVar(value="실측 데이터 입력 후 피팅 실행")
+        ttk.Label(fit_frame, textvariable=self.fit_status_var,
+                  font=self.FONTS['body'], foreground='#059669').pack(anchor=tk.W, pady=2)
+
+        # Fit result display
+        self.fit_result_text = tk.Text(fit_frame, height=6, font=self.FONTS['mono_small'], wrap=tk.WORD)
+        self.fit_result_text.pack(fill=tk.X)
+
+        # Internal storage for fit results
+        self._fit_results = None
+
         # ============== Right Panel: Plots ==============
         right_panel = layout['right']
 
@@ -15809,6 +15909,13 @@ class PerssonModelGUI_V2:
                                         ha='center', va='top', fontsize=9, color='#64748B',
                                         transform=self.ax_adh_total.transAxes)
 
+            # Overlay measured μ_dry data points (if available)
+            v_meas, mu_dry_meas = self._get_measured_mu_dry_data()
+            if v_meas is not None and len(v_meas) > 0:
+                self.ax_adh_total.plot(v_meas, mu_dry_meas, 'rs', markersize=8,
+                                        markeredgecolor='darkred', markeredgewidth=1.5,
+                                        zorder=20, label=f'실측 μ_dry ({len(v_meas)}점)')
+
             self.ax_adh_total.set_title('μ_total = μ_visc + μ_adh', fontweight='bold', fontsize=11)
             self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=11)
             self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=11)
@@ -15915,6 +16022,345 @@ class PerssonModelGUI_V2:
             self._show_status(f"μ_total 데이터 저장 완료: {filepath}", 'success')
         except Exception as e:
             messagebox.showerror("오류", f"CSV 저장 실패:\n{str(e)}")
+
+    # ── Measured μ_dry data management ──
+
+    def _add_measured_mu_dry(self):
+        """Add a single measured μ_dry data point to the table."""
+        try:
+            v_str = self.meas_v_entry_var.get().strip()
+            mu_str = self.meas_mu_entry_var.get().strip()
+            if not v_str or not mu_str:
+                self._show_status("속도(v)와 μ_dry 값을 모두 입력하세요.", 'warning')
+                return
+            v_val = float(v_str)
+            mu_val = float(mu_str)
+            if v_val <= 0:
+                self._show_status("속도는 양수여야 합니다.", 'warning')
+                return
+            self.meas_mu_tree.insert('', tk.END, values=(f"{v_val:.4e}", f"{mu_val:.6f}"))
+            self.meas_v_entry_var.set("")
+            self.meas_mu_entry_var.set("")
+        except ValueError:
+            self._show_status("숫자 형식 오류. 올바른 값을 입력하세요.", 'warning')
+
+    def _delete_selected_measured(self):
+        """Delete selected rows from measured μ_dry table."""
+        selected = self.meas_mu_tree.selection()
+        if not selected:
+            self._show_status("삭제할 항목을 선택하세요.", 'warning')
+            return
+        for item in selected:
+            self.meas_mu_tree.delete(item)
+
+    def _clear_measured_mu_dry(self):
+        """Clear all measured μ_dry data."""
+        for item in self.meas_mu_tree.get_children():
+            self.meas_mu_tree.delete(item)
+        self._show_status("실측 데이터가 모두 삭제되었습니다.", 'info')
+
+    def _load_measured_mu_dry_csv(self):
+        """Load measured μ_dry data from CSV/TXT file.
+
+        Expected format: two columns (velocity, mu_dry) separated by tab, comma, or space.
+        Lines starting with '#' are comments.
+        """
+        filepath = filedialog.askopenfilename(
+            title="실측 μ_dry 데이터 파일 선택",
+            filetypes=[("CSV/텍스트", "*.csv *.txt *.dat"), ("모든 파일", "*.*")]
+        )
+        if not filepath:
+            return
+        try:
+            count = 0
+            with open(filepath, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith('#'):
+                        continue
+                    # Try tab, comma, then whitespace
+                    for sep in ['\t', ',', None]:
+                        parts = line.split(sep)
+                        if len(parts) >= 2:
+                            try:
+                                v_val = float(parts[0].strip())
+                                mu_val = float(parts[1].strip())
+                                if v_val > 0:
+                                    self.meas_mu_tree.insert('', tk.END,
+                                                             values=(f"{v_val:.4e}", f"{mu_val:.6f}"))
+                                    count += 1
+                                break
+                            except ValueError:
+                                continue
+            self._show_status(f"실측 데이터 {count}개 로드 완료: {os.path.basename(filepath)}", 'success')
+        except Exception as e:
+            messagebox.showerror("오류", f"파일 로드 실패:\n{str(e)}")
+
+    def _get_measured_mu_dry_data(self):
+        """Get measured μ_dry data as numpy arrays.
+
+        Returns:
+            tuple: (v_measured, mu_dry_measured) or (None, None) if no data.
+        """
+        items = self.meas_mu_tree.get_children()
+        if not items:
+            return None, None
+        v_list = []
+        mu_list = []
+        for item in items:
+            vals = self.meas_mu_tree.item(item, 'values')
+            v_list.append(float(vals[0]))
+            mu_list.append(float(vals[1]))
+        # Sort by velocity
+        v_arr = np.array(v_list)
+        mu_arr = np.array(mu_list)
+        sort_idx = np.argsort(v_arr)
+        return v_arr[sort_idx], mu_arr[sort_idx]
+
+    # ── Auto-fitting ──
+
+    def _run_auto_fit_mu_dry(self):
+        """Auto-fit adhesion parameters (τ_f0, v₀*, c) to match measured μ_dry.
+
+        Minimizes: sum[(μ_dry_model(v_i) - μ_dry_measured(v_i))²]
+        where μ_dry_model = μ_visc(v_i) + μ_adh(v_i; τ_f0, v₀*, c)
+        """
+        from scipy.optimize import differential_evolution
+        from scipy.interpolate import interp1d
+
+        try:
+            self.fit_button.config(state='disabled')
+            self.fit_status_var.set("피팅 실행 중...")
+            self.root.update()
+
+            # ── Validate prerequisites ──
+            v_meas, mu_dry_meas = self._get_measured_mu_dry_data()
+            if v_meas is None or len(v_meas) < 2:
+                self._show_status("실측 데이터가 최소 2개 이상 필요합니다.", 'warning')
+                self.fit_button.config(state='normal')
+                self.fit_status_var.set("실측 데이터 부족")
+                return
+
+            # Need mu_visc results for the model velocity array and mu_visc values
+            if self.mu_visc_results is None or 'mu' not in self.mu_visc_results:
+                self._show_status("μ_visc 결과가 필요합니다. 먼저 μ_visc 탭에서 계산하세요.", 'warning')
+                self.fit_button.config(state='normal')
+                self.fit_status_var.set("μ_visc 결과 필요")
+                return
+
+            v_model = self.mu_visc_results['v']
+            mu_visc_model = self.mu_visc_results['mu']
+
+            # Need A/A0 data
+            area_source = self.adh_area_source_var.get()
+            if area_source == "from_mu_visc":
+                if 'P_qmax' not in self.mu_visc_results:
+                    self._show_status("A/A0 데이터 없음. μ_visc 결과에 P_qmax가 필요합니다.", 'warning')
+                    self.fit_button.config(state='normal')
+                    return
+                A_ratio_model = self.mu_visc_results['P_qmax']
+            else:
+                fixed_area = float(self.adh_fixed_area_var.get())
+                A_ratio_model = np.full(len(v_model), np.clip(fixed_area, 0.0, 1.0))
+
+            # Read fixed parameters (ε, T_ref, T, p0)
+            epsilon = float(self.adh_epsilon_var.get())
+            T_ref = float(self.adh_T_ref_var.get())
+            k_B = 8.6173e-5
+            T_calc_C = float(self.adh_calc_temp_var.get())
+            T = T_calc_C + 273.15
+            p0_str = self.adh_p0_var.get().strip()
+            if not p0_str:
+                if hasattr(self, 'sigma_0_var'):
+                    p0_str = self.sigma_0_var.get()
+            p0 = float(p0_str) * 1e6  # MPa → Pa
+
+            # Arrhenius shift factor (fixed for given T)
+            aT_prime = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
+
+            # Create interpolators for mu_visc and A_ratio at measured velocities
+            log_v_model = np.log10(v_model)
+            mu_visc_interp = interp1d(log_v_model, mu_visc_model,
+                                      kind='linear', fill_value='extrapolate')
+            A_ratio_interp = interp1d(log_v_model, A_ratio_model,
+                                      kind='linear', fill_value='extrapolate')
+
+            log_v_meas = np.log10(v_meas)
+            mu_visc_at_meas = mu_visc_interp(log_v_meas)
+            A_ratio_at_meas = A_ratio_interp(log_v_meas)
+
+            # ── Read bounds ──
+            tau_min = float(self.fit_tau_min_var.get()) * 1e6   # MPa → Pa
+            tau_max = float(self.fit_tau_max_var.get()) * 1e6
+            v0_min = float(self.fit_v0_min_var.get())
+            v0_max = float(self.fit_v0_max_var.get())
+            c_min = float(self.fit_c_min_var.get())
+            c_max = float(self.fit_c_max_var.get())
+
+            bounds = [(tau_min, tau_max), (v0_min, v0_max), (c_min, c_max)]
+
+            # ── Objective function ──
+            def objective(params):
+                tau_f0, v0_star, c = params
+                v_eff = v_meas * aT_prime
+                log_ratio = np.log10(v_eff / v0_star)
+                tau_f = tau_f0 * np.exp(-c * log_ratio**2)
+                mu_adh = (tau_f / p0) * A_ratio_at_meas
+                mu_dry_model = mu_visc_at_meas + mu_adh
+                residual = mu_dry_model - mu_dry_meas
+                return np.sum(residual**2)
+
+            # ── Run differential evolution ──
+            result = differential_evolution(objective, bounds,
+                                            seed=42, maxiter=1000, tol=1e-10,
+                                            polish=True, disp=False)
+
+            opt_tau_f0, opt_v0_star, opt_c = result.x
+
+            # Calculate fitted mu_dry at measured points
+            v_eff_meas = v_meas * aT_prime
+            log_ratio_fit = np.log10(v_eff_meas / opt_v0_star)
+            tau_f_fit = opt_tau_f0 * np.exp(-opt_c * log_ratio_fit**2)
+            mu_adh_fit = (tau_f_fit / p0) * A_ratio_at_meas
+            mu_dry_fit = mu_visc_at_meas + mu_adh_fit
+
+            # R² calculation
+            ss_res = np.sum((mu_dry_meas - mu_dry_fit)**2)
+            ss_tot = np.sum((mu_dry_meas - np.mean(mu_dry_meas))**2)
+            r_squared = 1.0 - ss_res / ss_tot if ss_tot > 0 else 0.0
+
+            # RMSE
+            rmse = np.sqrt(np.mean((mu_dry_meas - mu_dry_fit)**2))
+
+            # ── Store fit results ──
+            self._fit_results = {
+                'tau_f0': opt_tau_f0,       # Pa
+                'v0_star': opt_v0_star,     # m/s
+                'c': opt_c,
+                'r_squared': r_squared,
+                'rmse': rmse,
+                'v_meas': v_meas,
+                'mu_dry_meas': mu_dry_meas,
+                'mu_dry_fit': mu_dry_fit,
+                'success': result.success,
+                'message': result.message,
+            }
+
+            # ── Display fit results ──
+            self.fit_result_text.delete(1.0, tk.END)
+            self.fit_result_text.insert(tk.END, "=== 자동 피팅 결과 ===\n")
+            self.fit_result_text.insert(tk.END, f"  τ_f0  = {opt_tau_f0/1e6:.4f} MPa\n")
+            self.fit_result_text.insert(tk.END, f"  v₀*   = {opt_v0_star:.6e} m/s\n")
+            self.fit_result_text.insert(tk.END, f"  c     = {opt_c:.6f}\n")
+            self.fit_result_text.insert(tk.END, f"  R²    = {r_squared:.6f}\n")
+            self.fit_result_text.insert(tk.END, f"  RMSE  = {rmse:.6e}\n")
+            self.fit_result_text.insert(tk.END, f"  수렴: {'성공' if result.success else '실패'}\n\n")
+
+            self.fit_result_text.insert(tk.END, "[속도별 비교]\n")
+            self.fit_result_text.insert(tk.END, f"  {'v(m/s)':>10s}  {'실측':>10s}  {'모델':>10s}  {'오차':>10s}\n")
+            for i in range(len(v_meas)):
+                err = mu_dry_fit[i] - mu_dry_meas[i]
+                self.fit_result_text.insert(tk.END,
+                    f"  {v_meas[i]:>10.4e}  {mu_dry_meas[i]:>10.6f}  {mu_dry_fit[i]:>10.6f}  {err:>+10.6f}\n")
+
+            self.fit_status_var.set(f"피팅 완료: R²={r_squared:.4f}, RMSE={rmse:.2e}")
+
+            # Recalculate and update plots with fitted parameters
+            self._calculate_mu_adh_with_params(opt_tau_f0, opt_v0_star, opt_c)
+
+            self._show_status(
+                f"자동 피팅 완료!\n"
+                f"τ_f0={opt_tau_f0/1e6:.4f} MPa, v₀*={opt_v0_star:.4e} m/s, c={opt_c:.4f}\n"
+                f"R²={r_squared:.6f}, RMSE={rmse:.2e}", 'success')
+
+        except ValueError as e:
+            self._show_status(f"입력값 오류: {str(e)}", 'warning')
+            self.fit_status_var.set("피팅 실패: 입력값 오류")
+        except Exception as e:
+            messagebox.showerror("오류", f"자동 피팅 실패:\n{str(e)}")
+            self.fit_status_var.set("피팅 실패")
+            import traceback
+            traceback.print_exc()
+        finally:
+            self.fit_button.config(state='normal')
+
+    def _calculate_mu_adh_with_params(self, tau_f0, v0_star, c):
+        """Calculate μ_adh with specific parameters (used after fitting).
+
+        Same as _calculate_mu_adh but uses provided parameters instead of GUI values.
+        """
+        try:
+            epsilon = float(self.adh_epsilon_var.get())
+            T_ref = float(self.adh_T_ref_var.get())
+            k_B = 8.6173e-5
+            T_calc_C = float(self.adh_calc_temp_var.get())
+            T = T_calc_C + 273.15
+            p0_str = self.adh_p0_var.get().strip()
+            if not p0_str and hasattr(self, 'sigma_0_var'):
+                p0_str = self.sigma_0_var.get()
+            p0 = float(p0_str) * 1e6
+
+            area_source = self.adh_area_source_var.get()
+            if area_source == "from_mu_visc":
+                v_array = self.mu_visc_results['v']
+                A_ratio = self.mu_visc_results['P_qmax']
+            else:
+                fixed_area = float(self.adh_fixed_area_var.get())
+                fixed_area = np.clip(fixed_area, 0.0, 1.0)
+                if self.mu_visc_results is not None and 'v' in self.mu_visc_results:
+                    v_array = self.mu_visc_results['v']
+                else:
+                    v_array = np.logspace(-4, 1, 50)
+                A_ratio = np.full(len(v_array), fixed_area)
+
+            aT_prime = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
+            v_eff = v_array * aT_prime
+            log_ratio = np.log10(v_eff / v0_star)
+            tau_f = tau_f0 * np.exp(-c * log_ratio**2)
+            mu_adh = (tau_f / p0) * A_ratio
+
+            self.mu_adh_results = {
+                'v': v_array,
+                'mu_adh': mu_adh,
+                'tau_f': tau_f,
+                'A_ratio': A_ratio,
+                'aT_prime': aT_prime,
+                'v_eff': v_eff,
+                'params': {
+                    'tau_f0': tau_f0,
+                    'v0_star': v0_star,
+                    'c': c,
+                    'epsilon': epsilon,
+                    'T_ref': T_ref,
+                    'T': T,
+                    'p0': p0,
+                    'area_source': area_source,
+                }
+            }
+
+            self._update_mu_adh_plots()
+
+        except Exception as e:
+            print(f"_calculate_mu_adh_with_params error: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _apply_fit_results(self):
+        """Apply fitting results back to the adhesion parameter inputs."""
+        if self._fit_results is None:
+            self._show_status("피팅 결과가 없습니다. 먼저 자동 피팅을 실행하세요.", 'warning')
+            return
+        tau_f0 = self._fit_results['tau_f0'] / 1e6  # Pa → MPa
+        v0_star = self._fit_results['v0_star']
+        c = self._fit_results['c']
+
+        self.adh_tau_f0_var.set(f"{tau_f0:.4f}")
+        self.adh_v0_star_var.set(f"{v0_star:.6e}")
+        self.adh_c_var.set(f"{c:.6f}")
+
+        self._show_status(
+            f"피팅 결과가 파라미터에 적용되었습니다.\n"
+            f"τ_f0={tau_f0:.4f} MPa, v₀*={v0_star:.4e} m/s, c={c:.6f}", 'success')
 
 
     # ================================================================
