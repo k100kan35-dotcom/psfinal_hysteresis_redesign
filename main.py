@@ -692,6 +692,9 @@ class PerssonModelGUI_V2:
             builder(frame)
 
         # ── Handle tab switch: prevent graph resize flicker ──
+        # pack_propagate(False) → notebook size is driven by the parent
+        # (fill=BOTH, expand=True), NOT by child figure sizes.
+        self.notebook.pack_propagate(False)
         self._tab_switch_after_id = None
 
         def _on_tab_changed(event):
@@ -702,17 +705,9 @@ class PerssonModelGUI_V2:
                 except Exception:
                     pass
 
-            # Freeze notebook size during transition to prevent flicker
-            nb_w = self.notebook.winfo_width()
-            nb_h = self.notebook.winfo_height()
-            if nb_w > 1 and nb_h > 1:
-                self.notebook.configure(width=nb_w, height=nb_h)
-
             def _stabilize():
                 self._tab_switch_after_id = None
-                # Release fixed size so it can adapt normally
-                self.notebook.configure(width=0, height=0)
-                # Redraw visible canvas
+                # Redraw only the visible canvas (no size manipulation)
                 for canvas_attr in ('canvas_psd_profile', 'canvas_mc',
                                     'canvas_calc_progress', 'canvas_results',
                                     'canvas_rms', 'canvas_mu_visc',
@@ -2075,18 +2070,18 @@ class PerssonModelGUI_V2:
             lines.append(f"  Hurst Exponent H: {fit['H']:.4f}")
             lines.append(f"  기울기 (log-log): {fit['slope']:.4f}")
             lines.append(f"  이론 기울기: -2(1+H) = {-2*(1+fit['H']):.4f}")
-            lines.append(f"  R²: {fit['r_squared']:.6f}")
+            lines.append(f"  R^2: {fit['r_squared']:.6f}")
             if 'q0' in fit:
                 lines.append(f"  q0 (추정): {fit['q0']:.2e} 1/m")
             if 'C0' in fit:
-                lines.append(f"  C(q0) (추정): {fit['C0']:.2e} m⁴")
+                lines.append(f"  C(q0) (추정): {fit['C0']:.2e} m^4")
 
         if self.profile_psd_analyzer.fit_result_top is not None:
             fit = self.profile_psd_analyzer.fit_result_top
             lines.append(f"\n[Top PSD 피팅 결과]")
             lines.append(f"  Hurst Exponent H: {fit['H']:.4f}")
             lines.append(f"  기울기 (log-log): {fit['slope']:.4f}")
-            lines.append(f"  R²: {fit['r_squared']:.6f}")
+            lines.append(f"  R^2: {fit['r_squared']:.6f}")
 
         # Surface parameters
         if self.profile_psd_analyzer.surface_params is not None:
@@ -2304,7 +2299,7 @@ class PerssonModelGUI_V2:
                 f"[PSD 검증]\n"
                 f"• 원본 h_rms: {h_rms*1e6:.4f} μm\n"
                 f"• PSD 적분 h_rms: {h_rms_from_psd*1e6:.4f} μm\n"
-                f"• C(q₀={q0:.2e}): {C_q0:.2e} m⁴\n"
+                f"• C(q₀={q0:.2e}): {C_q0:.2e} m^4\n"
             )
             if abs(h_rms - h_rms_from_psd) / max(h_rms, 1e-12) > 0.5:
                 verification_msg += "⚠ 경고: PSD 적분값과 h_rms 불일치! 정규화 확인 필요\n"
@@ -3166,7 +3161,7 @@ class PerssonModelGUI_V2:
                 f"파일: {os.path.basename(filename)}\n"
                 f"데이터 포인트: {len(q)}\n"
                 f"q 범위: {q.min():.2e} ~ {q.max():.2e} 1/m\n"
-                f"C(q) 범위: {C_q.min():.2e} ~ {C_q.max():.2e} m⁴\n"
+                f"C(q) 범위: {C_q.min():.2e} ~ {C_q.max():.2e} m^4\n"
                 f"형식: {format_str}\n\n"
                 f"'▶ PSD 확정 → 계산에 사용' 버튼을 클릭하여 확정하세요.", 'success')
 
@@ -3734,7 +3729,7 @@ class PerssonModelGUI_V2:
             text += f"=== WLF 파라미터 ===\n"
             text += f"C1 = {wlf_result['C1']:.4f}\n"
             text += f"C2 = {wlf_result['C2']:.4f}\n"
-            text += f"R² = {wlf_result['r_squared']:.4f}\n\n"
+            text += f"R^2 = {wlf_result['r_squared']:.4f}\n\n"
 
         text += f"마스터 커브 주파수 범위:\n"
         text += f"  {self.master_curve_gen.master_f.min():.2e} ~ "
@@ -4975,7 +4970,7 @@ class PerssonModelGUI_V2:
                 # Show info about loaded data
                 self._show_status(f"PSD data loaded: {len(q)} points\n"
                     f"q 범위: {q[0]:.2e} ~ {q[-1]:.2e} 1/m\n"
-                    f"C(q) 범위: {C_q.min():.2e} ~ {C_q.max():.2e} m⁴", 'success')
+                    f"C(q) 범위: {C_q.min():.2e} ~ {C_q.max():.2e} m^4", 'success')
 
             except Exception as e:
                 import traceback
@@ -7181,6 +7176,7 @@ class PerssonModelGUI_V2:
             """Add an illustrative matplotlib graph (1:1 aspect ratio)."""
             import numpy as np
             fig_size = fig_height  # 1:1 ratio
+            px = int(fig_size * 100)       # dpi=100 default
             fig = Figure(figsize=(fig_size, fig_size), facecolor='#FAFBFC')
             ax = fig.add_subplot(111)
             ax.set_facecolor('#FAFBFC')
@@ -7189,10 +7185,15 @@ class PerssonModelGUI_V2:
             for spine in ax.spines.values():
                 spine.set_color('#CBD5E1')
             fig.tight_layout(pad=2.5)
-            graph_canvas = FigureCanvasTkAgg(fig, master=scrollable_frame)
+            # Wrapper frame to centre the square graph
+            wrapper = tk.Frame(scrollable_frame, bg='white')
+            wrapper.pack(fill=tk.X, padx=30, pady=(6, 14))
+            graph_canvas = FigureCanvasTkAgg(fig, master=wrapper)
             graph_canvas.draw()
-            graph_canvas.get_tk_widget().configure(height=int(fig_size * 82))
-            graph_canvas.get_tk_widget().pack(fill=tk.X, padx=30, pady=(6, 14))
+            w = graph_canvas.get_tk_widget()
+            w.configure(width=px, height=px)
+            w.pack(anchor='center')                # no fill → keeps 1:1
+            w.pack_propagate(False) if hasattr(w, 'pack_propagate') else None
 
         # === Title ===
         title_frame = tk.Frame(scrollable_frame, bg='white', pady=10)
@@ -7241,16 +7242,16 @@ class PerssonModelGUI_V2:
                  font_size=17, fg='#64748B')
         add_text('', pady=2)
         add_text('  고무가 v = 1 m/s로 미끄러질 때:', font_size=17, bold=True, fg='#1E293B')
-        add_text('    • q = 10² (파장 ~6cm, 큰 돌) → ω = 10² rad/s (느린 진동)',
+        add_text('    • q = 10^2 (파장 ~6cm, 큰 돌) -> w = 10^2 rad/s (느린 진동)',
                  font_size=17, fg='#059669')
-        add_text('    • q = 10⁴ (파장 ~0.6mm, 모래알) → ω = 10⁴ rad/s (빠른 진동)',
+        add_text('    • q = 10^4 (파장 ~0.6mm, 모래알) -> w = 10^4 rad/s (빠른 진동)',
                  font_size=17, fg='#2563EB')
-        add_text('    • q = 10⁶ (파장 ~6μm, 미세 결정) → ω = 10⁶ rad/s (매우 빠른 진동)',
+        add_text('    • q = 10^6 (파장 ~6um, 미세 결정) -> w = 10^6 rad/s (매우 빠른 진동)',
                  font_size=17, fg='#DC2626')
-        add_text('    • q = 10⁸ (파장 ~60nm, 나노 스케일) → ω = 10⁸ rad/s (초고주파)',
+        add_text('    • q = 10^8 (파장 ~60nm, 나노 스케일) -> w = 10^8 rad/s (초고주파)',
                  font_size=17, fg='#7C3AED')
         add_text('', pady=2)
-        add_text('  → 속도 v는 하나이지만, 프랙탈 노면의 q가 10²~10⁸까지 분포하므로',
+        add_text('  -> 속도 v는 하나이지만, 프랙탈 노면의 q가 10^2~10^8까지 분포하므로',
                  font_size=17, fg='#64748B')
         add_text('    고무가 동시에 느끼는 ω도 6자릿수 이상의 범위를 가짐!',
                  font_size=17, bold=True, fg='#DC2626')
@@ -7279,16 +7280,16 @@ class PerssonModelGUI_V2:
 
             ax.set_xlabel('파수 q (1/m)', fontsize=13)
             ax.set_ylabel(r'주파수 $\omega$ (rad/s)', fontsize=13, color='#DC2626')
-            ax2.set_ylabel('C(q) (m⁴)', fontsize=13, color='#059669')
+            ax2.set_ylabel(r'C(q) (m$^4$)', fontsize=13, color='#059669')
 
             ax.tick_params(axis='y', labelcolor='#DC2626')
             ax2.tick_params(axis='y', labelcolor='#059669')
 
             # Annotate key points
             for q_pt, label_txt, color in [
-                (1e2, 'q=10² → ω=10²\n(큰 돌)', '#059669'),
-                (1e4, 'q=10⁴ → ω=10⁴\n(모래알)', '#2563EB'),
-                (1e6, 'q=10⁶ → ω=10⁶\n(미세 결정)', '#DC2626'),
+                (1e2, r'q=$10^2$ → $\omega$=$10^2$' '\n(큰 돌)', '#059669'),
+                (1e4, r'q=$10^4$ → $\omega$=$10^4$' '\n(모래알)', '#2563EB'),
+                (1e6, r'q=$10^6$ → $\omega$=$10^6$' '\n(미세 결정)', '#DC2626'),
             ]:
                 omega_pt = q_pt * v
                 ax.plot(q_pt, omega_pt, 'o', color=color, markersize=10, zorder=5)
@@ -7445,7 +7446,7 @@ class PerssonModelGUI_V2:
                 (10.0, '#F59E0B', 'G=10\n→ 16%'),
                 (100.0, '#DC2626', 'G=100\n→ 5%'),
                 (1000.0, '#DC2626', 'G=1000\n→ 1.6%'),
-                (10000.0, '#7C3AED', 'G=10⁴\n→ 0.5%'),
+                (10000.0, '#7C3AED', r'G=$10^4$' '\n→ 0.5%'),
             ]
             for g_val, color, txt in key_points:
                 aa0_val = erf(1 / (2 * np.sqrt(g_val))) * 100
@@ -7462,10 +7463,10 @@ class PerssonModelGUI_V2:
             ax.axhspan(0, 10, alpha=0.06, color='#DC2626')
 
             ax.set_xlabel('G (무차원 — 탄성 에너지 누적합)', fontsize=13)
-            ax.set_ylabel('A/A₀ (%)', fontsize=13)
+            ax.set_ylabel(r'A/A$_0$ (%)', fontsize=13)
             ax.set_ylim(-2, 105)
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('G값이 구체적으로 의미하는 접촉면적 — 한눈에 보는 변환표',
+            ax.set_title(r'G값이 구체적으로 의미하는 접촉면적 — 한눈에 보는 변환표',
                          fontsize=13, pad=10)
         add_graph(_plot_G_to_contact)
 
@@ -7514,10 +7515,10 @@ class PerssonModelGUI_V2:
                             np.maximum(G_S100, np.maximum(G_S120, G_S140)),
                             alpha=0.08, color='#7C3AED')
             ax.set_xlabel('슬라이딩 속도 v (m/s)', fontsize=13)
-            ax.set_ylabel('G(q₁)', fontsize=13)
+            ax.set_ylabel(r'G(q$_1$)', fontsize=13)
             ax.legend(fontsize=11, loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('실측: 속도별 G(q₁) — 속도↑ → G↑', fontsize=13, pad=10)
+            ax.set_title(r'실측: 속도별 G(q$_1$) — 속도$\uparrow$ → G$\uparrow$', fontsize=13, pad=10)
             ax.annotate('속도 증가 →\nG 급격히 상승',
                         xy=(50, G_S100[26]), fontsize=11, color='#DC2626',
                         fontweight='bold',
@@ -7595,11 +7596,11 @@ class PerssonModelGUI_V2:
             ax.text(1.5e-5, 3, '접촉 거의 없음', fontsize=10, color='#DC2626',
                     fontweight='bold', alpha=0.7)
             ax.set_xlabel('슬라이딩 속도 v (m/s)', fontsize=13)
-            ax.set_ylabel('A/A₀ (%)', fontsize=13)
+            ax.set_ylabel(r'A/A$_0$ (%)', fontsize=13)
             ax.set_ylim(-1, 22)
             ax.legend(fontsize=11, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3)
-            ax.set_title('G → A/A₀ 변환 결과: 속도↑ → G↑ → 접촉면적 급감', fontsize=13, pad=10)
+            ax.set_title(r'G → A/A$_0$ 변환: 속도$\uparrow$ → G$\uparrow$ → 접촉면적 급감', fontsize=13, pad=10)
             ax.annotate('S120: 저속 ~17%\n→ 고속 <1%',
                         xy=(500, P_S120[-2]), fontsize=10, color='#2563EB',
                         fontweight='bold',
@@ -7731,7 +7732,7 @@ class PerssonModelGUI_V2:
             ax.set_ylabel('S(q)', fontsize=12)
             ax.grid(True, alpha=0.3)
             ax.set_ylim(0.4, 1.05)
-            ax.set_title(r'S(q) = $\gamma$ + (1-$\gamma$)P²  (보정 계수, $\gamma$=0.5)', fontsize=12, pad=10)
+            ax.set_title(r'S(q) = $\gamma$ + (1-$\gamma$)P$^2$  (보정 계수, $\gamma$=0.5)', fontsize=12, pad=10)
             ax.axhline(y=0.5, color='gray', linestyle=':', alpha=0.5)
             ax.annotate(r'$\gamma$ = 0.5 (최솟값)', xy=(0.05, 0.52), fontsize=11, color='#059669')
         add_graph(_plot_S_correction)
@@ -8574,8 +8575,8 @@ class PerssonModelGUI_V2:
         # S(q) method radio buttons
         ttk.Label(integ_row, text="S(q):", font=self.FONTS['body']).pack(side=tk.LEFT, padx=(6, 0))
         self.sq_method_var = tk.StringVar(value="P2")
-        ttk.Radiobutton(integ_row, text="P¹", variable=self.sq_method_var, value="P1").pack(side=tk.LEFT)
-        ttk.Radiobutton(integ_row, text="P²", variable=self.sq_method_var, value="P2").pack(side=tk.LEFT)
+        ttk.Radiobutton(integ_row, text="P^1", variable=self.sq_method_var, value="P1").pack(side=tk.LEFT)
+        ttk.Radiobutton(integ_row, text="P^2", variable=self.sq_method_var, value="P2").pack(side=tk.LEFT)
 
         # Smoothing in single row
         smooth_row = ttk.Frame(mu_settings_frame)
@@ -10214,7 +10215,7 @@ class PerssonModelGUI_V2:
 
                     self.mu_result_text.insert(tk.END, f"  @ q = {q_mid:.2e} (1/m):\n")
                     self.mu_result_text.insert(tk.END, f"    • q³ = {q_mid**3:.2e}\n")
-                    self.mu_result_text.insert(tk.END, f"    • C(q) = {C_diag[mid_idx]:.2e} m⁴\n")
+                    self.mu_result_text.insert(tk.END, f"    • C(q) = {C_diag[mid_idx]:.2e} m^4\n")
                     self.mu_result_text.insert(tk.END, f"    • G(q) = {G_diag[mid_idx]:.2e}\n")
                     self.mu_result_text.insert(tk.END, f"    • P(q) = {P_diag[mid_idx]:.4f}  ← G가 크면 P→0!\n")
                     self.mu_result_text.insert(tk.END, f"    • S(q) = {S_diag[mid_idx]:.4f}\n")
@@ -10238,7 +10239,7 @@ class PerssonModelGUI_V2:
                 # C(q) - PSD values (critical for checking normalization)
                 if 'C_q' in mid_detail:
                     C_q_diag = mid_detail['C_q']
-                    self.mu_result_text.insert(tk.END, f"  C(q) 범위: {np.min(C_q_diag):.2e} ~ {np.max(C_q_diag):.2e} m⁴\n")
+                    self.mu_result_text.insert(tk.END, f"  C(q) 범위: {np.min(C_q_diag):.2e} ~ {np.max(C_q_diag):.2e} m^4\n")
                     # Check typical values
                     if np.max(C_q_diag) < 1e-18:
                         self.mu_result_text.insert(tk.END, f"  ※ 경고: C(q)가 매우 작음 - PSD 정규화 확인 필요!\n")
@@ -13474,6 +13475,7 @@ class PerssonModelGUI_V2:
             """Add an illustrative matplotlib graph (1:1 aspect ratio)."""
             import numpy as np
             fig_size = fig_height  # 1:1 ratio
+            px = int(fig_size * 100)       # dpi=100 default
             fig = Figure(figsize=(fig_size, fig_size), facecolor='#FAFBFC')
             ax = fig.add_subplot(111)
             ax.set_facecolor('#FAFBFC')
@@ -13482,10 +13484,15 @@ class PerssonModelGUI_V2:
             for spine in ax.spines.values():
                 spine.set_color('#CBD5E1')
             fig.tight_layout(pad=2.5)
-            graph_canvas = FigureCanvasTkAgg(fig, master=scrollable_frame)
+            # Wrapper frame to centre the square graph
+            wrapper = tk.Frame(scrollable_frame, bg='white')
+            wrapper.pack(fill=tk.X, padx=30, pady=(6, 14))
+            graph_canvas = FigureCanvasTkAgg(fig, master=wrapper)
             graph_canvas.draw()
-            graph_canvas.get_tk_widget().configure(height=int(fig_size * 82))
-            graph_canvas.get_tk_widget().pack(fill=tk.X, padx=30, pady=(6, 14))
+            w = graph_canvas.get_tk_widget()
+            w.configure(width=px, height=px)
+            w.pack(anchor='center')                # no fill → keeps 1:1
+            w.pack_propagate(False) if hasattr(w, 'pack_propagate') else None
 
         # === Title ===
         title_frame = tk.Frame(scrollable_frame, bg='white', pady=10)
