@@ -680,11 +680,11 @@ class PerssonModelGUI_V2:
             ('tab_psd_profile',     'PSD 생성',           self._create_psd_profile_tab),
             ('tab_master_curve',    '마스터 커브',         self._create_master_curve_tab),
             ('tab_parameters',      '계산 설정',           self._create_parameters_tab),
-            ('tab_results',         'G(q,v) 결과',        self._create_results_tab),
-            ('tab_rms_slope',       "h'rms / Strain",     self._create_rms_slope_tab),
+            ('tab_rms_slope',       "h'rms / strain 계산", self._create_rms_slope_tab),
             ('tab_mu_visc',         'μ_visc 계산',        self._create_mu_visc_tab),
             ('tab_ve_advisor',      '점탄성 설계',        self._create_ve_advisor_tab),
             ('tab_strain_map',      'Strain Map',         self._create_strain_map_tab),
+            ('tab_results',         '계산 과정',           self._create_results_tab),
             ('tab_integrand',       '피적분함수',          self._create_integrand_tab),
             ('tab_equations',       '수식 정리',           self._create_equations_tab),
             ('tab_variables',       '변수 관계',           self._create_variables_tab),
@@ -7889,17 +7889,60 @@ class PerssonModelGUI_V2:
 
         # ============== Left Panel: Controls ==============
 
-        # 1. Description
-        desc_frame = self._create_section(left_panel, "설명")
+        # 1. Description — 물리적 설명
+        desc_frame = self._create_section(left_panel, "물리적 의미 및 설명")
 
-        desc_text = (
-            "PSD 데이터로부터 h'rms(ξ)와\n"
-            "Local Strain(ε)을 계산합니다.\n\n"
-            "수식:\n"
-            "  ξ²(q) = 2π ∫[q0→q] k³C(k)dk\n"
-            "  ε(q) = factor × ξ(q)"
+        desc_text_widget = tk.Text(desc_frame, height=28, font=self.FONTS['body'],
+                                   wrap=tk.WORD, relief=tk.FLAT, bg='#F8FAFC',
+                                   padx=6, pady=4)
+        desc_text_widget.pack(fill=tk.X)
+
+        physics_desc = (
+            "◆ 이 탭의 목적\n"
+            "노면의 PSD 데이터로부터 고무가 실제로 경험하는\n"
+            "표면 기울기(h'rms)와 국소 변형률(ε)을 파수별로\n"
+            "누적 계산합니다. 이 값들은 히스테리시스 마찰\n"
+            "계수(μ_visc)를 구하는 핵심 입력입니다.\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "◆ 수식\n"
+            "  ξ²(q) = 2π ∫[q₀→q] k³ C(k) dk\n"
+            "  ε(q) = factor × ξ(q)\n"
+            "  h²rms(q) = 2π ∫[q₀→q] k C(k) dk\n\n"
+            "━━━━━━━━━━━━━━━━━━━━\n"
+            "◆ 그래프 ① h'rms ξ(q) — RMS 기울기\n"
+            "파수 q까지의 누적 표면 기울기입니다.\n"
+            "• 의미: 파수 q까지 포함한 거칠기 성분들이\n"
+            "  만들어내는 '평균 기울기'(RMS slope)\n"
+            "• 왜 구하나: Persson 마찰 이론에서 고무가\n"
+            "  변형되는 정도를 결정하는 핵심 변수\n"
+            "• 왜 q가 커질수록 증가하나:\n"
+            "  적분 k³C(k)에서 k³이 빠르게 증가하므로\n"
+            "  작은 스케일의 거칠기가 기울기에 크게 기여.\n"
+            "  → 높이는 작아도 기울기는 가파름!\n\n"
+            "◆ 그래프 ② Local Strain ε(q)\n"
+            "고무가 파수 q의 거칠기에 의해 받는 국소 변형률.\n"
+            "• 의미: ε = factor × ξ(q)\n"
+            "  기울기에 비례하여 고무가 변형됨\n"
+            "• 왜 중요한가: 고무의 점탄성 응답(E*, tan δ)은\n"
+            "  변형률에 의존 → 비선형 Payne 효과 반영\n"
+            "• 기준선: 1%=선형영역, 10%=비선형 시작,\n"
+            "  100%=극한 변형\n\n"
+            "◆ 그래프 ③ RMS Height h_rms(q)\n"
+            "파수 q까지의 누적 RMS 높이(표면 거칠기).\n"
+            "• 의미: 포함된 파수 범위의 '평균 높이 편차'\n"
+            "• 적분 kC(k)에서 k 성장이 느려서\n"
+            "  저파수(큰 파장)가 높이를 지배\n"
+            "• 큰 파장 = 큰 높이 기여, 작은 파장 = 작은 기여\n\n"
+            "◆ 그래프 ④ PSD C(q) — 참조\n"
+            "입력된 표면 PSD(파워 스펙트럼 밀도).\n"
+            "• 의미: 각 파수에서 표면 높이의 '에너지' 분포\n"
+            "• 자기 유사(fractal) 표면: C(q) ∝ q^(-2-2H)\n"
+            "  → 기울기가 일정한 직선 (log-log)\n"
+            "• 주의: C(q)는 감소하지만 k³C(k)는 증가 가능\n"
+            "  → 이것이 h'rms가 고파수에서 커지는 이유!"
         )
-        ttk.Label(desc_frame, text=desc_text, font=self.FONTS['body'], justify=tk.LEFT).pack(anchor=tk.W)
+        desc_text_widget.insert(tk.END, physics_desc)
+        desc_text_widget.config(state=tk.DISABLED)
 
         # 2. Calculation Settings
         settings_frame = self._create_section(left_panel, "계산 설정")
@@ -8004,41 +8047,49 @@ class PerssonModelGUI_V2:
 
         # Top-left: h'rms vs q
         self.ax_rms_slope = self.fig_rms.add_subplot(221)
-        self.ax_rms_slope.set_title("h'rms ξ(q)", fontweight='bold', fontsize=11)
-        self.ax_rms_slope.set_xlabel('파수 q (1/m)', fontsize=11)
-        self.ax_rms_slope.set_ylabel("ξ (h'rms)", fontsize=11)
+        self.ax_rms_slope.set_title("① h'rms ξ(q) — 누적 RMS 기울기\n"
+            "ξ²=2π∫k³C(k)dk  |  고파수일수록 기울기 기여 ↑",
+            fontweight='bold', fontsize=9, loc='left')
+        self.ax_rms_slope.set_xlabel('파수 q (1/m)', fontsize=10)
+        self.ax_rms_slope.set_ylabel("ξ (h'rms slope)", fontsize=10)
         self.ax_rms_slope.set_xscale('log')
         self.ax_rms_slope.set_yscale('log')
         self.ax_rms_slope.grid(True, alpha=0.3)
 
         # Top-right: Local Strain vs q
         self.ax_local_strain = self.fig_rms.add_subplot(222)
-        self.ax_local_strain.set_title('Local Strain ε(q)', fontweight='bold', fontsize=11)
-        self.ax_local_strain.set_xlabel('파수 q (1/m)', fontsize=11)
-        self.ax_local_strain.set_ylabel('ε (fraction)', fontsize=11)
+        self.ax_local_strain.set_title("② Local Strain ε(q) — 고무 국소 변형률\n"
+            "ε=factor×ξ  |  고파수 거칠기가 큰 변형 유발",
+            fontweight='bold', fontsize=9, loc='left')
+        self.ax_local_strain.set_xlabel('파수 q (1/m)', fontsize=10)
+        self.ax_local_strain.set_ylabel('ε (%)', fontsize=10)
         self.ax_local_strain.set_xscale('log')
         self.ax_local_strain.set_yscale('log')
         self.ax_local_strain.grid(True, alpha=0.3)
 
         # Bottom-left: RMS Height vs q
         self.ax_rms_height = self.fig_rms.add_subplot(223)
-        self.ax_rms_height.set_title('RMS Height h_rms(q)', fontweight='bold', fontsize=11)
-        self.ax_rms_height.set_xlabel('파수 q (1/m)', fontsize=11)
-        self.ax_rms_height.set_ylabel('h_rms (m)', fontsize=11)
+        self.ax_rms_height.set_title("③ RMS Height h_rms(q) — 누적 RMS 높이\n"
+            "h²=2π∫kC(k)dk  |  저파수(큰 파장)가 높이 지배",
+            fontweight='bold', fontsize=9, loc='left')
+        self.ax_rms_height.set_xlabel('파수 q (1/m)', fontsize=10)
+        self.ax_rms_height.set_ylabel('h_rms (μm)', fontsize=10)
         self.ax_rms_height.set_xscale('log')
         self.ax_rms_height.set_yscale('log')
         self.ax_rms_height.grid(True, alpha=0.3)
 
         # Bottom-right: PSD (for reference)
         self.ax_psd_ref = self.fig_rms.add_subplot(224)
-        self.ax_psd_ref.set_title('PSD C(q) (참조)', fontweight='bold', fontsize=11)
-        self.ax_psd_ref.set_xlabel('파수 q (1/m)', fontsize=11)
-        self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=11)
+        self.ax_psd_ref.set_title("④ PSD C(q) — 표면 파워 스펙트럼\n"
+            "C(q)∝q^(-2-2H)  |  C↓이지만 k³C↑ → 기울기↑",
+            fontweight='bold', fontsize=9, loc='left')
+        self.ax_psd_ref.set_xlabel('파수 q (1/m)', fontsize=10)
+        self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=10)
         self.ax_psd_ref.set_xscale('log')
         self.ax_psd_ref.set_yscale('log')
         self.ax_psd_ref.grid(True, alpha=0.3)
 
-        self.fig_rms.subplots_adjust(left=0.14, right=0.95, top=0.96, bottom=0.08, hspace=0.50, wspace=0.38)
+        self.fig_rms.subplots_adjust(left=0.14, right=0.95, top=0.92, bottom=0.08, hspace=0.62, wspace=0.38)
         self.canvas_rms.draw()
 
     def _sync_target_xi_from_tab2(self):
@@ -8168,71 +8219,120 @@ class PerssonModelGUI_V2:
         self.ax_rms_height.clear()
         self.ax_psd_ref.clear()
 
-        # Plot 1: h'rms
+        # Plot 1: h'rms — 누적 RMS 기울기
         valid_xi = xi > 0
         if np.any(valid_xi):
             self.ax_rms_slope.loglog(q[valid_xi], xi[valid_xi], 'b-', linewidth=2)
-        self.ax_rms_slope.set_title("h'rms ξ(q)", fontweight='bold', fontsize=11)
-        self.ax_rms_slope.set_xlabel('파수 q (1/m)', fontsize=11)
-        self.ax_rms_slope.set_ylabel("ξ (h'rms)", fontsize=11)
+        self.ax_rms_slope.set_title(
+            "① h'rms ξ(q) — 누적 RMS 기울기\n"
+            "ξ²=2π∫k³C(k)dk  |  고파수일수록 기울기 기여 ↑",
+            fontweight='bold', fontsize=9, loc='left')
+        self.ax_rms_slope.set_xlabel('파수 q (1/m)', fontsize=10)
+        self.ax_rms_slope.set_ylabel("ξ (h'rms slope)", fontsize=10)
         self.ax_rms_slope.grid(True, alpha=0.3)
 
         # Add final value annotation - use target_xi from Tab 2 if available
         if len(xi) > 0 and xi[-1] > 0:
-            # Use target_xi from PSD settings (Tab 2) for consistency
             xi_max_display = self.target_xi if self.target_xi is not None else xi[-1]
             self.ax_rms_slope.axhline(y=xi_max_display, color='r', linestyle='--', alpha=0.5)
             self.ax_rms_slope.annotate(f'ξ_max={xi_max_display:.4f}',
-                xy=(q[-1], xi_max_display), xytext=(0.7, 0.9),
-                textcoords='axes fraction', fontsize=10,
+                xy=(q[-1], xi_max_display), xytext=(0.7, 0.85),
+                textcoords='axes fraction', fontsize=9,
                 arrowprops=dict(arrowstyle='->', color='red', alpha=0.5))
+            # 물리적 해석 텍스트 박스
+            self.ax_rms_slope.text(0.03, 0.05,
+                "k³ 가중 → 작은 스케일(고파수)이\n기울기를 지배",
+                transform=self.ax_rms_slope.transAxes, fontsize=7.5,
+                verticalalignment='bottom',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='#DBEAFE', alpha=0.8))
 
-        # Plot 2: Local Strain
+        # Plot 2: Local Strain — 고무 국소 변형률
         valid_strain = strain > 0
         if np.any(valid_strain):
             self.ax_local_strain.loglog(q[valid_strain], strain[valid_strain]*100, 'r-', linewidth=2)
-        self.ax_local_strain.set_title('Local Strain ε(q)', fontweight='bold', fontsize=11)
-        self.ax_local_strain.set_xlabel('파수 q (1/m)', fontsize=11)
-        self.ax_local_strain.set_ylabel('ε (%)', fontsize=11)
+        self.ax_local_strain.set_title(
+            "② Local Strain ε(q) — 고무 국소 변형률\n"
+            "ε=factor×ξ  |  고파수 거칠기가 큰 변형 유발",
+            fontweight='bold', fontsize=9, loc='left')
+        self.ax_local_strain.set_xlabel('파수 q (1/m)', fontsize=10)
+        self.ax_local_strain.set_ylabel('ε (%)', fontsize=10)
         self.ax_local_strain.grid(True, alpha=0.3)
 
-        # Add strain thresholds
-        self.ax_local_strain.axhline(y=1, color='g', linestyle=':', alpha=0.5, label='1%')
-        self.ax_local_strain.axhline(y=10, color='orange', linestyle=':', alpha=0.5, label='10%')
-        self.ax_local_strain.axhline(y=100, color='red', linestyle=':', alpha=0.5, label='100%')
-        self.ax_local_strain.legend(loc='best', fontsize=8)
+        # Add strain thresholds with 물리적 의미
+        self.ax_local_strain.axhline(y=1, color='g', linestyle=':', alpha=0.5, label='1% (선형 영역)')
+        self.ax_local_strain.axhline(y=10, color='orange', linestyle=':', alpha=0.5, label='10% (비선형 시작)')
+        self.ax_local_strain.axhline(y=100, color='red', linestyle=':', alpha=0.5, label='100% (극한)')
+        self.ax_local_strain.legend(loc='upper left', fontsize=7)
 
         if len(strain) > 0 and strain[-1] > 0:
             self.ax_local_strain.annotate(f'ε_max={strain[-1]*100:.2f}%',
-                xy=(q[-1], strain[-1]*100), xytext=(0.7, 0.9),
-                textcoords='axes fraction', fontsize=10,
+                xy=(q[-1], strain[-1]*100), xytext=(0.7, 0.85),
+                textcoords='axes fraction', fontsize=9,
                 arrowprops=dict(arrowstyle='->', color='red', alpha=0.5))
+            self.ax_local_strain.text(0.03, 0.05,
+                "변형률이 클수록 고무가 비선형\n(Payne 효과: E' 감소, tan δ 변화)",
+                transform=self.ax_local_strain.transAxes, fontsize=7.5,
+                verticalalignment='bottom',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='#FEE2E2', alpha=0.8))
 
-        # Plot 3: RMS Height
+        # Plot 3: RMS Height — 누적 RMS 높이
         valid_hrms = hrms > 0
         if np.any(valid_hrms):
             self.ax_rms_height.loglog(q[valid_hrms], hrms[valid_hrms]*1e6, 'g-', linewidth=2)
-        self.ax_rms_height.set_title('RMS Height h_rms(q)', fontweight='bold', fontsize=11)
-        self.ax_rms_height.set_xlabel('파수 q (1/m)', fontsize=11)
-        self.ax_rms_height.set_ylabel('h_rms (μm)', fontsize=11)
+        self.ax_rms_height.set_title(
+            "③ RMS Height h_rms(q) — 누적 RMS 높이\n"
+            "h²=2π∫kC(k)dk  |  저파수(큰 파장)가 높이 지배",
+            fontweight='bold', fontsize=9, loc='left')
+        self.ax_rms_height.set_xlabel('파수 q (1/m)', fontsize=10)
+        self.ax_rms_height.set_ylabel('h_rms (μm)', fontsize=10)
         self.ax_rms_height.grid(True, alpha=0.3)
 
         if len(hrms) > 0 and hrms[-1] > 0:
             self.ax_rms_height.annotate(f'h_rms={hrms[-1]*1e6:.2f}μm',
-                xy=(q[-1], hrms[-1]*1e6), xytext=(0.7, 0.9),
-                textcoords='axes fraction', fontsize=10,
+                xy=(q[-1], hrms[-1]*1e6), xytext=(0.7, 0.85),
+                textcoords='axes fraction', fontsize=9,
                 arrowprops=dict(arrowstyle='->', color='green', alpha=0.5))
+            self.ax_rms_height.text(0.03, 0.05,
+                "k 가중 → 큰 파장이 높이 기여 큼\n(기울기와 반대: 높이≠기울기)",
+                transform=self.ax_rms_height.transAxes, fontsize=7.5,
+                verticalalignment='bottom',
+                bbox=dict(boxstyle='round,pad=0.3', facecolor='#DCFCE7', alpha=0.8))
 
-        # Plot 4: PSD Reference
+        # Plot 4: PSD Reference — 표면 파워 스펙트럼 + k³C(k) 오버레이
         valid_C = C_q > 0
         if np.any(valid_C):
-            self.ax_psd_ref.loglog(q[valid_C], C_q[valid_C], 'k-', linewidth=1.5)
-        self.ax_psd_ref.set_title('PSD C(q) (참조)', fontweight='bold', fontsize=11)
-        self.ax_psd_ref.set_xlabel('파수 q (1/m)', fontsize=11)
-        self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=11)
+            self.ax_psd_ref.loglog(q[valid_C], C_q[valid_C], 'k-', linewidth=1.5, label='C(q)')
+            # k³C(k) 오버레이: h'rms 기울기의 피적분함수
+            k3C = q[valid_C]**3 * C_q[valid_C]
+            # k³C(k)를 보조 축에 표시
+            ax2 = self.ax_psd_ref.twinx()
+            ax2.loglog(q[valid_C], k3C, color='#2563EB', linewidth=1.2,
+                       linestyle='--', alpha=0.7, label='k³C(k)')
+            ax2.set_ylabel('k³C(k) (기울기 피적분함수)', fontsize=8, color='#2563EB')
+            ax2.tick_params(axis='y', labelcolor='#2563EB', labelsize=8)
+            # 범례 통합
+            lines1, labels1 = self.ax_psd_ref.get_legend_handles_labels()
+            lines2, labels2 = ax2.get_legend_handles_labels()
+            self.ax_psd_ref.legend(lines1 + lines2, labels1 + labels2,
+                                   loc='upper right', fontsize=7)
+        self.ax_psd_ref.set_title(
+            "④ PSD C(q) vs k³C(k) — 기울기의 원인\n"
+            "C(q)↓ 이지만 k³C(k)↑ → h'rms가 고파수에서 증가!",
+            fontweight='bold', fontsize=9, loc='left')
+        self.ax_psd_ref.set_xlabel('파수 q (1/m)', fontsize=10)
+        self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=10)
         self.ax_psd_ref.grid(True, alpha=0.3)
 
-        self.fig_rms.subplots_adjust(left=0.14, right=0.95, top=0.96, bottom=0.08, hspace=0.50, wspace=0.38)
+        # 핵심 물리 설명 텍스트 박스
+        self.ax_psd_ref.text(0.03, 0.05,
+            "C(q)는 감소하지만 k³C(k)는 증가!\n"
+            "∵ slope = ∇h → 미분 ≈ q×h\n"
+            "→ 기울기 ∝ q³C(q) (2D 적분 포함)",
+            transform=self.ax_psd_ref.transAxes, fontsize=7,
+            verticalalignment='bottom',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='#FEF9C3', alpha=0.9))
+
+        self.fig_rms.subplots_adjust(left=0.14, right=0.88, top=0.92, bottom=0.08, hspace=0.62, wspace=0.38)
         self.canvas_rms.draw()
 
     def _update_rms_result_text(self):
