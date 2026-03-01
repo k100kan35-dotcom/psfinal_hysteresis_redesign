@@ -620,9 +620,9 @@ class PerssonModelGUI_V2:
             ('tab_psd_profile',     'PSD 생성',           self._create_psd_profile_tab),
             ('tab_master_curve',    '마스터 커브',         self._create_master_curve_tab),
             ('tab_parameters',      '계산 설정',           self._create_parameters_tab),
-            ('tab_results',         'G(q,v) 결과',        self._create_results_tab),
             ('tab_rms_slope',       "h'rms / Strain",     self._create_rms_slope_tab),
             ('tab_mu_visc',         'μ_visc 계산',        self._create_mu_visc_tab),
+            ('tab_results',         '중간 결과값',        self._create_results_tab),
             ('tab_ve_advisor',      '점탄성 설계',        self._create_ve_advisor_tab),
             ('tab_strain_map',      'Strain Map',         self._create_strain_map_tab),
             ('tab_integrand',       '피적분함수',          self._create_integrand_tab),
@@ -681,7 +681,7 @@ class PerssonModelGUI_V2:
         # Ctrl+Enter shortcut: trigger mu_visc 계산 when on the mu_visc tab
         def _on_ctrl_enter(event):
             current_tab = self.notebook.index(self.notebook.select())
-            if current_tab == 5:  # tab_mu_visc (μ_visc 계산)
+            if current_tab == self.notebook.index(self.tab_mu_visc):  # μ_visc 계산
                 self._calculate_mu_visc()
         self.root.bind('<Control-Return>', _on_ctrl_enter)
 
@@ -1234,6 +1234,7 @@ class PerssonModelGUI_V2:
         # Canvas
         self.canvas_psd_profile = FigureCanvasTkAgg(self.fig_psd_profile, master=right_frame)
         self.canvas_psd_profile.draw()
+        self.canvas_psd_profile.get_tk_widget().configure(width=400, height=300)
         self.canvas_psd_profile.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         # Toolbar
@@ -2511,6 +2512,7 @@ class PerssonModelGUI_V2:
 
         self.canvas_mc = FigureCanvasTkAgg(self.fig_mc, plot_frame)
         self.canvas_mc.draw()
+        self.canvas_mc.get_tk_widget().configure(width=400, height=300)
         self.canvas_mc.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         toolbar = NavigationToolbar2Tk(self.canvas_mc, plot_frame)
@@ -3366,7 +3368,7 @@ class PerssonModelGUI_V2:
         self._show_status(f"Persson 정품 마스터 커브가 계산에 사용됩니다.\n\n"
             f"파일: {data['filename']}\n"
             f"tan δ 평균: {tan_delta_avg:.3f}\n\n"
-            f"Tab 3, Tab 5에서 이 데이터로 μ_visc 계산이 가능합니다.", 'success')
+            f"계산 설정, μ_visc 탭에서 이 데이터로 μ_visc 계산이 가능합니다.", 'success')
 
         self.status_var.set("Persson 정품 마스터 커브 → 계산용 확정")
 
@@ -3782,7 +3784,7 @@ class PerssonModelGUI_V2:
             self._update_material_display()
 
             # Switch to calculation settings tab
-            self.notebook.select(2)  # Tab 2: 계산 설정
+            self.notebook.select(self.tab_parameters)  # 계산 설정
 
             # Build info message
             info_msg = f"마스터 커브가 적용되었습니다.\n\n"
@@ -3889,8 +3891,8 @@ class PerssonModelGUI_V2:
 
             self._show_status(info_msg, 'success')
 
-            # Switch to Tab 3
-            self.notebook.select(3)
+            # Switch to 계산 설정 tab
+            self.notebook.select(self.tab_parameters)
 
             self.status_var.set(f"마스터 커브 확정: Tref={T_ref}°C, {f_min:.1e}~{f_max:.1e} Hz")
 
@@ -4122,7 +4124,7 @@ class PerssonModelGUI_V2:
         self.q1_entry = ttk.Entry(self.q1_input_frame, textvariable=self.input_q1_var, width=12)
         self.q1_entry.pack(side=tk.LEFT, padx=5)
 
-        # Add trace to sync target_hrms_slope_var with Tab 1's psd_xi_var and Tab 4's display
+        # Add trace to sync target_hrms_slope_var with Tab 1's psd_xi_var and Tab 3's display
         self.target_hrms_slope_var.trace_add('write', self._on_target_hrms_changed)
 
         # 계산 버튼
@@ -4137,7 +4139,7 @@ class PerssonModelGUI_V2:
         # 초기 모드 UI 상태 적용 (모드2: q1 활성, h'rms 비활성) - 버튼 생성 후 호출
         self._on_hrms_q1_mode_changed()
 
-        ttk.Button(calc_btn_frame, text="Tab 4로 전달",
+        ttk.Button(calc_btn_frame, text="h'rms 탭으로 전달",
                   command=self._send_hrms_q1_to_tab4).pack(side=tk.LEFT, padx=5)
 
         # 구분선
@@ -4216,6 +4218,7 @@ class PerssonModelGUI_V2:
 
         self.canvas_calc_progress = FigureCanvasTkAgg(self.fig_calc_progress, viz_frame)
         self.canvas_calc_progress.draw()
+        self.canvas_calc_progress.get_tk_widget().configure(width=400, height=300)
         self.canvas_calc_progress.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         # Initialize PSD(q) plot - top-left
@@ -4271,7 +4274,7 @@ class PerssonModelGUI_V2:
 
     def _on_target_hrms_changed(self, *args):
         """Callback when target h'rms value is changed in Tab 2.
-        Syncs the value to Tab 1's psd_xi_var and Tab 4's display."""
+        Syncs the value to Tab 1's psd_xi_var and Tab 3's display."""
         try:
             new_value = self.target_hrms_slope_var.get()
             # Validate it's a number
@@ -4281,7 +4284,7 @@ class PerssonModelGUI_V2:
             if hasattr(self, 'psd_xi_var'):
                 self.psd_xi_var.set(new_value)
 
-            # Update Tab 4's display if it exists
+            # Update Tab 3's display if it exists
             if hasattr(self, 'rms_target_xi_display'):
                 self.rms_target_xi_display.set(f"{float(new_value):.4f}")
 
@@ -4554,30 +4557,30 @@ class PerssonModelGUI_V2:
             traceback.print_exc()
 
     def _send_hrms_q1_to_tab4(self):
-        """계산된 h'rms(ξ)와 q1을 Tab 4로 전달."""
+        """계산된 h'rms(ξ)와 q1을 h'rms 탭으로 전달."""
         try:
             # 계산된 q1이 있으면 표시만 (q_max는 사용자가 직접 설정하므로 덮어쓰지 않음)
             # if hasattr(self, 'calculated_q1') and self.calculated_q1 is not None:
             #     self.rms_q_max_var.set(f"{self.calculated_q1:.3e}")
 
-            # target_xi를 Tab 4에 전달
+            # target_xi를 h'rms 탭에 전달
             if self.target_xi is not None:
                 if hasattr(self, 'rms_target_xi_display'):
                     self.rms_target_xi_display.set(f"{self.target_xi:.4f}")
                 if hasattr(self, 'psd_xi_var'):
                     self.psd_xi_var.set(f"{self.target_xi:.4f}")
 
-            # Tab 4로 전환
-            self.notebook.select(4)
+            # h'rms / Strain 탭으로 전환
+            self.notebook.select(self.tab_rms_slope)
 
-            self.status_var.set(f"Tab 4로 전달 완료: ξ={self.target_xi:.4f}, q1={self.calculated_q1:.3e}")
-            self._show_status(f"Tab 4로 전달되었습니다.\n\n"
+            self.status_var.set(f"h'rms 탭으로 전달 완료: ξ={self.target_xi:.4f}, q1={self.calculated_q1:.3e}")
+            self._show_status(f"h'rms 탭으로 전달되었습니다.\n\n"
                 f"ξ (h'rms): {self.target_xi:.4f}\n"
                 f"q1: {self.calculated_q1:.3e} (1/m)\n\n"
-                f"Tab 4에서 'h'rms slope 계산' 버튼을 클릭하세요.", 'success')
+                f"h'rms 탭에서 'h'rms slope 계산' 버튼을 클릭하세요.", 'success')
 
         except Exception as e:
-            messagebox.showerror("오류", f"Tab 4로 전달 중 오류: {e}")
+            messagebox.showerror("오류", f"h'rms 탭으로 전달 중 오류: {e}")
 
     def _create_results_tab(self, parent):
         """Create G(q,v) results tab."""
@@ -4603,6 +4606,7 @@ class PerssonModelGUI_V2:
         self.fig_results = Figure(figsize=(16, 10), dpi=100)
         self.canvas_results = FigureCanvasTkAgg(self.fig_results, plot_frame)
         self.canvas_results.draw()
+        self.canvas_results.get_tk_widget().configure(width=400, height=300)
         self.canvas_results.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         toolbar = NavigationToolbar2Tk(self.canvas_results, plot_frame)
@@ -5643,7 +5647,7 @@ class PerssonModelGUI_V2:
             self.calc_button.config(state='normal')
             self._show_status(f"G(q,v) calculated for {n_v} velocities and {n_q} wavenumbers", 'success')
 
-            # G(q,v) 계산 완료 후 Tab 4의 h'rms slope 자동 계산
+            # G(q,v) 계산 완료 후 h'rms slope 자동 계산
             try:
                 self._calculate_rms_slope()
             except Exception as e_rms:
@@ -6401,24 +6405,24 @@ class PerssonModelGUI_V2:
         add('  • 설정 완료 후 "G(q,v) 계산 실행" 클릭', 'indent')
         add('')
 
-        add('탭 4: G(q,v) 결과', 'section')
-        add('계산된 G(q,v) 결과를 시각화합니다.')
-        add('  • G(q) 곡선: 각 속도별 누적 탄성 에너지', 'indent')
-        add('  • G(q,v) 히트맵: 파수-속도 평면에서의 G 분포', 'indent')
-        add('  • P(q,v) 접촉 면적: 실접촉 면적 비율', 'indent')
-        add('')
-
-        add('탭 5: h\'rms / Strain', 'section')
+        add('탭 4: h\'rms / Strain', 'section')
         add('표면 거칠기의 RMS 기울기와 국소 변형률(strain)을 계산합니다.')
         add('  • h\'_rms(q): 파수까지의 누적 RMS 기울기', 'indent')
         add('  • ε(q) = α × h\'_rms: 국소 변형률 (비선형 보정에 필요)', 'indent')
         add('')
 
-        add('탭 6: μ_visc 계산', 'section')
+        add('탭 5: μ_visc 계산', 'section')
         add('최종 점탄성 마찰 계수를 계산합니다.')
         add('  • Strain Sweep 데이터로 f(ε), g(ε) 비선형 보정 가능', 'indent')
         add('  • 선형/비선형 모드 비교 지원', 'indent')
         add('  • 속도-마찰계수 곡선 (μ vs v) 출력', 'indent')
+        add('')
+
+        add('탭 6: 중간 결과값', 'section')
+        add('계산된 G(q,v) 결과를 시각화합니다.')
+        add('  • G(q) 곡선: 각 속도별 누적 탄성 에너지', 'indent')
+        add('  • G(q,v) 히트맵: 파수-속도 평면에서의 G 분포', 'indent')
+        add('  • P(q,v) 접촉 면적: 실접촉 면적 비율', 'indent')
         add('')
 
         add('탭 7: 점탄성 설계', 'section')
@@ -6455,7 +6459,7 @@ class PerssonModelGUI_V2:
         add('  • 각 탭 상단의 도구 모음에서 주요 동작 버튼을 사용하세요', 'indent')
         add('')
 
-        add('※ 계산 순서: 탭 1~3 → 탭 4 (G 계산) → 탭 5 (h\'rms) → 탭 6 (μ_visc)', 'note')
+        add('※ 계산 순서: 탭 1~3 → 탭 3 (G 계산) → 탭 4 (h\'rms) → 탭 5 (μ_visc)', 'note')
 
         text_widget.config(state='disabled')
 
@@ -6877,10 +6881,10 @@ class PerssonModelGUI_V2:
         def add_separator():
             tk.Frame(scrollable_frame, bg='#CBD5E1', height=2).pack(fill=tk.X, padx=10, pady=10)
 
-        def add_graph(plot_func, fig_height=3.5):
-            """Add an illustrative matplotlib graph."""
+        def add_graph(plot_func, fig_size=6.0):
+            """Add an illustrative matplotlib graph (1:1 aspect ratio)."""
             import numpy as np
-            fig = Figure(figsize=(12, fig_height), facecolor='#FAFBFC')
+            fig = Figure(figsize=(fig_size, fig_size), facecolor='#FAFBFC')
             ax = fig.add_subplot(111)
             ax.set_facecolor('#FAFBFC')
             plot_func(ax, np)
@@ -6890,8 +6894,9 @@ class PerssonModelGUI_V2:
             fig.tight_layout(pad=1.5)
             graph_canvas = FigureCanvasTkAgg(fig, master=scrollable_frame)
             graph_canvas.draw()
-            graph_canvas.get_tk_widget().configure(height=int(fig_height * 72))
-            graph_canvas.get_tk_widget().pack(fill=tk.X, padx=30, pady=(6, 14))
+            px = int(fig_size * 100)
+            graph_canvas.get_tk_widget().configure(height=px, width=px)
+            graph_canvas.get_tk_widget().pack(fill=tk.NONE, padx=30, pady=(6, 14), anchor='center')
 
         # === Title ===
         title_frame = tk.Frame(scrollable_frame, bg='white', pady=10)
@@ -7371,19 +7376,20 @@ class PerssonModelGUI_V2:
 
         self.canvas_rms = FigureCanvasTkAgg(self.fig_rms, plot_frame)
         self.canvas_rms.draw()
+        self.canvas_rms.get_tk_widget().configure(width=400, height=300)
         self.canvas_rms.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         toolbar = NavigationToolbar2Tk(self.canvas_rms, plot_frame)
         toolbar.update()
 
     def _sync_target_xi_from_tab2(self):
-        """Sync target h'rms from Tab 2 to Tab 4 display and update target_xi."""
+        """Sync target h'rms from Tab 2 to h'rms tab display and update target_xi."""
         try:
             # Get target h'rms from Tab 2
             target_xi_str = self.target_hrms_slope_var.get()
             target_xi = float(target_xi_str)
 
-            # Update Tab 4 display
+            # Update h'rms tab display
             self.rms_target_xi_display.set(f"{target_xi:.4f}")
 
             # Update target_xi for calculations
@@ -8114,6 +8120,7 @@ class PerssonModelGUI_V2:
 
         self.canvas_mu_visc = FigureCanvasTkAgg(self.fig_mu_visc, plot_frame)
         self.canvas_mu_visc.draw()
+        self.canvas_mu_visc.get_tk_widget().configure(width=400, height=300)
         self.canvas_mu_visc.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         toolbar = NavigationToolbar2Tk(self.canvas_mu_visc, plot_frame)
@@ -8902,7 +8909,7 @@ class PerssonModelGUI_V2:
             if strain_est_method == 'rms_slope':
                 if self.rms_slope_calculator is None or self.rms_slope_profiles is None:
                     self._show_status("h'rms 데이터가 없습니다.\n\n"
-                        "Tab 4 (h'rms/Local Strain)에서\n"
+                        "h'rms / Strain 탭에서\n"
                         "'h'rms slope / Local Strain 계산' 버튼을 먼저 실행하세요.", 'warning')
                     self.mu_calc_button.config(state='normal')
                     return
@@ -9026,7 +9033,7 @@ class PerssonModelGUI_V2:
                 self.g_calculator.PSD_NORMALIZATION_FACTOR = 1.5625
 
             # ALWAYS recalculate G(q) with current normalization factor
-            # This ensures Tab 2's G(q) graph and Tab 5's A/A0 use consistent values
+            # This ensures Tab 2's G(q) graph and μ_visc tab's A/A0 use consistent values
             self.status_var.set("G(q) 재계산 중 (정규화 적용)...")
             self.root.update()
 
@@ -11282,6 +11289,7 @@ class PerssonModelGUI_V2:
 
         self.canvas_strain_map = FigureCanvasTkAgg(self.fig_strain_map, plot_frame)
         self.canvas_strain_map.draw()
+        self.canvas_strain_map.get_tk_widget().configure(width=400, height=300)
         self.canvas_strain_map.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         toolbar = NavigationToolbar2Tk(self.canvas_strain_map, plot_frame)
@@ -11339,7 +11347,7 @@ class PerssonModelGUI_V2:
             return
 
         if not self.results or '2d_results' not in self.results:
-            self._show_status("먼저 G(q,v) 계산을 실행하세요 (탭 2).", 'warning')
+            self._show_status("먼저 G(q,v) 계산을 실행하세요 (계산 설정 탭).", 'warning')
             return
 
         try:
@@ -12155,6 +12163,7 @@ class PerssonModelGUI_V2:
 
         self.canvas_integrand = FigureCanvasTkAgg(self.fig_integrand, plot_frame)
         self.canvas_integrand.draw()
+        self.canvas_integrand.get_tk_widget().configure(width=400, height=300)
         self.canvas_integrand.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         toolbar = NavigationToolbar2Tk(self.canvas_integrand, plot_frame)
@@ -12498,10 +12507,10 @@ class PerssonModelGUI_V2:
         def add_separator():
             tk.Frame(scrollable_frame, bg='#CBD5E1', height=2).pack(fill=tk.X, padx=10, pady=10)
 
-        def add_graph(plot_func, fig_height=3.5):
-            """Add an illustrative matplotlib graph."""
+        def add_graph(plot_func, fig_size=6.0):
+            """Add an illustrative matplotlib graph (1:1 aspect ratio)."""
             import numpy as np
-            fig = Figure(figsize=(12, fig_height), facecolor='#FAFBFC')
+            fig = Figure(figsize=(fig_size, fig_size), facecolor='#FAFBFC')
             ax = fig.add_subplot(111)
             ax.set_facecolor('#FAFBFC')
             plot_func(ax, np)
@@ -12511,8 +12520,9 @@ class PerssonModelGUI_V2:
             fig.tight_layout(pad=1.5)
             graph_canvas = FigureCanvasTkAgg(fig, master=scrollable_frame)
             graph_canvas.draw()
-            graph_canvas.get_tk_widget().configure(height=int(fig_height * 72))
-            graph_canvas.get_tk_widget().pack(fill=tk.X, padx=30, pady=(6, 14))
+            px = int(fig_size * 100)
+            graph_canvas.get_tk_widget().configure(height=px, width=px)
+            graph_canvas.get_tk_widget().pack(fill=tk.NONE, padx=30, pady=(6, 14), anchor='center')
 
         # === Title ===
         title_frame = tk.Frame(scrollable_frame, bg='white', pady=10)
@@ -12964,7 +12974,7 @@ class PerssonModelGUI_V2:
 
         if not hasattr(self, 'results') or self.results is None or '2d_results' not in self.results:
             self._log_debug("  ❌ 오류: G(q,v) 계산 결과가 없습니다!")
-            self._log_debug("     → Tab 2에서 G(q,v) 계산을 먼저 실행하세요.\n")
+            self._log_debug("     → 계산 설정 탭에서 G(q,v) 계산을 먼저 실행하세요.\n")
             return
         else:
             results_2d = self.results['2d_results']
@@ -13175,7 +13185,7 @@ class PerssonModelGUI_V2:
                     self._log_debug("     4. 마스터 커브 주파수 범위가 맞지 않음")
         else:
             self._log_debug("  ℹ️ μ_visc 계산 결과가 아직 없습니다.")
-            self._log_debug("     → Tab 5에서 μ_visc 계산을 실행하세요.")
+            self._log_debug("     → μ_visc 계산 탭에서 μ_visc 계산을 실행하세요.")
 
         # 8. Summary and recommendations
         self._log_debug("\n\n" + "=" * 70)
@@ -14307,6 +14317,7 @@ class PerssonModelGUI_V2:
 
         self.canvas_ve_advisor = FigureCanvasTkAgg(self.fig_ve_advisor, plot_frame)
         self.canvas_ve_advisor.draw()
+        self.canvas_ve_advisor.get_tk_widget().configure(width=400, height=300)
         self.canvas_ve_advisor.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         toolbar = NavigationToolbar2Tk(self.canvas_ve_advisor, plot_frame)
