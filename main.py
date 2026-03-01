@@ -290,6 +290,7 @@ class PerssonModelGUI_V2:
         self.mu_visc_results = None  # mu_visc calculation results
         self.mu_adh_results = None   # mu_adh (adhesion friction) calculation results
         self._fit_results = None     # Auto-fitting results for adhesion parameters
+        self._ax_adh_tau_twin = None # Twin y-axis for A/A0 on τ_f plot
         self.G_matrix_linear = None  # Linear G(q,v) before nonlinear correction (for strain map)
 
         # h'rms / Local Strain related variables
@@ -855,8 +856,8 @@ class PerssonModelGUI_V2:
                                 hspace=0.50, wspace=0.38),
         'fig_mu_visc':     dict(left=0.12, right=0.90, top=0.96, bottom=0.08,
                                 hspace=0.50, wspace=0.38),
-        'fig_mu_adh':      dict(left=0.12, right=0.95, top=0.96, bottom=0.08,
-                                hspace=0.50, wspace=0.38),
+        'fig_mu_adh':      dict(left=0.10, right=0.90, top=0.96, bottom=0.08,
+                                hspace=0.50, wspace=0.45),
         'fig_strain_map':  dict(left=0.08, right=0.95, top=0.96, bottom=0.06,
                                 hspace=0.45, wspace=0.30),
         'fig_integrand':   dict(left=0.12, right=0.95, top=0.96, bottom=0.08,
@@ -15429,10 +15430,15 @@ class PerssonModelGUI_V2:
                                      command=self._run_auto_fit_mu_dry, width=15,
                                      style='Accent.TButton')
         self.fit_button.pack(side=tk.LEFT, padx=2)
+        # ── "피팅 완료" button: prominent styling (Success green, larger) ──
+        # This is the most important button — finalizes the fitted parameters.
+        fit_complete_wrapper = tk.Frame(fit_btn_row, bg='#059669', padx=2, pady=2)
+        fit_complete_wrapper.pack(side=tk.LEFT, padx=4)
         self.fit_complete_button = ttk.Button(
-            fit_btn_row, text="mu_adh 피팅 완료",
-            command=self._complete_adh_fitting, width=15)
-        self.fit_complete_button.pack(side=tk.LEFT, padx=2)
+            fit_complete_wrapper, text="★ mu_adh 피팅 완료 ★",
+            command=self._complete_adh_fitting, width=20,
+            style='Success.TButton')
+        self.fit_complete_button.pack()
         self.fit_reset_button = ttk.Button(
             fit_btn_row, text="피팅 초기화",
             command=self._reset_adh_fitting, width=10)
@@ -15450,35 +15456,41 @@ class PerssonModelGUI_V2:
         self._fit_results = None
         self._adh_fitting_completed = False  # True after user presses "피팅 완료"
 
-        # 4. Adhesion Material Parameters
-        mat_frame = self._create_section(left_panel, "4) 점착 물성 파라미터")
+        # 4. Adhesion Material Parameters (fitting parameters)
+        mat_frame = self._create_section(left_panel, "4) 점착 피팅 파라미터 (τ_f0, v₀*, c)")
 
-        # tau_f0 - maximum adhesion shear stress
+        # Description: these are fitting parameters, not fixed constants
+        fit_param_desc = ttk.Label(mat_frame,
+                                   text="※ 자동 피팅 시 최적화되는 파라미터 (초기값 또는 피팅 결과)",
+                                   font=self.FONTS['small'], foreground='#DC2626')
+        fit_param_desc.pack(anchor=tk.W, pady=(0, 2))
+
+        # tau_f0 - maximum adhesion shear stress (FITTING PARAMETER)
         row_tau = ttk.Frame(mat_frame)
         row_tau.pack(fill=tk.X, pady=1)
         ttk.Label(row_tau, text="τ_f0:", font=self.FONTS['body']).pack(side=tk.LEFT)
         self.adh_tau_f0_var = tk.StringVar(value="6.5")
         ttk.Entry(row_tau, textvariable=self.adh_tau_f0_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row_tau, text="MPa  (최대 점착 전단 응력)", font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT)
+        ttk.Label(row_tau, text="MPa  (최대 점착 전단 응력) [피팅]", font=self.FONTS['small'],
+                  foreground='#2563EB').pack(side=tk.LEFT)
 
-        # v_0_star - reference velocity at peak shear stress
+        # v_0_star - reference velocity at peak shear stress (FITTING PARAMETER)
         row_v0 = ttk.Frame(mat_frame)
         row_v0.pack(fill=tk.X, pady=1)
         ttk.Label(row_v0, text="v₀*:", font=self.FONTS['body']).pack(side=tk.LEFT)
         self.adh_v0_star_var = tk.StringVar(value="10")
         ttk.Entry(row_v0, textvariable=self.adh_v0_star_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row_v0, text="m/s  (기준 속도)", font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT)
+        ttk.Label(row_v0, text="m/s  (기준 속도) [피팅]", font=self.FONTS['small'],
+                  foreground='#2563EB').pack(side=tk.LEFT)
 
-        # c - Gaussian width constant
+        # c - Gaussian width constant (FITTING PARAMETER)
         row_c = ttk.Frame(mat_frame)
         row_c.pack(fill=tk.X, pady=1)
         ttk.Label(row_c, text="c:", font=self.FONTS['body']).pack(side=tk.LEFT)
         self.adh_c_var = tk.StringVar(value="0.1")
         ttk.Entry(row_c, textvariable=self.adh_c_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row_c, text="(가우시안 폭 상수)", font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT)
+        ttk.Label(row_c, text="(가우시안 폭 상수) [피팅]", font=self.FONTS['small'],
+                  foreground='#2563EB').pack(side=tk.LEFT)
 
         # epsilon - activation energy
         row_eps = ttk.Frame(mat_frame)
@@ -15567,9 +15579,9 @@ class PerssonModelGUI_V2:
         # Create figure with 2x2 subplots
         self.fig_mu_adh = Figure(figsize=(9, 7), dpi=100)
 
-        # Top-left: τ_f (shear stress) vs velocity
+        # Top-left: τ_f (shear stress) + A/A0 vs velocity (dual y-axis)
         self.ax_adh_tau = self.fig_mu_adh.add_subplot(221)
-        self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v)', fontweight='bold', fontsize=11)
+        self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v) + A/A0', fontweight='bold', fontsize=11)
         self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=11)
         self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=11)
         self.ax_adh_tau.set_xscale('log')
@@ -15591,16 +15603,15 @@ class PerssonModelGUI_V2:
         self.ax_adh_total.set_xscale('log')
         self.ax_adh_total.grid(True, alpha=0.3)
 
-        # Bottom-right: A/A0 from mu_visc (reference display)
+        # Bottom-right: aT comparison (master curve aT vs adhesion aT')
         self.ax_adh_area = self.fig_mu_adh.add_subplot(224)
-        self.ax_adh_area.set_title('실접촉 면적비 A/A0 (μ_visc)', fontweight='bold', fontsize=11)
-        self.ax_adh_area.set_xlabel('속도 v (m/s)', fontsize=11)
-        self.ax_adh_area.set_ylabel('A/A0', fontsize=11)
-        self.ax_adh_area.set_xscale('log')
+        self.ax_adh_area.set_title('이동 인자 aT 비교', fontweight='bold', fontsize=11)
+        self.ax_adh_area.set_xlabel('온도 T (°C)', fontsize=11)
+        self.ax_adh_area.set_ylabel('log₁₀(aT)', fontsize=11)
         self.ax_adh_area.grid(True, alpha=0.3)
 
-        self.fig_mu_adh.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08,
-                                         hspace=0.50, wspace=0.38)
+        self.fig_mu_adh.subplots_adjust(left=0.10, right=0.90, top=0.96, bottom=0.08,
+                                         hspace=0.50, wspace=0.45)
 
         self.canvas_mu_adh = FigureCanvasTkAgg(self.fig_mu_adh, plot_frame)
         self.canvas_mu_adh.draw_idle()
@@ -15707,14 +15718,15 @@ class PerssonModelGUI_V2:
             # ── Auto temperature shift: recalculate μ_visc if temperature changed ──
             # When calculation temperature differs from μ_visc calculation temperature,
             # automatically trigger temperature shift + G recalculation + μ_visc recalculation.
+            # This ensures μ_visc and A/A0 are always consistent with the current temperature.
             # Note: After fitting is completed (_adh_fitting_completed=True), this is NOT
             # re-fitting. The fitted parameters (τ_f0, v₀*, c) are fixed. Temperature
             # changes only shift the τ_f curve via the Arrhenius factor aT'.
             need_mu_visc_recalc = False
+            mu_visc_temp = None
             if (hasattr(self, 'persson_aT_interp') and self.persson_aT_interp is not None
                     and hasattr(self, 'persson_master_curve') and self.persson_master_curve is not None):
                 # Check if temperature differs from what was used for mu_visc
-                mu_visc_temp = None
                 if hasattr(self, 'current_temp_shift') and self.current_temp_shift is not None:
                     mu_visc_temp = self.current_temp_shift.get('T_target', None)
                 elif hasattr(self, 'mu_calc_temp_var'):
@@ -15730,11 +15742,14 @@ class PerssonModelGUI_V2:
                 if self._adh_fitting_completed:
                     self.status_var.set(
                         f"온도 변경 ({mu_visc_temp:.1f}→{T_calc_C:.1f}°C): "
-                        f"전단응력 곡선 이동 중 (피팅 파라미터 고정)...")
+                        f"μ_visc/A/A0 재계산 + 전단응력 곡선 이동 중 (피팅 파라미터 고정)...")
                 else:
                     self.status_var.set(
-                        f"계산 온도 변경 감지 ({mu_visc_temp:.1f}→{T_calc_C:.1f}°C): μ_visc 재계산 중...")
+                        f"계산 온도 변경 감지 ({mu_visc_temp:.1f}→{T_calc_C:.1f}°C): μ_visc/A/A0 재계산 중...")
                 self.root.update()
+
+                # Clear stale mu_visc results before recalculation
+                self.mu_visc_results = None
 
                 # Sync the temperature to mu_visc tab
                 self.mu_calc_temp_var.set(str(T_calc_C))
@@ -15754,6 +15769,13 @@ class PerssonModelGUI_V2:
                     self._calculate_mu_visc()
                 except Exception as e_mu:
                     print(f"μ_visc recalculation error: {e_mu}")
+
+                # Update A/A0 status display
+                if self.mu_visc_results is not None and 'P_qmax' in self.mu_visc_results:
+                    P_qmax = self.mu_visc_results['P_qmax']
+                    self.adh_area_status_var.set(
+                        f"A/A0: {np.min(P_qmax):.4f} ~ {np.max(P_qmax):.4f} "
+                        f"({len(self.mu_visc_results['v'])}점, T={T_calc_C:.1f}°C)")
 
                 self.status_var.set("μ_adh 계산 계속...")
                 self.root.update()
@@ -15930,7 +15952,14 @@ class PerssonModelGUI_V2:
             traceback.print_exc()
 
     def _update_mu_adh_plots(self):
-        """Update μ_adh plots with calculated results."""
+        """Update μ_adh plots with calculated results.
+
+        Layout:
+        - Plot 1 (221): τ_f (shear stress) + A/A0 dual y-axis vs velocity
+        - Plot 2 (222): μ_adh vs velocity
+        - Plot 3 (223): μ_total = μ_visc + μ_adh vs velocity
+        - Plot 4 (224): aT comparison (master curve aT vs adhesion Arrhenius aT')
+        """
         if self.mu_adh_results is None:
             return
 
@@ -15942,6 +15971,10 @@ class PerssonModelGUI_V2:
 
             # Clear all subplots
             self.ax_adh_tau.clear()
+            # Remove old twin axes if any
+            if hasattr(self, '_ax_adh_tau_twin') and self._ax_adh_tau_twin is not None:
+                self._ax_adh_tau_twin.remove()
+                self._ax_adh_tau_twin = None
             self.ax_adh_mu.clear()
             self.ax_adh_total.clear()
             self.ax_adh_area.clear()
@@ -15951,15 +15984,33 @@ class PerssonModelGUI_V2:
                     return f'{val:.2e}'
                 return f'{val:.4f}'
 
-            # ── Plot 1: τ_f (shear stress) vs velocity ──
-            self.ax_adh_tau.semilogx(v, tau_f / 1e6, 'r-', linewidth=2, marker='o', markersize=3)
+            # ── Plot 1: τ_f (shear stress) + A/A0 dual y-axis vs velocity ──
+            line_tau = self.ax_adh_tau.semilogx(v, tau_f / 1e6, 'r-', linewidth=2,
+                                                 marker='o', markersize=3, label='τ_f')
             peak_tau_idx = np.argmax(tau_f)
             self.ax_adh_tau.plot(v[peak_tau_idx], tau_f[peak_tau_idx] / 1e6, 'r*', markersize=12,
-                                label=f'최대: {tau_f[peak_tau_idx]/1e6:.3f} MPa @ v={v[peak_tau_idx]:.4f}')
-            self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v)', fontweight='bold', fontsize=11)
+                                label=f'최대: {tau_f[peak_tau_idx]/1e6:.3f} MPa')
+            self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v) + A/A0', fontweight='bold', fontsize=11)
             self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=11)
-            self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=11)
-            self.ax_adh_tau.legend(loc='best', fontsize=8)
+            self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=11, color='r')
+            self.ax_adh_tau.tick_params(axis='y', labelcolor='r')
+
+            # A/A0 on secondary y-axis (same plot)
+            self._ax_adh_tau_twin = self.ax_adh_tau.twinx()
+            line_area = self._ax_adh_tau_twin.semilogx(v, A_ratio, 'b--', linewidth=1.5,
+                                                        marker='s', markersize=2, alpha=0.7,
+                                                        label='A/A0')
+            self._ax_adh_tau_twin.set_ylabel('A/A0 (실접촉 면적비)', fontsize=10, color='b')
+            self._ax_adh_tau_twin.tick_params(axis='y', labelcolor='b')
+            y_max_area = np.max(A_ratio) * 1.3
+            if not np.isfinite(y_max_area) or y_max_area <= 0:
+                y_max_area = 0.1
+            self._ax_adh_tau_twin.set_ylim(0, y_max_area)
+
+            # Combined legend
+            lines = line_tau + line_area
+            labels = [l.get_label() for l in lines]
+            self.ax_adh_tau.legend(lines, labels, loc='best', fontsize=7)
             self.ax_adh_tau.grid(True, alpha=0.3)
 
             # ── Plot 2: μ_adh vs velocity ──
@@ -16020,19 +16071,61 @@ class PerssonModelGUI_V2:
             self.ax_adh_total.legend(loc='best', fontsize=8)
             self.ax_adh_total.grid(True, alpha=0.3)
 
-            # ── Plot 4: A/A0 from μ_visc ──
-            self.ax_adh_area.semilogx(v, A_ratio, 'b-', linewidth=2, marker='s', markersize=3)
-            self.ax_adh_area.set_title('실접촉 면적비 A/A0', fontweight='bold', fontsize=11)
-            self.ax_adh_area.set_xlabel('속도 v (m/s)', fontsize=11)
-            self.ax_adh_area.set_ylabel('A/A0', fontsize=11)
-            self.ax_adh_area.grid(True, alpha=0.3)
-            y_max = np.max(A_ratio) * 1.2
-            if not np.isfinite(y_max) or y_max <= 0:
-                y_max = 0.1
-            self.ax_adh_area.set_ylim(0, y_max)
+            # ── Plot 4: aT comparison (master curve aT vs adhesion Arrhenius aT') ──
+            params = self.mu_adh_results.get('params', {})
+            epsilon = params.get('epsilon', 0.97)
+            T_ref_K = params.get('T_ref', 293.15)
+            T_calc_K = params.get('T', 293.15)
+            T_calc_C = T_calc_K - 273.15
+            k_B = 8.6173e-5
 
-            self.fig_mu_adh.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08,
-                                             hspace=0.50, wspace=0.38)
+            # Plot master curve aT if data available
+            has_mc_aT = (hasattr(self, 'persson_aT_data') and self.persson_aT_data is not None)
+            if has_mc_aT:
+                mc_T = self.persson_aT_data['T']
+                mc_log_aT = self.persson_aT_data['log_aT']
+                T_ref_mc_C = self.persson_aT_data.get('T_ref', 20.0)
+                self.ax_adh_area.plot(mc_T, mc_log_aT, 'b-', linewidth=2,
+                                      marker='o', markersize=3,
+                                      label=f'마스터 커브 aT (Tref={T_ref_mc_C:.0f}°C)')
+
+            # Plot adhesion Arrhenius aT' over temperature range
+            T_ref_C = T_ref_K - 273.15
+            if has_mc_aT:
+                T_range_C = np.linspace(min(mc_T.min(), T_ref_C - 50),
+                                         max(mc_T.max(), T_ref_C + 50), 100)
+            else:
+                T_range_C = np.linspace(T_ref_C - 80, T_ref_C + 80, 100)
+            T_range_K = T_range_C + 273.15
+            aT_adh = np.exp((epsilon / k_B) * (1.0 / T_range_K - 1.0 / T_ref_K))
+            log_aT_adh = np.log10(aT_adh)
+            self.ax_adh_area.plot(T_range_C, log_aT_adh, 'r--', linewidth=2,
+                                  label=f'전단응력 aT\' (Arrhenius, ε={epsilon:.2f}eV)')
+
+            # Mark current calculation temperature
+            aT_prime_current = self.mu_adh_results.get('aT_prime', 1.0)
+            log_aT_current = np.log10(aT_prime_current) if aT_prime_current > 0 else 0
+            self.ax_adh_area.plot(T_calc_C, log_aT_current, 'r*', markersize=15, zorder=10,
+                                  label=f'현재 T={T_calc_C:.1f}°C (aT\'={aT_prime_current:.2e})')
+
+            # Mark master curve aT at current temperature if available
+            if has_mc_aT and hasattr(self, 'persson_aT_interp') and self.persson_aT_interp is not None:
+                try:
+                    mc_log_aT_at_T = float(self.persson_aT_interp(T_calc_C))
+                    self.ax_adh_area.plot(T_calc_C, mc_log_aT_at_T, 'b*', markersize=15, zorder=10,
+                                          label=f'마스터 aT={10**mc_log_aT_at_T:.2e}')
+                except Exception:
+                    pass
+
+            self.ax_adh_area.set_title('이동 인자 aT 비교', fontweight='bold', fontsize=11)
+            self.ax_adh_area.set_xlabel('온도 T (°C)', fontsize=11)
+            self.ax_adh_area.set_ylabel('log₁₀(aT)', fontsize=11)
+            self.ax_adh_area.legend(loc='best', fontsize=7)
+            self.ax_adh_area.grid(True, alpha=0.3)
+            self.ax_adh_area.axhline(y=0, color='gray', linestyle=':', alpha=0.5)
+
+            self.fig_mu_adh.subplots_adjust(left=0.10, right=0.90, top=0.96, bottom=0.08,
+                                             hspace=0.50, wspace=0.45)
             self.canvas_mu_adh.draw()
 
         except Exception as e:
@@ -16440,6 +16533,13 @@ class PerssonModelGUI_V2:
 
             self.fit_status_var.set(f"피팅 완료: R²={r_squared:.4f}, RMSE={rmse:.2e}")
 
+            # ── Immediately apply fitted parameters to UI fields ──
+            # These are fitting parameters, not fixed constants. The UI should
+            # always reflect the latest fitted values.
+            self.adh_tau_f0_var.set(f"{opt_tau_f0/1e6:.4f}")
+            self.adh_v0_star_var.set(f"{opt_v0_star:.6e}")
+            self.adh_c_var.set(f"{opt_c:.6f}")
+
             # Recalculate and update plots with fitted parameters
             self._calculate_mu_adh_with_params(opt_tau_f0, opt_v0_star, opt_c)
 
@@ -16584,6 +16684,8 @@ class PerssonModelGUI_V2:
         - Clears all fit results
         - Re-enables fitting controls
         - Resets parameter fields to defaults
+        - Also clears previously loaded μ_visc and A/A0 data so they are
+          recalculated fresh for the next fitting round.
         """
         # Clear fitting state
         self._adh_fitting_completed = False
@@ -16613,15 +16715,24 @@ class PerssonModelGUI_V2:
         # Clear stored μ_adh results
         self.mu_adh_results = None
 
-        # Clear plots
+        # ── Also reset μ_visc results so stale data doesn't persist ──
+        self.mu_visc_results = None
+        self.adh_area_status_var.set("A/A0: μ_visc 결과 대기 중 (초기화됨)")
+        self.adh_sync_status_var.set("(μ_visc 재계산 필요)")
+
+        # Clear plots (including twin axis)
         self.ax_adh_tau.clear()
+        if hasattr(self, '_ax_adh_tau_twin') and self._ax_adh_tau_twin is not None:
+            self._ax_adh_tau_twin.remove()
+            self._ax_adh_tau_twin = None
         self.ax_adh_mu.clear()
         self.ax_adh_total.clear()
         self.ax_adh_area.clear()
-        for ax in [self.ax_adh_tau, self.ax_adh_mu, self.ax_adh_total, self.ax_adh_area]:
+        for ax in [self.ax_adh_tau, self.ax_adh_mu, self.ax_adh_total]:
             ax.set_xscale('log')
             ax.grid(True, alpha=0.3)
-        self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v)', fontweight='bold', fontsize=11)
+        self.ax_adh_area.grid(True, alpha=0.3)  # aT plot uses linear x-axis
+        self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v) + A/A0', fontweight='bold', fontsize=11)
         self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=11)
         self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=11)
         self.ax_adh_mu.set_title('μ_adh(v) 곡선', fontweight='bold', fontsize=11)
@@ -16630,20 +16741,21 @@ class PerssonModelGUI_V2:
         self.ax_adh_total.set_title('μ_total = μ_visc + μ_adh', fontweight='bold', fontsize=11)
         self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=11)
         self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=11)
-        self.ax_adh_area.set_title('실접촉 면적비 A/A0 (μ_visc)', fontweight='bold', fontsize=11)
-        self.ax_adh_area.set_xlabel('속도 v (m/s)', fontsize=11)
-        self.ax_adh_area.set_ylabel('A/A0', fontsize=11)
+        self.ax_adh_area.set_title('이동 인자 aT 비교', fontweight='bold', fontsize=11)
+        self.ax_adh_area.set_xlabel('온도 T (°C)', fontsize=11)
+        self.ax_adh_area.set_ylabel('log₁₀(aT)', fontsize=11)
         self.canvas_mu_adh.draw_idle()
 
         # Clear result text
         self.adh_result_text.delete(1.0, tk.END)
 
         # Update status
-        self.fit_status_var.set("피팅 초기화 완료 — 실측 데이터 입력 후 피팅 실행")
+        self.fit_status_var.set("피팅 초기화 완료 — μ_visc 재계산 후 피팅 실행")
 
         self._show_status(
             "μ_adh 피팅이 초기화되었습니다.\n"
-            "처음부터 피팅을 다시 시작할 수 있습니다.", 'success')
+            "기존 μ_visc / A/A0 데이터도 함께 초기화되었습니다.\n"
+            "μ_visc를 재계산한 후 피팅을 다시 시작하세요.", 'success')
 
 
     # ================================================================
