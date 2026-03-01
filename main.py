@@ -335,13 +335,20 @@ class PerssonModelGUI_V2:
         # Figure는 __init__ 중에 figsize 기준으로 tight_layout이 호출되지만,
         # 이 시점에서는 실제 위젯 크기를 모르므로 서브플롯 배치가 어긋남.
         # 윈도우가 화면에 표시된 후 한 번 더 recalc하면 정상 배치됨.
-        self.root.after(200, self._initial_layout_refresh)
+        self.root.after(300, self._initial_layout_refresh)
 
     def _initial_layout_refresh(self):
         """창이 화면에 표시된 후 모든 Figure의 레이아웃을 재계산."""
+        # 위젯 geometry 확정
+        self.root.update_idletasks()
         for fig, canvas in self._get_all_figures_and_canvases():
             try:
-                fig.tight_layout()
+                widget = canvas.get_tk_widget()
+                w = widget.winfo_width()
+                h = widget.winfo_height()
+                if w > 1 and h > 1:
+                    fig.set_size_inches(w / fig.dpi, h / fig.dpi,
+                                        forward=False)
             except Exception:
                 pass
             try:
@@ -707,7 +714,8 @@ class PerssonModelGUI_V2:
 
             def _stabilize():
                 self._tab_switch_after_id = None
-                # Redraw only the visible canvas (no size manipulation)
+                # 위젯 geometry 확정 후 Figure 크기를 위젯에 맞춤
+                self.root.update_idletasks()
                 for canvas_attr in ('canvas_psd_profile', 'canvas_mc',
                                     'canvas_calc_progress', 'canvas_results',
                                     'canvas_rms', 'canvas_mu_visc',
@@ -718,11 +726,18 @@ class PerssonModelGUI_V2:
                         try:
                             widget = canvas.get_tk_widget()
                             if widget.winfo_ismapped():
+                                w = widget.winfo_width()
+                                h = widget.winfo_height()
+                                if w > 1 and h > 1:
+                                    fig = canvas.figure
+                                    fig.set_size_inches(w / fig.dpi,
+                                                        h / fig.dpi,
+                                                        forward=False)
                                 canvas.draw_idle()
                         except Exception:
                             pass
 
-            self._tab_switch_after_id = self.root.after(80, _stabilize)
+            self._tab_switch_after_id = self.root.after(100, _stabilize)
 
         self.notebook.bind('<<NotebookTabChanged>>', _on_tab_changed)
 
@@ -804,6 +819,16 @@ class PerssonModelGUI_V2:
                 if legend:
                     for text in legend.get_texts():
                         text.set_fontsize(max(7, round(self.PLOT_FONTS['legend'] * scale)))
+            # Figure 크기를 위젯 실제 크기에 맞춤 (숨겨진 탭 제외)
+            try:
+                widget = canvas.get_tk_widget()
+                w = widget.winfo_width()
+                h = widget.winfo_height()
+                if w > 1 and h > 1:
+                    fig.set_size_inches(w / fig.dpi, h / fig.dpi,
+                                        forward=False)
+            except Exception:
+                pass
             try:
                 fig.tight_layout()
             except Exception:
@@ -1033,7 +1058,7 @@ class PerssonModelGUI_V2:
         setattr(self, fig_attr, fig)
 
         canvas = FigureCanvasTkAgg(fig, master=plot_wrapper)
-        canvas.draw()
+        canvas.draw_idle()          # draw_idle: 위젯 크기 확정 전 즉시 렌더 방지
         setattr(self, canvas_attr, canvas)
 
         if with_toolbar:
@@ -2665,7 +2690,7 @@ class PerssonModelGUI_V2:
         self.fig_mc.tight_layout()
 
         self.canvas_mc = FigureCanvasTkAgg(self.fig_mc, plot_frame)
-        self.canvas_mc.draw()
+        self.canvas_mc.draw_idle()
         self.canvas_mc.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         toolbar = NavigationToolbar2Tk(self.canvas_mc, plot_frame)
@@ -8759,7 +8784,7 @@ class PerssonModelGUI_V2:
         self.fig_mu_visc.subplots_adjust(left=0.12, right=0.90, top=0.96, bottom=0.08, hspace=0.50, wspace=0.38)
 
         self.canvas_mu_visc = FigureCanvasTkAgg(self.fig_mu_visc, plot_frame)
-        self.canvas_mu_visc.draw()
+        self.canvas_mu_visc.draw_idle()
         self.canvas_mu_visc.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         toolbar = NavigationToolbar2Tk(self.canvas_mu_visc, plot_frame)
@@ -12214,7 +12239,7 @@ class PerssonModelGUI_V2:
         self.ax_contact_nonlinear = self.fig_strain_map.add_subplot(3, 4, 12)
 
         self.canvas_strain_map = FigureCanvasTkAgg(self.fig_strain_map, plot_frame)
-        self.canvas_strain_map.draw()
+        self.canvas_strain_map.draw_idle()
         self.canvas_strain_map.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         toolbar = NavigationToolbar2Tk(self.canvas_strain_map, plot_frame)
@@ -13162,7 +13187,7 @@ class PerssonModelGUI_V2:
         self.fig_integrand.subplots_adjust(left=0.10, right=0.95, top=0.96, bottom=0.06, hspace=0.45, wspace=0.35)
 
         self.canvas_integrand = FigureCanvasTkAgg(self.fig_integrand, plot_frame)
-        self.canvas_integrand.draw()
+        self.canvas_integrand.draw_idle()
         self.canvas_integrand.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         toolbar = NavigationToolbar2Tk(self.canvas_integrand, plot_frame)
@@ -15227,7 +15252,7 @@ class PerssonModelGUI_V2:
         self.fig_ve_advisor.subplots_adjust(left=0.08, right=0.97, top=0.96, bottom=0.06, hspace=0.45)
 
         self.canvas_ve_advisor = FigureCanvasTkAgg(self.fig_ve_advisor, plot_frame)
-        self.canvas_ve_advisor.draw()
+        self.canvas_ve_advisor.draw_idle()
         self.canvas_ve_advisor.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         toolbar = NavigationToolbar2Tk(self.canvas_ve_advisor, plot_frame)
