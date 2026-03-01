@@ -1481,8 +1481,8 @@ class PerssonModelGUI_V2:
         self.ax_psd_2d.set_yscale('log')
         self.ax_psd_2d.grid(True, alpha=0.3, which='both')
 
-        fig.subplots_adjust(left=0.10, right=0.96, top=0.96, bottom=0.08,
-                            hspace=0.38, wspace=0.30)
+        fig.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08,
+                            hspace=0.50, wspace=0.35)
 
     def _load_profile_data(self):
         """Load surface profile data from file."""
@@ -12287,7 +12287,7 @@ class PerssonModelGUI_V2:
                    ha='center', va='center', transform=ax.transAxes,
                    fontsize=10, color='gray')
 
-        self.fig_strain_map.subplots_adjust(left=0.08, right=0.95, top=0.96, bottom=0.06, hspace=0.50, wspace=0.32)
+        self.fig_strain_map.subplots_adjust(left=0.08, right=0.95, top=0.96, bottom=0.06, hspace=0.45, wspace=0.30)
         self.canvas_strain_map.draw()
 
     def _calculate_strain_map(self):
@@ -13184,7 +13184,7 @@ class PerssonModelGUI_V2:
         self.ax_freq_range.set_box_aspect(1)
         self.ax_freq_range.grid(True, alpha=0.3)
 
-        self.fig_integrand.subplots_adjust(left=0.10, right=0.95, top=0.96, bottom=0.06, hspace=0.45, wspace=0.35)
+        self.fig_integrand.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08, hspace=0.55, wspace=0.40)
 
         self.canvas_integrand = FigureCanvasTkAgg(self.fig_integrand, plot_frame)
         self.canvas_integrand.draw_idle()
