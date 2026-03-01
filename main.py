@@ -288,6 +288,7 @@ class PerssonModelGUI_V2:
         self.f_interpolator = None  # f(strain) function
         self.g_interpolator = None  # g(strain) function
         self.mu_visc_results = None  # mu_visc calculation results
+        self.mu_adh_results = None   # mu_adh (adhesion friction) calculation results
         self.G_matrix_linear = None  # Linear G(q,v) before nonlinear correction (for strain map)
 
         # h'rms / Local Strain related variables
@@ -682,6 +683,7 @@ class PerssonModelGUI_V2:
             ('tab_parameters',      '계산 설정',           self._create_parameters_tab),
             ('tab_rms_slope',       "h'rms / strain 계산", self._create_rms_slope_tab),
             ('tab_mu_visc',         'μ_visc 계산',        self._create_mu_visc_tab),
+            ('tab_mu_adh',          'μ_adh 계산',         self._create_mu_adh_tab),
             ('tab_ve_advisor',      '점탄성 설계',        self._create_ve_advisor_tab),
             ('tab_strain_map',      'Strain Map',         self._create_strain_map_tab),
             ('tab_results',         '계산 과정',           self._create_results_tab),
@@ -719,6 +721,7 @@ class PerssonModelGUI_V2:
                 for canvas_attr in ('canvas_psd_profile', 'canvas_mc',
                                     'canvas_calc_progress', 'canvas_results',
                                     'canvas_rms', 'canvas_mu_visc',
+                                    'canvas_mu_adh',
                                     'canvas_integrand', 'canvas_strain_map',
                                     'canvas_ve_advisor'):
                     canvas = getattr(self, canvas_attr, None)
@@ -741,11 +744,13 @@ class PerssonModelGUI_V2:
 
         self.notebook.bind('<<NotebookTabChanged>>', _on_tab_changed)
 
-        # Ctrl+Enter shortcut: trigger mu_visc 계산 when on the mu_visc tab
+        # Ctrl+Enter shortcut: trigger calculation on mu_visc or mu_adh tab
         def _on_ctrl_enter(event):
             current_tab = self.notebook.index(self.notebook.select())
             if current_tab == 5:  # tab_mu_visc (μ_visc 계산)
                 self._calculate_mu_visc()
+            elif current_tab == 6:  # tab_mu_adh (μ_adh 계산)
+                self._calculate_mu_adh()
         self.root.bind('<Control-Return>', _on_ctrl_enter)
 
         # Initialize debug log storage
@@ -849,6 +854,8 @@ class PerssonModelGUI_V2:
                                 hspace=0.50, wspace=0.38),
         'fig_mu_visc':     dict(left=0.12, right=0.90, top=0.96, bottom=0.08,
                                 hspace=0.50, wspace=0.38),
+        'fig_mu_adh':      dict(left=0.12, right=0.95, top=0.96, bottom=0.08,
+                                hspace=0.50, wspace=0.38),
         'fig_strain_map':  dict(left=0.08, right=0.95, top=0.96, bottom=0.06,
                                 hspace=0.45, wspace=0.30),
         'fig_integrand':   dict(left=0.12, right=0.95, top=0.96, bottom=0.08,
@@ -864,6 +871,7 @@ class PerssonModelGUI_V2:
         ('fig_results', 'canvas_results'),
         ('fig_rms', 'canvas_rms'),
         ('fig_mu_visc', 'canvas_mu_visc'),
+        ('fig_mu_adh', 'canvas_mu_adh'),
         ('fig_strain_map', 'canvas_strain_map'),
         ('fig_integrand', 'canvas_integrand'),
         ('fig_ve_advisor', 'canvas_ve_advisor'),
@@ -6681,29 +6689,36 @@ class PerssonModelGUI_V2:
         add('  • 속도-마찰계수 곡선 (μ vs v) 출력', 'indent')
         add('')
 
-        add('탭 7: 점탄성 설계', 'section')
+        add('탭 7: μ_adh 계산', 'section')
+        add('점착 마찰 계수를 계산합니다 (Arrhenius 모델).')
+        add('  • μ_visc의 A/A0 결과를 연계하여 점착 마찰 산출', 'indent')
+        add('  • 아레니우스 온도 시프트 + 가우시안 전단 응력 마스터 커브', 'indent')
+        add('  • μ_total = μ_visc + μ_adh 합산 표시', 'indent')
+        add('')
+
+        add('탭 8: 점탄성 설계', 'section')
         add('재료 설계 가이드라인을 제공합니다.')
         add('  • 주파수 감도 분석 W(f)', 'indent')
         add('  • 마찰 기여 주파수 대역 식별', 'indent')
         add('')
 
-        add('탭 8: Strain Map', 'section')
+        add('탭 9: Strain Map', 'section')
         add('파수-속도 평면에서의 strain 분포를 히트맵으로 시각화합니다.')
         add('')
 
-        add('탭 9: 피적분함수', 'section')
+        add('탭 10: 피적분함수', 'section')
         add('G(q) 및 μ_visc 적분의 피적분함수(integrand)를 시각화하여 어떤 파수 대역이 계산에 가장 큰 기여를 하는지 분석합니다.')
         add('')
 
-        add('탭 10-11: 수식 정리 / 변수 관계', 'section')
+        add('탭 11-12: 수식 정리 / 변수 관계', 'section')
         add('이론 수식과 변수 관계를 참조할 수 있는 레퍼런스 탭입니다.')
         add('')
 
-        add('탭 12: 디버그', 'section')
+        add('탭 13: 디버그', 'section')
         add('계산 중간값과 진단 정보를 확인할 수 있습니다.')
         add('')
 
-        add('탭 13: 영향 인자', 'section')
+        add('탭 14: 영향 인자', 'section')
         add('마찰 계수에 영향을 미치는 주요 인자들의 감도 분석입니다.')
         add('')
 
@@ -6715,7 +6730,7 @@ class PerssonModelGUI_V2:
         add('  • 각 탭 상단의 도구 모음에서 주요 동작 버튼을 사용하세요', 'indent')
         add('')
 
-        add('※ 계산 순서: 탭 1~3 → 탭 4 (G 계산) → 탭 5 (h\'rms) → 탭 6 (μ_visc)', 'note')
+        add('※ 계산 순서: 탭 1~3 → 탭 4 (G 계산) → 탭 5 (h\'rms) → 탭 6 (μ_visc) → 탭 7 (μ_adh)', 'note')
 
         text_widget.config(state='disabled')
 
@@ -7787,6 +7802,34 @@ class PerssonModelGUI_V2:
             ax.axhline(y=0.5, color='gray', linestyle=':', alpha=0.5)
             ax.annotate(r'$\gamma$ = 0.5 (최솟값)', xy=(0.05, 0.52), fontsize=11, color='#059669')
         add_graph(_plot_S_correction)
+
+        add_separator()
+
+        # ── μ_adh ──
+        add_text('D. 점착 마찰 계수 μ_adh:', bold=True, pady=(6, 0))
+        add_text('  표면 분자 점착에 의한 마찰 (Arrhenius 온도 시프트 + 가우시안 마스터 커브)', font_size=17, fg='#64748B')
+
+        add_text('Step 1. 아레니우스 점착 이동 계수:', font_size=17, bold=True, fg='#1E293B')
+        add_equation(
+            r"$a'_T = \exp\!\left[\frac{\epsilon}{k_B}\left(\frac{1}{T} - \frac{1}{T_{ref}}\right)\right]$",
+            fig_height=1.3)
+        add_text('  벌크 WLF와 달리, 표면 분자의 활성화 에너지(ε ≈ 0.94~1.0 eV)에 의한 Arrhenius 법칙', font_size=17, fg='#64748B')
+
+        add_text('Step 2. 온도 보정 유효 속도:', font_size=17, bold=True, fg='#1E293B')
+        add_equation(r"$v_{eff} = v \times a'_T$", fig_height=0.8)
+
+        add_text('Step 3. 유효 점착 전단 응력 (가우시안 마스터 커브):', font_size=17, bold=True, fg='#1E293B')
+        add_equation(
+            r"$\tau_f = \tau_{f0} \exp\!\left[-c\left(\log_{10}\frac{v_{eff}}{v_0^*}\right)^{\!2}\right]$",
+            fig_height=1.3)
+        add_text('  τ_f0: 최대 점착 전단 응력 (5~8 MPa), v₀*: 피크 속도, c: 가우시안 폭', font_size=17, fg='#64748B')
+
+        add_text('Step 4. 최종 점착 마찰 계수:', font_size=17, bold=True, fg='#1E293B')
+        add_equation(
+            r"$\mu_{adh} = \frac{\tau_f}{p_0} \times \frac{A}{A_0}$",
+            fig_height=1.0)
+        add_text('  A/A0는 μ_visc 계산에서 구한 실접촉 면적비 (q1에서의 P(q) 값)', font_size=17, fg='#64748B')
+        add_text('  최종 마찰 계수: μ_total = μ_visc + μ_adh', font_size=17, fg='#059669')
 
         # ═══════════════════════════════════════════════════════
         # Section 2: h_rms, h'_rms (RMS slope), Strain
@@ -15236,6 +15279,642 @@ class PerssonModelGUI_V2:
 
         except Exception as e:
             messagebox.showerror("오류", f"내장 f,g 곡선 추가 실패:\n{str(e)}")
+
+
+    # ================================================================
+    # ====  μ_adh (점착 마찰 계수) Tab  ====
+    # ================================================================
+
+    def _create_mu_adh_tab(self, parent):
+        """Create μ_adh (adhesion friction) calculation tab.
+
+        Calculates the adhesion friction coefficient based on:
+        - Arrhenius temperature shift for surface molecules
+        - Gaussian master curve for shear stress
+        - Real contact area ratio (A/A0) from μ_visc calculation
+        """
+        layout = self._create_tab_layout(parent, toolbar_buttons=[
+            ("μ_adh 계산", self._calculate_mu_adh, 'Accent.TButton'),
+        ])
+        left_panel = layout['content']
+
+        # ============== Left Panel: Controls ==============
+
+        # 1. Adhesion Material Parameters
+        mat_frame = self._create_section(left_panel, "1) 점착 물성 파라미터")
+
+        # tau_f0 - maximum adhesion shear stress
+        row_tau = ttk.Frame(mat_frame)
+        row_tau.pack(fill=tk.X, pady=1)
+        ttk.Label(row_tau, text="τ_f0:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.adh_tau_f0_var = tk.StringVar(value="6.5")
+        ttk.Entry(row_tau, textvariable=self.adh_tau_f0_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_tau, text="MPa  (최대 점착 전단 응력)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # v_0_star - reference velocity at peak shear stress
+        row_v0 = ttk.Frame(mat_frame)
+        row_v0.pack(fill=tk.X, pady=1)
+        ttk.Label(row_v0, text="v₀*:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.adh_v0_star_var = tk.StringVar(value="0.005")
+        ttk.Entry(row_v0, textvariable=self.adh_v0_star_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_v0, text="m/s  (기준 속도)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # c - Gaussian width constant
+        row_c = ttk.Frame(mat_frame)
+        row_c.pack(fill=tk.X, pady=1)
+        ttk.Label(row_c, text="c:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.adh_c_var = tk.StringVar(value="0.1")
+        ttk.Entry(row_c, textvariable=self.adh_c_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_c, text="(가우시안 폭 상수)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # epsilon - activation energy
+        row_eps = ttk.Frame(mat_frame)
+        row_eps.pack(fill=tk.X, pady=1)
+        ttk.Label(row_eps, text="ε:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.adh_epsilon_var = tk.StringVar(value="0.97")
+        ttk.Entry(row_eps, textvariable=self.adh_epsilon_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_eps, text="eV  (활성화 에너지)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # T_ref - reference temperature
+        row_tref = ttk.Frame(mat_frame)
+        row_tref.pack(fill=tk.X, pady=1)
+        ttk.Label(row_tref, text="T_ref:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.adh_T_ref_var = tk.StringVar(value="293.15")
+        ttk.Entry(row_tref, textvariable=self.adh_T_ref_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_tref, text="K  (기준 온도)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # k_B - Boltzmann constant (display only)
+        row_kb = ttk.Frame(mat_frame)
+        row_kb.pack(fill=tk.X, pady=1)
+        ttk.Label(row_kb, text="k_B:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        ttk.Label(row_kb, text="8.6173 × 10⁻⁵ eV/K  (볼츠만 상수)",
+                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=2)
+
+        # 2. Operating Conditions
+        cond_frame = self._create_section(left_panel, "2) 계산 조건")
+
+        # Temperature (synced from mu_visc or manual)
+        temp_row_wrapper = tk.Frame(cond_frame, bg='#2563EB', padx=1, pady=1)
+        temp_row_wrapper.pack(fill=tk.X, pady=1)
+        temp_row = ttk.Frame(temp_row_wrapper)
+        temp_row.pack(fill=tk.X)
+        ttk.Label(temp_row, text="계산 온도:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.adh_calc_temp_var = tk.StringVar(value="20.0")
+        ttk.Entry(temp_row, textvariable=self.adh_calc_temp_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(temp_row, text="°C", font=self.FONTS['body']).pack(side=tk.LEFT)
+
+        # Nominal contact pressure p0
+        p0_row_wrapper = tk.Frame(cond_frame, bg='#DC2626', padx=1, pady=1)
+        p0_row_wrapper.pack(fill=tk.X, pady=1)
+        p0_row = ttk.Frame(p0_row_wrapper)
+        p0_row.pack(fill=tk.X)
+        ttk.Label(p0_row, text="하중 p₀:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.adh_p0_var = tk.StringVar(value="")
+        ttk.Entry(p0_row, textvariable=self.adh_p0_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(p0_row, text="MPa  (명목 접촉 압력)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # Sync buttons
+        sync_row = ttk.Frame(cond_frame)
+        sync_row.pack(fill=tk.X, pady=2)
+        ttk.Button(sync_row, text="μ_visc 조건 동기화",
+                   command=self._sync_adh_from_mu_visc, width=20).pack(side=tk.LEFT, padx=2)
+        self.adh_sync_status_var = tk.StringVar(value="(μ_visc 결과 필요)")
+        ttk.Label(sync_row, textvariable=self.adh_sync_status_var,
+                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=4)
+
+        # 3. A/A0 Source
+        area_frame = self._create_section(left_panel, "3) A/A0 입력 (실접촉 면적비)")
+
+        self.adh_area_source_var = tk.StringVar(value="from_mu_visc")
+        src_row1 = ttk.Frame(area_frame)
+        src_row1.pack(fill=tk.X, pady=1)
+        ttk.Radiobutton(src_row1, text="μ_visc 결과에서 가져오기",
+                        variable=self.adh_area_source_var, value="from_mu_visc").pack(side=tk.LEFT)
+
+        src_row2 = ttk.Frame(area_frame)
+        src_row2.pack(fill=tk.X, pady=1)
+        ttk.Radiobutton(src_row2, text="고정값 사용:",
+                        variable=self.adh_area_source_var, value="fixed").pack(side=tk.LEFT)
+        self.adh_fixed_area_var = tk.StringVar(value="0.05")
+        ttk.Entry(src_row2, textvariable=self.adh_fixed_area_var, width=8).pack(side=tk.LEFT, padx=2)
+
+        # A/A0 status display
+        self.adh_area_status_var = tk.StringVar(value="A/A0: μ_visc 결과 대기 중")
+        ttk.Label(area_frame, textvariable=self.adh_area_status_var,
+                  font=self.FONTS['body'], foreground='#2563EB').pack(anchor=tk.W, pady=2)
+
+        # 4. Calculate
+        calc_frame = self._create_section(left_panel, "4) μ_adh 계산")
+
+        calc_row = ttk.Frame(calc_frame)
+        calc_row.pack(fill=tk.X, pady=2)
+        self.adh_calc_button = ttk.Button(calc_row, text="μ_adh 계산",
+                                          command=self._calculate_mu_adh, width=15,
+                                          style='Accent.TButton')
+        self.adh_calc_button.pack(side=tk.LEFT, padx=2)
+
+        self.adh_progress_var = tk.IntVar()
+        self.adh_progress_bar = ttk.Progressbar(calc_row, variable=self.adh_progress_var,
+                                                 maximum=100, length=150)
+        self.adh_progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        # Show total friction option
+        self.adh_show_total_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(calc_frame, text="μ_total = μ_visc + μ_adh 표시",
+                        variable=self.adh_show_total_var).pack(anchor=tk.W, pady=1)
+
+        # 5. Results
+        result_frame = self._create_section(left_panel, "5) 결과")
+
+        self.adh_result_text = tk.Text(result_frame, height=10, font=self.FONTS['mono_small'], wrap=tk.WORD)
+        self.adh_result_text.pack(fill=tk.X)
+
+        # Export buttons
+        export_row = ttk.Frame(result_frame)
+        export_row.pack(fill=tk.X, pady=2)
+        ttk.Button(export_row, text="μ_adh CSV", command=self._export_mu_adh_csv, width=12).pack(side=tk.LEFT, padx=1)
+        ttk.Button(export_row, text="μ_total CSV", command=self._export_mu_total_csv, width=12).pack(side=tk.LEFT, padx=1)
+
+        # ============== Right Panel: Plots ==============
+        right_panel = layout['right']
+
+        plot_frame = ttk.LabelFrame(right_panel, text="그래프", padding=5)
+        plot_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Create figure with 2x2 subplots
+        self.fig_mu_adh = Figure(figsize=(9, 7), dpi=100)
+
+        # Top-left: τ_f (shear stress) vs velocity
+        self.ax_adh_tau = self.fig_mu_adh.add_subplot(221)
+        self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v)', fontweight='bold', fontsize=11)
+        self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=11)
+        self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=11)
+        self.ax_adh_tau.set_xscale('log')
+        self.ax_adh_tau.grid(True, alpha=0.3)
+
+        # Top-right: μ_adh vs velocity
+        self.ax_adh_mu = self.fig_mu_adh.add_subplot(222)
+        self.ax_adh_mu.set_title('μ_adh(v) 곡선', fontweight='bold', fontsize=11)
+        self.ax_adh_mu.set_xlabel('속도 v (m/s)', fontsize=11)
+        self.ax_adh_mu.set_ylabel('마찰 계수 μ_adh', fontsize=11)
+        self.ax_adh_mu.set_xscale('log')
+        self.ax_adh_mu.grid(True, alpha=0.3)
+
+        # Bottom-left: μ_total = μ_visc + μ_adh vs velocity
+        self.ax_adh_total = self.fig_mu_adh.add_subplot(223)
+        self.ax_adh_total.set_title('μ_total = μ_visc + μ_adh', fontweight='bold', fontsize=11)
+        self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=11)
+        self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=11)
+        self.ax_adh_total.set_xscale('log')
+        self.ax_adh_total.grid(True, alpha=0.3)
+
+        # Bottom-right: A/A0 from mu_visc (reference display)
+        self.ax_adh_area = self.fig_mu_adh.add_subplot(224)
+        self.ax_adh_area.set_title('실접촉 면적비 A/A0 (μ_visc)', fontweight='bold', fontsize=11)
+        self.ax_adh_area.set_xlabel('속도 v (m/s)', fontsize=11)
+        self.ax_adh_area.set_ylabel('A/A0', fontsize=11)
+        self.ax_adh_area.set_xscale('log')
+        self.ax_adh_area.grid(True, alpha=0.3)
+
+        self.fig_mu_adh.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08,
+                                         hspace=0.50, wspace=0.38)
+
+        self.canvas_mu_adh = FigureCanvasTkAgg(self.fig_mu_adh, plot_frame)
+        self.canvas_mu_adh.draw_idle()
+        self.canvas_mu_adh.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        toolbar = NavigationToolbar2Tk(self.canvas_mu_adh, plot_frame)
+        toolbar.update()
+
+        # Sync p0 from main sigma_0 if available
+        if hasattr(self, 'sigma_0_var'):
+            self.adh_p0_var.set(self.sigma_0_var.get())
+
+    def _sync_adh_from_mu_visc(self):
+        """Synchronize μ_adh conditions from μ_visc tab parameters."""
+        try:
+            # Sync temperature
+            if hasattr(self, 'mu_calc_temp_var'):
+                self.adh_calc_temp_var.set(self.mu_calc_temp_var.get())
+            elif hasattr(self, 'temperature_var'):
+                self.adh_calc_temp_var.set(self.temperature_var.get())
+
+            # Sync pressure
+            if hasattr(self, 'mu_sigma0_var') and self.mu_sigma0_var.get().strip():
+                self.adh_p0_var.set(self.mu_sigma0_var.get())
+            elif hasattr(self, 'sigma_0_var'):
+                self.adh_p0_var.set(self.sigma_0_var.get())
+
+            # Check A/A0 availability
+            if self.mu_visc_results is not None and 'P_qmax' in self.mu_visc_results:
+                P_qmax = self.mu_visc_results['P_qmax']
+                v = self.mu_visc_results['v']
+                self.adh_area_status_var.set(
+                    f"A/A0: {np.min(P_qmax):.4f} ~ {np.max(P_qmax):.4f} ({len(v)}점)")
+                self.adh_sync_status_var.set("동기화 완료")
+            else:
+                self.adh_area_status_var.set("A/A0: μ_visc 결과 없음")
+                self.adh_sync_status_var.set("A/A0 없음 - μ_visc 먼저 계산")
+
+            self._show_status("μ_visc 조건이 μ_adh 탭에 동기화되었습니다.", 'success')
+        except Exception as e:
+            self._show_status(f"동기화 실패: {str(e)}", 'warning')
+
+    def _calculate_mu_adh(self):
+        """Calculate adhesion friction coefficient μ_adh.
+
+        Algorithm (4 steps):
+        Step 1: Arrhenius adhesion shift factor aT'
+                aT' = exp[(ε / k_B) × (1/T - 1/T_ref)]
+        Step 2: Temperature-corrected effective velocity
+                v_eff = v × aT'
+        Step 3: Effective adhesion shear stress (Gaussian master curve)
+                τ_f = τ_f0 × exp[-c × (log10(v_eff / v₀*))²]
+        Step 4: Adhesion friction coefficient
+                μ_adh = (τ_f / p₀) × A_ratio
+        """
+        try:
+            self.adh_calc_button.config(state='disabled')
+            self.adh_progress_var.set(0)
+            self.status_var.set("μ_adh 계산 중...")
+            self.root.update()
+
+            # ── Read parameters ──
+            tau_f0 = float(self.adh_tau_f0_var.get()) * 1e6     # MPa → Pa
+            v0_star = float(self.adh_v0_star_var.get())          # m/s
+            c = float(self.adh_c_var.get())                      # dimensionless
+            epsilon = float(self.adh_epsilon_var.get())           # eV
+            T_ref = float(self.adh_T_ref_var.get())              # K
+            k_B = 8.6173e-5                                      # eV/K (Boltzmann)
+
+            T_calc_C = float(self.adh_calc_temp_var.get())       # °C
+            T = T_calc_C + 273.15                                # K
+
+            p0_str = self.adh_p0_var.get().strip()
+            if not p0_str:
+                # Try to sync from sigma_0_var
+                if hasattr(self, 'sigma_0_var'):
+                    p0_str = self.sigma_0_var.get()
+                    self.adh_p0_var.set(p0_str)
+            p0 = float(p0_str) * 1e6                            # MPa → Pa
+
+            if p0 <= 0:
+                self._show_status("p₀(명목 접촉 압력)는 양수여야 합니다.", 'warning')
+                self.adh_calc_button.config(state='normal')
+                return
+
+            # ── Determine velocity array and A/A0 ──
+            area_source = self.adh_area_source_var.get()
+
+            if area_source == "from_mu_visc":
+                if self.mu_visc_results is None or 'P_qmax' not in self.mu_visc_results:
+                    self._show_status(
+                        "μ_visc 결과가 없습니다.\n\n"
+                        "먼저 μ_visc 탭에서 계산을 실행하거나,\n"
+                        "'고정값 사용' 옵션을 선택하세요.", 'warning')
+                    self.adh_calc_button.config(state='normal')
+                    return
+                v_array = self.mu_visc_results['v']
+                A_ratio = self.mu_visc_results['P_qmax']
+            else:
+                # Fixed A/A0 value
+                fixed_area = float(self.adh_fixed_area_var.get())
+                fixed_area = np.clip(fixed_area, 0.0, 1.0)
+                if self.mu_visc_results is not None and 'v' in self.mu_visc_results:
+                    v_array = self.mu_visc_results['v']
+                elif hasattr(self, 'results') and self.results and '2d_results' in self.results:
+                    v_array = self.results['2d_results']['v']
+                else:
+                    # Generate default velocity range
+                    v_array = np.logspace(-4, 1, 50)
+                A_ratio = np.full(len(v_array), fixed_area)
+
+            n_v = len(v_array)
+
+            self.adh_progress_var.set(10)
+            self.root.update()
+
+            # ── Step 1: Arrhenius adhesion shift factor aT' ──
+            # aT' = exp[(ε / k_B) × (1/T - 1/T_ref)]
+            aT_prime = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
+
+            self.adh_progress_var.set(25)
+            self.root.update()
+
+            # ── Step 2: Temperature-corrected effective velocity ──
+            # v_eff = v × aT'
+            v_eff = v_array * aT_prime
+
+            self.adh_progress_var.set(40)
+            self.root.update()
+
+            # ── Step 3: Effective adhesion shear stress (Gaussian) ──
+            # τ_f = τ_f0 × exp[-c × (log10(v_eff / v₀*))²]
+            log_ratio = np.log10(v_eff / v0_star)
+            tau_f = tau_f0 * np.exp(-c * log_ratio**2)
+
+            self.adh_progress_var.set(60)
+            self.root.update()
+
+            # ── Step 4: Adhesion friction coefficient ──
+            # μ_adh = (τ_f / p₀) × A_ratio
+            mu_adh = (tau_f / p0) * A_ratio
+
+            self.adh_progress_var.set(80)
+            self.root.update()
+
+            # ── Store results ──
+            self.mu_adh_results = {
+                'v': v_array,
+                'mu_adh': mu_adh,
+                'tau_f': tau_f,            # Pa
+                'A_ratio': A_ratio,
+                'aT_prime': aT_prime,
+                'v_eff': v_eff,
+                'params': {
+                    'tau_f0': tau_f0,       # Pa
+                    'v0_star': v0_star,
+                    'c': c,
+                    'epsilon': epsilon,
+                    'T_ref': T_ref,
+                    'T': T,
+                    'p0': p0,
+                    'area_source': area_source,
+                }
+            }
+
+            # ── Update plots ──
+            self._update_mu_adh_plots()
+
+            # ── Update result text ──
+            self.adh_result_text.delete(1.0, tk.END)
+            self.adh_result_text.insert(tk.END, "=" * 40 + "\n")
+            self.adh_result_text.insert(tk.END, "μ_adh 계산 결과 (점착 마찰)\n")
+            self.adh_result_text.insert(tk.END, "=" * 40 + "\n\n")
+
+            self.adh_result_text.insert(tk.END, "[파라미터]\n")
+            self.adh_result_text.insert(tk.END, f"  τ_f0 = {tau_f0/1e6:.2f} MPa\n")
+            self.adh_result_text.insert(tk.END, f"  v₀*  = {v0_star:.4f} m/s\n")
+            self.adh_result_text.insert(tk.END, f"  c    = {c:.4f}\n")
+            self.adh_result_text.insert(tk.END, f"  ε    = {epsilon:.4f} eV\n")
+            self.adh_result_text.insert(tk.END, f"  T_ref= {T_ref:.2f} K\n")
+            self.adh_result_text.insert(tk.END, f"  T    = {T:.2f} K ({T_calc_C:.1f}°C)\n")
+            self.adh_result_text.insert(tk.END, f"  p₀   = {p0/1e6:.3f} MPa\n")
+            self.adh_result_text.insert(tk.END, f"  k_B  = {k_B:.4e} eV/K\n\n")
+
+            self.adh_result_text.insert(tk.END, "[중간 계산값]\n")
+            self.adh_result_text.insert(tk.END, f"  aT' (Arrhenius) = {aT_prime:.6e}\n")
+            self.adh_result_text.insert(tk.END, f"    exp[(ε/k_B)×(1/T - 1/T_ref)]\n")
+            self.adh_result_text.insert(tk.END, f"    = exp[({epsilon}/{k_B:.4e})×({1/T:.6f} - {1/T_ref:.6f})]\n")
+            self.adh_result_text.insert(tk.END, f"  A/A0 출처: {'μ_visc 결과' if area_source == 'from_mu_visc' else '고정값'}\n")
+            self.adh_result_text.insert(tk.END, f"  A/A0 범위: {np.min(A_ratio):.6f} ~ {np.max(A_ratio):.6f}\n\n")
+
+            # Smart formatter
+            def smart_fmt(val):
+                if abs(val) < 0.001 and val != 0:
+                    return f'{val:.2e}'
+                return f'{val:.4f}'
+
+            self.adh_result_text.insert(tk.END, "[결과]\n")
+            mu_min, mu_max = np.min(mu_adh), np.max(mu_adh)
+            self.adh_result_text.insert(tk.END, f"  μ_adh 범위: {smart_fmt(mu_min)} ~ {smart_fmt(mu_max)}\n")
+
+            peak_idx = np.argmax(mu_adh)
+            peak_mu = mu_adh[peak_idx]
+            self.adh_result_text.insert(tk.END, f"  최대: μ_adh={smart_fmt(peak_mu)} @ v={v_array[peak_idx]:.4f} m/s\n")
+
+            # Total friction
+            if self.mu_visc_results is not None and 'mu' in self.mu_visc_results:
+                mu_visc = self.mu_visc_results['mu']
+                if len(mu_visc) == len(mu_adh):
+                    mu_total = mu_visc + mu_adh
+                    self.adh_result_text.insert(tk.END, f"\n[μ_total = μ_visc + μ_adh]\n")
+                    total_peak_idx = np.argmax(mu_total)
+                    self.adh_result_text.insert(tk.END, f"  범위: {smart_fmt(np.min(mu_total))} ~ {smart_fmt(np.max(mu_total))}\n")
+                    self.adh_result_text.insert(tk.END, f"  최대: μ_total={smart_fmt(mu_total[total_peak_idx])} @ v={v_array[total_peak_idx]:.4f} m/s\n")
+
+            self.adh_result_text.insert(tk.END, f"\n[속도별 μ_adh]\n")
+            step = max(1, n_v // 8)
+            for i in range(0, n_v, step):
+                self.adh_result_text.insert(tk.END,
+                    f"  v={v_array[i]:.2e}: τ_f={tau_f[i]/1e6:.4f}MPa, A/A0={A_ratio[i]:.4f}, μ_adh={smart_fmt(mu_adh[i])}\n")
+
+            self.adh_progress_var.set(100)
+            self.status_var.set("μ_adh 계산 완료")
+            self.adh_calc_button.config(state='normal')
+
+            self._show_status(
+                f"μ_adh 계산 완료\n"
+                f"범위: {smart_fmt(mu_min)} ~ {smart_fmt(mu_max)}\n"
+                f"최대: μ_adh={smart_fmt(peak_mu)} @ v={v_array[peak_idx]:.4f} m/s", 'success')
+
+            # Register graph data
+            self._register_graph_data(
+                "Adhesion_mu_adh_vs_v", v_array, mu_adh,
+                "v(m/s)\tmu_adh", "Adhesion friction coefficient vs velocity")
+            self._register_graph_data(
+                "Adhesion_tau_f_vs_v", v_array, tau_f / 1e6,
+                "v(m/s)\ttau_f(MPa)", "Adhesion shear stress vs velocity")
+
+        except ValueError as e:
+            self.adh_calc_button.config(state='normal')
+            self._show_status(f"입력값 오류: {str(e)}\n파라미터 값을 확인하세요.", 'warning')
+        except Exception as e:
+            self.adh_calc_button.config(state='normal')
+            messagebox.showerror("오류", f"μ_adh 계산 실패:\n{str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    def _update_mu_adh_plots(self):
+        """Update μ_adh plots with calculated results."""
+        if self.mu_adh_results is None:
+            return
+
+        try:
+            v = self.mu_adh_results['v']
+            mu_adh = self.mu_adh_results['mu_adh']
+            tau_f = self.mu_adh_results['tau_f']
+            A_ratio = self.mu_adh_results['A_ratio']
+
+            # Clear all subplots
+            self.ax_adh_tau.clear()
+            self.ax_adh_mu.clear()
+            self.ax_adh_total.clear()
+            self.ax_adh_area.clear()
+
+            def smart_fmt(val):
+                if abs(val) < 0.001 and val != 0:
+                    return f'{val:.2e}'
+                return f'{val:.4f}'
+
+            # ── Plot 1: τ_f (shear stress) vs velocity ──
+            self.ax_adh_tau.semilogx(v, tau_f / 1e6, 'r-', linewidth=2, marker='o', markersize=3)
+            peak_tau_idx = np.argmax(tau_f)
+            self.ax_adh_tau.plot(v[peak_tau_idx], tau_f[peak_tau_idx] / 1e6, 'r*', markersize=12,
+                                label=f'최대: {tau_f[peak_tau_idx]/1e6:.3f} MPa @ v={v[peak_tau_idx]:.4f}')
+            self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v)', fontweight='bold', fontsize=11)
+            self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=11)
+            self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=11)
+            self.ax_adh_tau.legend(loc='best', fontsize=8)
+            self.ax_adh_tau.grid(True, alpha=0.3)
+
+            # ── Plot 2: μ_adh vs velocity ──
+            self.ax_adh_mu.semilogx(v, mu_adh, 'g-', linewidth=2.5, marker='o', markersize=4)
+            peak_mu_idx = np.argmax(mu_adh)
+            self.ax_adh_mu.plot(v[peak_mu_idx], mu_adh[peak_mu_idx], 'r*', markersize=15,
+                                label=f'최대: μ={smart_fmt(mu_adh[peak_mu_idx])} @ v={v[peak_mu_idx]:.4f}')
+            self.ax_adh_mu.set_title('μ_adh(v) 곡선', fontweight='bold', fontsize=11)
+            self.ax_adh_mu.set_xlabel('속도 v (m/s)', fontsize=11)
+            self.ax_adh_mu.set_ylabel('마찰 계수 μ_adh', fontsize=11)
+            self.ax_adh_mu.legend(loc='best', fontsize=8)
+            self.ax_adh_mu.grid(True, alpha=0.3)
+
+            # ── Plot 3: μ_total = μ_visc + μ_adh ──
+            has_mu_visc = (self.mu_visc_results is not None and
+                           'mu' in self.mu_visc_results and
+                           len(self.mu_visc_results['mu']) == len(mu_adh))
+
+            if has_mu_visc and self.adh_show_total_var.get():
+                mu_visc = self.mu_visc_results['mu']
+                mu_total = mu_visc + mu_adh
+
+                self.ax_adh_total.semilogx(v, mu_total, 'k-', linewidth=2.5,
+                                            label='μ_total', zorder=10)
+                self.ax_adh_total.semilogx(v, mu_visc, 'b--', linewidth=1.5,
+                                            alpha=0.7, label='μ_visc')
+                self.ax_adh_total.semilogx(v, mu_adh, 'g--', linewidth=1.5,
+                                            alpha=0.7, label='μ_adh')
+
+                # Mark peak total
+                total_peak_idx = np.argmax(mu_total)
+                self.ax_adh_total.plot(v[total_peak_idx], mu_total[total_peak_idx], 'r*',
+                                        markersize=15,
+                                        label=f'최대: μ={smart_fmt(mu_total[total_peak_idx])}')
+
+                # Store total results
+                self.mu_adh_results['mu_total'] = mu_total
+
+                self._register_graph_data(
+                    "Total_mu_total_vs_v", v, mu_total,
+                    "v(m/s)\tmu_total", "Total friction (visc + adh) vs velocity")
+            else:
+                self.ax_adh_total.semilogx(v, mu_adh, 'g-', linewidth=2, label='μ_adh')
+                self.ax_adh_total.text(0.5, 0.95, 'μ_visc 결과 없음 - μ_adh만 표시',
+                                        ha='center', va='top', fontsize=9, color='#64748B',
+                                        transform=self.ax_adh_total.transAxes)
+
+            self.ax_adh_total.set_title('μ_total = μ_visc + μ_adh', fontweight='bold', fontsize=11)
+            self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=11)
+            self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=11)
+            self.ax_adh_total.legend(loc='best', fontsize=8)
+            self.ax_adh_total.grid(True, alpha=0.3)
+
+            # ── Plot 4: A/A0 from μ_visc ──
+            self.ax_adh_area.semilogx(v, A_ratio, 'b-', linewidth=2, marker='s', markersize=3)
+            self.ax_adh_area.set_title('실접촉 면적비 A/A0', fontweight='bold', fontsize=11)
+            self.ax_adh_area.set_xlabel('속도 v (m/s)', fontsize=11)
+            self.ax_adh_area.set_ylabel('A/A0', fontsize=11)
+            self.ax_adh_area.grid(True, alpha=0.3)
+            y_max = np.max(A_ratio) * 1.2
+            if not np.isfinite(y_max) or y_max <= 0:
+                y_max = 0.1
+            self.ax_adh_area.set_ylim(0, y_max)
+
+            self.fig_mu_adh.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08,
+                                             hspace=0.50, wspace=0.38)
+            self.canvas_mu_adh.draw()
+
+        except Exception as e:
+            print(f"μ_adh plot update error: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _export_mu_adh_csv(self):
+        """Export μ_adh calculation results to CSV."""
+        if self.mu_adh_results is None:
+            self._show_status("μ_adh 결과가 없습니다. 먼저 계산을 실행하세요.", 'warning')
+            return
+
+        filepath = filedialog.asksaveasfilename(
+            title="μ_adh 데이터 내보내기",
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv"), ("텍스트", "*.txt")],
+            initialfile="mu_adh_results.csv"
+        )
+        if not filepath:
+            return
+
+        try:
+            v = self.mu_adh_results['v']
+            mu_adh = self.mu_adh_results['mu_adh']
+            tau_f = self.mu_adh_results['tau_f']
+            A_ratio = self.mu_adh_results['A_ratio']
+            v_eff = self.mu_adh_results['v_eff']
+            params = self.mu_adh_results['params']
+
+            with open(filepath, 'w') as f:
+                f.write("# mu_adh (adhesion friction) results\n")
+                f.write(f"# tau_f0 = {params['tau_f0']/1e6:.2f} MPa\n")
+                f.write(f"# v0_star = {params['v0_star']:.4f} m/s\n")
+                f.write(f"# c = {params['c']:.4f}\n")
+                f.write(f"# epsilon = {params['epsilon']:.4f} eV\n")
+                f.write(f"# T = {params['T']:.2f} K\n")
+                f.write(f"# T_ref = {params['T_ref']:.2f} K\n")
+                f.write(f"# p0 = {params['p0']/1e6:.3f} MPa\n")
+                f.write(f"# aT_prime = {self.mu_adh_results['aT_prime']:.6e}\n")
+                f.write("#\n")
+                f.write("# log10(v)\tv(m/s)\tv_eff(m/s)\ttau_f(MPa)\tA/A0\tmu_adh\n")
+                for i in range(len(v)):
+                    f.write(f"{np.log10(v[i]):.6f}\t{v[i]:.6e}\t{v_eff[i]:.6e}\t"
+                            f"{tau_f[i]/1e6:.6f}\t{A_ratio[i]:.6f}\t{mu_adh[i]:.6f}\n")
+
+            self._show_status(f"μ_adh 데이터 저장 완료: {filepath}", 'success')
+        except Exception as e:
+            messagebox.showerror("오류", f"CSV 저장 실패:\n{str(e)}")
+
+    def _export_mu_total_csv(self):
+        """Export μ_total (μ_visc + μ_adh) results to CSV."""
+        if self.mu_adh_results is None:
+            self._show_status("μ_adh 결과가 없습니다. 먼저 계산을 실행하세요.", 'warning')
+            return
+
+        filepath = filedialog.asksaveasfilename(
+            title="μ_total 데이터 내보내기",
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv"), ("텍스트", "*.txt")],
+            initialfile="mu_total_results.csv"
+        )
+        if not filepath:
+            return
+
+        try:
+            v = self.mu_adh_results['v']
+            mu_adh = self.mu_adh_results['mu_adh']
+
+            has_visc = (self.mu_visc_results is not None and
+                        'mu' in self.mu_visc_results and
+                        len(self.mu_visc_results['mu']) == len(mu_adh))
+
+            mu_visc = self.mu_visc_results['mu'] if has_visc else np.zeros_like(mu_adh)
+            mu_total = mu_visc + mu_adh
+
+            with open(filepath, 'w') as f:
+                f.write("# mu_total = mu_visc + mu_adh\n")
+                f.write("#\n")
+                f.write("# log10(v)\tv(m/s)\tmu_visc\tmu_adh\tmu_total\n")
+                for i in range(len(v)):
+                    f.write(f"{np.log10(v[i]):.6f}\t{v[i]:.6e}\t"
+                            f"{mu_visc[i]:.6f}\t{mu_adh[i]:.6f}\t{mu_total[i]:.6f}\n")
+
+            self._show_status(f"μ_total 데이터 저장 완료: {filepath}", 'success')
+        except Exception as e:
+            messagebox.showerror("오류", f"CSV 저장 실패:\n{str(e)}")
 
 
     # ================================================================
