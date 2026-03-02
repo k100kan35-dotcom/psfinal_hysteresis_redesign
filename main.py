@@ -11697,17 +11697,18 @@ class PerssonModelGUI_V2:
                             print(f"[Hotspot] 자동 탐색 실패: {e_hs}")
                             self.flash_auto_dmacro_var.set(f"d_macro(자동) = 탐색 실패")
 
-                    # ===== Phase 2: Per-q Temperature Accumulation (Persson 2006) =====
+                    # ===== Phase 2: Per-q Flash Temperature (Persson 2006) =====
                     # Algorithm (per velocity):
                     #   Step A: Cold Pass → μ_cold, A/A0_cold (already done above)
                     #   Step B: Per-q forward pass (single pass, no iteration):
                     #     For each q_i from q_0 to q_max:
-                    #       B.1: WLF shift at accumulated T_acc(q_i)
+                    #       B.1: WLF shift at T(q_i) = T_base + ΔT(q_i)
                     #       B.2: Shifted E'(ω·aT_i), E''(ω·aT_i) from master curve
                     #       B.3: Compute G, P, S and μ integrand at q_i
-                    #       B.4: Incremental δμ_i → local heat flux q̇_local
-                    #       B.5: δT_i = Greenwood(q̇_local, d=2π/q_i, v)
-                    #       B.6: T_acc += δT_i (accumulate for next scale)
+                    #       B.4: Cumulative μ(q_i) via trapezoidal integration
+                    #       B.5: ΔT(q_i) = macroscopic Greenwood formula:
+                    #            μ_cumul·σ₀·v/P_macro × d_macro/(8κ√(1+π/2·Jd))
+                    #       B.6: T(q_i) = T_base + ΔT(q_i)
 
                     from scipy.integrate import simpson as simpson_flash
                     from scipy.interpolate import interp1d as interp1d_flash
@@ -11782,13 +11783,17 @@ class PerssonModelGUI_V2:
                         Jd_cold = flash_calc.peclet_number(v[j])
                         flash_delta_T_cold[j] = flash_calc.delta_T(q_dot_cold, Jd_cold)
 
-                    def _hot_integration_v2(v_j, C_q_arr, strain_arr_j_local):
-                        """Full-spectrum integration with per-q temperature accumulation.
+                    def _hot_integration_v2(v_j, C_q_arr, strain_arr_j_local, P_macro_cold_val):
+                        """Full-spectrum integration with per-q temperature feedback.
 
-                        At each wavenumber q_i, the WLF shift is computed from the
-                        accumulated temperature (T_base + cumulative ΔT up to q_i).
-                        This produces a ΔT profile that increases with magnification,
-                        matching Persson (2006) per-scale flash temperature theory.
+                        At each wavenumber q_i, the flash temperature ΔT(q_i) is
+                        computed using the macroscopic Greenwood formula (Persson 2006)
+                        with cumulative friction μ(q_i):
+
+                            ΔT(q) = μ_cumul(q)·σ₀·v / P_macro × d_macro / (8κ√(1+π/2·Jd))
+
+                        The WLF shift at each scale uses T(q) = T_base + ΔT(q),
+                        producing a monotonically increasing temperature profile.
 
                         Returns mu_hot, G_hot, P_hot, S_hot, A/A0_hot, delta_T_per_q."""
                         G_hot = np.zeros(n_q)
@@ -11796,9 +11801,13 @@ class PerssonModelGUI_V2:
                         S_hot = np.ones(n_q)
                         integrand_arr = np.zeros(n_q)
                         delta_T_per_q = np.zeros(n_q)
-                        T_acc = temperature  # Running accumulated temperature
+                        T_acc = temperature  # Running temperature at current scale
                         prev_G_integrand = 0.0
                         prev_mu_integrand = 0.0
+                        mu_cumul = 0.0  # Cumulative friction coefficient up to current q
+
+                        # Macroscopic Peclet number (constant for given velocity)
+                        Jd_macro = v_j * flash_calc.d_macro / flash_calc.D_th
 
                         for i in range(n_q):
                             # Per-q WLF shift at current accumulated temperature
@@ -11864,19 +11873,24 @@ class PerssonModelGUI_V2:
 
                             integrand_arr[i] = q[i]**3 * C_q_arr[i] * P_hot[i] * S_hot[i] * mu_angle_integral_i
 
-                            # --- Per-q ΔT accumulation (Persson 2006) ---
-                            # Each scale q_i contributes δT from its friction at contact size d=2π/q
+                            # --- Per-q ΔT via macroscopic Greenwood formula (Persson 2006) ---
+                            # Cumulative μ from trapezoidal integration of friction integrand
                             if i > 0:
                                 dq = q[i] - q[i - 1]
-                                # Incremental μ contribution at this scale (trapezoidal)
                                 delta_mu_i = 0.5 * 0.5 * (prev_mu_integrand + integrand_arr[i]) * dq
-                                # Characteristic contact diameter at this scale
-                                d_local = 2.0 * np.pi / q[i]
-                                # Local heat flux from this scale's friction contribution
-                                q_dot_local = delta_mu_i * sigma_0 * v_j
-                                # Local δT using Greenwood formula at this scale
-                                delta_T_i = flash_calc.delta_T_at_scale(q_dot_local, d_local, v_j)
-                                T_acc += delta_T_i
+                                mu_cumul += delta_mu_i
+
+                            # Flash temperature at magnification ζ = q/q₀:
+                            #   ΔT(q) = μ_cumul(q)·σ₀·v / P_macro × d_macro / (8κ√(1+π/2·Jd_macro))
+                            # Use P_hot at macro scale once available, else P_cold
+                            if i >= i_macro:
+                                P_macro_use = max(P_hot[i_macro], 1e-6)
+                            else:
+                                P_macro_use = max(P_macro_cold_val, 1e-6)
+
+                            q_dot_macro = mu_cumul * sigma_0 * v_j / P_macro_use
+                            delta_T_q = flash_calc.delta_T(q_dot_macro, Jd_macro)
+                            T_acc = temperature + delta_T_q
 
                             delta_T_per_q[i] = T_acc - temperature
                             prev_mu_integrand = integrand_arr[i]
@@ -11890,12 +11904,13 @@ class PerssonModelGUI_V2:
                         A_A0_hot = P_hot[-1]
                         return mu_hot, G_hot, P_hot, S_hot, A_A0_hot, delta_T_per_q
 
-                    # --- Main Per-q Temperature Accumulation velocity loop ---
-                    # Persson (2006): Temperature accumulates per-wavenumber.
-                    # At each scale q_i, local friction generates δT with WLF
-                    # feedback at the accumulated temperature. No global SC
-                    # iteration needed — the per-q forward pass is self-consistent.
-                    print(f"\n[Flash] Per-q Temperature Accumulation 시작")
+                    # --- Main Per-q Flash Temperature velocity loop ---
+                    # Persson (2006): At each magnification ζ=q/q₀, the flash
+                    # temperature is computed from cumulative friction μ(q) using
+                    # the macroscopic Greenwood formula:
+                    #   ΔT(q) = μ_cumul(q)·σ₀·v/P_macro × d_macro/(8κ√(1+π/2·Jd))
+                    # The WLF shift at each scale uses T(q) = T_base + ΔT(q).
+                    print(f"\n[Flash] Per-q Macroscopic Greenwood (Persson 2006) 시작")
                     print(f"[Flash] d_macro={flash_calc.d_macro*1e3:.3f} mm, D_th={flash_calc.D_th:.2e} m²/s")
 
                     for j in range(n_v):
@@ -11912,6 +11927,8 @@ class PerssonModelGUI_V2:
 
                         detail_j = details['details'][j]
                         C_q_j = detail_j['C_q']
+                        P_cold_j = detail_j['P']
+                        P_macro_cold_j = max(P_cold_j[i_macro], 1e-6)
 
                         # Strain array for nonlinear correction
                         if strain_est is not None and use_fg:
@@ -11919,9 +11936,9 @@ class PerssonModelGUI_V2:
                         else:
                             strain_arr_j = None
 
-                        # Per-q hot integration with temperature accumulation
+                        # Per-q hot integration with macroscopic Greenwood formula
                         mu_hot_iter, G_hot_iter, P_hot_iter, S_hot_iter, A_A0_hot_iter, dT_profile_j = \
-                            _hot_integration_v2(v[j], C_q_j, strain_arr_j)
+                            _hot_integration_v2(v[j], C_q_j, strain_arr_j, P_macro_cold_j)
 
                         # Store results
                         total_dT = dT_profile_j[-1]  # Total ΔT at maximum magnification
