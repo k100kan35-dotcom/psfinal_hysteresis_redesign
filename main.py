@@ -8566,7 +8566,7 @@ class PerssonModelGUI_V2:
         ttk.Label(formula_frame,
                   text="q_dot = μ_cold × σ₀ × v  (Persson 2006)\n"
                        "Jd = v × d / D_th  (Peclet number)\n"
-                       "ΔT = (q_dot × d) / (2κ × √(1 + 16Jd/π))\n"
+                       "ΔT = (q_dot × d) / (8κ × √(1 + πJd/2))\n"
                        "T_hot = T_base + ΔT",
                   font=self.FONTS['mono_small'], foreground='#374151').pack(anchor=tk.W, pady=2)
 

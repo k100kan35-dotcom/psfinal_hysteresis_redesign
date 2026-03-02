@@ -14,7 +14,7 @@ Algorithm (Two-Pass):
 Key Formulas:
     1. Heat Flux:     q_dot = mu_cold × sigma_0 × v  (Persson 2006)
     2. Peclet Number: Jd = v × d_macro / D_th
-    3. Greenwood:     ΔT = (q_dot × d_macro) / (2 × kappa_th × sqrt(1 + (16/π) × Jd))
+    3. Persson 2006:  ΔT = (q_dot × d_macro) / (8 × kappa_th × sqrt(1 + (π/2) × Jd))
     4. Hot Temp:      T_hot = T_base + ΔT
 
 References:
@@ -147,20 +147,25 @@ class FlashTemperatureCalculator:
 
     def delta_T(self, q_dot: float, Jd: float) -> float:
         """
-        Calculate flash temperature rise using Greenwood interpolation.
+        Calculate flash temperature rise using Persson (2006) eq. (5).
 
-        ΔT = (q_dot × d_macro) / (2 × kappa_th) × 1 / sqrt(1 + (16/π) × Jd)
+        ΔT = (q_dot × d) / (8κ) × 1 / √(1 + (π/2) × Jd)
 
-        This formula smoothly interpolates between:
-        - Low speed (Jd→0): ΔT = q_dot × d / (2κ)  (steady-state conduction)
+        where Jd = v × d / D_th.
+
+        Derived from Greenwood interpolation for a circular heat source:
+        - Low speed (Jd→0): ΔT ≈ q_dot × d / (8κ)  (steady-state conduction)
         - High speed (Jd>>1): ΔT ∝ 1/√v  (moving heat source)
+
+        Reference: Persson, B.N.J. (2006) "Rubber friction: role of the
+        flash temperature", J. Phys.: Condens. Matter, eq. (5).
 
         Parameters
         ----------
         q_dot : float
             Heat flux (W/m²)
         Jd : float
-            Peclet number (dimensionless)
+            Peclet number (dimensionless), Jd = v·d/D_th
 
         Returns
         -------
@@ -171,8 +176,8 @@ class FlashTemperatureCalculator:
             return 0.0
         if not np.isfinite(Jd) or Jd < 0:
             Jd = 0.0
-        return (q_dot * self.d_macro) / (2.0 * self.kappa_th) / np.sqrt(
-            1.0 + (16.0 / np.pi) * Jd
+        return (q_dot * self.d_macro) / (8.0 * self.kappa_th) / np.sqrt(
+            1.0 + (np.pi / 2.0) * Jd
         )
 
     def calculate(
