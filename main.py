@@ -11457,48 +11457,11 @@ class PerssonModelGUI_V2:
                                 f"Flash SC iter: {j+1}/{n_v} (ΔT={delta_T_final:.1f}°C, μ_hot={mu_converged:.3f})")
                             self.root.update()
 
-                    # --- Recalculate A/A0_hot at terminal ΔT ---
-                    self.status_var.set("A/A0_hot 재계산 중...")
-                    self.root.update()
-                    for j in range(n_v):
-                        if flash_delta_T[j] < 0.1:
-                            A_A0_hot_arr[j] = A_A0_cold_arr[j]
-                            continue
-                        T_hot_j = flash_T_hot[j]
-                        log_aT_hot = float(self.persson_aT_interp(T_hot_j))
-                        aT_hot = 10**log_aT_hot
-                        omega_shifted_hot = omega_ref / aT_hot
-                        material_hot = create_material_from_dma(
-                            omega=omega_shifted_hot,
-                            E_storage=E_storage_ref.copy(),
-                            E_loss=E_loss_ref.copy(),
-                            reference_temp=T_hot_j
-                        )
-                        modulus_func_hot = lambda w, _mat=material_hot: _mat.get_modulus(w)
-                        g_calc_hot = GCalc_Hot(
-                            psd_func=self.psd_model,
-                            modulus_func=modulus_func_hot,
-                            sigma_0=sigma_0,
-                            velocity=v[j],
-                            poisson_ratio=poisson,
-                            n_angle_points=n_phi_gq
-                        )
-                        g_calc_hot.PSD_NORMALIZATION_FACTOR = norm_factor_val
-                        if use_fg and self.f_interpolator is not None and self.g_interpolator is not None:
-                            storage_func_hot = lambda w, _mat=material_hot: _mat.get_storage_modulus(w)
-                            loss_func_hot_raw = lambda w, _mat=material_hot: _mat.get_loss_modulus(w)
-                            g_calc_hot.storage_modulus_func = storage_func_hot
-                            g_calc_hot.loss_modulus_func = loss_func_hot_raw
-                            if strain_est is not None:
-                                strain_for_hot = strain_est(q, G_matrix_corrected[:, j], v[j])
-                            else:
-                                strain_for_hot = np.full(len(q), fixed_strain)
-                            g_calc_hot.set_nonlinear_correction(
-                                self.f_interpolator, self.g_interpolator,
-                                strain_for_hot, q
-                            )
-                        results_hot_j = g_calc_hot.calculate_G_with_details(q, q_min=q_min)
-                        A_A0_hot_arr[j] = results_hot_j['contact_area_ratio'][-1]
+                    # --- A/A0_hot: flash temperature는 표면 현상이므로 ---
+                    # 접촉 면적(A/A0)은 벌크 탄성 특성에 의존하며,
+                    # flash로 인한 얇은 표면층 가열은 접촉 역학에 영향을 주지 않음.
+                    # 따라서 A/A0_hot = A/A0_cold (flash는 μ만 변화시킴).
+                    A_A0_hot_arr = A_A0_cold_arr.copy()
 
                     # Build flash_results dict
                     flash_results = {
