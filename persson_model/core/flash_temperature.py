@@ -180,6 +180,43 @@ class FlashTemperatureCalculator:
             1.0 + (np.pi / 2.0) * Jd
         )
 
+    def delta_T_at_scale(self, q_dot_local: float, d_local: float, velocity: float) -> float:
+        """
+        Calculate flash temperature rise at a specific length scale.
+
+        Uses the Greenwood interpolation formula with a scale-dependent
+        characteristic length d = 2π/q instead of the fixed d_macro.
+
+        This enables per-wavenumber flash temperature accumulation:
+            ΔT_total = Σ_i δT(q_i)
+        where each scale contributes its own temperature rise based on
+        its characteristic contact patch size d(q) = 2π/q.
+
+        Parameters
+        ----------
+        q_dot_local : float
+            Local heat flux at this scale (W/m²)
+        d_local : float
+            Characteristic contact diameter at this scale (m), typically 2π/q
+        velocity : float
+            Sliding velocity (m/s)
+
+        Returns
+        -------
+        float
+            Flash temperature rise ΔT (K or °C) at this scale
+        """
+        if q_dot_local <= 0 or not np.isfinite(q_dot_local):
+            return 0.0
+        if d_local <= 0 or not np.isfinite(d_local):
+            return 0.0
+        Jd_local = velocity * d_local / self.D_th
+        if not np.isfinite(Jd_local) or Jd_local < 0:
+            Jd_local = 0.0
+        return (q_dot_local * d_local) / (8.0 * self.kappa_th) / np.sqrt(
+            1.0 + (np.pi / 2.0) * Jd_local
+        )
+
     def calculate(
         self,
         A_A0_cold: float,
