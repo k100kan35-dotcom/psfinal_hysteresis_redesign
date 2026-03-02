@@ -8564,7 +8564,7 @@ class PerssonModelGUI_V2:
         formula_frame = self._create_section(left_panel, "3) Greenwood 보간 공식")
 
         ttk.Label(formula_frame,
-                  text="q_dot = (A/A0)_cold × μ_cold × σ₀ × v\n"
+                  text="q_dot = μ_cold × σ₀ × v  (Persson 2006)\n"
                        "Jd = v × d / D_th  (Peclet number)\n"
                        "ΔT = (q_dot × d) / (2κ × √(1 + 16Jd/π))\n"
                        "T_hot = T_base + ΔT",
