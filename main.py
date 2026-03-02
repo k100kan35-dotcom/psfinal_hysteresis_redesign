@@ -9039,16 +9039,16 @@ class PerssonModelGUI_V2:
             # === Update flash result text ===
             self.flash_result_text.delete(1.0, tk.END)
             self.flash_result_text.insert(tk.END, "=" * 50 + "\n")
-            self.flash_result_text.insert(tk.END, "Flash Temperature 결과 (Per-q 누적)\n")
+            self.flash_result_text.insert(tk.END, "Flash Temperature 결과 (Self-Consistent Iteration)\n")
             self.flash_result_text.insert(tk.END, "=" * 50 + "\n")
             self.flash_result_text.insert(tk.END, f"T_base = {T_base:.1f} °C\n")
             self.flash_result_text.insert(tk.END,
-                f"ΔT 범위 (per-q hot): {np.min(flash_results['delta_T']):.1f} ~ "
+                f"ΔT 범위 (SC converged): {np.min(flash_results['delta_T']):.1f} ~ "
                 f"{np.max(flash_results['delta_T']):.1f} °C\n")
 
             if delta_T_cold is not None:
                 self.flash_result_text.insert(tk.END,
-                    f"ΔT 범위 (per-q cold): {np.min(delta_T_cold):.1f} ~ "
+                    f"ΔT 범위 (cold, no iter): {np.min(delta_T_cold):.1f} ~ "
                     f"{np.max(delta_T_cold):.1f} °C\n")
                 if np.max(delta_T_cold) > 0.1:
                     reduction_dT = (1 - np.max(flash_results['delta_T']) / np.max(delta_T_cold)) * 100
@@ -9071,12 +9071,15 @@ class PerssonModelGUI_V2:
 
             # Per-q profile info
             if delta_T_profile is not None and q_array is not None:
-                self.flash_result_text.insert(tk.END, f"\n[Per-q 누적 정보]\n")
+                iters = flash_results.get('iterations')
+                if iters is not None and len(iters) > 0:
+                    self.flash_result_text.insert(tk.END, f"\n[Self-Consistent Iteration 정보]\n")
+                    self.flash_result_text.insert(tk.END,
+                        f"  반복 횟수: {int(np.min(iters))} ~ {int(np.max(iters))} (per velocity)\n")
                 self.flash_result_text.insert(tk.END,
                     f"  파수 범위: {q_array[0]:.2e} ~ {q_array[-1]:.2e} 1/m ({len(q_array)} pts)\n")
                 self.flash_result_text.insert(tk.END,
-                    f"  d 범위: {2*np.pi/q_array[-1]*1e6:.1f} ~ {2*np.pi/q_array[0]*1e6:.1f} μm\n")
-                self.flash_result_text.insert(tk.END, "  열유속 보정: q̇ = dμ·σ₀·v / P(q)  (A/A0 집중)\n")
+                    f"  열유속: q̇ = μ·σ₀·v  (Greenwood with d_macro)\n")
 
             # Auto-hotspot detection info
             d_auto = flash_results.get('d_macro_auto')
@@ -9266,7 +9269,7 @@ class PerssonModelGUI_V2:
                         f"# 공칭하중(MPa),{load_mpa:.3f}",
                         f"# 계산온도(°C),{calc_temp:.1f}",
                         f"# T_base(°C),{T_base:.1f}",
-                        f"# Flash 방식,Per-q 누적",
+                        f"# Flash 방식,Self-Consistent Iteration (Greenwood d_macro)",
                         "#"
                     ]
 
@@ -11216,19 +11219,18 @@ class PerssonModelGUI_V2:
                             print(f"[Hotspot] 자동 탐색 실패: {e_hs}")
                             self.flash_auto_dmacro_var.set(f"d_macro(자동) = 탐색 실패")
 
-                    # ===== Phase 2: Per-Wavenumber Flash Temperature Accumulation =====
-                    # q₀→q₁ sequential: d(q)=2π/q, q̇=dμ·σ₀·v/P(q)
+                    # ===== Phase 2: Self-Consistent Iteration (Greenwood + d_macro) =====
+                    # Persson (2006) algorithm:
+                    #   For each velocity v:
+                    #     1. Start with μ_cold(v)
+                    #     2. q̇ = μ × σ₀ × v  (total heat flux)
+                    #     3. ΔT = q̇·d_macro / (8κ·√(1+πJd/2))  [Greenwood, d_macro]
+                    #     4. WLF shift ALL E''(ω) → E''(ω × aT(T_base+ΔT))
+                    #     5. Recompute μ_new from full q-integral
+                    #     6. Under-relax and iterate until convergence
                     #
-                    # At each q_i:
-                    #   1. T(q_i) = T_base + ΔT_accumulated(q_{i-1})
-                    #   2. WLF shift E'' to T(q_i) → material softens progressively
-                    #   3. Compute angle integral → friction contribution dμ_i
-                    #   4. d_i = 2π/q_i, q̇_i = dμ_i·σ₀·v / P(q_i)  ← A/A0 보정
-                    #   5. δT_i = Greenwood(q̇_i, d_i, v)
-                    #   6. ΔT_accumulated += δT_i
-                    #
-                    # Result: Higher q (finer scale) sees hotter material → more softening
-                    # No outer iteration needed: temperature builds up naturally.
+                    # Uses d_macro (macroscopic asperity, mm scale) and total μ
+                    # for heat flux, giving physically correct ΔT at high velocity.
 
                     from scipy.integrate import simpson as simpson_flash
                     from scipy.interpolate import interp1d as interp1d_flash
@@ -11237,11 +11239,11 @@ class PerssonModelGUI_V2:
                     A_A0_hot_arr = np.zeros(n_v)
 
                     flash_delta_T = np.zeros(n_v)
-                    flash_delta_T_cold = np.zeros(n_v)  # Per-q ΔT without WLF feedback
+                    flash_delta_T_cold = np.zeros(n_v)  # Cold per-q ΔT (no WLF, for comparison)
                     flash_T_hot = np.zeros(n_v)
                     flash_q_dot = np.zeros(n_v)
                     flash_Jd = np.zeros(n_v)
-                    flash_iterations = np.zeros(n_v, dtype=int)  # Kept for compat (=0 for per-q)
+                    flash_iterations = np.zeros(n_v, dtype=int)  # SC iteration count
 
                     n_q = len(q)
                     delta_T_profile = np.zeros((n_q, n_v))  # 2D: ΔT(q, v)
@@ -11271,9 +11273,9 @@ class PerssonModelGUI_V2:
 
                     log_aT_base = float(self.persson_aT_interp(temperature))
                     aT_base = 10**log_aT_base
-                    print(f"\n[Flash Per-Q] T_base={temperature}°C, log_aT_base={log_aT_base:.3f}")
-                    print(f"[Flash Per-Q] q range: {q[0]:.2e} ~ {q[-1]:.2e} 1/m ({n_q} pts)")
-                    print(f"[Flash Per-Q] d range: {2*np.pi/q[-1]*1e6:.1f} ~ {2*np.pi/q[0]*1e6:.1f} μm")
+                    print(f"\n[Flash SC] T_base={temperature}°C, log_aT_base={log_aT_base:.3f}")
+                    print(f"[Flash SC] d_macro={flash_calc.d_macro*1e3:.3f} mm, D_th={flash_calc.D_th:.2e} m²/s")
+                    print(f"[Flash SC] q range: {q[0]:.2e} ~ {q[-1]:.2e} 1/m ({n_q} pts)")
 
                     # --- Cold per-q ΔT (no WLF feedback, for comparison) ---
                     for j in range(n_v):
@@ -11292,7 +11294,24 @@ class PerssonModelGUI_V2:
                                 delta_T_cold_accum += flash_calc.delta_T_at_scale(q_dot_local, d_local, v[j])
                         flash_delta_T_cold[j] = delta_T_cold_accum
 
-                    # --- Hot per-q ΔT (with progressive WLF feedback) ---
+                    # --- Hot Pass: Self-Consistent Iteration (Greenwood, d_macro) ---
+                    # Algorithm (Persson 2006):
+                    #   For each velocity v:
+                    #     1. μ_current = μ_cold(v)
+                    #     2. q̇ = μ_current × σ₀ × v
+                    #     3. ΔT = Greenwood(q̇, d_macro, v)  [uses fixed d_macro]
+                    #     4. aT = WLF(T_base + ΔT)  [UNIFORM shift for ALL ω]
+                    #     5. Recompute μ_new from full q-integral with shifted E''
+                    #     6. Under-relax: μ = α·μ_new + (1-α)·μ_old
+                    #     7. Repeat until |μ_new - μ_old| < tol
+                    #
+                    # Key difference from per-q: uses d_macro (mm) and total μ,
+                    # not d(q)=2π/q (nm~μm) and incremental dμ.
+
+                    sc_relaxation = 0.3   # Under-relaxation factor
+                    sc_max_iter = 50      # Max iterations per velocity
+                    sc_tol = 1e-4         # Convergence tolerance
+
                     for j in range(n_v):
                         # 저속 무시: Peclet 수 부족으로 발열 무시 (v < 0.0001 m/s)
                         if v[j] < 1e-4:
@@ -11301,6 +11320,10 @@ class PerssonModelGUI_V2:
                             flash_T_hot[j] = temperature
                             flash_q_dot[j] = 0.0
                             flash_Jd[j] = 0.0
+                            flash_iterations[j] = 0
+                            # Fill per-q profile with cold values for visualization
+                            for i in range(n_q):
+                                delta_T_profile[i, j] = 0.0
                             continue
 
                         detail_j = details['details'][j]
@@ -11314,77 +11337,119 @@ class PerssonModelGUI_V2:
                         else:
                             strain_arr_j = None
 
-                        delta_T_accum = 0.0
-                        integrand_prev = 0.0
-                        mu_hot_accum = 0.0
+                        # Peclet number (fixed for this velocity)
+                        Jd_val = flash_calc.peclet_number(v[j])
 
-                        for i in range(n_q):
-                            T_local = temperature + delta_T_accum
+                        # Start iteration with μ_cold
+                        mu_current = mu_array_raw[j]
+                        delta_T_converged = 0.0
+                        converged = False
 
-                            # WLF shift at accumulated temperature
-                            log_aT_local = float(self.persson_aT_interp(T_local))
-                            aT_local = 10 ** log_aT_local
+                        for sc_iter in range(sc_max_iter):
+                            # Step 1: Heat flux and ΔT using d_macro
+                            q_dot_val = mu_current * sigma_0 * v[j]
+                            delta_T_val = flash_calc.delta_T(q_dot_val, Jd_val)
 
-                            # Angle integral at q[i] with shifted E''
-                            # ω_physical = q·v·cos(φ), ω_master = ω_physical × aT
-                            omega_physical = q[i] * v[j] * cos_phi_flash
-                            omega_eff = np.maximum(omega_physical * aT_local, 1e-30)
+                            # Step 2: WLF shift at T_hot (UNIFORM for all ω)
+                            T_hot_val = temperature + delta_T_val
+                            log_aT_hot_iter = float(self.persson_aT_interp(T_hot_val))
+                            aT_hot_iter = 10 ** log_aT_hot_iter
 
-                            log_E_loss_vals = E_loss_master_interp_func(np.log10(omega_eff))
-                            E_loss_vals = 10.0 ** log_E_loss_vals
+                            # Step 3: Recompute μ from full q-integral with shifted E''
+                            mu_new = 0.0
+                            integrand_prev_sc = 0.0
 
-                            # Apply g nonlinear correction if enabled
-                            if use_fg and g_interp is not None and strain_arr_j is not None:
-                                strain_i = float(strain_arr_j[i]) if i < len(strain_arr_j) else fixed_strain
-                                g_val = float(g_interp(np.clip(strain_i, 0.0, 1.0)))
-                                if np.isfinite(g_val):
-                                    E_loss_vals = E_loss_vals * max(g_val, 0.01)
+                            for i in range(n_q):
+                                # ALL q's use the SAME temperature shift
+                                omega_physical = q[i] * v[j] * cos_phi_flash
+                                omega_eff = np.maximum(omega_physical * aT_hot_iter, 1e-30)
 
-                            integrand_phi = cos_phi_flash * E_loss_vals * prefactor_flash
-                            if n_phi >= 3:
-                                angle_integral_i = 4.0 * simpson_flash(integrand_phi, x=phi_flash)
-                            else:
-                                angle_integral_i = 4.0 * np.trapezoid(integrand_phi, phi_flash)
+                                log_E_loss_vals = E_loss_master_interp_func(np.log10(omega_eff))
+                                E_loss_vals = 10.0 ** log_E_loss_vals
 
-                            # Friction integrand: q³ × C(q) × P(q) × S(q) × angle_integral
-                            integrand_i = q[i]**3 * C_q_j[i] * P_cold_j[i] * S_cold_j[i] * angle_integral_i
+                                # Apply g nonlinear correction if enabled
+                                if use_fg and g_interp is not None and strain_arr_j is not None:
+                                    strain_i = float(strain_arr_j[i]) if i < len(strain_arr_j) else fixed_strain
+                                    g_val = float(g_interp(np.clip(strain_i, 0.0, 1.0)))
+                                    if np.isfinite(g_val):
+                                        E_loss_vals = E_loss_vals * max(g_val, 0.01)
 
-                            # Incremental μ (trapezoidal): dμ = 0.5 × avg(f) × Δq
-                            if i > 0:
-                                dq = q[i] - q[i - 1]
-                                dmu_i = 0.5 * 0.5 * (integrand_prev + integrand_i) * dq
-                            else:
-                                dmu_i = 0.0
+                                integrand_phi = cos_phi_flash * E_loss_vals * prefactor_flash
+                                if n_phi >= 3:
+                                    angle_integral_i = 4.0 * simpson_flash(integrand_phi, x=phi_flash)
+                                else:
+                                    angle_integral_i = 4.0 * np.trapezoid(integrand_phi, phi_flash)
 
-                            integrand_prev = integrand_i
-                            mu_hot_accum += dmu_i
+                                # Friction integrand: q³ × C(q) × P(q) × S(q) × angle_integral
+                                integrand_i = q[i]**3 * C_q_j[i] * P_cold_j[i] * S_cold_j[i] * angle_integral_i
 
-                            # Flash ΔT at this scale: d = 2π/q
-                            d_local = 2.0 * np.pi / q[i]
-                            # A/A0 보정: 열유속을 실접촉 면적에 집중 (q̇ = dμ·σ₀·v / P(q))
-                            P_qi = max(P_cold_j[i], 1e-6)
-                            q_dot_local = dmu_i * sigma_0 * v[j] / P_qi
-                            if q_dot_local > 0:
-                                delta_T_accum += flash_calc.delta_T_at_scale(q_dot_local, d_local, v[j])
+                                # Trapezoidal integration: dμ = 0.5 × avg(f) × Δq
+                                if i > 0:
+                                    dq = q[i] - q[i - 1]
+                                    dmu_i = 0.5 * 0.5 * (integrand_prev_sc + integrand_i) * dq
+                                else:
+                                    dmu_i = 0.0
 
-                            delta_T_profile[i, j] = delta_T_accum
+                                integrand_prev_sc = integrand_i
+                                mu_new += dmu_i
+
+                            # Step 4: Check convergence
+                            if sc_iter > 0 and abs(mu_new - mu_current) / max(abs(mu_current), 1e-10) < sc_tol:
+                                mu_current = mu_new
+                                delta_T_converged = delta_T_val
+                                converged = True
+                                break
+
+                            # Step 5: Under-relax
+                            mu_current = sc_relaxation * mu_new + (1 - sc_relaxation) * mu_current
+                            delta_T_converged = delta_T_val
 
                         # Store final values
-                        mu_hot_array_raw[j] = mu_hot_accum
-                        flash_delta_T[j] = delta_T_accum
-                        flash_T_hot[j] = temperature + delta_T_accum
-                        flash_q_dot[j] = mu_hot_accum * sigma_0 * v[j]
-                        flash_Jd[j] = flash_calc.peclet_number(v[j])
+                        q_dot_final = mu_current * sigma_0 * v[j]
+                        delta_T_final = flash_calc.delta_T(q_dot_final, Jd_val)
+
+                        mu_hot_array_raw[j] = mu_current
+                        flash_delta_T[j] = delta_T_final
+                        flash_T_hot[j] = temperature + delta_T_final
+                        flash_q_dot[j] = q_dot_final
+                        flash_Jd[j] = Jd_val
+                        flash_iterations[j] = sc_iter + 1
+
+                        # Fill per-q profile using converged ΔT for visualization
+                        # (shows per-q cumulative heat decomposition at the converged temperature)
+                        log_aT_conv = float(self.persson_aT_interp(temperature + delta_T_final))
+                        aT_conv = 10 ** log_aT_conv
+                        dT_viz_accum = 0.0
+                        for i in range(1, n_q):
+                            dq = q[i] - q[i - 1]
+                            d_local = 2.0 * np.pi / q[i]
+                            omega_phy = q[i] * v[j] * cos_phi_flash
+                            omega_shifted = np.maximum(omega_phy * aT_conv, 1e-30)
+                            log_Eloss = E_loss_master_interp_func(np.log10(omega_shifted))
+                            Eloss = 10.0 ** log_Eloss
+                            integ_phi = cos_phi_flash * Eloss * prefactor_flash
+                            if n_phi >= 3:
+                                ai = 4.0 * simpson_flash(integ_phi, x=phi_flash)
+                            else:
+                                ai = 4.0 * np.trapezoid(integ_phi, phi_flash)
+                            integ_q = q[i]**3 * C_q_j[i] * P_cold_j[i] * S_cold_j[i] * ai
+                            dmu_viz = 0.5 * 0.5 * integ_q * dq  # Simplified (single point)
+                            P_qi = max(P_cold_j[i], 1e-6)
+                            q_dot_viz = dmu_viz * sigma_0 * v[j] / P_qi
+                            if q_dot_viz > 0:
+                                dT_viz_accum += flash_calc.delta_T_at_scale(q_dot_viz, d_local, v[j])
+                            delta_T_profile[i, j] = dT_viz_accum
 
                         # Diagnostic output
                         if j % max(1, n_v // 5) == 0 or j == n_v - 1:
-                            print(f"  v={v[j]:.4f} m/s: ΔT_hot={delta_T_accum:.2f}°C (cold={flash_delta_T_cold[j]:.2f}°C), "
-                                  f"μ_cold={mu_array_raw[j]:.4f} → μ_hot={mu_hot_accum:.4f} "
-                                  f"(ratio={mu_hot_accum/max(mu_array_raw[j],1e-10):.3f})")
+                            conv_str = f"converged({sc_iter+1})" if converged else f"max_iter({sc_max_iter})"
+                            print(f"  v={v[j]:.4f} m/s: ΔT={delta_T_final:.2f}°C, "
+                                  f"μ_cold={mu_array_raw[j]:.4f} → μ_hot={mu_current:.4f} "
+                                  f"(ratio={mu_current/max(mu_array_raw[j],1e-10):.3f}) [{conv_str}]")
 
                         if j % max(1, n_v // 10) == 0:
                             self.status_var.set(
-                                f"Flash per-q: {j+1}/{n_v} (ΔT={delta_T_accum:.1f}°C, μ_hot={mu_hot_accum:.3f})")
+                                f"Flash SC iter: {j+1}/{n_v} (ΔT={delta_T_final:.1f}°C, μ_hot={mu_current:.3f})")
                             self.root.update()
 
                     # --- Recalculate A/A0_hot at terminal ΔT ---
@@ -11447,7 +11512,7 @@ class PerssonModelGUI_V2:
                     }
 
                     self.status_var.set(
-                        f"Flash Temperature (per-q 누적) 계산 완료 — "
+                        f"Flash Temperature (Self-Consistent) 계산 완료 — "
                         f"ΔT: {np.min(flash_delta_T):.1f}~{np.max(flash_delta_T):.1f}°C"
                     )
                     self.root.update()
@@ -15264,7 +15329,7 @@ class PerssonModelGUI_V2:
 
         # --- Flash Temperature 중간 변수 ---
         add_separator()
-        add_text('Flash Temperature 중간 변수 (per-q 누적):', bold=True, pady=(8, 0))
+        add_text('Flash Temperature 중간 변수 (Self-Consistent Iteration):', bold=True, pady=(8, 0))
 
         add_equation(
             r"$D_{th} = \frac{\kappa}{\rho \cdot C_v}, \qquad"
