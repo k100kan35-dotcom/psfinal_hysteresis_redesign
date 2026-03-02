@@ -8799,6 +8799,12 @@ class PerssonModelGUI_V2:
         self.flash_result_text = tk.Text(result_frame, height=10, font=self.FONTS['mono_small'], wrap=tk.WORD)
         self.flash_result_text.pack(fill=tk.X)
 
+        # Export buttons
+        flash_export_frame = ttk.Frame(result_frame)
+        flash_export_frame.pack(fill=tk.X, pady=2)
+        ttk.Button(flash_export_frame, text="Flash CSV 내보내기",
+                   command=self._export_flash_temp_csv, width=18).pack(side=tk.LEFT, padx=1)
+
         # ============== Right Panel: Plots ==============
         right_panel = layout['right']
 
@@ -9078,6 +9084,213 @@ class PerssonModelGUI_V2:
 
         except Exception as e:
             print(f"[Flash Auto-Save] 저장 실패: {e}")
+
+    def _export_flash_temp_csv(self):
+        """Export Flash Temperature per-q results to CSV files with selection dialog."""
+        if not hasattr(self, 'mu_visc_results') or self.mu_visc_results is None:
+            self._show_status("먼저 μ_visc 계산(Flash 활성)을 실행하세요.", 'warning')
+            return
+
+        flash_results = self.mu_visc_results.get('flash_results')
+        if flash_results is None:
+            self._show_status("Flash Temperature 결과가 없습니다.\nFlash 활성화 후 μ_visc를 계산하세요.", 'warning')
+            return
+
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Flash Temperature CSV 내보내기")
+        dialog.geometry("480x580")
+        dialog.resizable(False, True)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        dialog.update_idletasks()
+        x = self.root.winfo_x() + (self.root.winfo_width() - 480) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - 580) // 2
+        dialog.geometry(f"+{x}+{y}")
+
+        desc_frame = ttk.Frame(dialog, padding=10)
+        desc_frame.pack(fill=tk.X)
+        ttk.Label(desc_frame, text="내보낼 Flash Temperature 데이터를 선택하세요.\n"
+                  "각 데이터는 별도의 CSV 파일로 저장됩니다.",
+                  font=self.FONTS['body']).pack(anchor=tk.W)
+
+        export_frame = ttk.Frame(dialog, padding=10)
+        export_frame.pack(side=tk.BOTTOM, fill=tk.X)
+
+        btn_frame = ttk.Frame(dialog, padding=10)
+        btn_frame.pack(side=tk.BOTTOM, fill=tk.X)
+
+        check_frame = ttk.LabelFrame(dialog, text="데이터 선택", padding=10)
+        check_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        # --- v-dependent data ---
+        ttk.Label(check_frame, text="[속도별 결과 (v vs 값)]",
+                  font=self.FONTS['small_bold']).pack(anchor=tk.W, pady=(0, 5))
+
+        data_options_v = [
+            ("ΔT(v) - 온도 상승 (cold/hot)", "dT_v", True),
+            ("T_hot(v) - 접촉 온도", "Thot_v", True),
+            ("μ_cold(v) vs μ_hot(v)", "mu_compare_v", True),
+            ("A/A0 Cold vs Hot", "aa0_v", False),
+            ("q̇(v), Jd(v) - 열유속/Peclet", "flux_v", False),
+        ]
+
+        # --- q-dependent 2D data ---
+        ttk.Label(check_frame, text="\n[파수별 2D 데이터 (q × v)]",
+                  font=self.FONTS['small_bold']).pack(anchor=tk.W, pady=(5, 5))
+
+        data_options_2d = [
+            ("ΔT(q, v) - 파수별 누적 프로파일", "dT_profile_2d", True),
+        ]
+
+        check_vars = {}
+        for display_name, key, default in data_options_v + data_options_2d:
+            var = tk.BooleanVar(value=default)
+            check_vars[key] = var
+            ttk.Checkbutton(check_frame, text=display_name, variable=var).pack(anchor=tk.W, pady=1)
+
+        def select_all():
+            for var in check_vars.values():
+                var.set(True)
+
+        def deselect_all():
+            for var in check_vars.values():
+                var.set(False)
+
+        ttk.Button(btn_frame, text="전체 선택", command=select_all).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="전체 해제", command=deselect_all).pack(side=tk.LEFT, padx=5)
+
+        def do_export():
+            selected = [key for key, var in check_vars.items() if var.get()]
+            if not selected:
+                self._show_status("내보낼 데이터를 선택하세요.", 'warning')
+                return
+
+            save_dir = filedialog.askdirectory(title="CSV 파일 저장 폴더 선택", parent=dialog)
+            if not save_dir:
+                return
+
+            try:
+                from datetime import datetime
+                v = flash_results['v']
+                q_arr = flash_results.get('q_array')
+                dT = flash_results['delta_T']
+                dT_cold = flash_results.get('delta_T_cold')
+                T_hot = flash_results['T_hot']
+                T_base = flash_results.get('T_base', 20.0)
+                q_dot = flash_results['q_dot']
+                Jd = flash_results['Jd']
+                dT_profile = flash_results.get('delta_T_profile')
+                mu_cold = self.mu_visc_results.get('mu', np.zeros_like(v))
+                mu_hot = self.mu_visc_results.get('mu_hot', np.zeros_like(v))
+                A_A0_cold = self.mu_visc_results.get('A_A0_cold')
+                A_A0_hot = self.mu_visc_results.get('A_A0_hot')
+
+                mc_prefix = self._get_mc_prefix()
+                def mc_fn(base):
+                    return f"{mc_prefix}_{base}" if mc_prefix else base
+
+                try:
+                    load_mpa = float(self.sigma0_var.get()) / 1e6
+                    calc_temp = float(self.mu_calc_temp_var.get())
+                except Exception:
+                    load_mpa = 0.0
+                    calc_temp = T_base
+
+                def get_header():
+                    return [
+                        f"# 생성일시,{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                        f"# 마스터커브,{mc_prefix if mc_prefix else 'N/A'}",
+                        f"# 공칭하중(MPa),{load_mpa:.3f}",
+                        f"# 계산온도(°C),{calc_temp:.1f}",
+                        f"# T_base(°C),{T_base:.1f}",
+                        f"# Flash 방식,Per-q 누적",
+                        "#"
+                    ]
+
+                exported = []
+
+                # ΔT(v)
+                if check_vars.get('dT_v', tk.BooleanVar()).get():
+                    fn = mc_fn("flash_deltaT_vs_velocity.csv")
+                    lines = get_header() + ["velocity [m/s],delta_T_cold [C],delta_T_hot [C]"]
+                    for i in range(len(v)):
+                        dc = dT_cold[i] if dT_cold is not None else 0
+                        lines.append(f"{v[i]:.6e},{dc:.4f},{dT[i]:.4f}")
+                    with open(os.path.join(save_dir, fn), 'w', encoding='utf-8-sig') as f:
+                        f.write("\n".join(lines))
+                    exported.append(fn)
+
+                # T_hot(v)
+                if check_vars.get('Thot_v', tk.BooleanVar()).get():
+                    fn = mc_fn("flash_Thot_vs_velocity.csv")
+                    lines = get_header() + ["velocity [m/s],T_hot [C]"]
+                    for i in range(len(v)):
+                        lines.append(f"{v[i]:.6e},{T_hot[i]:.2f}")
+                    with open(os.path.join(save_dir, fn), 'w', encoding='utf-8-sig') as f:
+                        f.write("\n".join(lines))
+                    exported.append(fn)
+
+                # μ_cold vs μ_hot
+                if check_vars.get('mu_compare_v', tk.BooleanVar()).get():
+                    fn = mc_fn("flash_mu_cold_hot_vs_velocity.csv")
+                    lines = get_header() + ["velocity [m/s],mu_cold,mu_hot"]
+                    for i in range(len(v)):
+                        lines.append(f"{v[i]:.6e},{mu_cold[i]:.6f},{mu_hot[i]:.6f}")
+                    with open(os.path.join(save_dir, fn), 'w', encoding='utf-8-sig') as f:
+                        f.write("\n".join(lines))
+                    exported.append(fn)
+
+                # A/A0
+                if check_vars.get('aa0_v', tk.BooleanVar()).get():
+                    if A_A0_cold is not None and A_A0_hot is not None:
+                        fn = mc_fn("flash_AA0_cold_hot_vs_velocity.csv")
+                        lines = get_header() + ["velocity [m/s],A_A0_cold,A_A0_hot"]
+                        for i in range(len(v)):
+                            lines.append(f"{v[i]:.6e},{A_A0_cold[i]:.6e},{A_A0_hot[i]:.6e}")
+                        with open(os.path.join(save_dir, fn), 'w', encoding='utf-8-sig') as f:
+                            f.write("\n".join(lines))
+                        exported.append(fn)
+
+                # q̇, Jd
+                if check_vars.get('flux_v', tk.BooleanVar()).get():
+                    fn = mc_fn("flash_heatflux_peclet_vs_velocity.csv")
+                    lines = get_header() + ["velocity [m/s],q_dot [W/m2],Jd"]
+                    for i in range(len(v)):
+                        lines.append(f"{v[i]:.6e},{q_dot[i]:.4e},{Jd[i]:.6e}")
+                    with open(os.path.join(save_dir, fn), 'w', encoding='utf-8-sig') as f:
+                        f.write("\n".join(lines))
+                    exported.append(fn)
+
+                # ΔT(q, v) 2D profile
+                if check_vars.get('dT_profile_2d', tk.BooleanVar()).get():
+                    if dT_profile is not None and q_arr is not None:
+                        fn = mc_fn("flash_deltaT_profile_q_v.csv")
+                        header_row = ["q \\ v"] + [f"{vi:.6e}" for vi in v]
+                        lines = get_header() + [
+                            f"# 2D 파수별 누적 ΔT 프로파일: rows=q, cols=v",
+                            ",".join(header_row)
+                        ]
+                        for i in range(len(q_arr)):
+                            row = [f"{q_arr[i]:.6e}"] + [f"{dT_profile[i, j]:.4f}"
+                                                          for j in range(len(v))]
+                            lines.append(",".join(row))
+                        with open(os.path.join(save_dir, fn), 'w', encoding='utf-8-sig') as f:
+                            f.write("\n".join(lines))
+                        exported.append(fn)
+
+                dialog.destroy()
+                self._show_status(
+                    f"Flash CSV 내보내기 완료:\n\n" + "\n".join(exported) +
+                    f"\n\n저장 위치: {save_dir}", 'success')
+                self.status_var.set(f"Flash CSV 내보내기 완료: {len(exported)}개 파일")
+
+            except Exception as e:
+                import traceback
+                messagebox.showerror("오류", f"내보내기 실패:\n{str(e)}\n\n{traceback.format_exc()}", parent=dialog)
+
+        ttk.Button(export_frame, text="내보내기", command=do_export).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(export_frame, text="취소", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
 
     def _create_mu_visc_tab(self, parent):
         """Create enhanced Strain/mu_visc calculation tab with piecewise averaging."""
@@ -12260,6 +12473,7 @@ class PerssonModelGUI_V2:
                 ("μ_hot(v) - Flash 적용 마찰계수", "mu_hot_v", True),
                 ("ΔT(v), T_hot(v), Jd(v), q_dot(v)", "flash_detail_v", True),
                 ("A/A0 Cold vs Hot", "aa0_cold_hot_v", False),
+                ("ΔT(q, v) - 파수별 누적 프로파일 (2D)", "dT_profile_2d", False),
             ]
             for display_name, key, default in flash_options:
                 var = tk.BooleanVar(value=default)
@@ -12481,6 +12695,25 @@ class PerssonModelGUI_V2:
                             lines = get_header_lines() + ["velocity [m/s],A_A0_cold,A_A0_hot"]
                             for vi, ac, ah in zip(v, A_A0_cold_exp, A_A0_hot_exp):
                                 lines.append(f"{vi:.6e},{ac:.6e},{ah:.6e}")
+                            with open(filepath, 'w', encoding='utf-8-sig') as f:
+                                f.write("\n".join(lines))
+                            exported_files.append(filename)
+
+                    if 'dT_profile_2d' in check_vars and check_vars['dT_profile_2d'].get():
+                        dT_profile = flash_res.get('delta_T_profile')
+                        q_arr_exp = flash_res.get('q_array')
+                        if dT_profile is not None and q_arr_exp is not None:
+                            filename = mc_fn("flash_deltaT_profile_q_v.csv")
+                            filepath = os.path.join(save_dir, filename)
+                            header_row = ["q \\ v"] + [f"{vi:.6e}" for vi in v]
+                            lines = get_header_lines() + [
+                                "# 2D per-q accumulated delta_T profile: rows=q, cols=v",
+                                ",".join(header_row)
+                            ]
+                            for i in range(len(q_arr_exp)):
+                                row = [f"{q_arr_exp[i]:.6e}"] + [f"{dT_profile[i, j]:.4f}"
+                                                                   for j in range(len(v))]
+                                lines.append(",".join(row))
                             with open(filepath, 'w', encoding='utf-8-sig') as f:
                                 f.write("\n".join(lines))
                             exported_files.append(filename)
@@ -17243,21 +17476,25 @@ class PerssonModelGUI_V2:
             traceback.print_exc()
 
     def _export_mu_adh_csv(self):
-        """Export μ_adh calculation results to CSV."""
+        """Export μ_adh calculation results to CSV (comma-separated, with headers)."""
         if self.mu_adh_results is None:
             self._show_status("μ_adh 결과가 없습니다. 먼저 계산을 실행하세요.", 'warning')
             return
+
+        mc_prefix = self._get_mc_prefix()
+        default_fn = f"{mc_prefix}_mu_adh_results.csv" if mc_prefix else "mu_adh_results.csv"
 
         filepath = filedialog.asksaveasfilename(
             title="μ_adh 데이터 내보내기",
             defaultextension=".csv",
             filetypes=[("CSV", "*.csv"), ("텍스트", "*.txt")],
-            initialfile="mu_adh_results.csv"
+            initialfile=default_fn
         )
         if not filepath:
             return
 
         try:
+            from datetime import datetime
             v = self.mu_adh_results['v']
             mu_adh = self.mu_adh_results['mu_adh']
             tau_f = self.mu_adh_results['tau_f']
@@ -17265,42 +17502,52 @@ class PerssonModelGUI_V2:
             v_eff = self.mu_adh_results['v_eff']
             params = self.mu_adh_results['params']
 
-            with open(filepath, 'w') as f:
-                f.write("# mu_adh (adhesion friction) results\n")
-                f.write(f"# tau_f0 = {params['tau_f0']/1e6:.2f} MPa\n")
-                f.write(f"# v0_star = {params['v0_star']:.4f} m/s\n")
-                f.write(f"# c = {params['c']:.4f}\n")
-                f.write(f"# epsilon = {params['epsilon']:.4f} eV\n")
-                f.write(f"# T = {params['T']:.2f} K\n")
-                f.write(f"# T_ref = {params['T_ref']:.2f} K\n")
-                f.write(f"# p0 = {params['p0']/1e6:.3f} MPa\n")
-                f.write(f"# aT_prime = {self.mu_adh_results['aT_prime']:.6e}\n")
-                f.write("#\n")
-                f.write("# log10(v)\tv(m/s)\tv_eff(m/s)\ttau_f(MPa)\tA/A0\tmu_adh\n")
-                for i in range(len(v)):
-                    f.write(f"{np.log10(v[i]):.6f}\t{v[i]:.6e}\t{v_eff[i]:.6e}\t"
-                            f"{tau_f[i]/1e6:.6f}\t{A_ratio[i]:.6f}\t{mu_adh[i]:.6f}\n")
+            lines = [
+                f"# 생성일시,{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                f"# 마스터커브,{mc_prefix if mc_prefix else 'N/A'}",
+                f"# tau_f0 (MPa),{params['tau_f0']/1e6:.2f}",
+                f"# v0_star (m/s),{params['v0_star']:.4f}",
+                f"# c,{params['c']:.4f}",
+                f"# epsilon (eV),{params['epsilon']:.4f}",
+                f"# T (K),{params['T']:.2f}",
+                f"# T_ref (K),{params['T_ref']:.2f}",
+                f"# p0 (MPa),{params['p0']/1e6:.3f}",
+                f"# aT_prime,{self.mu_adh_results['aT_prime']:.6e}",
+                f"# A/A0 source,{params.get('area_source', 'N/A')}",
+                "#",
+                "log10(v),velocity [m/s],v_eff [m/s],tau_f [MPa],A/A0,mu_adh"
+            ]
+            for i in range(len(v)):
+                lines.append(f"{np.log10(v[i]):.6f},{v[i]:.6e},{v_eff[i]:.6e},"
+                             f"{tau_f[i]/1e6:.6f},{A_ratio[i]:.6f},{mu_adh[i]:.6f}")
+
+            with open(filepath, 'w', encoding='utf-8-sig') as f:
+                f.write("\n".join(lines))
 
             self._show_status(f"μ_adh 데이터 저장 완료: {filepath}", 'success')
         except Exception as e:
             messagebox.showerror("오류", f"CSV 저장 실패:\n{str(e)}")
 
     def _export_mu_total_csv(self):
-        """Export μ_total (μ_visc + μ_adh) results to CSV."""
+        """Export μ_total (μ_visc + μ_adh) results to CSV (comma-separated, with headers)."""
         if self.mu_adh_results is None:
             self._show_status("μ_adh 결과가 없습니다. 먼저 계산을 실행하세요.", 'warning')
             return
+
+        mc_prefix = self._get_mc_prefix()
+        default_fn = f"{mc_prefix}_mu_total_results.csv" if mc_prefix else "mu_total_results.csv"
 
         filepath = filedialog.asksaveasfilename(
             title="μ_total 데이터 내보내기",
             defaultextension=".csv",
             filetypes=[("CSV", "*.csv"), ("텍스트", "*.txt")],
-            initialfile="mu_total_results.csv"
+            initialfile=default_fn
         )
         if not filepath:
             return
 
         try:
+            from datetime import datetime
             v = self.mu_adh_results['v']
             mu_adh = self.mu_adh_results['mu_adh']
 
@@ -17311,13 +17558,36 @@ class PerssonModelGUI_V2:
             mu_visc = self.mu_visc_results['mu'] if has_visc else np.zeros_like(mu_adh)
             mu_total = mu_visc + mu_adh
 
-            with open(filepath, 'w') as f:
-                f.write("# mu_total = mu_visc + mu_adh\n")
-                f.write("#\n")
-                f.write("# log10(v)\tv(m/s)\tmu_visc\tmu_adh\tmu_total\n")
+            # Check for flash-corrected mu_hot
+            has_flash = (has_visc and
+                         self.mu_visc_results.get('use_flash', False) and
+                         self.mu_visc_results.get('mu_hot') is not None and
+                         len(self.mu_visc_results['mu_hot']) == len(mu_adh))
+            mu_hot = self.mu_visc_results.get('mu_hot') if has_flash else None
+            mu_total_hot = (mu_hot + mu_adh) if mu_hot is not None else None
+
+            lines = [
+                f"# 생성일시,{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                f"# 마스터커브,{mc_prefix if mc_prefix else 'N/A'}",
+                f"# mu_total = mu_visc + mu_adh",
+                "#",
+            ]
+
+            if mu_total_hot is not None:
+                lines.append("log10(v),velocity [m/s],mu_visc,mu_adh,mu_total,"
+                             "mu_visc_hot,mu_total_hot")
                 for i in range(len(v)):
-                    f.write(f"{np.log10(v[i]):.6f}\t{v[i]:.6e}\t"
-                            f"{mu_visc[i]:.6f}\t{mu_adh[i]:.6f}\t{mu_total[i]:.6f}\n")
+                    lines.append(f"{np.log10(v[i]):.6f},{v[i]:.6e},"
+                                 f"{mu_visc[i]:.6f},{mu_adh[i]:.6f},{mu_total[i]:.6f},"
+                                 f"{mu_hot[i]:.6f},{mu_total_hot[i]:.6f}")
+            else:
+                lines.append("log10(v),velocity [m/s],mu_visc,mu_adh,mu_total")
+                for i in range(len(v)):
+                    lines.append(f"{np.log10(v[i]):.6f},{v[i]:.6e},"
+                                 f"{mu_visc[i]:.6f},{mu_adh[i]:.6f},{mu_total[i]:.6f}")
+
+            with open(filepath, 'w', encoding='utf-8-sig') as f:
+                f.write("\n".join(lines))
 
             self._show_status(f"μ_total 데이터 저장 완료: {filepath}", 'success')
         except Exception as e:
