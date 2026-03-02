@@ -12,7 +12,7 @@ Algorithm (Two-Pass):
                    mu_hot and (A/A0)_hot at T_hot = T + ΔT
 
 Key Formulas:
-    1. Heat Flux:     q_dot = (A/A0)_cold × mu_cold × sigma_0 × v
+    1. Heat Flux:     q_dot = mu_cold × sigma_0 × v  (Persson 2006)
     2. Peclet Number: Jd = v × d_macro / D_th
     3. Greenwood:     ΔT = (q_dot × d_macro) / (2 × kappa_th × sqrt(1 + (16/π) × Jd))
     4. Hot Temp:      T_hot = T_base + ΔT
@@ -93,14 +93,22 @@ class FlashTemperatureCalculator:
         velocity: float
     ) -> float:
         """
-        Calculate local heat flux at real contact area.
+        Calculate frictional heat flux at the macroscopic contact.
 
-        q_dot = (A/A0) × mu × sigma_0 × v
+        q_dot = mu × sigma_0 × v
+
+        This is the total frictional dissipation per unit nominal contact area.
+        The macroscopic Greenwood formula then calculates the temperature rise
+        for a heat source of diameter d_macro moving at velocity v.
+
+        Note: A_A0 is accepted for interface compatibility but NOT used in
+        the heat flux calculation. Per Persson (2006), the macroscopic
+        flash temperature uses q = μ·σ₀·v without the A/A₀ factor.
 
         Parameters
         ----------
         A_A0 : float
-            Real contact area ratio (A/A0) from cold pass
+            Real contact area ratio (A/A0) from cold pass (reserved)
         mu : float
             Friction coefficient from cold pass
         sigma_0 : float
@@ -113,7 +121,7 @@ class FlashTemperatureCalculator:
         float
             Heat flux q_dot (W/m²)
         """
-        return A_A0 * mu * sigma_0 * velocity
+        return mu * sigma_0 * velocity
 
     def peclet_number(self, velocity: float) -> float:
         """
