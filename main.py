@@ -8860,6 +8860,8 @@ class PerssonModelGUI_V2:
                    command=self._export_flash_temp_csv, width=18).pack(side=tk.LEFT, padx=1)
         ttk.Button(flash_export_frame, text="배율별 ΔT 내보내기",
                    command=self._export_flash_zeta_dT_csv, width=18).pack(side=tk.LEFT, padx=1)
+        ttk.Button(flash_export_frame, text="검증 데이터 내보내기",
+                   command=self._export_flash_verification_csv, width=18).pack(side=tk.LEFT, padx=1)
 
         # ============== Right Panel: Plots ==============
         right_panel = layout['right']
@@ -9501,13 +9503,13 @@ class PerssonModelGUI_V2:
         # Dialog to select velocity
         dialog = tk.Toplevel(self.root)
         dialog.title("배율별 ΔT 내보내기")
-        dialog.geometry("400x300")
-        dialog.resizable(False, False)
+        dialog.geometry("500x500")
+        dialog.resizable(True, True)
         dialog.transient(self.root)
         dialog.grab_set()
         dialog.update_idletasks()
-        x = self.root.winfo_x() + (self.root.winfo_width() - 400) // 2
-        y = self.root.winfo_y() + (self.root.winfo_height() - 300) // 2
+        x = self.root.winfo_x() + (self.root.winfo_width() - 500) // 2
+        y = self.root.winfo_y() + (self.root.winfo_height() - 500) // 2
         dialog.geometry(f"+{x}+{y}")
 
         ttk.Label(dialog, text="배율별 ΔT 데이터를 CSV로 내보냅니다.\n"
@@ -9613,6 +9615,191 @@ class PerssonModelGUI_V2:
 
         ttk.Button(btn_frame, text="내보내기", command=do_export).pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text="취소", command=dialog.destroy).pack(side=tk.RIGHT, padx=5)
+
+    def _export_flash_verification_csv(self):
+        """Export verification data: 정품 preset + 계산 result at v=0.6758 m/s side by side."""
+        if not hasattr(self, 'mu_visc_results') or self.mu_visc_results is None:
+            self._show_status("먼저 μ_visc 계산(Flash 활성)을 실행하세요.", 'warning')
+            return
+
+        flash_results = self.mu_visc_results.get('flash_results')
+        if flash_results is None:
+            self._show_status("Flash Temperature 결과가 없습니다.", 'warning')
+            return
+
+        dT_profile_ref = flash_results.get('delta_T_profile_ref')
+        q_arr = flash_results.get('q_array')
+        v_ref = flash_results.get('v_ref', 0.6758)
+        T_base = flash_results.get('T_base', 20.0)
+
+        if dT_profile_ref is None or q_arr is None:
+            self._show_status("v=0.6758 검증용 프로파일이 없습니다.", 'warning')
+            return
+
+        save_path = filedialog.asksaveasfilename(
+            title="검증 데이터 CSV 저장 (정품 + 계산)",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialfile=f"flash_verification_v{v_ref:.4f}.csv",
+        )
+        if not save_path:
+            return
+
+        try:
+            from datetime import datetime
+
+            # Preset data (정품 프로그램 결과, v=0.6758 m/s)
+            _preset_zeta_dT = [
+                (2.59e-02, 2.00e+01), (3.90e-02, 2.00e+01), (5.20e-02, 2.00e+01),
+                (6.50e-02, 2.00e+01), (7.80e-02, 2.00e+01), (9.11e-02, 2.00e+01),
+                (1.04e-01, 2.00e+01), (1.17e-01, 2.00e+01), (1.30e-01, 2.00e+01),
+                (1.43e-01, 2.00e+01), (1.56e-01, 2.00e+01), (1.69e-01, 2.00e+01),
+                (1.82e-01, 2.00e+01), (1.95e-01, 2.00e+01), (2.08e-01, 2.00e+01),
+                (2.21e-01, 2.00e+01), (2.34e-01, 2.00e+01), (2.47e-01, 2.00e+01),
+                (2.60e-01, 2.00e+01), (2.74e-01, 2.00e+01), (2.87e-01, 2.00e+01),
+                (3.00e-01, 2.00e+01), (3.13e-01, 2.00e+01), (3.26e-01, 2.00e+01),
+                (3.39e-01, 2.00e+01), (3.52e-01, 2.00e+01), (3.65e-01, 2.00e+01),
+                (3.78e-01, 2.00e+01), (3.91e-01, 2.00e+01), (4.04e-01, 2.00e+01),
+                (4.17e-01, 2.00e+01), (4.30e-01, 2.00e+01), (4.43e-01, 2.00e+01),
+                (4.56e-01, 2.00e+01), (4.69e-01, 2.00e+01), (4.82e-01, 2.00e+01),
+                (4.95e-01, 2.00e+01), (5.08e-01, 2.00e+01), (5.21e-01, 2.00e+01),
+                (5.34e-01, 2.00e+01), (5.47e-01, 2.00e+01), (5.60e-01, 2.00e+01),
+                (5.73e-01, 2.00e+01), (5.86e-01, 2.00e+01), (5.99e-01, 2.00e+01),
+                (6.12e-01, 2.00e+01), (6.25e-01, 2.00e+01), (6.38e-01, 2.00e+01),
+                (6.51e-01, 2.00e+01), (6.64e-01, 2.00e+01), (6.77e-01, 2.00e+01),
+                (6.90e-01, 2.00e+01), (7.03e-01, 2.00e+01), (7.16e-01, 2.00e+01),
+                (7.29e-01, 2.00e+01), (7.42e-01, 2.00e+01), (7.56e-01, 2.00e+01),
+                (7.69e-01, 2.00e+01), (7.82e-01, 2.00e+01), (7.95e-01, 2.00e+01),
+                (8.08e-01, 2.00e+01), (8.21e-01, 2.00e+01), (8.34e-01, 2.00e+01),
+                (8.47e-01, 2.00e+01), (8.60e-01, 2.00e+01), (8.73e-01, 2.00e+01),
+                (8.86e-01, 2.00e+01), (8.99e-01, 2.00e+01), (9.12e-01, 2.00e+01),
+                (9.25e-01, 2.00e+01), (9.38e-01, 2.00e+01), (9.51e-01, 2.00e+01),
+                (9.64e-01, 2.00e+01), (9.77e-01, 2.00e+01), (9.90e-01, 2.00e+01),
+                (1.00e+00, 2.00e+01), (1.02e+00, 2.00e+01), (1.03e+00, 2.00e+01),
+                (1.04e+00, 2.00e+01), (1.05e+00, 2.00e+01), (1.07e+00, 2.00e+01),
+                (1.08e+00, 2.00e+01), (1.09e+00, 2.00e+01), (1.10e+00, 2.00e+01),
+                (1.12e+00, 2.00e+01), (1.13e+00, 2.00e+01), (1.14e+00, 2.00e+01),
+                (1.15e+00, 2.00e+01), (1.17e+00, 2.00e+01), (1.18e+00, 2.00e+01),
+                (1.19e+00, 2.00e+01), (1.20e+00, 2.00e+01), (1.22e+00, 2.00e+01),
+                (1.23e+00, 2.00e+01), (1.24e+00, 2.01e+01), (1.25e+00, 2.01e+01),
+                (1.27e+00, 2.01e+01), (1.28e+00, 2.01e+01), (1.29e+00, 2.01e+01),
+                (1.30e+00, 2.01e+01), (1.32e+00, 2.02e+01), (1.33e+00, 2.02e+01),
+                (1.34e+00, 2.02e+01), (1.35e+00, 2.02e+01), (1.37e+00, 2.03e+01),
+                (1.38e+00, 2.03e+01), (1.39e+00, 2.03e+01), (1.40e+00, 2.04e+01),
+                (1.42e+00, 2.04e+01), (1.43e+00, 2.04e+01), (1.44e+00, 2.05e+01),
+                (1.45e+00, 2.05e+01), (1.47e+00, 2.05e+01), (1.48e+00, 2.06e+01),
+                (1.49e+00, 2.06e+01), (1.50e+00, 2.07e+01), (1.51e+00, 2.07e+01),
+                (1.53e+00, 2.07e+01), (1.54e+00, 2.08e+01), (1.55e+00, 2.08e+01),
+                (1.56e+00, 2.09e+01), (1.58e+00, 2.09e+01), (1.59e+00, 2.09e+01),
+                (1.60e+00, 2.10e+01), (1.61e+00, 2.10e+01), (1.63e+00, 2.10e+01),
+                (1.64e+00, 2.11e+01), (1.65e+00, 2.11e+01), (1.66e+00, 2.12e+01),
+                (1.68e+00, 2.12e+01), (1.69e+00, 2.12e+01), (1.70e+00, 2.13e+01),
+                (1.71e+00, 2.13e+01), (1.73e+00, 2.14e+01), (1.74e+00, 2.14e+01),
+                (1.75e+00, 2.15e+01), (1.76e+00, 2.15e+01), (1.78e+00, 2.16e+01),
+                (1.79e+00, 2.16e+01), (1.80e+00, 2.16e+01), (1.81e+00, 2.17e+01),
+                (1.83e+00, 2.17e+01), (1.84e+00, 2.18e+01), (1.85e+00, 2.18e+01),
+                (1.86e+00, 2.18e+01), (1.88e+00, 2.19e+01), (1.89e+00, 2.19e+01),
+                (1.90e+00, 2.20e+01), (1.91e+00, 2.20e+01), (1.93e+00, 2.20e+01),
+                (1.94e+00, 2.21e+01), (1.95e+00, 2.21e+01), (1.96e+00, 2.22e+01),
+                (1.98e+00, 2.22e+01), (1.99e+00, 2.23e+01), (2.00e+00, 2.23e+01),
+                (2.01e+00, 2.23e+01), (2.03e+00, 2.24e+01), (2.04e+00, 2.24e+01),
+                (2.05e+00, 2.25e+01), (2.06e+00, 2.25e+01), (2.08e+00, 2.25e+01),
+                (2.09e+00, 2.26e+01), (2.10e+00, 2.26e+01), (2.11e+00, 2.27e+01),
+                (2.13e+00, 2.27e+01), (2.14e+00, 2.27e+01), (2.15e+00, 2.28e+01),
+                (2.16e+00, 2.28e+01), (2.18e+00, 2.29e+01), (2.19e+00, 2.29e+01),
+                (2.20e+00, 2.29e+01), (2.21e+00, 2.30e+01), (2.23e+00, 2.30e+01),
+                (2.24e+00, 2.31e+01), (2.25e+00, 2.31e+01), (2.26e+00, 2.31e+01),
+                (2.28e+00, 2.32e+01), (2.29e+00, 2.32e+01), (2.30e+00, 2.32e+01),
+                (2.31e+00, 2.33e+01), (2.33e+00, 2.33e+01), (2.34e+00, 2.33e+01),
+                (2.35e+00, 2.34e+01), (2.36e+00, 2.34e+01), (2.38e+00, 2.34e+01),
+                (2.39e+00, 2.35e+01), (2.40e+00, 2.35e+01), (2.41e+00, 2.35e+01),
+                (2.43e+00, 2.36e+01), (2.44e+00, 2.36e+01), (2.45e+00, 2.36e+01),
+                (2.46e+00, 2.37e+01), (2.48e+00, 2.37e+01), (2.49e+00, 2.37e+01),
+                (2.50e+00, 2.38e+01), (2.51e+00, 2.38e+01), (2.53e+00, 2.38e+01),
+                (2.54e+00, 2.39e+01), (2.55e+00, 2.39e+01), (2.56e+00, 2.39e+01),
+                (2.58e+00, 2.39e+01), (2.59e+00, 2.40e+01), (2.60e+00, 2.40e+01),
+                (2.61e+00, 2.40e+01), (2.63e+00, 2.41e+01), (2.64e+00, 2.41e+01),
+                (2.65e+00, 2.41e+01), (2.66e+00, 2.41e+01), (2.68e+00, 2.42e+01),
+                (2.69e+00, 2.42e+01), (2.70e+00, 2.42e+01), (2.71e+00, 2.43e+01),
+                (2.73e+00, 2.43e+01), (2.74e+00, 2.43e+01), (2.75e+00, 2.43e+01),
+                (2.76e+00, 2.44e+01), (2.78e+00, 2.44e+01), (2.79e+00, 2.44e+01),
+                (2.80e+00, 2.44e+01), (2.81e+00, 2.45e+01), (2.83e+00, 2.45e+01),
+                (2.84e+00, 2.45e+01), (2.85e+00, 2.45e+01), (2.86e+00, 2.46e+01),
+                (2.88e+00, 2.46e+01), (2.89e+00, 2.46e+01), (2.90e+00, 2.46e+01),
+                (2.91e+00, 2.47e+01), (2.93e+00, 2.47e+01), (2.94e+00, 2.47e+01),
+                (2.95e+00, 2.47e+01), (2.96e+00, 2.48e+01), (2.98e+00, 2.48e+01),
+                (2.99e+00, 2.48e+01), (3.00e+00, 2.48e+01), (3.01e+00, 2.49e+01),
+                (3.03e+00, 2.49e+01), (3.04e+00, 2.49e+01), (3.05e+00, 2.49e+01),
+                (3.06e+00, 2.50e+01), (3.08e+00, 2.50e+01), (3.09e+00, 2.50e+01),
+                (3.10e+00, 2.50e+01), (3.11e+00, 2.51e+01), (3.13e+00, 2.51e+01),
+                (3.14e+00, 2.51e+01), (3.15e+00, 2.51e+01), (3.16e+00, 2.51e+01),
+                (3.18e+00, 2.52e+01), (3.19e+00, 2.52e+01), (3.20e+00, 2.52e+01),
+                (3.21e+00, 2.52e+01), (3.23e+00, 2.53e+01), (3.24e+00, 2.53e+01),
+                (3.25e+00, 2.53e+01), (3.26e+00, 2.53e+01), (3.28e+00, 2.53e+01),
+                (3.29e+00, 2.54e+01), (3.30e+00, 2.54e+01), (3.31e+00, 2.54e+01),
+                (3.33e+00, 2.54e+01), (3.34e+00, 2.55e+01), (3.35e+00, 2.55e+01),
+                (3.36e+00, 2.55e+01), (3.38e+00, 2.55e+01), (3.39e+00, 2.55e+01),
+                (3.40e+00, 2.56e+01), (3.41e+00, 2.56e+01), (3.43e+00, 2.56e+01),
+                (3.44e+00, 2.56e+01), (3.45e+00, 2.56e+01), (3.46e+00, 2.57e+01),
+                (3.48e+00, 2.57e+01), (3.49e+00, 2.57e+01), (3.50e+00, 2.57e+01),
+                (3.51e+00, 2.57e+01), (3.53e+00, 2.57e+01), (3.54e+00, 2.58e+01),
+                (3.55e+00, 2.58e+01), (3.56e+00, 2.58e+01), (3.58e+00, 2.58e+01),
+                (3.59e+00, 2.58e+01), (3.60e+00, 2.58e+01), (3.62e+00, 2.56e+01),
+                (3.62e+00, 2.56e+01), (3.64e+00, 2.56e+01), (3.65e+00, 2.57e+01),
+                (3.66e+00, 2.57e+01), (3.67e+00, 2.57e+01), (3.69e+00, 2.57e+01),
+                (3.70e+00, 2.57e+01), (3.71e+00, 2.58e+01), (3.73e+00, 2.58e+01),
+                (3.74e+00, 2.58e+01), (3.75e+00, 2.58e+01), (3.77e+00, 2.58e+01),
+                (3.78e+00, 2.58e+01), (3.79e+00, 2.59e+01), (3.80e+00, 2.59e+01),
+                (3.82e+00, 2.59e+01), (3.83e+00, 2.59e+01),
+            ]
+            _pz = np.array(_preset_zeta_dT)
+            preset_log_zeta = _pz[:, 0]
+            preset_T = _pz[:, 1]
+            preset_dT = preset_T - T_base
+
+            # Computed profile at exactly v=0.6758
+            q0 = q_arr[0]
+            log_zeta_calc = np.log10(np.maximum(q_arr / q0, 1e-30))
+            T_calc = T_base + dT_profile_ref
+            dT_calc = dT_profile_ref.copy()
+
+            mc_prefix = self._get_mc_prefix()
+
+            lines = [
+                f"# Flash Temperature 검증 데이터 (정품 vs 계산)",
+                f"# 생성일시,{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                f"# 마스터커브,{mc_prefix if mc_prefix else 'N/A'}",
+                f"# 기준속도,v = {v_ref:.4f} m/s",
+                f"# T_base,{T_base:.1f} °C",
+                f"# 정품 ΔT_total,{preset_T[-1] - T_base:.2f} °C",
+                f"# 계산 ΔT_total,{dT_profile_ref[-1]:.2f} °C",
+                f"# 방식,Per-q Sequential Accumulation (Persson 2006 circular)",
+                "#",
+                "# === 정품 데이터 (287 pts) ===",
+                "log10(zeta)_정품,T(C)_정품,dT(C)_정품",
+            ]
+            for i in range(len(preset_log_zeta)):
+                lines.append(f"{preset_log_zeta[i]:.4f},{preset_T[i]:.4f},{preset_dT[i]:.4f}")
+
+            lines.append("#")
+            lines.append(f"# === 계산 데이터 ({len(q_arr)} pts, v={v_ref:.4f} m/s) ===")
+            lines.append("q(1/m),log10(zeta)_계산,T(C)_계산,dT(C)_계산")
+            for i in range(len(q_arr)):
+                lines.append(f"{q_arr[i]:.6e},{log_zeta_calc[i]:.4f},{T_calc[i]:.4f},{dT_calc[i]:.4f}")
+
+            with open(save_path, 'w', encoding='utf-8-sig') as f:
+                f.write("\n".join(lines))
+
+            self._show_status(
+                f"검증 데이터 내보내기 완료\n"
+                f"정품: {len(preset_log_zeta)} pts, ΔT={preset_T[-1]-T_base:.2f}°C\n"
+                f"계산: {len(q_arr)} pts, ΔT={dT_profile_ref[-1]:.2f}°C\n"
+                f"{save_path}", 'success')
+            self.status_var.set(f"검증 CSV 저장: {save_path}")
+
+        except Exception as e:
+            import traceback
+            messagebox.showerror("오류", f"내보내기 실패:\n{str(e)}\n\n{traceback.format_exc()}")
 
     def _create_mu_visc_tab(self, parent):
         """Create enhanced Strain/mu_visc calculation tab with piecewise averaging."""
