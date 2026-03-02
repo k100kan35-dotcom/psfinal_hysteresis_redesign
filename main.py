@@ -9125,23 +9125,17 @@ class PerssonModelGUI_V2:
             self.ax_flash_zeta_dT.plot(preset_log_zeta, preset_T, 'r-', linewidth=2,
                                         label='정품 (v=0.6758 m/s)')
 
-            # Plot calculated ΔT profile at v closest to 0.6758 m/s
-            if delta_T_profile is not None and q_array is not None and len(v) >= 1:
-                v_target = 0.6758
-                # Use linear distance for velocity matching (more accurate)
-                j_sel = int(np.argmin(np.abs(v - v_target)))
-                v_actual = v[j_sel]
-
-                # ζ = q/q₀ where q₀ = q_array[0]
+            # Plot calculated ΔT profile at EXACTLY v=0.6758 m/s (dedicated computation)
+            dT_profile_ref = flash_results.get('delta_T_profile_ref')
+            v_ref_val = flash_results.get('v_ref', 0.6758)
+            if dT_profile_ref is not None and q_array is not None:
                 q0 = q_array[0]
                 log_zeta_calc = np.log10(np.maximum(q_array / q0, 1e-30))
-                # T(ζ) = T_base + ΔT_accumulated(ζ)
-                T_calc = T_base + delta_T_profile[:, j_sel]
-
+                T_calc = T_base + dT_profile_ref
                 self.ax_flash_zeta_dT.plot(log_zeta_calc, T_calc, 'b-', linewidth=2,
-                                            label=f'계산 (v={v_actual:.4f} m/s)')
+                                            label=f'계산 (v={v_ref_val:.4f} m/s)')
 
-            self.ax_flash_zeta_dT.set_title('ζ vs ΔT (v≈0.6758 m/s)', fontweight='bold', fontsize=10)
+            self.ax_flash_zeta_dT.set_title(f'ζ vs ΔT (v={v_ref_val:.4f} m/s)', fontweight='bold', fontsize=10)
             self.ax_flash_zeta_dT.set_xlabel('log₁₀(ζ) = log₁₀(q/q₀)', fontsize=9)
             self.ax_flash_zeta_dT.set_ylabel('T (°C)', fontsize=9)
             self.ax_flash_zeta_dT.legend(fontsize=7)
@@ -11675,6 +11669,69 @@ class PerssonModelGUI_V2:
                                 f"Flash per-q: {j+1}/{n_v} (ΔT={delta_T_final:.1f}°C, μ_hot={mu_hot_total:.3f})")
                             self.root.update()
 
+                    # --- Dedicated per-q profile at v_ref = 0.6758 m/s (for 정품 comparison) ---
+                    v_ref = 0.6758
+                    j_nearest = int(np.argmin(np.abs(v - v_ref)))
+                    detail_ref = details['details'][j_nearest]
+                    P_ref = detail_ref['P']
+                    S_ref = detail_ref['S']
+                    C_q_ref = detail_ref['C_q']
+
+                    if strain_est is not None and use_fg:
+                        strain_ref = strain_est(q, G_matrix_corrected[:, j_nearest], v_ref)
+                    else:
+                        strain_ref = None
+
+                    delta_T_profile_ref = np.zeros(n_q)
+                    T_current_ref = temperature
+                    mu_hot_ref = 0.0
+                    integrand_prev_ref = 0.0
+
+                    for i in range(n_q):
+                        log_aT_ref = float(self.persson_aT_interp(T_current_ref))
+                        aT_ref = 10 ** log_aT_ref
+
+                        omega_phy_ref = q[i] * v_ref * cos_phi_flash
+                        omega_eff_ref = np.maximum(omega_phy_ref * aT_ref, 1e-30)
+
+                        log_Eloss_ref = E_loss_master_interp_func(np.log10(omega_eff_ref))
+                        Eloss_ref = 10.0 ** log_Eloss_ref
+
+                        if use_fg and g_interp is not None and strain_ref is not None:
+                            strain_i_ref = float(strain_ref[i]) if i < len(strain_ref) else fixed_strain
+                            g_val_ref = float(g_interp(np.clip(strain_i_ref, 0.0, 1.0)))
+                            if np.isfinite(g_val_ref):
+                                Eloss_ref = Eloss_ref * max(g_val_ref, 0.01)
+
+                        integ_phi_ref = cos_phi_flash * Eloss_ref * prefactor_flash
+                        if n_phi >= 3:
+                            ai_ref = 4.0 * simpson_flash(integ_phi_ref, x=phi_flash)
+                        else:
+                            ai_ref = 4.0 * np.trapezoid(integ_phi_ref, phi_flash)
+
+                        integ_q_ref = q[i]**3 * C_q_ref[i] * P_ref[i] * S_ref[i] * ai_ref
+
+                        if i > 0:
+                            dq_ref = q[i] - q[i - 1]
+                            dmu_ref = 0.5 * 0.5 * (integrand_prev_ref + integ_q_ref) * dq_ref
+                        else:
+                            dmu_ref = 0.0
+
+                        integrand_prev_ref = integ_q_ref
+                        mu_hot_ref += dmu_ref
+
+                        if i > 0 and dmu_ref > 0:
+                            d_local_ref = 2.0 * np.pi / q[i]
+                            P_qi_ref = max(P_ref[i], 1e-6)
+                            q_dot_ref = dmu_ref * sigma_0 * v_ref / P_qi_ref
+                            dT_ref = flash_calc.delta_T_at_scale(q_dot_ref, d_local_ref, v_ref)
+                            T_current_ref += dT_ref
+
+                        delta_T_profile_ref[i] = T_current_ref - temperature
+
+                    print(f"\n  [Ref v={v_ref:.4f} m/s] ΔT_total={T_current_ref - temperature:.2f}°C, "
+                          f"μ_hot={mu_hot_ref:.4f} (P,S,C_q from nearest v={v[j_nearest]:.4f})")
+
                     # --- Recalculate A/A0_hot at terminal ΔT ---
                     self.status_var.set("A/A0_hot 재계산 중...")
                     self.root.update()
@@ -11723,6 +11780,8 @@ class PerssonModelGUI_V2:
                         'delta_T': flash_delta_T,
                         'delta_T_cold': flash_delta_T_cold,  # Per-q cold (no WLF feedback)
                         'delta_T_profile': delta_T_profile,   # 2D: ΔT(q, v) accumulated
+                        'delta_T_profile_ref': delta_T_profile_ref,  # 1D: ΔT(q) at v=0.6758
+                        'v_ref': v_ref,                       # Reference velocity (0.6758 m/s)
                         'q_array': q.copy(),
                         'T_hot': flash_T_hot,
                         'q_dot': flash_q_dot,
