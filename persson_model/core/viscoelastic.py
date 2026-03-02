@@ -129,13 +129,16 @@ class ViscoelasticMaterial:
         self._log_freq_min = log_freq.min()
         self._log_freq_max = log_freq.max()
 
-        # E': 저주파 기울기 유지 외삽 (rubbery plateau 쪽으로 자연 감소)
-        # 고주파 끝은 glassy plateau → 기울기 ≈ 0이므로 외삽해도 hold와 동일
+        # E': 저주파는 rubbery plateau (hold), 고주파는 glassy plateau (hold)
+        # 주의: extrapolate 사용 시 WLF 시프트된 재료에서 저주파 외삽이
+        # rubbery plateau 아래로 비물리적 값을 생성하여 G(q), P(q)를 왜곡시킴
+        # → flash temperature 반복 시 μ_hot이 μ_cold보다 커지는 양의 피드백 발생!
+        # 따라서 boundary clamping 사용 (물리적으로 올바른 plateau 값 유지)
         self._E_prime_interp = interpolate.interp1d(
             log_freq,
             log_E_prime,
             kind=interp_kind,
-            fill_value='extrapolate',
+            fill_value=(log_E_prime[0], log_E_prime[-1]),
             bounds_error=False
         )
 
@@ -149,7 +152,8 @@ class ViscoelasticMaterial:
             bounds_error=False
         )
 
-        # Complex modulus magnitude
+        # Complex modulus magnitude |E*| = √(E'² + E''²)
+        # 저주파/고주파 모두 plateau → boundary clamping이 물리적으로 올바름
         E_abs = np.sqrt(self._storage_modulus**2 + self._loss_modulus**2)
         log_E_abs = np.log10(np.maximum(E_abs[self._frequencies > 0], 1e3))
 
@@ -157,7 +161,7 @@ class ViscoelasticMaterial:
             log_freq,
             log_E_abs,
             kind=interp_kind,
-            fill_value='extrapolate',
+            fill_value=(log_E_abs[0], log_E_abs[-1]),
             bounds_error=False
         )
 
