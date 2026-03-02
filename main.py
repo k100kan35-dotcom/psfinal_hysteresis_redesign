@@ -8783,6 +8783,63 @@ class PerssonModelGUI_V2:
         ttk.Combobox(smooth_row, textvariable=self.smooth_window_var,
                      values=["3", "5", "7", "9", "11"], width=4, state="readonly", font=self.FONTS['body']).pack(side=tk.LEFT, padx=2)
 
+        # ===== Flash Temperature Section =====
+        ttk.Separator(mu_settings_frame, orient='horizontal').pack(fill=tk.X, pady=3)
+        flash_frame = ttk.LabelFrame(mu_settings_frame, text="Flash Temperature (Greenwood)", padding=3)
+        flash_frame.pack(fill=tk.X, pady=2)
+
+        # Enable/disable checkbox (highlighted)
+        flash_enable_wrapper = tk.Frame(flash_frame, bg='#DC2626', padx=2, pady=2)
+        flash_enable_wrapper.pack(fill=tk.X, pady=1)
+        flash_enable_inner = ttk.Frame(flash_enable_wrapper)
+        flash_enable_inner.pack(fill=tk.X)
+        self.use_flash_temp_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(flash_enable_inner, text="Flash Temperature 적용 (WITH FLASH)",
+                        variable=self.use_flash_temp_var).pack(side=tk.LEFT)
+
+        # Thermal properties - Row 1: rho, Cv
+        flash_row1 = ttk.Frame(flash_frame)
+        flash_row1.pack(fill=tk.X, pady=1)
+        ttk.Label(flash_row1, text="ρ:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.flash_rho_var = tk.StringVar(value="1150")
+        ttk.Entry(flash_row1, textvariable=self.flash_rho_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(flash_row1, text="kg/m³", font=self.FONTS['small']).pack(side=tk.LEFT)
+        ttk.Label(flash_row1, text="  Cv:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.flash_Cv_var = tk.StringVar(value="1500")
+        ttk.Entry(flash_row1, textvariable=self.flash_Cv_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(flash_row1, text="J/(kg·K)", font=self.FONTS['small']).pack(side=tk.LEFT)
+
+        # Thermal properties - Row 2: kappa, d_macro
+        flash_row2 = ttk.Frame(flash_frame)
+        flash_row2.pack(fill=tk.X, pady=1)
+        ttk.Label(flash_row2, text="κ:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.flash_kappa_var = tk.StringVar(value="0.3")
+        ttk.Entry(flash_row2, textvariable=self.flash_kappa_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(flash_row2, text="W/(m·K)", font=self.FONTS['small']).pack(side=tk.LEFT)
+        ttk.Label(flash_row2, text="  d:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.flash_d_macro_var = tk.StringVar(value="1.0")
+        ttk.Entry(flash_row2, textvariable=self.flash_d_macro_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(flash_row2, text="mm", font=self.FONTS['small']).pack(side=tk.LEFT)
+
+        # Display computed D_th
+        self.flash_Dth_var = tk.StringVar(value="D_th = 1.74e-07 m²/s")
+        ttk.Label(flash_frame, textvariable=self.flash_Dth_var,
+                  font=self.FONTS['small'], foreground='#2563EB').pack(anchor=tk.W)
+
+        # Callback to update D_th display when thermal properties change
+        def _update_Dth_display(*args):
+            try:
+                rho = float(self.flash_rho_var.get())
+                Cv = float(self.flash_Cv_var.get())
+                kappa = float(self.flash_kappa_var.get())
+                D_th = kappa / (rho * Cv)
+                self.flash_Dth_var.set(f"D_th = {D_th:.2e} m²/s")
+            except (ValueError, ZeroDivisionError):
+                self.flash_Dth_var.set("D_th = (입력 오류)")
+        self.flash_rho_var.trace_add('write', _update_Dth_display)
+        self.flash_Cv_var.trace_add('write', _update_Dth_display)
+        self.flash_kappa_var.trace_add('write', _update_Dth_display)
+
         # ===== 온도, q1, 하중 조절 Section =====
         ttk.Separator(mu_settings_frame, orient='horizontal').pack(fill=tk.X, pady=3)
         temp_frame = ttk.LabelFrame(mu_settings_frame, text="온도, q1, 하중 조절", padding=3)
@@ -10244,6 +10301,129 @@ class PerssonModelGUI_V2:
                 q, G_matrix_corrected, v, C_q, progress_callback, strain_estimator=strain_est
             )
 
+            # ===== Flash Temperature (Hot Pass) =====
+            use_flash = self.use_flash_temp_var.get()
+            mu_hot_array_raw = None
+            flash_results = None
+            A_A0_cold_arr = None
+            A_A0_hot_arr = None
+
+            if use_flash:
+                from persson_model.core.flash_temperature import FlashTemperatureCalculator
+                from persson_model.core.g_calculator import GCalculator as GCalc_Hot
+
+                self.status_var.set("Flash Temperature 계산 중 (Pass 2: Hot)...")
+                self.root.update()
+
+                # Read thermal parameters from GUI
+                flash_rho = float(self.flash_rho_var.get())
+                flash_Cv = float(self.flash_Cv_var.get())
+                flash_kappa = float(self.flash_kappa_var.get())
+                flash_d = float(self.flash_d_macro_var.get()) / 1000.0  # mm → m
+
+                flash_calc = FlashTemperatureCalculator(
+                    rho=flash_rho, C_v=flash_Cv,
+                    kappa_th=flash_kappa, d_macro=flash_d
+                )
+
+                # Extract A/A0_cold = P(q_max) for each velocity from Pass 1
+                n_v = len(v)
+                A_A0_cold_arr = np.zeros(n_v)
+                for j in range(n_v):
+                    P_cold_j = details['details'][j]['P']
+                    A_A0_cold_arr[j] = P_cold_j[-1]
+
+                # Calculate flash temperature for all velocities
+                flash_results = flash_calc.calculate_multi_velocity(
+                    A_A0_cold_arr, mu_array_raw, sigma_0, v, temperature
+                )
+
+                # Hot pass: recalculate G(q) and mu_visc at T_hot for each velocity
+                mu_hot_array_raw = np.zeros(n_v)
+                A_A0_hot_arr = np.zeros(n_v)
+
+                norm_factor_val = self.g_calculator.PSD_NORMALIZATION_FACTOR
+                n_phi_gq = self.g_calculator.n_angle_points
+
+                for j in range(n_v):
+                    T_hot_j = flash_results['T_hot'][j]
+                    delta_T_j = flash_results['delta_T'][j]
+
+                    if delta_T_j < 0.1:  # Negligible temperature rise
+                        mu_hot_array_raw[j] = mu_array_raw[j]
+                        A_A0_hot_arr[j] = A_A0_cold_arr[j]
+                        continue
+
+                    # Create modulus function at T_hot (capture T_hot_j via default arg)
+                    modulus_func_hot = lambda w, _T=T_hot_j: self.material.get_modulus(w, temperature=_T)
+                    loss_func_hot = lambda w, T, _T=T_hot_j: self.material.get_loss_modulus(w, temperature=_T)
+
+                    # Recalculate G(q) at T_hot
+                    g_calc_hot = GCalc_Hot(
+                        psd_func=self.psd_model,
+                        modulus_func=modulus_func_hot,
+                        sigma_0=sigma_0,
+                        velocity=v[j],
+                        poisson_ratio=poisson,
+                        n_angle_points=n_phi_gq
+                    )
+                    g_calc_hot.PSD_NORMALIZATION_FACTOR = norm_factor_val
+
+                    # Apply nonlinear correction to hot G calculator if enabled
+                    if use_fg and self.f_interpolator is not None and self.g_interpolator is not None:
+                        storage_func_hot = lambda w, _T=T_hot_j: self.material.get_storage_modulus(w, temperature=_T)
+                        loss_func_hot_raw = lambda w, _T=T_hot_j: self.material.get_loss_modulus(w, temperature=_T)
+                        g_calc_hot.storage_modulus_func = storage_func_hot
+                        g_calc_hot.loss_modulus_func = loss_func_hot_raw
+                        if strain_est is not None:
+                            strain_for_hot = strain_est(q, G_matrix_corrected[:, j], v[j])
+                        else:
+                            strain_for_hot = np.full(len(q), fixed_strain)
+                        g_calc_hot.set_nonlinear_correction(
+                            self.f_interpolator, self.g_interpolator,
+                            strain_for_hot, q
+                        )
+
+                    results_hot_j = g_calc_hot.calculate_G_with_details(q, q_min=q_min)
+                    G_hot_j = results_hot_j['G']
+                    P_hot_j = results_hot_j['contact_area_ratio']
+                    A_A0_hot_arr[j] = P_hot_j[-1]
+
+                    # Create FrictionCalculator at T_hot
+                    friction_hot = FrictionCalculator(
+                        psd_func=self.psd_model,
+                        loss_modulus_func=loss_func_hot,
+                        sigma_0=sigma_0,
+                        velocity=v[j],
+                        temperature=T_hot_j,
+                        poisson_ratio=poisson,
+                        gamma=gamma,
+                        n_angle_points=n_phi,
+                        g_interpolator=g_interp,
+                        strain_estimate=fixed_strain,
+                        p_exponent=p_exponent
+                    )
+
+                    # Calculate strain for hot pass
+                    strain_arr_hot = None
+                    if strain_est is not None:
+                        strain_arr_hot = strain_est(q, G_hot_j, v[j])
+
+                    mu_hot_val, _ = friction_hot.calculate_mu_visc(
+                        q, G_hot_j, C_q, strain_array=strain_arr_hot
+                    )
+                    mu_hot_array_raw[j] = mu_hot_val
+
+                    # Progress
+                    if j % max(1, n_v // 10) == 0:
+                        self.status_var.set(
+                            f"Flash: {j+1}/{n_v} (ΔT={delta_T_j:.1f}°C, T_hot={T_hot_j:.1f}°C)"
+                        )
+                        self.root.update()
+
+                self.status_var.set("Flash Temperature 계산 완료")
+                self.root.update()
+
             # Apply smoothing if enabled
             smooth_mu = self.smooth_mu_var.get()
             if smooth_mu and len(mu_array_raw) >= 5:
@@ -10256,8 +10436,13 @@ class PerssonModelGUI_V2:
 
                 # Apply Savitzky-Golay filter for smoothing
                 mu_array = savgol_filter(mu_array_raw, window, 2)
+                # Also smooth hot array if available
+                mu_hot_array = None
+                if mu_hot_array_raw is not None:
+                    mu_hot_array = savgol_filter(mu_hot_array_raw, window, 2)
             else:
                 mu_array = mu_array_raw
+                mu_hot_array = mu_hot_array_raw
 
             # Store results (both raw and smoothed)
             self.mu_visc_results = {
@@ -10270,10 +10455,18 @@ class PerssonModelGUI_V2:
                 'strain_method': strain_est_method,
                 'use_fg': use_fg,
                 'G_matrix_linear': self.G_matrix_linear.copy() if self.G_matrix_linear is not None else None,
+                # Flash temperature results
+                'use_flash': use_flash,
+                'mu_hot': mu_hot_array,
+                'mu_hot_raw': mu_hot_array_raw,
+                'flash_results': flash_results,
+                'A_A0_cold': A_A0_cold_arr,
+                'A_A0_hot': A_A0_hot_arr,
             }
 
-            # Update plots
-            self._update_mu_visc_plots(v, mu_array, details, use_nonlinear=use_fg)
+            # Update plots (pass flash data)
+            self._update_mu_visc_plots(v, mu_array, details, use_nonlinear=use_fg,
+                                       mu_hot=mu_hot_array, A_A0_hot=A_A0_hot_arr)
 
             # Also refresh Tab 2's G(q) plot to show updated values
             try:
@@ -10343,15 +10536,60 @@ class PerssonModelGUI_V2:
                     return f'{val:.2e}'
                 return f'{val:.4f}'
 
-            self.mu_result_text.insert(tk.END, "\n[결과]\n")
+            self.mu_result_text.insert(tk.END, "\n[결과 - Cold (WITHOUT FLASH)]\n")
             self.mu_result_text.insert(tk.END, f"  속도: {v[0]:.2e} ~ {v[-1]:.2e} m/s\n")
             mu_min, mu_max = np.min(mu_array), np.max(mu_array)
-            self.mu_result_text.insert(tk.END, f"  μ_visc: {smart_fmt(mu_min)} ~ {smart_fmt(mu_max)}\n")
+            self.mu_result_text.insert(tk.END, f"  μ_cold: {smart_fmt(mu_min)} ~ {smart_fmt(mu_max)}\n")
 
             # Find peak
             peak_idx = np.argmax(mu_array)
             peak_mu = mu_array[peak_idx]
             self.mu_result_text.insert(tk.END, f"  최대: μ={smart_fmt(peak_mu)} @ v={v[peak_idx]:.4f} m/s\n")
+
+            # Flash Temperature results
+            if use_flash and flash_results is not None and mu_hot_array is not None:
+                self.mu_result_text.insert(tk.END, "\n[Flash Temperature 결과]\n")
+                self.mu_result_text.insert(tk.END, f"  열 파라미터:\n")
+                self.mu_result_text.insert(tk.END, f"    ρ={float(self.flash_rho_var.get())} kg/m³, ")
+                self.mu_result_text.insert(tk.END, f"Cv={float(self.flash_Cv_var.get())} J/(kg·K)\n")
+                self.mu_result_text.insert(tk.END, f"    κ={float(self.flash_kappa_var.get())} W/(m·K), ")
+                self.mu_result_text.insert(tk.END, f"d={float(self.flash_d_macro_var.get())} mm\n")
+                D_th = float(self.flash_kappa_var.get()) / (float(self.flash_rho_var.get()) * float(self.flash_Cv_var.get()))
+                self.mu_result_text.insert(tk.END, f"    D_th={D_th:.2e} m²/s\n")
+                self.mu_result_text.insert(tk.END, f"\n  ΔT 범위: {np.min(flash_results['delta_T']):.1f} ~ {np.max(flash_results['delta_T']):.1f} °C\n")
+                self.mu_result_text.insert(tk.END, f"  T_hot 범위: {np.min(flash_results['T_hot']):.1f} ~ {np.max(flash_results['T_hot']):.1f} °C\n")
+                self.mu_result_text.insert(tk.END, f"  Jd (Peclet) 범위: {np.min(flash_results['Jd']):.2e} ~ {np.max(flash_results['Jd']):.2e}\n")
+                self.mu_result_text.insert(tk.END, f"  q_dot 범위: {np.min(flash_results['q_dot']):.2e} ~ {np.max(flash_results['q_dot']):.2e} W/m²\n")
+
+                self.mu_result_text.insert(tk.END, f"\n[결과 - Hot (WITH FLASH)]\n")
+                mu_hot_min, mu_hot_max = np.min(mu_hot_array), np.max(mu_hot_array)
+                self.mu_result_text.insert(tk.END, f"  μ_hot: {smart_fmt(mu_hot_min)} ~ {smart_fmt(mu_hot_max)}\n")
+                peak_hot_idx = np.argmax(mu_hot_array)
+                peak_hot_mu = mu_hot_array[peak_hot_idx]
+                self.mu_result_text.insert(tk.END, f"  최대: μ_hot={smart_fmt(peak_hot_mu)} @ v={v[peak_hot_idx]:.4f} m/s\n")
+
+                # Reduction summary
+                avg_cold = np.mean(mu_array)
+                avg_hot = np.mean(mu_hot_array)
+                reduction_pct = ((avg_cold - avg_hot) / avg_cold * 100) if avg_cold > 0 else 0
+                self.mu_result_text.insert(tk.END, f"\n  평균 μ_cold: {smart_fmt(avg_cold)}\n")
+                self.mu_result_text.insert(tk.END, f"  평균 μ_hot:  {smart_fmt(avg_hot)}\n")
+                self.mu_result_text.insert(tk.END, f"  Flash 감소율: {reduction_pct:+.1f}%\n")
+
+                if A_A0_cold_arr is not None and A_A0_hot_arr is not None:
+                    self.mu_result_text.insert(tk.END, f"\n  A/A0_cold 범위: {np.min(A_A0_cold_arr):.4e} ~ {np.max(A_A0_cold_arr):.4e}\n")
+                    self.mu_result_text.insert(tk.END, f"  A/A0_hot  범위: {np.min(A_A0_hot_arr):.4e} ~ {np.max(A_A0_hot_arr):.4e}\n")
+
+                # Per-velocity detail table (sampled)
+                self.mu_result_text.insert(tk.END, f"\n  {'v(m/s)':>10} {'ΔT(°C)':>8} {'T_hot':>8} {'μ_cold':>8} {'μ_hot':>8} {'Jd':>10}\n")
+                self.mu_result_text.insert(tk.END, "  " + "-" * 56 + "\n")
+                n_v = len(v)
+                step = max(1, n_v // 12)
+                for idx in range(0, n_v, step):
+                    self.mu_result_text.insert(tk.END,
+                        f"  {v[idx]:10.4f} {flash_results['delta_T'][idx]:8.1f} "
+                        f"{flash_results['T_hot'][idx]:8.1f} {mu_array[idx]:8.4f} "
+                        f"{mu_hot_array[idx]:8.4f} {flash_results['Jd'][idx]:10.2e}\n")
 
             # Show comprehensive diagnostic info
             if details and 'details' in details and len(details['details']) > 0:
@@ -10458,12 +10696,19 @@ class PerssonModelGUI_V2:
             for i in range(0, len(v), step):
                 self.mu_result_text.insert(tk.END, f"  v={v[i]:.2e}: μ={smart_fmt(mu_array[i])}\n")
 
-            self.status_var.set("μ_visc 계산 완료")
+            if use_flash and mu_hot_array is not None:
+                self.status_var.set("μ_visc 계산 완료 (WITH FLASH)")
+            else:
+                self.status_var.set("μ_visc 계산 완료")
             self.mu_calc_button.config(state='normal')
 
-            self._show_status(f"μ_visc 계산 완료\n"
-                               f"범위: {smart_fmt(mu_min)} ~ {smart_fmt(mu_max)}\n"
-                               f"최대: μ={smart_fmt(peak_mu)} @ v={v[peak_idx]:.4f} m/s", 'success')
+            status_msg = (f"μ_visc 계산 완료\n"
+                          f"Cold: {smart_fmt(mu_min)} ~ {smart_fmt(mu_max)}\n"
+                          f"최대: μ={smart_fmt(peak_mu)} @ v={v[peak_idx]:.4f} m/s")
+            if use_flash and mu_hot_array is not None:
+                status_msg += (f"\nHot: {smart_fmt(np.min(mu_hot_array))} ~ {smart_fmt(np.max(mu_hot_array))}"
+                               f"\nΔT: {np.min(flash_results['delta_T']):.1f} ~ {np.max(flash_results['delta_T']):.1f} °C")
+            self._show_status(status_msg, 'success')
 
         except Exception as e:
             self.mu_calc_button.config(state='normal')
@@ -10471,7 +10716,8 @@ class PerssonModelGUI_V2:
             import traceback
             traceback.print_exc()
 
-    def _update_mu_visc_plots(self, v, mu_array, details, use_nonlinear=False):
+    def _update_mu_visc_plots(self, v, mu_array, details, use_nonlinear=False,
+                              mu_hot=None, A_A0_hot=None):
         """Update mu_visc plots."""
         try:
             # Sanitize input arrays - replace NaN/Inf with safe values
@@ -10496,22 +10742,40 @@ class PerssonModelGUI_V2:
 
             # Plot 1: mu_visc vs velocity (handle NaN values)
             valid_mask = np.isfinite(mu_array)
+            has_flash = mu_hot is not None
+            cold_label = 'μ_cold (WITHOUT FLASH)' if has_flash else None
             if np.any(valid_mask):
-                self.ax_mu_v.semilogx(v[valid_mask], mu_array[valid_mask], 'b-', linewidth=2.5, marker='o', markersize=4)
+                self.ax_mu_v.semilogx(v[valid_mask], mu_array[valid_mask], 'b-',
+                                      linewidth=2.5, marker='o', markersize=4, label=cold_label)
             else:
-                self.ax_mu_v.semilogx(v, np.zeros_like(v), 'b-', linewidth=2.5, marker='o', markersize=4)
-            self.ax_mu_v.set_title('μ_visc(v) 곡선', fontweight='bold', fontsize=11)
+                self.ax_mu_v.semilogx(v, np.zeros_like(v), 'b-',
+                                      linewidth=2.5, marker='o', markersize=4, label=cold_label)
+
+            # Flash temperature: overlay hot curve
+            if has_flash:
+                mu_hot_safe = np.nan_to_num(mu_hot, nan=0.0, posinf=0.0, neginf=0.0)
+                valid_hot = np.isfinite(mu_hot_safe) & (mu_hot_safe > 0)
+                if np.any(valid_hot):
+                    self.ax_mu_v.semilogx(v[valid_hot], mu_hot_safe[valid_hot], '-',
+                                          color='#DC2626', linewidth=2.5, marker='s',
+                                          markersize=4, label='μ_hot (WITH FLASH)')
+                self.ax_mu_v.set_title('μ_visc(v) - Cold vs Hot', fontweight='bold', fontsize=11)
+            else:
+                self.ax_mu_v.set_title('μ_visc(v) 곡선', fontweight='bold', fontsize=11)
             self.ax_mu_v.set_xlabel('속도 v (m/s)', fontsize=11)
             self.ax_mu_v.set_ylabel('마찰 계수 μ_visc', fontsize=11)
             self.ax_mu_v.grid(True, alpha=0.3)
 
-            # Find peak (handle NaN values)
-            mu_for_peak = np.where(np.isfinite(mu_array), mu_array, -np.inf)
+            # Find peak (handle NaN values) - use hot curve if available, else cold
+            mu_for_peak_src = mu_hot if has_flash else mu_array
+            mu_for_peak_src = np.nan_to_num(mu_for_peak_src, nan=0.0, posinf=0.0, neginf=0.0)
+            mu_for_peak = np.where(np.isfinite(mu_for_peak_src), mu_for_peak_src, -np.inf)
             peak_idx = np.argmax(mu_for_peak)
-            peak_mu = mu_array[peak_idx] if np.isfinite(mu_array[peak_idx]) else 0.0
+            peak_mu = mu_for_peak_src[peak_idx] if np.isfinite(mu_for_peak_src[peak_idx]) else 0.0
             peak_v = v[peak_idx]
+            peak_label_prefix = 'Hot 최대' if has_flash else '최대값'
             self.ax_mu_v.plot(peak_v, peak_mu, 'r*', markersize=15,
-                             label=f'최대값: μ={smart_format(peak_mu)} @ v={peak_v:.4f} m/s')
+                             label=f'{peak_label_prefix}: μ={smart_format(peak_mu)} @ v={peak_v:.4f} m/s')
 
             # Find and mark μ at v=1 m/s (important reference point)
             if np.min(v) <= 1.0 <= np.max(v):
@@ -10570,7 +10834,10 @@ class PerssonModelGUI_V2:
             self._update_area_gap_display(v, P_qmax_array)
 
             # Color: 계산값=BLUE 항상, 참조값=RED 항상
-            if use_nonlinear:
+            if has_flash:
+                label_str = 'A/A0 Cold (WITHOUT FLASH)'
+                title_suffix = ' - Cold vs Hot'
+            elif use_nonlinear:
                 label_str = 'A/A0 계산값 (비선형)'
                 title_suffix = ' (f,g 보정 적용)'
             else:
@@ -10578,9 +10845,17 @@ class PerssonModelGUI_V2:
                 title_suffix = ''
             color = 'b'  # 계산값은 항상 BLUE
 
-            # Plot A/A0 = P(q_max)
+            # Plot A/A0 = P(q_max) - Cold
             self.ax_mu_cumulative.semilogx(v, P_qmax_array, f'{color}-', linewidth=2,
                                             marker='s', markersize=4, label=label_str)
+
+            # Flash temperature: overlay hot A/A0
+            if has_flash and A_A0_hot is not None:
+                A_A0_hot_safe = np.nan_to_num(A_A0_hot, nan=0.0, posinf=1.0, neginf=0.0)
+                self.ax_mu_cumulative.semilogx(v, A_A0_hot_safe, '-',
+                                                color='#DC2626', linewidth=2,
+                                                marker='s', markersize=4,
+                                                label='A/A0 Hot (WITH FLASH)')
 
             # Overlay reference A/A0 data: single active + multiple overlay datasets
             try:
@@ -11273,6 +11548,25 @@ class PerssonModelGUI_V2:
             ("μ_visc_raw(v) - 스무딩 전", "mu_raw_v", False),
         ]
 
+        # Flash temperature export options (only if flash data exists)
+        has_flash_data = (self.mu_visc_results.get('use_flash', False) and
+                          self.mu_visc_results.get('flash_results') is not None)
+        if has_flash_data:
+            flash_label = ttk.Label(check_frame, text="\n[Flash Temperature 결과]",
+                                    font=self.FONTS['small_bold'])
+            flash_label.pack(anchor=tk.W, pady=(5, 5))
+
+            flash_options = [
+                ("μ_hot(v) - Flash 적용 마찰계수", "mu_hot_v", True),
+                ("ΔT(v), T_hot(v), Jd(v), q_dot(v)", "flash_detail_v", True),
+                ("A/A0 Cold vs Hot", "aa0_cold_hot_v", False),
+            ]
+            for display_name, key, default in flash_options:
+                var = tk.BooleanVar(value=default)
+                check_vars[key] = var
+                cb = ttk.Checkbutton(check_frame, text=display_name, variable=var)
+                cb.pack(anchor=tk.W, pady=1)
+
         # q-dependent data options
         q_label = ttk.Label(check_frame, text="\n[q 의존성 데이터 (특정 속도)]", font=self.FONTS['small_bold'])
         q_label.pack(anchor=tk.W, pady=(5, 5))
@@ -11445,6 +11739,51 @@ class PerssonModelGUI_V2:
                                 with open(filepath, 'w', encoding='utf-8') as f:
                                     f.write("\n".join(lines))
                                 exported_files.append(filename)
+
+                # Export flash temperature data
+                if has_flash_data:
+                    flash_res = self.mu_visc_results.get('flash_results', {})
+                    mu_hot_exp = self.mu_visc_results.get('mu_hot')
+                    A_A0_cold_exp = self.mu_visc_results.get('A_A0_cold')
+                    A_A0_hot_exp = self.mu_visc_results.get('A_A0_hot')
+
+                    if 'mu_hot_v' in check_vars and check_vars['mu_hot_v'].get() and mu_hot_exp is not None:
+                        filename = mc_fn("mu_visc_hot_vs_velocity.csv")
+                        filepath = os.path.join(save_dir, filename)
+                        lines = get_header_lines() + ["# Flash Temperature Applied",
+                                                       "velocity [m/s],mu_visc_cold,mu_visc_hot"]
+                        for vi, mc_i, mh_i in zip(v, mu, mu_hot_exp):
+                            lines.append(f"{vi:.6e},{mc_i:.6f},{mh_i:.6f}")
+                        with open(filepath, 'w', encoding='utf-8-sig') as f:
+                            f.write("\n".join(lines))
+                        exported_files.append(filename)
+
+                    if 'flash_detail_v' in check_vars and check_vars['flash_detail_v'].get() and flash_res:
+                        filename = mc_fn("flash_temperature_detail.csv")
+                        filepath = os.path.join(save_dir, filename)
+                        lines = get_header_lines() + [
+                            f"# T_base = {flash_res.get('T_base', 20.0):.1f} C",
+                            "velocity [m/s],delta_T [C],T_hot [C],Jd,q_dot [W/m2]"
+                        ]
+                        for vi, dT, Th, Jd, qd in zip(
+                            v, flash_res['delta_T'], flash_res['T_hot'],
+                            flash_res['Jd'], flash_res['q_dot']
+                        ):
+                            lines.append(f"{vi:.6e},{dT:.4f},{Th:.2f},{Jd:.6e},{qd:.4e}")
+                        with open(filepath, 'w', encoding='utf-8-sig') as f:
+                            f.write("\n".join(lines))
+                        exported_files.append(filename)
+
+                    if 'aa0_cold_hot_v' in check_vars and check_vars['aa0_cold_hot_v'].get():
+                        if A_A0_cold_exp is not None and A_A0_hot_exp is not None:
+                            filename = mc_fn("AA0_cold_hot_vs_velocity.csv")
+                            filepath = os.path.join(save_dir, filename)
+                            lines = get_header_lines() + ["velocity [m/s],A_A0_cold,A_A0_hot"]
+                            for vi, ac, ah in zip(v, A_A0_cold_exp, A_A0_hot_exp):
+                                lines.append(f"{vi:.6e},{ac:.6e},{ah:.6e}")
+                            with open(filepath, 'w', encoding='utf-8-sig') as f:
+                                f.write("\n".join(lines))
+                            exported_files.append(filename)
 
                 dialog.destroy()
                 self._show_status(f"CSV 파일 내보내기 완료:\n\n" + "\n".join(exported_files) + f"\n\n저장 위치: {save_dir}", 'success')
