@@ -7921,6 +7921,207 @@ class PerssonModelGUI_V2:
             ax.annotate('E\'\' 피크 후 감소', xy=(15, max(g_eps)*0.95), fontsize=11, color='#DC2626', fontweight='bold')
         add_graph(_plot_payne_effect)
 
+        # ═══════════════════════════════════════════════════════
+        # Section 3: Flash Temperature — 파수별(Per-q) 누적 방식
+        # ═══════════════════════════════════════════════════════
+        add_separator()
+        add_section_title('Section 3: Flash Temperature — 파수별(Per-q) 누적 방식')
+
+        add_text('  고무가 거친 표면 위를 미끄러질 때, 마찰 에너지가 열로 변환되어 접촉점의 온도가 상승합니다.', font_size=17, fg='#1E293B')
+        add_text('  이 "flash temperature"는 고무의 점탄성 물성(E\'\')을 변화시켜 마찰 계수에 영향을 줍니다.', font_size=17, fg='#1E293B')
+        add_text('  특히 고속 영역에서 마찰 피크를 넘은 후의 하강 거동을 물리적으로 설명하는 핵심 메커니즘입니다.', font_size=17, fg='#1E293B')
+
+        # 3-A: Thermal parameters
+        add_separator()
+        add_text('  3-A. 열물성 파라미터', font_size=19, bold=True, fg='#1E293B')
+        add_text('  고무의 열적 특성을 기술하는 3개 기본 상수로부터 열확산도를 계산합니다:', font_size=17, fg='#64748B')
+
+        add_equation(r"$D_{th} = \frac{\kappa}{\rho \cdot C_v} \quad [\mathrm{m^2/s}]$", fig_height=1.0)
+
+        add_text('  ρ : 밀도 [kg/m³] — 일반 고무 ≈ 1100~1200 kg/m³', font_size=17, fg='#64748B')
+        add_text('  C_v : 비열 [J/(kg·K)] — 일반 고무 ≈ 1400~1600 J/(kg·K)', font_size=17, fg='#64748B')
+        add_text('  κ : 열전도도 [W/(m·K)] — 일반 고무 ≈ 0.15~0.35 W/(m·K)', font_size=17, fg='#64748B')
+        add_text('  D_th : 열이 재료 내부로 확산되는 속도. 값이 작을수록 열이 접촉점에 집중 → ΔT 증가', font_size=17, fg='#64748B')
+
+        # 3-B: Peclet number
+        add_separator()
+        add_text('  3-B. Peclet 수 (Jd) — 대류 vs 전도 비율', font_size=19, bold=True, fg='#1E293B')
+        add_text('  이동 열원 문제에서 열 수송의 특성을 결정하는 무차원수:', font_size=17, fg='#64748B')
+
+        add_equation(r"$J_d = \frac{v \cdot d}{D_{th}}$", fig_height=0.9)
+
+        add_text('  v : 미끄럼 속도 [m/s],  d : 접촉 패치의 특성 직경 [m]', font_size=17, fg='#64748B')
+        add_text('  Jd ≫ 1 (빠른 속도): 열이 퍼지기 전에 새 접촉점으로 이동 → ΔT ∝ 1/√v 로 완화', font_size=17, fg='#059669')
+        add_text('  Jd ≪ 1 (느린 속도): 정상 열전도에 가까움 → ΔT ∝ q̇·d/κ', font_size=17, fg='#059669')
+
+        # 3-C: Greenwood formula
+        add_separator()
+        add_text('  3-C. Greenwood 보간 공식 — 단일 스케일에서의 ΔT', font_size=19, bold=True, fg='#1E293B')
+        add_text('  Greenwood(1942)가 도출한 이동 열원의 평균 온도 상승 공식:', font_size=17, fg='#64748B')
+
+        add_equation(
+            r"$\Delta T = \frac{\dot{q} \cdot d}{8\kappa \sqrt{1 + \frac{\pi}{2} J_d}}$",
+            fig_height=1.3)
+
+        add_text('  q̇ = dμ × σ₀ × v : 접촉면에서 발생하는 열유속(heat flux) [W/m²]', font_size=17, fg='#64748B')
+        add_text('  이 공식은 저속(Jd→0)과 고속(Jd→∞) 극한을 부드럽게 보간합니다:', font_size=17, fg='#64748B')
+        add_text('  → 저속 극한: ΔT ≈ q̇·d/(8κ)  (정상 열전도)', font_size=17, fg='#059669')
+        add_text('  → 고속 극한: ΔT ≈ q̇·d/(8κ·√(πJd/2)) ∝ 1/√v  (이동 열원)', font_size=17, fg='#059669')
+
+        def _plot_greenwood(ax, np):
+            Jd = np.logspace(-2, 5, 500)
+            dT_normalized = 1.0 / np.sqrt(1 + (np.pi / 2) * Jd)
+            ax.semilogx(Jd, dT_normalized, '-', linewidth=2.5, color='#DC2626')
+            ax.axhline(y=1.0, color='gray', linestyle=':', alpha=0.5)
+            ax.set_xlabel(r'$J_d = v \cdot d / D_{th}$', fontsize=12)
+            ax.set_ylabel(r'$\Delta T \;/\; (\dot{q} d / 8\kappa)$', fontsize=12)
+            ax.grid(True, alpha=0.3)
+            ax.set_title('Greenwood 보간: 정규화된 ΔT vs Peclet 수', fontsize=12, pad=10)
+            ax.annotate('정상 전도\n(Jd \u226a 1)', xy=(0.03, 0.92), fontsize=11,
+                         color='#2563EB', fontweight='bold')
+            ax.annotate('이동 열원\n(Jd \u226b 1)', xy=(1e3, 0.15), fontsize=11,
+                         color='#DC2626', fontweight='bold')
+            ax.set_ylim(0, 1.15)
+        add_graph(_plot_greenwood)
+
+        # 3-D: WLF time-temperature superposition
+        add_separator()
+        add_text('  3-D. WLF 시간-온도 중첩 (Time-Temperature Superposition)', font_size=19, bold=True, fg='#1E293B')
+        add_text('  온도가 변하면 고분자 사슬의 이동도가 바뀌어 주파수 응답이 시프트됩니다:', font_size=17, fg='#64748B')
+
+        add_equation(
+            r"$\log_{10} a_T(T) = \frac{-C_1 \, (T - T_{ref})}{C_2 + (T - T_{ref})}$",
+            fig_height=1.0)
+
+        add_text('  C₁, C₂ : WLF 상수 (재료 고유값). T_ref : 기준 온도', font_size=17, fg='#64748B')
+        add_text('  마스터 곡선에서의 조회: E\'\'(ω, T) = E\'\'_master(ω × a_T(T))', font_size=17, fg='#374151', bold=True)
+        add_text('  T 증가 → a_T 감소 → ω×a_T 감소 → 더 낮은 주파수 영역의 E\'\' 사용', font_size=17, fg='#64748B')
+        add_text('  → 유리 전이 피크에서 벗어남 → E\'\' 감소 → μ 감소 (Negative Feedback!)', font_size=17, fg='#DC2626', bold=True)
+
+        def _plot_wlf_shift(ax, np):
+            T = np.linspace(-20, 150, 300)
+            T_ref = 20
+            C1, C2 = 12, 80
+            log_aT = -C1 * (T - T_ref) / (C2 + (T - T_ref))
+            ax.plot(T, log_aT, '-', linewidth=2.5, color='#2563EB')
+            ax.axhline(y=0, color='gray', linestyle=':', alpha=0.5)
+            ax.axvline(x=T_ref, color='gray', linestyle='--', alpha=0.5)
+            ax.set_xlabel('T (\u00b0C)', fontsize=12)
+            ax.set_ylabel(r'$\log_{10}\, a_T$', fontsize=12)
+            ax.grid(True, alpha=0.3)
+            ax.set_title('WLF 시프트 팩터 \u2014 온도에 따른 주파수 시프트', fontsize=12, pad=10)
+            ax.annotate(f'T_ref = {T_ref}\u00b0C', xy=(T_ref + 2, 0.3), fontsize=11, color='#64748B')
+            ax.annotate('T\u2191 \u2192 aT\u2193\n주파수 왼쪽 시프트', xy=(80, -5),
+                         fontsize=11, color='#DC2626', fontweight='bold')
+            ax.annotate('T\u2193 \u2192 aT\u2191\n주파수 오른쪽 시프트', xy=(-15, 3),
+                         fontsize=11, color='#2563EB', fontweight='bold')
+        add_graph(_plot_wlf_shift)
+
+        # 3-E: Per-q accumulation — the core algorithm
+        add_separator()
+        add_text('  3-E. 파수별(Per-q) Flash Temperature 누적 — 핵심 알고리즘', font_size=19, bold=True, fg='#1E293B')
+        add_text('  기존 방식 (Lumped): d = d_macro(고정) → 단일 ΔT → 균일하게 전체 E\'\' 시프트', font_size=17, fg='#94A3B8')
+        add_text('  Per-q 방식: d(q) = 2π/q → 각 파수에서 고유한 스케일의 ΔT 누적', font_size=17, fg='#DC2626', bold=True)
+        add_text('  → 작은 q(큰 스케일)의 마찰열이 큰 q(미세 스케일)에 영향', font_size=17, fg='#DC2626', bold=True)
+
+        add_equation(
+            r"$d(q_i) = \frac{2\pi}{q_i}, \qquad"
+            r" d\mu_i = \frac{1}{2}\,\frac{f(q_{i-1}) + f(q_i)}{2}\,\Delta q_i$",
+            fig_height=1.0)
+
+        add_text('  여기서 f(q) = q³ C(q) P(q) S(q) × (각도 적분) 은 마찰 피적분함수', font_size=17, fg='#64748B')
+
+        add_equation(
+            r"$\delta T(q_i) = \frac{d\mu_i \cdot \sigma_0 \cdot v \cdot d(q_i)}"
+            r"{8\kappa\,\sqrt{1 + \frac{\pi}{2}\,\frac{v \cdot d(q_i)}{D_{th}}}}$",
+            fig_height=1.3)
+
+        add_equation(
+            r"$\Delta T(q_i) = \sum_{k=1}^{i} \delta T(q_k) \qquad"
+            r"\text{(순차 누적, }q_0 \to q_1\text{)}$",
+            fig_height=0.9)
+
+        add_text('\n  처리 순서 (q₀ → q₁ 순차 진행, 단일 패스):', font_size=17, bold=True, fg='#1E293B')
+        add_text('  \u2460 q₀에서 시작: ΔT₀ = 0,  T₀ = T_base', font_size=17, fg='#059669')
+        add_text('  \u2461 각 q_i에서: T(q_i) = T_base + ΔT(q_{i-1})  →  a_T(T) 계산', font_size=17, fg='#059669')
+        add_text('  \u2462 WLF 시프트된 E\'\'(ω × a_T) 조회 → 각도 적분 수행', font_size=17, fg='#059669')
+        add_text('  \u2463 dμ_i 계산 (사다리꼴 적분)  →  δT(q_i) 계산 (Greenwood)', font_size=17, fg='#059669')
+        add_text('  \u2464 ΔT(q_i) = ΔT(q_{i-1}) + δT(q_i)  →  누적', font_size=17, fg='#059669')
+        add_text('  \u2465 q₁까지 반복  →  ΔT_total = ΔT(q₁),  μ_hot = Σ dμ_i', font_size=17, fg='#059669')
+
+        add_text('\n  물리적 의미 — 왜 파수별 누적인가?', font_size=17, bold=True, fg='#1E293B')
+        add_text('  → 프랙탈 표면은 다양한 스케일의 요철이 중첩된 구조', font_size=17, fg='#64748B')
+        add_text('  → 큰 스케일(작은 q)에서의 마찰 → 접촉점 온도 상승', font_size=17, fg='#64748B')
+        add_text('  → 더 미세한 스케일(큰 q)에서는 이미 연화된 E\'\'로 마찰 계산', font_size=17, fg='#64748B')
+        add_text('  → 자연스러운 Negative Feedback: 열 → 연화 → μ 감소 → 열 감소', font_size=17, fg='#64748B')
+        add_text('  → 외부 반복(iteration) 불필요: q₀→q₁ 순방향 단일 패스로 자기 일관성 확보', font_size=17, fg='#64748B')
+
+        def _plot_dT_accumulation(ax, np):
+            q = np.logspace(2, 8, 200)
+            speeds = [0.001, 0.1, 10.0]
+            colors = ['#2563EB', '#059669', '#DC2626']
+            labels = ['v = 0.001 m/s', 'v = 0.1 m/s', 'v = 10 m/s']
+            for v_val, color, label in zip(speeds, colors, labels):
+                dT_accum = np.zeros_like(q)
+                for i in range(1, len(q)):
+                    dq = q[i] - q[i - 1]
+                    integrand = q[i]**2.5 * np.exp(-((np.log10(q[i]) - 5)**2) / 4)
+                    dmu = integrand * dq * 1e-20
+                    d_local = 2 * np.pi / q[i]
+                    q_dot = dmu * 1e6 * v_val
+                    Jd = v_val * d_local / 1e-7
+                    dT = (q_dot * d_local / (8 * 0.3) / np.sqrt(1 + np.pi / 2 * Jd)
+                           if q_dot > 0 else 0)
+                    dT_accum[i] = dT_accum[i - 1] + dT
+                if np.max(dT_accum) > 0:
+                    dT_accum = dT_accum / np.max(dT_accum) * v_val * 30
+                ax.semilogx(q, dT_accum, '-', linewidth=2, color=color, label=label)
+            ax.set_xlabel('q (1/m)', fontsize=12)
+            ax.set_ylabel(r'$\Delta T(q)$ 누적 (\u00b0C)', fontsize=12)
+            ax.legend(fontsize=10, loc='upper left')
+            ax.grid(True, alpha=0.3)
+            ax.set_title('파수별 \u0394T 누적 \u2014 속도별 비교 (개념도)', fontsize=12, pad=10)
+            ax.annotate('큰 스케일\n(낮은 q)', xy=(q[20], 0), fontsize=10, color='#64748B')
+        add_graph(_plot_dT_accumulation)
+
+        # 3-F: Final hot friction result
+        add_separator()
+        add_text('  3-F. 최종 결과 — Hot 마찰 계수와 접촉 면적', font_size=19, bold=True, fg='#1E293B')
+
+        add_equation(
+            r"$\mu_{hot} = \sum_{i}\, d\mu_i \;\;\text{(per-q 누적 합)}"
+            r", \qquad \Delta T_{total} = \Delta T(q_1)$",
+            fig_height=1.0)
+
+        add_text('  μ_hot: 각 파수에서 WLF-shifted E\'\'를 사용하여 계산된 마찰 기여의 총합', font_size=17, fg='#64748B')
+        add_text('  ΔT_total: 전 파수 범위에 걸친 최종 누적 온도 상승', font_size=17, fg='#64748B')
+        add_text('  A/A0_hot: 최종 ΔT에서 G(q) 재계산 → P(q₁) = erf(1/(2√G(q₁)))', font_size=17, fg='#64748B')
+        add_text('  T_hot(v) = T_base + ΔT_total(v): 각 속도에서의 접촉 온도', font_size=17, fg='#64748B')
+
+        def _plot_feedback(ax, np):
+            v = np.logspace(-6, 2, 300)
+            mu_cold = 1.2 * np.exp(-0.5 * ((np.log10(v) + 1.5) / 1.8)**2) + 0.05
+            dT = 80 * v / (v + 0.1)
+            shift = dT / 100
+            mu_hot = (1.2 * np.exp(-0.5 * ((np.log10(v) + 1.5 + shift) / 1.8)**2)
+                      * (1 - 0.3 * dT / (dT + 20)) + 0.05)
+            ax.semilogx(v, mu_cold, 'b-', linewidth=2, label=r'$\mu_{cold}$ (Flash OFF)')
+            ax.semilogx(v, mu_hot, 'r-', linewidth=2, label=r'$\mu_{hot}$ (Flash ON, per-q)')
+            ax.fill_between(v, mu_hot, mu_cold, alpha=0.1, color='red')
+            ax.set_xlabel('v (m/s)', fontsize=12)
+            ax.set_ylabel(r'$\mu_{visc}$', fontsize=12)
+            ax.legend(fontsize=10, loc='upper right')
+            ax.grid(True, alpha=0.3)
+            ax.set_title(r'Flash Negative Feedback: $\mu_{cold}$ vs $\mu_{hot}$', fontsize=12, pad=10)
+            ax.annotate('Flash 감소 영역\n(고속에서 연화)',
+                         xy=(1, (mu_cold[200] + mu_hot[200]) / 2),
+                         fontsize=11, color='#DC2626', fontweight='bold')
+        add_graph(_plot_feedback)
+
+        add_text('\n  Negative Feedback Loop (고속 영역):', font_size=17, bold=True, fg='#1E293B')
+        add_text('  v\u2191 → q̇\u2191 → ΔT\u2191 → a_T\u2193 → E\'\'\u2193 → μ\u2193 → q̇\u2193 → ΔT\u2193', font_size=17, fg='#DC2626', bold=True)
+        add_text('  → 이 피드백은 per-q 순차 처리에서 자연스럽게 구현됨 (외부 반복 불필요)', font_size=17, fg='#64748B')
+
         # Bottom padding for scroll
         tk.Frame(scrollable_frame, bg='white', height=80).pack(fill=tk.X)
 
@@ -14612,6 +14813,9 @@ class PerssonModelGUI_V2:
             ('\u03bd', '푸아송 비', '고무 \u2248 0.5 (거의 비압축성)'),
             ('\u03b3', '접촉 보정 인자', '\u2248 0.5, S(q) 계산에 사용'),
             ('q\u2080 ~ q\u2081', 'PSD 적분 범위 [1/m]', '고려하는 거칠기 파수의 최소~최대'),
+            ('\u03c1', '밀도 [kg/m\u00b3]', 'Flash Temp: 고무 밀도 (\u2248 1150)'),
+            ('C_v', '비열 [J/(kg\u00b7K)]', 'Flash Temp: 고무 비열 (\u2248 1500)'),
+            ('\u03ba', '열전도도 [W/(m\u00b7K)]', 'Flash Temp: 열전도 계수 (\u2248 0.3)'),
         ]
         for col_idx, header in enumerate(['기호', '의미', '설명']):
             lbl = tk.Label(param_frame, text=header, bg='#1B2A4A', fg='white',
@@ -14694,6 +14898,43 @@ class PerssonModelGUI_V2:
             ax.set_title(r"$\xi(q)$와 $\varepsilon(q)$ — 파수에 따른 변화", fontsize=12, pad=10)
         add_graph(_plot_var_xi_eps)
 
+        # --- Flash Temperature 중간 변수 ---
+        add_separator()
+        add_text('Flash Temperature 중간 변수 (per-q 누적):', bold=True, pady=(8, 0))
+
+        add_equation(
+            r"$D_{th} = \frac{\kappa}{\rho \cdot C_v}, \qquad"
+            r" J_d(q) = \frac{v \cdot d(q)}{D_{th}}, \qquad"
+            r" d(q) = \frac{2\pi}{q}$",
+            fig_height=1.0)
+
+        add_text('  D_th: 열확산도 (열이 퍼지는 속도). Jd: Peclet 수 (대류/전도 비)', font_size=17, fg='#64748B')
+        add_text('  d(q): 파수 q에서의 특성 접촉 패치 직경 — 미세 스케일일수록 작음', font_size=17, fg='#64748B')
+
+        add_equation(
+            r"$\delta T(q_i) = \frac{d\mu_i \cdot \sigma_0 \cdot v \cdot d(q_i)}"
+            r"{8\kappa\,\sqrt{1 + \frac{\pi}{2} J_d(q_i)}}"
+            r", \qquad \Delta T(q_i) = \sum_{k=1}^{i} \delta T(q_k)$",
+            fig_height=1.3)
+
+        add_text('  δT(q_i): 파수 q_i에서의 순간 온도 상승 (Greenwood 공식)', font_size=17, fg='#64748B')
+        add_text('  ΔT(q_i): q₀부터 q_i까지 누적된 총 온도 상승', font_size=17, fg='#64748B')
+        add_text('  a_T(T(q_i)): 누적 온도에서의 WLF 시프트 → E\'\'(ω, T) = E\'\'_master(ω × a_T)', font_size=17, fg='#DC2626')
+
+        def _plot_var_flash(ax, np):
+            q = np.logspace(2, 8, 200)
+            dT = 50 * (1 - np.exp(-(q / 1e5)**0.8))
+            ax.semilogx(q, dT, '-', linewidth=2.5, color='#DC2626', label=r'$\Delta T(q)$ 누적')
+            ax.fill_between(q, 0, dT, alpha=0.1, color='red')
+            ax.set_xlabel('q (1/m)', fontsize=12)
+            ax.set_ylabel(r'$\Delta T$ (\u00b0C)', fontsize=12)
+            ax.legend(fontsize=10, loc='upper left')
+            ax.grid(True, alpha=0.3, which='both')
+            ax.set_title(r'$\Delta T(q)$ 파수별 누적 온도 상승 (대표적 형상)', fontsize=12, pad=10)
+            ax.annotate('큰 스케일\n(ΔT \u2248 0)', xy=(q[10], 2), fontsize=10, color='#64748B')
+            ax.annotate('미세 스케일\n(ΔT 포화)', xy=(q[-40], dT[-40] * 0.8), fontsize=10, color='#DC2626')
+        add_graph(_plot_var_flash)
+
         # ═══════════════════════════════════════════════════════
         # Section 4: 최종 출력
         # ═══════════════════════════════════════════════════════
@@ -14706,19 +14947,36 @@ class PerssonModelGUI_V2:
         add_text('  [선형] G, P, S 계산 → Im[E] = Im[E_linear]', font_size=17, fg='#64748B')
         add_text('  [비선형] E_eff 사용, G\u00b7P\u00b7S 재계산, Im[E_eff] = Im[E] \u00d7 g(\u03b5)', font_size=17, fg='#64748B')
 
+        add_text('\n  Flash Temperature 적용 시:', bold=True, font_size=17, fg='#DC2626')
+        add_equation(
+            r"$\mu_{hot} = \sum_{i}\, d\mu_i(T(q_i))"
+            r", \qquad T(q_i) = T_{base} + \Delta T(q_{i-1})$",
+            fig_height=1.0)
+        add_text('  → 각 파수 q_i에서 누적 온도 T(q_i)로 WLF-shifted E\'\'를 사용하여 dμ 계산', font_size=17, fg='#64748B')
+        add_text('  → μ_hot < μ_cold (고속 영역에서 flash 연화 효과)', font_size=17, fg='#64748B')
+
         def _plot_var_mu(ax, np):
             v = np.logspace(-6, 2, 500)
-            mu = 0.8 * np.exp(-0.5 * ((np.log10(v) + 2) / 2)**2) + 0.1
-            ax.semilogx(v, mu, '-', linewidth=2.5, color='#DC2626')
+            mu_cold = 0.8 * np.exp(-0.5 * ((np.log10(v) + 2) / 2)**2) + 0.1
+            dT = 60 * v / (v + 0.05)
+            shift = dT / 80
+            mu_hot = (0.8 * np.exp(-0.5 * ((np.log10(v) + 2 + shift) / 2)**2)
+                      * (1 - 0.25 * dT / (dT + 15)) + 0.1)
+            ax.semilogx(v, mu_cold, 'b-', linewidth=2.5, label=r'$\mu_{cold}$ (Flash OFF)')
+            ax.semilogx(v, mu_hot, 'r-', linewidth=2.5, label=r'$\mu_{hot}$ (Flash ON)')
+            ax.fill_between(v, mu_hot, mu_cold, alpha=0.08, color='red')
             ax.set_xlabel('v (m/s)', fontsize=12)
             ax.set_ylabel(r'$\mu_{visc}$', fontsize=12)
+            ax.legend(fontsize=10, loc='upper right')
             ax.grid(True, alpha=0.3)
-            ax.set_title(r'$\mu_{visc}$ vs 슬라이딩 속도 (대표적 형상)', fontsize=12, pad=10)
-            peak_idx = np.argmax(mu)
-            ax.annotate('마찰 피크', xy=(v[peak_idx], mu[peak_idx]),
-                        fontsize=11, fontweight='bold', color='#DC2626',
-                        xytext=(v[peak_idx]*20, mu[peak_idx]*0.85),
-                        arrowprops=dict(arrowstyle='->', color='#DC2626'))
+            ax.set_title(r'$\mu_{cold}$ vs $\mu_{hot}$ \u2014 Flash Temperature 효과', fontsize=12, pad=10)
+            peak_idx = np.argmax(mu_cold)
+            ax.annotate('마찰 피크', xy=(v[peak_idx], mu_cold[peak_idx]),
+                        fontsize=11, fontweight='bold', color='#2563EB',
+                        xytext=(v[peak_idx] * 20, mu_cold[peak_idx] * 0.85),
+                        arrowprops=dict(arrowstyle='->', color='#2563EB'))
+            ax.annotate('Flash 감소', xy=(v[350], (mu_cold[350] + mu_hot[350]) / 2),
+                        fontsize=11, fontweight='bold', color='#DC2626')
         add_graph(_plot_var_mu)
 
         # ═══════════════════════════════════════════════════════
@@ -14728,7 +14986,13 @@ class PerssonModelGUI_V2:
 
         add_text('DMA + PSD → Tab1(검증) → Tab2(설정) → Tab3(G, P 계산)', bold=True, pady=(8, 0))
         add_text('→ Tab4(h\'_rms, \u03b5 계산) → Tab5(\u03bc_visc 계산)', bold=True, pady=(0, 4))
-        add_text('Strain Sweep → f(\u03b5), g(\u03b5) 함수 → 비선형 보정에 반영', bold=True, pady=(0, 8))
+        add_text('Strain Sweep → f(\u03b5), g(\u03b5) 함수 → 비선형 보정에 반영', bold=True, pady=(0, 4))
+        add_text('', font_size=10, pady=(0, 0))
+        add_text('[Flash Temperature 흐름]', bold=True, fg='#DC2626', pady=(4, 0))
+        add_text('\u03bc_cold(v) → per-q 누적: q\u2080\u2192q\u2081 순차 처리', bold=True, fg='#DC2626', pady=(0, 2))
+        add_text('  각 q_i: \u0394T 누적 → WLF shift → E\'\' 변화 → d\u03bc_i 계산', bold=True, fg='#DC2626', pady=(0, 2))
+        add_text('  최종: \u03bc_hot = \u03a3d\u03bc_i, \u0394T_total = \u0394T(q\u2081)', bold=True, fg='#DC2626', pady=(0, 2))
+        add_text('  A/A0_hot: 최종 \u0394T에서 G(q) 재계산', bold=True, fg='#DC2626', pady=(0, 8))
 
         # ═══════════════════════════════════════════════════════
         # Section 6: 단위 정리
@@ -14750,7 +15014,14 @@ class PerssonModelGUI_V2:
             ('h_rms', '[m]', 'RMS 높이'),
             ("h'_rms = \u03be", '[무차원]', 'RMS 기울기'),
             ('\u03b5(q)', '[0~1]', '국소 변형률'),
-            ('\u03bc_visc', '[무차원]', '점탄성 마찰 계수'),
+            ('\u03bc_visc', '[무차원]', '점탄성 마찰 계수 (cold)'),
+            ('\u03bc_hot', '[무차원]', '점탄성 마찰 계수 (flash 적용)'),
+            ('D_th', '[m\u00b2/s]', '열확산도 = \u03ba/(\u03c1\u00b7C_v)'),
+            ('d(q)', '[m]', '특성 접촉 직경 = 2\u03c0/q'),
+            ('J_d', '[무차원]', 'Peclet 수 = v\u00b7d/D_th'),
+            ('\u0394T(q)', '[\u00b0C]', '파수별 누적 온도 상승'),
+            ('a_T', '[무차원]', 'WLF 시프트 팩터'),
+            ('q\u0307', '[W/m\u00b2]', '열유속 = d\u03bc\u00b7\u03c3\u2080\u00b7v'),
         ]
         for col_idx, header in enumerate(['기호', '단위', '의미']):
             lbl = tk.Label(unit_frame, text=header, bg='#1B2A4A', fg='white',
