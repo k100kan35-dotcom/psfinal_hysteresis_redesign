@@ -10534,7 +10534,7 @@ class PerssonModelGUI_V2:
                 q, G_matrix_corrected, v, C_q, progress_callback, strain_estimator=strain_est
             )
 
-            # ===== Flash Temperature (Hot Pass) =====
+            # ===== Flash Temperature (Hot Pass) with Self-Consistent Iteration =====
             use_flash = self.use_flash_temp_var.get()
             mu_hot_array_raw = None
             flash_results = None
@@ -10558,7 +10558,7 @@ class PerssonModelGUI_V2:
                         " 적용할 수 없어 cold/hot 결과가 동일합니다.)", 'warning')
                     use_flash = False
                 else:
-                    self.status_var.set("Flash Temperature 계산 중 (Pass 2: Hot)...")
+                    self.status_var.set("Flash Temperature 계산 중 (Self-Consistent Iteration)...")
                     self.root.update()
 
                     # Read thermal parameters from GUI
@@ -10579,27 +10579,31 @@ class PerssonModelGUI_V2:
                         P_cold_j = details['details'][j]['P']
                         A_A0_cold_arr[j] = P_cold_j[-1]
 
-                    # Calculate flash temperature for all velocities
-                    flash_results = flash_calc.calculate_multi_velocity(
-                        A_A0_cold_arr, mu_array_raw, sigma_0, v, temperature
-                    )
-
-                    # Hot pass: recalculate G(q) and mu_visc at T_hot for each velocity
-                    # KEY FIX: Use aT interpolator to create properly WLF-shifted material
-                    # for each T_hot. The old approach used material.get_modulus(w, temperature=T_hot)
-                    # which requires WLF params (C1, C2) on the material object. But those aren't set
-                    # because temperature shift is done via pre-shifting frequencies using aT interpolator.
+                    # Self-Consistent Flash Temperature Iteration
+                    # ===========================================
+                    # Physics: ΔT is self-limiting due to negative feedback:
+                    #   Speed↑ → ΔT↑ → rubber softens (WLF) → μ_hot↓ → q(=μ·σ·v)↓ → ΔT↓
                     #
-                    # Correct order for each velocity j:
-                    #   1. Get T_hot_j = T_base + ΔT_j
-                    #   2. Get aT(T_hot_j) from interpolator
-                    #   3. Create shifted master curve: ω_shifted = ω_ref / aT(T_hot_j)
-                    #   4. Create material_hot with shifted E'(ω), E"(ω)
-                    #   5. Apply f,g nonlinear correction on top
-                    #   6. Calculate G(q), μ_hot, A/A0_hot
+                    # Algorithm for each velocity j:
+                    #   1. Initial guess: ΔT₀ from μ_cold (overestimates ΔT)
+                    #   2. Calculate μ_hot at T_hot = T_base + ΔT
+                    #   3. Recalculate ΔT using μ_hot (ΔT decreases!)
+                    #   4. Repeat until |ΔT_new - ΔT_old| < tolerance
+                    #
+                    # Convergence is fast (2-4 iterations) because feedback is negative.
+
+                    MAX_FLASH_ITER = 5
+                    FLASH_TOL = 0.5  # °C convergence tolerance
 
                     mu_hot_array_raw = np.zeros(n_v)
                     A_A0_hot_arr = np.zeros(n_v)
+
+                    # Store final converged flash results
+                    flash_delta_T = np.zeros(n_v)
+                    flash_T_hot = np.zeros(n_v)
+                    flash_q_dot = np.zeros(n_v)
+                    flash_Jd = np.zeros(n_v)
+                    flash_iterations = np.zeros(n_v, dtype=int)
 
                     norm_factor_val = self.g_calculator.PSD_NORMALIZATION_FACTOR
                     n_phi_gq = self.g_calculator.n_angle_points
@@ -10609,103 +10613,143 @@ class PerssonModelGUI_V2:
                     omega_ref = mc_data['omega'].copy()
                     E_storage_ref = mc_data['E_storage'].copy()
                     E_loss_ref = mc_data['E_loss'].copy()
-                    T_ref_aT = self.persson_aT_data['T_ref']
 
                     for j in range(n_v):
-                        T_hot_j = flash_results['T_hot'][j]
-                        delta_T_j = flash_results['delta_T'][j]
+                        # Initial ΔT from cold pass (μ_cold)
+                        Jd_j = flash_calc.peclet_number(v[j])
+                        q_dot_cold = flash_calc.heat_flux(A_A0_cold_arr[j], mu_array_raw[j], sigma_0, v[j])
+                        delta_T_j = flash_calc.delta_T(q_dot_cold, Jd_j)
 
                         if delta_T_j < 0.1:  # Negligible temperature rise
                             mu_hot_array_raw[j] = mu_array_raw[j]
                             A_A0_hot_arr[j] = A_A0_cold_arr[j]
+                            flash_delta_T[j] = delta_T_j
+                            flash_T_hot[j] = temperature + delta_T_j
+                            flash_q_dot[j] = q_dot_cold
+                            flash_Jd[j] = Jd_j
                             continue
 
-                        # Step 1: Get aT at T_hot using the interpolator
-                        log_aT_hot = float(self.persson_aT_interp(T_hot_j))
-                        aT_hot = 10**log_aT_hot
+                        # Self-consistent iteration
+                        mu_hot_j = mu_array_raw[j]  # start with μ_cold
+                        A_A0_hot_j = A_A0_cold_arr[j]
 
-                        # Step 2: Create WLF-shifted master curve at T_hot
-                        # ω_shifted = ω_ref / aT → At higher T, aT < 1, so ω_shifted > ω_ref
-                        omega_shifted_hot = omega_ref / aT_hot
+                        for iteration in range(MAX_FLASH_ITER):
+                            T_hot_j = temperature + delta_T_j
 
-                        # Step 3: Create material at T_hot with shifted frequencies
-                        material_hot = create_material_from_dma(
-                            omega=omega_shifted_hot,
-                            E_storage=E_storage_ref.copy(),
-                            E_loss=E_loss_ref.copy(),
-                            material_name=f"Hot (T={T_hot_j:.1f}°C, aT={aT_hot:.2e})",
-                            reference_temp=T_hot_j
-                        )
+                            # Create WLF-shifted material at T_hot
+                            log_aT_hot = float(self.persson_aT_interp(T_hot_j))
+                            aT_hot = 10**log_aT_hot
+                            omega_shifted_hot = omega_ref / aT_hot
 
-                        # Step 4: Create modulus functions using WLF-shifted material
-                        # Note: no further temperature shift needed since material is already at T_hot
-                        modulus_func_hot = lambda w, _mat=material_hot: _mat.get_modulus(w)
-                        loss_func_hot = lambda w, T, _mat=material_hot: _mat.get_loss_modulus(w)
-
-                        # Step 5: Recalculate G(q) at T_hot with shifted material
-                        g_calc_hot = GCalc_Hot(
-                            psd_func=self.psd_model,
-                            modulus_func=modulus_func_hot,
-                            sigma_0=sigma_0,
-                            velocity=v[j],
-                            poisson_ratio=poisson,
-                            n_angle_points=n_phi_gq
-                        )
-                        g_calc_hot.PSD_NORMALIZATION_FACTOR = norm_factor_val
-
-                        # Step 6: Apply nonlinear f,g correction ON TOP of WLF-shifted E', E"
-                        if use_fg and self.f_interpolator is not None and self.g_interpolator is not None:
-                            storage_func_hot = lambda w, _mat=material_hot: _mat.get_storage_modulus(w)
-                            loss_func_hot_raw = lambda w, _mat=material_hot: _mat.get_loss_modulus(w)
-                            g_calc_hot.storage_modulus_func = storage_func_hot
-                            g_calc_hot.loss_modulus_func = loss_func_hot_raw
-                            if strain_est is not None:
-                                strain_for_hot = strain_est(q, G_matrix_corrected[:, j], v[j])
-                            else:
-                                strain_for_hot = np.full(len(q), fixed_strain)
-                            g_calc_hot.set_nonlinear_correction(
-                                self.f_interpolator, self.g_interpolator,
-                                strain_for_hot, q
+                            material_hot = create_material_from_dma(
+                                omega=omega_shifted_hot,
+                                E_storage=E_storage_ref.copy(),
+                                E_loss=E_loss_ref.copy(),
+                                material_name=f"Hot iter{iteration} (T={T_hot_j:.1f}°C)",
+                                reference_temp=T_hot_j
                             )
 
-                        results_hot_j = g_calc_hot.calculate_G_with_details(q, q_min=q_min)
-                        G_hot_j = results_hot_j['G']
-                        P_hot_j = results_hot_j['contact_area_ratio']
-                        A_A0_hot_arr[j] = P_hot_j[-1]
+                            # Create modulus functions
+                            modulus_func_hot = lambda w, _mat=material_hot: _mat.get_modulus(w)
+                            loss_func_hot = lambda w, T, _mat=material_hot: _mat.get_loss_modulus(w)
 
-                        # Step 7: Create FrictionCalculator at T_hot with WLF-shifted material
-                        friction_hot = FrictionCalculator(
-                            psd_func=self.psd_model,
-                            loss_modulus_func=loss_func_hot,
-                            sigma_0=sigma_0,
-                            velocity=v[j],
-                            temperature=T_hot_j,
-                            poisson_ratio=poisson,
-                            gamma=gamma,
-                            n_angle_points=n_phi,
-                            g_interpolator=g_interp,
-                            strain_estimate=fixed_strain,
-                            p_exponent=p_exponent
-                        )
+                            # Recalculate G(q) at T_hot
+                            g_calc_hot = GCalc_Hot(
+                                psd_func=self.psd_model,
+                                modulus_func=modulus_func_hot,
+                                sigma_0=sigma_0,
+                                velocity=v[j],
+                                poisson_ratio=poisson,
+                                n_angle_points=n_phi_gq
+                            )
+                            g_calc_hot.PSD_NORMALIZATION_FACTOR = norm_factor_val
 
-                        # Calculate strain for hot pass
-                        strain_arr_hot = None
-                        if strain_est is not None:
-                            strain_arr_hot = strain_est(q, G_hot_j, v[j])
+                            # Apply nonlinear f,g correction
+                            if use_fg and self.f_interpolator is not None and self.g_interpolator is not None:
+                                storage_func_hot = lambda w, _mat=material_hot: _mat.get_storage_modulus(w)
+                                loss_func_hot_raw = lambda w, _mat=material_hot: _mat.get_loss_modulus(w)
+                                g_calc_hot.storage_modulus_func = storage_func_hot
+                                g_calc_hot.loss_modulus_func = loss_func_hot_raw
+                                if strain_est is not None:
+                                    strain_for_hot = strain_est(q, G_matrix_corrected[:, j], v[j])
+                                else:
+                                    strain_for_hot = np.full(len(q), fixed_strain)
+                                g_calc_hot.set_nonlinear_correction(
+                                    self.f_interpolator, self.g_interpolator,
+                                    strain_for_hot, q
+                                )
 
-                        mu_hot_val, _ = friction_hot.calculate_mu_visc(
-                            q, G_hot_j, C_q, strain_array=strain_arr_hot
-                        )
-                        mu_hot_array_raw[j] = mu_hot_val
+                            results_hot_j = g_calc_hot.calculate_G_with_details(q, q_min=q_min)
+                            G_hot_j = results_hot_j['G']
+                            P_hot_j = results_hot_j['contact_area_ratio']
+                            A_A0_hot_j = P_hot_j[-1]
+
+                            # Calculate μ_hot at T_hot
+                            friction_hot = FrictionCalculator(
+                                psd_func=self.psd_model,
+                                loss_modulus_func=loss_func_hot,
+                                sigma_0=sigma_0,
+                                velocity=v[j],
+                                temperature=T_hot_j,
+                                poisson_ratio=poisson,
+                                gamma=gamma,
+                                n_angle_points=n_phi,
+                                g_interpolator=g_interp,
+                                strain_estimate=fixed_strain,
+                                p_exponent=p_exponent
+                            )
+                            strain_arr_hot = None
+                            if strain_est is not None:
+                                strain_arr_hot = strain_est(q, G_hot_j, v[j])
+                            mu_hot_j, _ = friction_hot.calculate_mu_visc(
+                                q, G_hot_j, C_q, strain_array=strain_arr_hot
+                            )
+
+                            # Recalculate ΔT using μ_hot (NEGATIVE FEEDBACK!)
+                            # μ_hot < μ_cold → q_dot_hot < q_dot_cold → ΔT_new < ΔT_old
+                            q_dot_hot = flash_calc.heat_flux(A_A0_hot_j, mu_hot_j, sigma_0, v[j])
+                            delta_T_new = flash_calc.delta_T(q_dot_hot, Jd_j)
+
+                            # Check convergence
+                            if abs(delta_T_new - delta_T_j) < FLASH_TOL:
+                                delta_T_j = delta_T_new
+                                flash_iterations[j] = iteration + 1
+                                break
+
+                            delta_T_j = delta_T_new
+                            flash_iterations[j] = iteration + 1
+
+                        # Store converged results
+                        mu_hot_array_raw[j] = mu_hot_j
+                        A_A0_hot_arr[j] = A_A0_hot_j
+                        flash_delta_T[j] = delta_T_j
+                        flash_T_hot[j] = temperature + delta_T_j
+                        flash_q_dot[j] = flash_calc.heat_flux(A_A0_hot_j, mu_hot_j, sigma_0, v[j])
+                        flash_Jd[j] = Jd_j
 
                         # Progress
                         if j % max(1, n_v // 10) == 0:
                             self.status_var.set(
-                                f"Flash: {j+1}/{n_v} (ΔT={delta_T_j:.1f}°C, T_hot={T_hot_j:.1f}°C, aT={aT_hot:.2e})"
+                                f"Flash: {j+1}/{n_v} (ΔT={delta_T_j:.1f}°C, "
+                                f"iter={flash_iterations[j]}, μ_hot={mu_hot_j:.3f})"
                             )
                             self.root.update()
 
-                    self.status_var.set("Flash Temperature 계산 완료")
+                    # Build flash_results dict (same format as before)
+                    flash_results = {
+                        'delta_T': flash_delta_T,
+                        'T_hot': flash_T_hot,
+                        'q_dot': flash_q_dot,
+                        'Jd': flash_Jd,
+                        'T_base': temperature,
+                        'v': v,
+                        'iterations': flash_iterations
+                    }
+
+                    avg_iter = np.mean(flash_iterations[flash_iterations > 0]) if np.any(flash_iterations > 0) else 0
+                    self.status_var.set(
+                        f"Flash Temperature 수렴 완료 (평균 {avg_iter:.1f}회 반복)"
+                    )
                     self.root.update()
 
             # Apply smoothing if enabled
