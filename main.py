@@ -10619,8 +10619,9 @@ class PerssonModelGUI_V2:
                     #
                     # Convergence is fast (2-4 iterations) because feedback is negative.
 
-                    MAX_FLASH_ITER = 5
+                    MAX_FLASH_ITER = 10
                     FLASH_TOL = 0.5  # °C convergence tolerance
+                    FLASH_RELAX = 0.5  # Under-relaxation factor (0.5 = average old+new)
 
                     mu_hot_array_raw = np.zeros(n_v)
                     A_A0_hot_arr = np.zeros(n_v)
@@ -10762,7 +10763,12 @@ class PerssonModelGUI_V2:
                             # Recalculate ΔT using μ_hot (NEGATIVE FEEDBACK!)
                             # μ_hot < μ_cold → q_dot_hot < q_dot_cold → ΔT_new < ΔT_old
                             q_dot_hot = flash_calc.heat_flux(A_A0_hot_j, mu_hot_j, sigma_0, v[j])
-                            delta_T_new = flash_calc.delta_T(q_dot_hot, Jd_j)
+                            delta_T_raw = flash_calc.delta_T(q_dot_hot, Jd_j)
+
+                            # Under-relaxation to prevent oscillation at high speeds
+                            # Without relaxation: ΔT can oscillate (30→9→25→15→...)
+                            # With relaxation α=0.5: ΔT converges smoothly (30→19.5→17.3→17.1)
+                            delta_T_new = FLASH_RELAX * delta_T_j + (1 - FLASH_RELAX) * delta_T_raw
 
                             # Check convergence
                             if abs(delta_T_new - delta_T_j) < FLASH_TOL:
