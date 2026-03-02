@@ -684,6 +684,7 @@ class PerssonModelGUI_V2:
             ('tab_master_curve',    '마스터 커브',         self._create_master_curve_tab),
             ('tab_parameters',      '계산 설정',           self._create_parameters_tab),
             ('tab_rms_slope',       "h'rms / strain 계산", self._create_rms_slope_tab),
+            ('tab_flash_temp',      'Flash Temp 설정',    self._create_flash_temp_tab),
             ('tab_mu_visc',         'μ_visc 계산',        self._create_mu_visc_tab),
             ('tab_mu_adh',          'μ_adh 계산',         self._create_mu_adh_tab),
             ('tab_ve_advisor',      '점탄성 설계',        self._create_ve_advisor_tab),
@@ -722,7 +723,8 @@ class PerssonModelGUI_V2:
                 self.root.update_idletasks()
                 for canvas_attr in ('canvas_psd_profile', 'canvas_mc',
                                     'canvas_calc_progress', 'canvas_results',
-                                    'canvas_rms', 'canvas_mu_visc',
+                                    'canvas_rms', 'canvas_flash_temp',
+                                    'canvas_mu_visc',
                                     'canvas_mu_adh',
                                     'canvas_integrand', 'canvas_strain_map',
                                     'canvas_ve_advisor'):
@@ -749,9 +751,9 @@ class PerssonModelGUI_V2:
         # Ctrl+Enter shortcut: trigger calculation on mu_visc or mu_adh tab
         def _on_ctrl_enter(event):
             current_tab = self.notebook.index(self.notebook.select())
-            if current_tab == 5:  # tab_mu_visc (μ_visc 계산)
+            if current_tab == 6:  # tab_mu_visc (μ_visc 계산)
                 self._calculate_mu_visc()
-            elif current_tab == 6:  # tab_mu_adh (μ_adh 계산)
+            elif current_tab == 7:  # tab_mu_adh (μ_adh 계산)
                 self._calculate_mu_adh()
         self.root.bind('<Control-Return>', _on_ctrl_enter)
 
@@ -8481,6 +8483,294 @@ class PerssonModelGUI_V2:
         except Exception as e:
             messagebox.showerror("오류", f"저장 실패:\n{str(e)}")
 
+    def _create_flash_temp_tab(self, parent):
+        """Create Flash Temperature settings tab."""
+        layout = self._create_tab_layout(parent, toolbar_buttons=[], with_plot=True)
+        left_panel = layout['content']
+
+        # ===== 1. Flash Temperature Enable/Disable =====
+        enable_frame = self._create_section(left_panel, "1) Flash Temperature 활성화")
+
+        flash_enable_wrapper = tk.Frame(enable_frame, bg='#DC2626', padx=2, pady=2)
+        flash_enable_wrapper.pack(fill=tk.X, pady=1)
+        flash_enable_inner = ttk.Frame(flash_enable_wrapper)
+        flash_enable_inner.pack(fill=tk.X)
+        self.use_flash_temp_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(flash_enable_inner, text="Flash Temperature 적용 (WITH FLASH)",
+                        variable=self.use_flash_temp_var).pack(side=tk.LEFT)
+
+        # Description
+        ttk.Label(enable_frame,
+                  text="활성화 시 μ_visc 계산에서 2-pass 방식으로\n"
+                       "flash temperature를 고려합니다.\n"
+                       "Pass1(Cold) → ΔT 계산 → Pass2(Hot, WLF shifted)",
+                  font=self.FONTS['small'], foreground='#64748B').pack(anchor=tk.W, pady=2)
+
+        # ===== 2. Thermal Properties =====
+        thermal_frame = self._create_section(left_panel, "2) 열물성 (Thermal Properties)")
+
+        # Row 1: rho, Cv
+        flash_row1 = ttk.Frame(thermal_frame)
+        flash_row1.pack(fill=tk.X, pady=1)
+        ttk.Label(flash_row1, text="ρ (밀도):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.flash_rho_var = tk.StringVar(value="1150")
+        ttk.Entry(flash_row1, textvariable=self.flash_rho_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(flash_row1, text="kg/m³", font=self.FONTS['small']).pack(side=tk.LEFT)
+
+        flash_row1b = ttk.Frame(thermal_frame)
+        flash_row1b.pack(fill=tk.X, pady=1)
+        ttk.Label(flash_row1b, text="Cv (비열):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.flash_Cv_var = tk.StringVar(value="1500")
+        ttk.Entry(flash_row1b, textvariable=self.flash_Cv_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(flash_row1b, text="J/(kg·K)", font=self.FONTS['small']).pack(side=tk.LEFT)
+
+        # Row 2: kappa
+        flash_row2 = ttk.Frame(thermal_frame)
+        flash_row2.pack(fill=tk.X, pady=1)
+        ttk.Label(flash_row2, text="κ (열전도율):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.flash_kappa_var = tk.StringVar(value="0.3")
+        ttk.Entry(flash_row2, textvariable=self.flash_kappa_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(flash_row2, text="W/(m·K)", font=self.FONTS['small']).pack(side=tk.LEFT)
+
+        # Row 3: d_macro
+        flash_row3 = ttk.Frame(thermal_frame)
+        flash_row3.pack(fill=tk.X, pady=1)
+        ttk.Label(flash_row3, text="d (접촉 직경):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.flash_d_macro_var = tk.StringVar(value="1.0")
+        ttk.Entry(flash_row3, textvariable=self.flash_d_macro_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(flash_row3, text="mm", font=self.FONTS['small']).pack(side=tk.LEFT)
+
+        # Display computed D_th
+        ttk.Separator(thermal_frame, orient='horizontal').pack(fill=tk.X, pady=3)
+        self.flash_Dth_var = tk.StringVar(value="D_th = 1.74e-07 m²/s")
+        ttk.Label(thermal_frame, textvariable=self.flash_Dth_var,
+                  font=self.FONTS['body_bold'], foreground='#2563EB').pack(anchor=tk.W)
+
+        # Callback to update D_th display when thermal properties change
+        def _update_Dth_display(*args):
+            try:
+                rho = float(self.flash_rho_var.get())
+                Cv = float(self.flash_Cv_var.get())
+                kappa = float(self.flash_kappa_var.get())
+                D_th = kappa / (rho * Cv)
+                self.flash_Dth_var.set(f"D_th = {D_th:.2e} m²/s")
+            except (ValueError, ZeroDivisionError):
+                self.flash_Dth_var.set("D_th = (입력 오류)")
+        self.flash_rho_var.trace_add('write', _update_Dth_display)
+        self.flash_Cv_var.trace_add('write', _update_Dth_display)
+        self.flash_kappa_var.trace_add('write', _update_Dth_display)
+
+        # ===== 3. Greenwood Formula =====
+        formula_frame = self._create_section(left_panel, "3) Greenwood 보간 공식")
+
+        ttk.Label(formula_frame,
+                  text="q_dot = (A/A0)_cold × μ_cold × σ₀ × v\n"
+                       "Jd = v × d / D_th  (Peclet number)\n"
+                       "ΔT = (q_dot × d) / (2κ × √(1 + 16Jd/π))\n"
+                       "T_hot = T_base + ΔT",
+                  font=self.FONTS['mono_small'], foreground='#374151').pack(anchor=tk.W, pady=2)
+
+        ttk.Label(formula_frame,
+                  text="[Hot Pass 처리 순서]\n"
+                       "1. Cold pass: μ_cold, A/A0_cold 계산\n"
+                       "2. Greenwood: ΔT(v) 계산\n"
+                       "3. T_hot(v) = T_base + ΔT(v)\n"
+                       "4. aT(T_hot) → WLF shifted E', E\" 생성\n"
+                       "5. f,g 비선형 보정 적용\n"
+                       "6. G(q), μ_hot, A/A0_hot 재계산",
+                  font=self.FONTS['small'], foreground='#059669').pack(anchor=tk.W, pady=2)
+
+        # ===== 4. Flash Temperature Auto-save =====
+        save_frame = self._create_section(left_panel, "4) Flash 결과 자동 저장")
+
+        self.flash_auto_save_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(save_frame, text="Flash 결과를 참조 데이터에 자동 저장",
+                        variable=self.flash_auto_save_var).pack(anchor=tk.W)
+
+        ttk.Label(save_frame,
+                  text="μ_hot(v), A/A0_hot(v) 결과를\n참조 편집기에 자동으로 저장합니다.",
+                  font=self.FONTS['small'], foreground='#64748B').pack(anchor=tk.W, pady=2)
+
+        # ===== 5. Flash Results Display =====
+        result_frame = self._create_section(left_panel, "5) Flash Temperature 결과")
+
+        self.flash_result_text = tk.Text(result_frame, height=10, font=self.FONTS['mono_small'], wrap=tk.WORD)
+        self.flash_result_text.pack(fill=tk.X)
+
+        # ============== Right Panel: Plots ==============
+        right_panel = layout['right']
+
+        plot_frame = ttk.LabelFrame(right_panel, text="Flash Temperature 그래프", padding=5)
+        plot_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Create figure with 2x2 subplots for flash temperature results
+        self.fig_flash_temp = Figure(figsize=(9, 7), dpi=100)
+
+        # Top-left: ΔT vs velocity
+        self.ax_flash_dT = self.fig_flash_temp.add_subplot(221)
+        self.ax_flash_dT.set_title('ΔT(v) - Flash 온도 상승', fontweight='bold', fontsize=11)
+        self.ax_flash_dT.set_xlabel('속도 v (m/s)', fontsize=11)
+        self.ax_flash_dT.set_ylabel('ΔT (°C)', fontsize=11)
+        self.ax_flash_dT.set_xscale('log')
+        self.ax_flash_dT.grid(True, alpha=0.3)
+
+        # Top-right: T_hot vs velocity
+        self.ax_flash_Thot = self.fig_flash_temp.add_subplot(222)
+        self.ax_flash_Thot.set_title('T_hot(v) - 접촉 온도', fontweight='bold', fontsize=11)
+        self.ax_flash_Thot.set_xlabel('속도 v (m/s)', fontsize=11)
+        self.ax_flash_Thot.set_ylabel('T_hot (°C)', fontsize=11)
+        self.ax_flash_Thot.set_xscale('log')
+        self.ax_flash_Thot.grid(True, alpha=0.3)
+
+        # Bottom-left: μ_cold vs μ_hot
+        self.ax_flash_mu_compare = self.fig_flash_temp.add_subplot(223)
+        self.ax_flash_mu_compare.set_title('μ_cold vs μ_hot', fontweight='bold', fontsize=11)
+        self.ax_flash_mu_compare.set_xlabel('속도 v (m/s)', fontsize=11)
+        self.ax_flash_mu_compare.set_ylabel('μ_visc', fontsize=11)
+        self.ax_flash_mu_compare.set_xscale('log')
+        self.ax_flash_mu_compare.grid(True, alpha=0.3)
+
+        # Bottom-right: A/A0 cold vs hot
+        self.ax_flash_area_compare = self.fig_flash_temp.add_subplot(224)
+        self.ax_flash_area_compare.set_title('A/A0 Cold vs Hot', fontweight='bold', fontsize=11)
+        self.ax_flash_area_compare.set_xlabel('속도 v (m/s)', fontsize=11)
+        self.ax_flash_area_compare.set_ylabel('A/A0', fontsize=11)
+        self.ax_flash_area_compare.set_xscale('log')
+        self.ax_flash_area_compare.grid(True, alpha=0.3)
+
+        self.fig_flash_temp.subplots_adjust(left=0.12, right=0.90, top=0.96, bottom=0.08, hspace=0.50, wspace=0.38)
+
+        self.canvas_flash_temp = FigureCanvasTkAgg(self.fig_flash_temp, plot_frame)
+        self.canvas_flash_temp.draw_idle()
+        self.canvas_flash_temp.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        toolbar = NavigationToolbar2Tk(self.canvas_flash_temp, plot_frame)
+        toolbar.update()
+
+    def _update_flash_temp_plots(self, v, mu_cold, mu_hot, A_A0_cold, A_A0_hot, flash_results):
+        """Update Flash Temperature tab plots after calculation."""
+        try:
+            # Top-left: ΔT vs velocity
+            self.ax_flash_dT.clear()
+            self.ax_flash_dT.semilogx(v, flash_results['delta_T'], 'r-', linewidth=2.5, marker='o', markersize=4)
+            self.ax_flash_dT.set_title('ΔT(v) - Flash 온도 상승', fontweight='bold', fontsize=11)
+            self.ax_flash_dT.set_xlabel('속도 v (m/s)', fontsize=11)
+            self.ax_flash_dT.set_ylabel('ΔT (°C)', fontsize=11)
+            self.ax_flash_dT.grid(True, alpha=0.3)
+
+            # Top-right: T_hot vs velocity
+            self.ax_flash_Thot.clear()
+            self.ax_flash_Thot.semilogx(v, flash_results['T_hot'], 'r-', linewidth=2.5, marker='s', markersize=4)
+            T_base = flash_results.get('T_base', 20.0)
+            self.ax_flash_Thot.axhline(y=T_base, color='b', linestyle='--', alpha=0.5,
+                                        label=f'T_base = {T_base:.1f}°C')
+            self.ax_flash_Thot.set_title('T_hot(v) - 접촉 온도', fontweight='bold', fontsize=11)
+            self.ax_flash_Thot.set_xlabel('속도 v (m/s)', fontsize=11)
+            self.ax_flash_Thot.set_ylabel('T_hot (°C)', fontsize=11)
+            self.ax_flash_Thot.legend(fontsize=8)
+            self.ax_flash_Thot.grid(True, alpha=0.3)
+
+            # Bottom-left: μ_cold vs μ_hot
+            self.ax_flash_mu_compare.clear()
+            self.ax_flash_mu_compare.semilogx(v, mu_cold, 'b-', linewidth=2.5, marker='o',
+                                               markersize=4, label='μ_cold (WITHOUT FLASH)')
+            self.ax_flash_mu_compare.semilogx(v, mu_hot, '-', color='#DC2626', linewidth=2.5,
+                                               marker='s', markersize=4, label='μ_hot (WITH FLASH)')
+            self.ax_flash_mu_compare.set_title('μ_cold vs μ_hot', fontweight='bold', fontsize=11)
+            self.ax_flash_mu_compare.set_xlabel('속도 v (m/s)', fontsize=11)
+            self.ax_flash_mu_compare.set_ylabel('μ_visc', fontsize=11)
+            self.ax_flash_mu_compare.legend(fontsize=8)
+            self.ax_flash_mu_compare.grid(True, alpha=0.3)
+
+            # Bottom-right: A/A0 cold vs hot
+            self.ax_flash_area_compare.clear()
+            if A_A0_cold is not None:
+                self.ax_flash_area_compare.semilogx(v, A_A0_cold, 'b-', linewidth=2.5, marker='o',
+                                                     markersize=4, label='A/A0 Cold')
+            if A_A0_hot is not None:
+                self.ax_flash_area_compare.semilogx(v, A_A0_hot, '-', color='#DC2626', linewidth=2.5,
+                                                     marker='s', markersize=4, label='A/A0 Hot')
+            self.ax_flash_area_compare.set_title('A/A0 Cold vs Hot', fontweight='bold', fontsize=11)
+            self.ax_flash_area_compare.set_xlabel('속도 v (m/s)', fontsize=11)
+            self.ax_flash_area_compare.set_ylabel('A/A0', fontsize=11)
+            self.ax_flash_area_compare.legend(fontsize=8)
+            self.ax_flash_area_compare.grid(True, alpha=0.3)
+
+            self.canvas_flash_temp.draw_idle()
+
+            # Update flash result text
+            self.flash_result_text.delete(1.0, tk.END)
+            self.flash_result_text.insert(tk.END, "=" * 40 + "\n")
+            self.flash_result_text.insert(tk.END, "Flash Temperature 결과\n")
+            self.flash_result_text.insert(tk.END, "=" * 40 + "\n")
+            self.flash_result_text.insert(tk.END, f"T_base = {T_base:.1f} °C\n")
+            self.flash_result_text.insert(tk.END, f"ΔT 범위: {np.min(flash_results['delta_T']):.1f} ~ {np.max(flash_results['delta_T']):.1f} °C\n")
+            self.flash_result_text.insert(tk.END, f"T_hot 범위: {np.min(flash_results['T_hot']):.1f} ~ {np.max(flash_results['T_hot']):.1f} °C\n")
+            self.flash_result_text.insert(tk.END, f"Jd 범위: {np.min(flash_results['Jd']):.2e} ~ {np.max(flash_results['Jd']):.2e}\n")
+            self.flash_result_text.insert(tk.END, f"q_dot 범위: {np.min(flash_results['q_dot']):.2e} ~ {np.max(flash_results['q_dot']):.2e} W/m²\n\n")
+
+            self.flash_result_text.insert(tk.END, f"μ_cold: {np.min(mu_cold):.4f} ~ {np.max(mu_cold):.4f}\n")
+            self.flash_result_text.insert(tk.END, f"μ_hot:  {np.min(mu_hot):.4f} ~ {np.max(mu_hot):.4f}\n")
+            if np.max(mu_cold) > 0:
+                reduction = (1 - np.max(mu_hot) / np.max(mu_cold)) * 100
+                self.flash_result_text.insert(tk.END, f"Flash 감소율 (peak): {reduction:+.1f}%\n")
+
+            self.flash_result_text.insert(tk.END, f"\n{'v (m/s)':>10} {'ΔT':>8} {'T_hot':>8} {'μ_cold':>8} {'μ_hot':>8}\n")
+            self.flash_result_text.insert(tk.END, "-" * 50 + "\n")
+            step = max(1, len(v) // 15)
+            for i in range(0, len(v), step):
+                self.flash_result_text.insert(tk.END,
+                    f"{v[i]:10.4f} {flash_results['delta_T'][i]:8.1f} "
+                    f"{flash_results['T_hot'][i]:8.1f} {mu_cold[i]:8.4f} {mu_hot[i]:8.4f}\n")
+
+        except Exception as e:
+            print(f"[DEBUG] Flash temp plot error: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _auto_save_flash_to_reference(self, v, mu_hot, A_A0_hot):
+        """Auto-save flash temperature results to reference datasets."""
+        try:
+            if not self.flash_auto_save_var.get():
+                return
+
+            # Generate dataset name
+            base_name = self._generate_dataset_name()
+            ds_name = f"{base_name}_Flash"
+
+            # Create log_v array
+            log_v_arr = np.log10(np.maximum(v, 1e-20))
+
+            # Save to reference datasets JSON
+            from datetime import datetime
+            ds_entry = {
+                'mu_log_v': log_v_arr.tolist(),
+                'mu_vals': mu_hot.tolist(),
+                'area_log_v': log_v_arr.tolist() if A_A0_hot is not None else [],
+                'area_vals': A_A0_hot.tolist() if A_A0_hot is not None else [],
+                'saved_date': datetime.now().strftime('%Y-%m-%d %H:%M')
+            }
+
+            saved_datasets = self._load_saved_datasets()
+            saved_datasets[ds_name] = ds_entry
+            self._save_datasets_to_file(saved_datasets)
+
+            # Also add to plotted_ref_datasets for immediate display
+            if not hasattr(self, 'plotted_ref_datasets'):
+                self.plotted_ref_datasets = []
+            self.plotted_ref_datasets.append({
+                'name': ds_name,
+                'mu_log_v': log_v_arr.tolist(),
+                'mu_vals': mu_hot.tolist(),
+                'area_log_v': log_v_arr.tolist() if A_A0_hot is not None else [],
+                'area_vals': A_A0_hot.tolist() if A_A0_hot is not None else [],
+            })
+
+            print(f"[Flash Auto-Save] '{ds_name}' 저장 완료 (mu:{len(mu_hot)}pts, A/A0:{len(A_A0_hot) if A_A0_hot is not None else 0}pts)")
+
+        except Exception as e:
+            print(f"[Flash Auto-Save] 저장 실패: {e}")
+
     def _create_mu_visc_tab(self, parent):
         """Create enhanced Strain/mu_visc calculation tab with piecewise averaging."""
         layout = self._create_tab_layout(parent, toolbar_buttons=[
@@ -8782,63 +9072,6 @@ class PerssonModelGUI_V2:
         self.smooth_window_var = tk.StringVar(value="5")
         ttk.Combobox(smooth_row, textvariable=self.smooth_window_var,
                      values=["3", "5", "7", "9", "11"], width=4, state="readonly", font=self.FONTS['body']).pack(side=tk.LEFT, padx=2)
-
-        # ===== Flash Temperature Section =====
-        ttk.Separator(mu_settings_frame, orient='horizontal').pack(fill=tk.X, pady=3)
-        flash_frame = ttk.LabelFrame(mu_settings_frame, text="Flash Temperature (Greenwood)", padding=3)
-        flash_frame.pack(fill=tk.X, pady=2)
-
-        # Enable/disable checkbox (highlighted)
-        flash_enable_wrapper = tk.Frame(flash_frame, bg='#DC2626', padx=2, pady=2)
-        flash_enable_wrapper.pack(fill=tk.X, pady=1)
-        flash_enable_inner = ttk.Frame(flash_enable_wrapper)
-        flash_enable_inner.pack(fill=tk.X)
-        self.use_flash_temp_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(flash_enable_inner, text="Flash Temperature 적용 (WITH FLASH)",
-                        variable=self.use_flash_temp_var).pack(side=tk.LEFT)
-
-        # Thermal properties - Row 1: rho, Cv
-        flash_row1 = ttk.Frame(flash_frame)
-        flash_row1.pack(fill=tk.X, pady=1)
-        ttk.Label(flash_row1, text="ρ:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.flash_rho_var = tk.StringVar(value="1150")
-        ttk.Entry(flash_row1, textvariable=self.flash_rho_var, width=6).pack(side=tk.LEFT, padx=2)
-        ttk.Label(flash_row1, text="kg/m³", font=self.FONTS['small']).pack(side=tk.LEFT)
-        ttk.Label(flash_row1, text="  Cv:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.flash_Cv_var = tk.StringVar(value="1500")
-        ttk.Entry(flash_row1, textvariable=self.flash_Cv_var, width=6).pack(side=tk.LEFT, padx=2)
-        ttk.Label(flash_row1, text="J/(kg·K)", font=self.FONTS['small']).pack(side=tk.LEFT)
-
-        # Thermal properties - Row 2: kappa, d_macro
-        flash_row2 = ttk.Frame(flash_frame)
-        flash_row2.pack(fill=tk.X, pady=1)
-        ttk.Label(flash_row2, text="κ:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.flash_kappa_var = tk.StringVar(value="0.3")
-        ttk.Entry(flash_row2, textvariable=self.flash_kappa_var, width=6).pack(side=tk.LEFT, padx=2)
-        ttk.Label(flash_row2, text="W/(m·K)", font=self.FONTS['small']).pack(side=tk.LEFT)
-        ttk.Label(flash_row2, text="  d:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.flash_d_macro_var = tk.StringVar(value="1.0")
-        ttk.Entry(flash_row2, textvariable=self.flash_d_macro_var, width=6).pack(side=tk.LEFT, padx=2)
-        ttk.Label(flash_row2, text="mm", font=self.FONTS['small']).pack(side=tk.LEFT)
-
-        # Display computed D_th
-        self.flash_Dth_var = tk.StringVar(value="D_th = 1.74e-07 m²/s")
-        ttk.Label(flash_frame, textvariable=self.flash_Dth_var,
-                  font=self.FONTS['small'], foreground='#2563EB').pack(anchor=tk.W)
-
-        # Callback to update D_th display when thermal properties change
-        def _update_Dth_display(*args):
-            try:
-                rho = float(self.flash_rho_var.get())
-                Cv = float(self.flash_Cv_var.get())
-                kappa = float(self.flash_kappa_var.get())
-                D_th = kappa / (rho * Cv)
-                self.flash_Dth_var.set(f"D_th = {D_th:.2e} m²/s")
-            except (ValueError, ZeroDivisionError):
-                self.flash_Dth_var.set("D_th = (입력 오류)")
-        self.flash_rho_var.trace_add('write', _update_Dth_display)
-        self.flash_Cv_var.trace_add('write', _update_Dth_display)
-        self.flash_kappa_var.trace_add('write', _update_Dth_display)
 
         # ===== 온도, q1, 하중 조절 Section =====
         ttk.Separator(mu_settings_frame, orient='horizontal').pack(fill=tk.X, pady=3)
@@ -10312,117 +10545,168 @@ class PerssonModelGUI_V2:
                 from persson_model.core.flash_temperature import FlashTemperatureCalculator
                 from persson_model.core.g_calculator import GCalculator as GCalc_Hot
 
-                self.status_var.set("Flash Temperature 계산 중 (Pass 2: Hot)...")
-                self.root.update()
+                # Check if aT data is available for proper WLF shift
+                has_aT = (hasattr(self, 'persson_aT_interp') and self.persson_aT_interp is not None
+                          and hasattr(self, 'persson_master_curve') and self.persson_master_curve is not None)
 
-                # Read thermal parameters from GUI
-                flash_rho = float(self.flash_rho_var.get())
-                flash_Cv = float(self.flash_Cv_var.get())
-                flash_kappa = float(self.flash_kappa_var.get())
-                flash_d = float(self.flash_d_macro_var.get()) / 1000.0  # mm → m
+                if not has_aT:
+                    self._show_status(
+                        "Flash Temperature 계산에는 aT 시프트 팩터가 필요합니다.\n\n"
+                        "Tab 1에서 'aT 시프트 팩터 로드' 버튼으로\n"
+                        "aT 데이터를 먼저 로드하세요.\n\n"
+                        "(aT 없이는 온도 변화에 의한 E', E'' 시프트를\n"
+                        " 적용할 수 없어 cold/hot 결과가 동일합니다.)", 'warning')
+                    use_flash = False
+                else:
+                    self.status_var.set("Flash Temperature 계산 중 (Pass 2: Hot)...")
+                    self.root.update()
 
-                flash_calc = FlashTemperatureCalculator(
-                    rho=flash_rho, C_v=flash_Cv,
-                    kappa_th=flash_kappa, d_macro=flash_d
-                )
+                    # Read thermal parameters from GUI
+                    flash_rho = float(self.flash_rho_var.get())
+                    flash_Cv = float(self.flash_Cv_var.get())
+                    flash_kappa = float(self.flash_kappa_var.get())
+                    flash_d = float(self.flash_d_macro_var.get()) / 1000.0  # mm → m
 
-                # Extract A/A0_cold = P(q_max) for each velocity from Pass 1
-                n_v = len(v)
-                A_A0_cold_arr = np.zeros(n_v)
-                for j in range(n_v):
-                    P_cold_j = details['details'][j]['P']
-                    A_A0_cold_arr[j] = P_cold_j[-1]
-
-                # Calculate flash temperature for all velocities
-                flash_results = flash_calc.calculate_multi_velocity(
-                    A_A0_cold_arr, mu_array_raw, sigma_0, v, temperature
-                )
-
-                # Hot pass: recalculate G(q) and mu_visc at T_hot for each velocity
-                mu_hot_array_raw = np.zeros(n_v)
-                A_A0_hot_arr = np.zeros(n_v)
-
-                norm_factor_val = self.g_calculator.PSD_NORMALIZATION_FACTOR
-                n_phi_gq = self.g_calculator.n_angle_points
-
-                for j in range(n_v):
-                    T_hot_j = flash_results['T_hot'][j]
-                    delta_T_j = flash_results['delta_T'][j]
-
-                    if delta_T_j < 0.1:  # Negligible temperature rise
-                        mu_hot_array_raw[j] = mu_array_raw[j]
-                        A_A0_hot_arr[j] = A_A0_cold_arr[j]
-                        continue
-
-                    # Create modulus function at T_hot (capture T_hot_j via default arg)
-                    modulus_func_hot = lambda w, _T=T_hot_j: self.material.get_modulus(w, temperature=_T)
-                    loss_func_hot = lambda w, T, _T=T_hot_j: self.material.get_loss_modulus(w, temperature=_T)
-
-                    # Recalculate G(q) at T_hot
-                    g_calc_hot = GCalc_Hot(
-                        psd_func=self.psd_model,
-                        modulus_func=modulus_func_hot,
-                        sigma_0=sigma_0,
-                        velocity=v[j],
-                        poisson_ratio=poisson,
-                        n_angle_points=n_phi_gq
+                    flash_calc = FlashTemperatureCalculator(
+                        rho=flash_rho, C_v=flash_Cv,
+                        kappa_th=flash_kappa, d_macro=flash_d
                     )
-                    g_calc_hot.PSD_NORMALIZATION_FACTOR = norm_factor_val
 
-                    # Apply nonlinear correction to hot G calculator if enabled
-                    if use_fg and self.f_interpolator is not None and self.g_interpolator is not None:
-                        storage_func_hot = lambda w, _T=T_hot_j: self.material.get_storage_modulus(w, temperature=_T)
-                        loss_func_hot_raw = lambda w, _T=T_hot_j: self.material.get_loss_modulus(w, temperature=_T)
-                        g_calc_hot.storage_modulus_func = storage_func_hot
-                        g_calc_hot.loss_modulus_func = loss_func_hot_raw
+                    # Extract A/A0_cold = P(q_max) for each velocity from Pass 1
+                    n_v = len(v)
+                    A_A0_cold_arr = np.zeros(n_v)
+                    for j in range(n_v):
+                        P_cold_j = details['details'][j]['P']
+                        A_A0_cold_arr[j] = P_cold_j[-1]
+
+                    # Calculate flash temperature for all velocities
+                    flash_results = flash_calc.calculate_multi_velocity(
+                        A_A0_cold_arr, mu_array_raw, sigma_0, v, temperature
+                    )
+
+                    # Hot pass: recalculate G(q) and mu_visc at T_hot for each velocity
+                    # KEY FIX: Use aT interpolator to create properly WLF-shifted material
+                    # for each T_hot. The old approach used material.get_modulus(w, temperature=T_hot)
+                    # which requires WLF params (C1, C2) on the material object. But those aren't set
+                    # because temperature shift is done via pre-shifting frequencies using aT interpolator.
+                    #
+                    # Correct order for each velocity j:
+                    #   1. Get T_hot_j = T_base + ΔT_j
+                    #   2. Get aT(T_hot_j) from interpolator
+                    #   3. Create shifted master curve: ω_shifted = ω_ref / aT(T_hot_j)
+                    #   4. Create material_hot with shifted E'(ω), E"(ω)
+                    #   5. Apply f,g nonlinear correction on top
+                    #   6. Calculate G(q), μ_hot, A/A0_hot
+
+                    mu_hot_array_raw = np.zeros(n_v)
+                    A_A0_hot_arr = np.zeros(n_v)
+
+                    norm_factor_val = self.g_calculator.PSD_NORMALIZATION_FACTOR
+                    n_phi_gq = self.g_calculator.n_angle_points
+
+                    # Get reference master curve data for WLF shifting
+                    mc_data = self.persson_master_curve
+                    omega_ref = mc_data['omega'].copy()
+                    E_storage_ref = mc_data['E_storage'].copy()
+                    E_loss_ref = mc_data['E_loss'].copy()
+                    T_ref_aT = self.persson_aT_data['T_ref']
+
+                    for j in range(n_v):
+                        T_hot_j = flash_results['T_hot'][j]
+                        delta_T_j = flash_results['delta_T'][j]
+
+                        if delta_T_j < 0.1:  # Negligible temperature rise
+                            mu_hot_array_raw[j] = mu_array_raw[j]
+                            A_A0_hot_arr[j] = A_A0_cold_arr[j]
+                            continue
+
+                        # Step 1: Get aT at T_hot using the interpolator
+                        log_aT_hot = float(self.persson_aT_interp(T_hot_j))
+                        aT_hot = 10**log_aT_hot
+
+                        # Step 2: Create WLF-shifted master curve at T_hot
+                        # ω_shifted = ω_ref / aT → At higher T, aT < 1, so ω_shifted > ω_ref
+                        omega_shifted_hot = omega_ref / aT_hot
+
+                        # Step 3: Create material at T_hot with shifted frequencies
+                        material_hot = create_material_from_dma(
+                            omega=omega_shifted_hot,
+                            E_storage=E_storage_ref.copy(),
+                            E_loss=E_loss_ref.copy(),
+                            material_name=f"Hot (T={T_hot_j:.1f}°C, aT={aT_hot:.2e})",
+                            reference_temp=T_hot_j
+                        )
+
+                        # Step 4: Create modulus functions using WLF-shifted material
+                        # Note: no further temperature shift needed since material is already at T_hot
+                        modulus_func_hot = lambda w, _mat=material_hot: _mat.get_modulus(w)
+                        loss_func_hot = lambda w, T, _mat=material_hot: _mat.get_loss_modulus(w)
+
+                        # Step 5: Recalculate G(q) at T_hot with shifted material
+                        g_calc_hot = GCalc_Hot(
+                            psd_func=self.psd_model,
+                            modulus_func=modulus_func_hot,
+                            sigma_0=sigma_0,
+                            velocity=v[j],
+                            poisson_ratio=poisson,
+                            n_angle_points=n_phi_gq
+                        )
+                        g_calc_hot.PSD_NORMALIZATION_FACTOR = norm_factor_val
+
+                        # Step 6: Apply nonlinear f,g correction ON TOP of WLF-shifted E', E"
+                        if use_fg and self.f_interpolator is not None and self.g_interpolator is not None:
+                            storage_func_hot = lambda w, _mat=material_hot: _mat.get_storage_modulus(w)
+                            loss_func_hot_raw = lambda w, _mat=material_hot: _mat.get_loss_modulus(w)
+                            g_calc_hot.storage_modulus_func = storage_func_hot
+                            g_calc_hot.loss_modulus_func = loss_func_hot_raw
+                            if strain_est is not None:
+                                strain_for_hot = strain_est(q, G_matrix_corrected[:, j], v[j])
+                            else:
+                                strain_for_hot = np.full(len(q), fixed_strain)
+                            g_calc_hot.set_nonlinear_correction(
+                                self.f_interpolator, self.g_interpolator,
+                                strain_for_hot, q
+                            )
+
+                        results_hot_j = g_calc_hot.calculate_G_with_details(q, q_min=q_min)
+                        G_hot_j = results_hot_j['G']
+                        P_hot_j = results_hot_j['contact_area_ratio']
+                        A_A0_hot_arr[j] = P_hot_j[-1]
+
+                        # Step 7: Create FrictionCalculator at T_hot with WLF-shifted material
+                        friction_hot = FrictionCalculator(
+                            psd_func=self.psd_model,
+                            loss_modulus_func=loss_func_hot,
+                            sigma_0=sigma_0,
+                            velocity=v[j],
+                            temperature=T_hot_j,
+                            poisson_ratio=poisson,
+                            gamma=gamma,
+                            n_angle_points=n_phi,
+                            g_interpolator=g_interp,
+                            strain_estimate=fixed_strain,
+                            p_exponent=p_exponent
+                        )
+
+                        # Calculate strain for hot pass
+                        strain_arr_hot = None
                         if strain_est is not None:
-                            strain_for_hot = strain_est(q, G_matrix_corrected[:, j], v[j])
-                        else:
-                            strain_for_hot = np.full(len(q), fixed_strain)
-                        g_calc_hot.set_nonlinear_correction(
-                            self.f_interpolator, self.g_interpolator,
-                            strain_for_hot, q
+                            strain_arr_hot = strain_est(q, G_hot_j, v[j])
+
+                        mu_hot_val, _ = friction_hot.calculate_mu_visc(
+                            q, G_hot_j, C_q, strain_array=strain_arr_hot
                         )
+                        mu_hot_array_raw[j] = mu_hot_val
 
-                    results_hot_j = g_calc_hot.calculate_G_with_details(q, q_min=q_min)
-                    G_hot_j = results_hot_j['G']
-                    P_hot_j = results_hot_j['contact_area_ratio']
-                    A_A0_hot_arr[j] = P_hot_j[-1]
+                        # Progress
+                        if j % max(1, n_v // 10) == 0:
+                            self.status_var.set(
+                                f"Flash: {j+1}/{n_v} (ΔT={delta_T_j:.1f}°C, T_hot={T_hot_j:.1f}°C, aT={aT_hot:.2e})"
+                            )
+                            self.root.update()
 
-                    # Create FrictionCalculator at T_hot
-                    friction_hot = FrictionCalculator(
-                        psd_func=self.psd_model,
-                        loss_modulus_func=loss_func_hot,
-                        sigma_0=sigma_0,
-                        velocity=v[j],
-                        temperature=T_hot_j,
-                        poisson_ratio=poisson,
-                        gamma=gamma,
-                        n_angle_points=n_phi,
-                        g_interpolator=g_interp,
-                        strain_estimate=fixed_strain,
-                        p_exponent=p_exponent
-                    )
-
-                    # Calculate strain for hot pass
-                    strain_arr_hot = None
-                    if strain_est is not None:
-                        strain_arr_hot = strain_est(q, G_hot_j, v[j])
-
-                    mu_hot_val, _ = friction_hot.calculate_mu_visc(
-                        q, G_hot_j, C_q, strain_array=strain_arr_hot
-                    )
-                    mu_hot_array_raw[j] = mu_hot_val
-
-                    # Progress
-                    if j % max(1, n_v // 10) == 0:
-                        self.status_var.set(
-                            f"Flash: {j+1}/{n_v} (ΔT={delta_T_j:.1f}°C, T_hot={T_hot_j:.1f}°C)"
-                        )
-                        self.root.update()
-
-                self.status_var.set("Flash Temperature 계산 완료")
-                self.root.update()
+                    self.status_var.set("Flash Temperature 계산 완료")
+                    self.root.update()
 
             # Apply smoothing if enabled
             smooth_mu = self.smooth_mu_var.get()
@@ -10467,6 +10751,22 @@ class PerssonModelGUI_V2:
             # Update plots (pass flash data)
             self._update_mu_visc_plots(v, mu_array, details, use_nonlinear=use_fg,
                                        mu_hot=mu_hot_array, A_A0_hot=A_A0_hot_arr)
+
+            # Update Flash Temperature tab plots and auto-save
+            if use_flash and flash_results is not None and mu_hot_array is not None:
+                try:
+                    self._update_flash_temp_plots(
+                        v, mu_array, mu_hot_array,
+                        A_A0_cold_arr, A_A0_hot_arr, flash_results
+                    )
+                except Exception as e:
+                    print(f"Flash temp plot update error: {e}")
+
+                # Auto-save flash results to reference editor
+                try:
+                    self._auto_save_flash_to_reference(v, mu_hot_array, A_A0_hot_arr)
+                except Exception as e:
+                    print(f"Flash auto-save error: {e}")
 
             # Also refresh Tab 2's G(q) plot to show updated values
             try:
