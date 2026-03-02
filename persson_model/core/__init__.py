@@ -4,6 +4,7 @@ from .g_calculator import GCalculator
 from .psd_models import PSDModel, FractalPSD, MeasuredPSD
 from .viscoelastic import ViscoelasticMaterial
 from .contact import ContactMechanics
+from .flash_temperature import FlashTemperatureCalculator
 
 __all__ = [
     "GCalculator",
@@ -12,4 +13,5 @@ __all__ = [
     "MeasuredPSD",
     "ViscoelasticMaterial",
     "ContactMechanics",
+    "FlashTemperatureCalculator",
 ]
