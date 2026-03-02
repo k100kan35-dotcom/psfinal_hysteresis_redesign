@@ -7963,7 +7963,8 @@ class PerssonModelGUI_V2:
             r"$\Delta T = \frac{\dot{q} \cdot d}{8\kappa \sqrt{1 + \frac{\pi}{2} J_d}}$",
             fig_height=1.3)
 
-        add_text('  q̇ = dμ × σ₀ × v : 접촉면에서 발생하는 열유속(heat flux) [W/m²]', font_size=17, fg='#64748B')
+        add_text('  q̇ = dμ × σ₀ × v / P(q) : 실접촉면에 집중된 열유속(heat flux) [W/m²]', font_size=17, fg='#64748B')
+        add_text('  P(q) = A(q)/A₀ : 파수 q까지의 접촉 면적 비율 (A/A₀ 보정)', font_size=17, fg='#DC2626')
         add_text('  이 공식은 저속(Jd→0)과 고속(Jd→∞) 극한을 부드럽게 보간합니다:', font_size=17, fg='#64748B')
         add_text('  → 저속 극한: ΔT ≈ q̇·d/(8κ)  (정상 열전도)', font_size=17, fg='#059669')
         add_text('  → 고속 극한: ΔT ≈ q̇·d/(8κ·√(πJd/2)) ∝ 1/√v  (이동 열원)', font_size=17, fg='#059669')
@@ -8032,9 +8033,18 @@ class PerssonModelGUI_V2:
         add_text('  여기서 f(q) = q³ C(q) P(q) S(q) × (각도 적분) 은 마찰 피적분함수', font_size=17, fg='#64748B')
 
         add_equation(
-            r"$\delta T(q_i) = \frac{d\mu_i \cdot \sigma_0 \cdot v \cdot d(q_i)}"
+            r"$\dot{q}(q_i) = \frac{d\mu_i \cdot \sigma_0 \cdot v}{P(q_i)}"
+            r"\qquad \leftarrow \text{A/A}_0\text{ 보정: 실접촉 면적에 열 집중}$",
+            fig_height=1.0)
+
+        add_equation(
+            r"$\delta T(q_i) = \frac{\dot{q}(q_i) \cdot d(q_i)}"
             r"{8\kappa\,\sqrt{1 + \frac{\pi}{2}\,\frac{v \cdot d(q_i)}{D_{th}}}}$",
             fig_height=1.3)
+
+        add_text('  A/A₀ 보정: P(q) = A(q)/A₀ 는 파수 q까지의 접촉 면적 비율', font_size=17, fg='#DC2626', bold=True)
+        add_text('  → 열유속 q̇ = dμ·σ₀·v / P(q) : 접촉 패치에 열이 집중됨', font_size=17, fg='#DC2626', bold=True)
+        add_text('  → P(q)가 작을수록 (접촉 면적 ↓) 열유속 ↑ → ΔT ↑', font_size=17, fg='#DC2626')
 
         add_equation(
             r"$\Delta T(q_i) = \sum_{k=1}^{i} \delta T(q_k) \qquad"
@@ -8045,7 +8055,7 @@ class PerssonModelGUI_V2:
         add_text('  \u2460 q₀에서 시작: ΔT₀ = 0,  T₀ = T_base', font_size=17, fg='#059669')
         add_text('  \u2461 각 q_i에서: T(q_i) = T_base + ΔT(q_{i-1})  →  a_T(T) 계산', font_size=17, fg='#059669')
         add_text('  \u2462 WLF 시프트된 E\'\'(ω × a_T) 조회 → 각도 적분 수행', font_size=17, fg='#059669')
-        add_text('  \u2463 dμ_i 계산 (사다리꼴 적분)  →  δT(q_i) 계산 (Greenwood)', font_size=17, fg='#059669')
+        add_text('  \u2463 dμ_i 계산 (사다리꼴 적분)  →  q̇ = dμ·σ₀·v / P(q) (A/A₀ 보정)  →  δT(q_i) 계산 (Greenwood)', font_size=17, fg='#059669')
         add_text('  \u2464 ΔT(q_i) = ΔT(q_{i-1}) + δT(q_i)  →  누적', font_size=17, fg='#059669')
         add_text('  \u2465 q₁까지 반복  →  ΔT_total = ΔT(q₁),  μ_hot = Σ dμ_i', font_size=17, fg='#059669')
 
@@ -8068,7 +8078,8 @@ class PerssonModelGUI_V2:
                     integrand = q[i]**2.5 * np.exp(-((np.log10(q[i]) - 5)**2) / 4)
                     dmu = integrand * dq * 1e-20
                     d_local = 2 * np.pi / q[i]
-                    q_dot = dmu * 1e6 * v_val
+                    P_q = np.exp(-((np.log10(q[i]) - 4)**2) / 6) * 0.3 + 0.01
+                    q_dot = dmu * 1e6 * v_val / P_q
                     Jd = v_val * d_local / 1e-7
                     dT = (q_dot * d_local / (8 * 0.3) / np.sqrt(1 + np.pi / 2 * Jd)
                            if q_dot > 0 else 0)
@@ -8121,6 +8132,7 @@ class PerssonModelGUI_V2:
         add_text('\n  Negative Feedback Loop (고속 영역):', font_size=17, bold=True, fg='#1E293B')
         add_text('  v\u2191 → q̇\u2191 → ΔT\u2191 → a_T\u2193 → E\'\'\u2193 → μ\u2193 → q̇\u2193 → ΔT\u2193', font_size=17, fg='#DC2626', bold=True)
         add_text('  → 이 피드백은 per-q 순차 처리에서 자연스럽게 구현됨 (외부 반복 불필요)', font_size=17, fg='#64748B')
+        add_text('  → A/A₀ 보정(q̇ /= P(q))으로 접촉 패치의 실제 열유속을 정확히 반영', font_size=17, fg='#DC2626')
 
         # Bottom padding for scroll
         tk.Frame(scrollable_frame, bg='white', height=80).pack(fill=tk.X)
@@ -8761,13 +8773,52 @@ class PerssonModelGUI_V2:
         self.flash_Cv_var.trace_add('write', _update_Dth_display)
         self.flash_kappa_var.trace_add('write', _update_Dth_display)
 
+        # ===== 2-B. 핫스팟 자동 탐색 파라미터 (IN.mathematical) =====
+        hotspot_frame = self._create_section(left_panel, "2-B) 핫스팟 자동 탐색")
+
+        self.flash_auto_hotspot_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(hotspot_frame, text="d_macro 자동 탐색 (vselect 기준)",
+                        variable=self.flash_auto_hotspot_var).pack(anchor=tk.W)
+        ttk.Label(hotspot_frame,
+                  text="활성화 시 P(q) 프로파일에서 핫스팟 반경을\n자동으로 결정합니다 (수동 d 무시).",
+                  font=self.FONTS['small'], foreground='#64748B').pack(anchor=tk.W, pady=2)
+
+        hs_row1 = ttk.Frame(hotspot_frame)
+        hs_row1.pack(fill=tk.X, pady=1)
+        ttk.Label(hs_row1, text="vselect:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.flash_vselect_var = tk.StringVar(value="1.0")
+        ttk.Entry(hs_row1, textvariable=self.flash_vselect_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(hs_row1, text="m/s (기준 속도)", font=self.FONTS['small']).pack(side=tk.LEFT)
+
+        hs_row2 = ttk.Frame(hotspot_frame)
+        hs_row2.pack(fill=tk.X, pady=1)
+        ttk.Label(hs_row2, text="Amax:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.flash_Amax_var = tk.StringVar(value="0.6")
+        ttk.Entry(hs_row2, textvariable=self.flash_Amax_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(hs_row2, text="  Amin:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.flash_Amin_var = tk.StringVar(value="0.03")
+        ttk.Entry(hs_row2, textvariable=self.flash_Amin_var, width=6).pack(side=tk.LEFT, padx=2)
+
+        hs_row3 = ttk.Frame(hotspot_frame)
+        hs_row3.pack(fill=tk.X, pady=1)
+        ttk.Label(hs_row3, text="heatfrac:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.flash_heatfrac_var = tk.StringVar(value="0.04")
+        ttk.Entry(hs_row3, textvariable=self.flash_heatfrac_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(hs_row3, text="(μ(q)/μ(q₁) 임계비)", font=self.FONTS['small']).pack(side=tk.LEFT)
+
+        ttk.Separator(hotspot_frame, orient='horizontal').pack(fill=tk.X, pady=3)
+        self.flash_auto_dmacro_var = tk.StringVar(value="d_macro(자동) = 계산 전")
+        ttk.Label(hotspot_frame, textvariable=self.flash_auto_dmacro_var,
+                  font=self.FONTS['body_bold'], foreground='#DC2626').pack(anchor=tk.W)
+
         # ===== 3. Greenwood Formula =====
         formula_frame = self._create_section(left_panel, "3) Greenwood 보간 공식")
 
         ttk.Label(formula_frame,
                   text="[Per-q Greenwood 누적 공식]\n"
                        "d(q) = 2π/q, Jd(q) = v×d(q)/D_th\n"
-                       "δT(q) = (dμ×σ₀×v × d(q)) / (8κ√(1+πJd/2))\n"
+                       "q̇(q) = dμ×σ₀×v / P(q)  ← A/A0 보정!\n"
+                       "δT(q) = q̇(q)×d(q) / (8κ√(1+πJd/2))\n"
                        "ΔT(q) = Σ δT(q_i)  (q₀→q 누적)",
                   font=self.FONTS['mono_small'], foreground='#374151').pack(anchor=tk.W, pady=2)
 
@@ -9025,6 +9076,17 @@ class PerssonModelGUI_V2:
                     f"  파수 범위: {q_array[0]:.2e} ~ {q_array[-1]:.2e} 1/m ({len(q_array)} pts)\n")
                 self.flash_result_text.insert(tk.END,
                     f"  d 범위: {2*np.pi/q_array[-1]*1e6:.1f} ~ {2*np.pi/q_array[0]*1e6:.1f} μm\n")
+                self.flash_result_text.insert(tk.END, "  열유속 보정: q̇ = dμ·σ₀·v / P(q)  (A/A0 집중)\n")
+
+            # Auto-hotspot detection info
+            d_auto = flash_results.get('d_macro_auto')
+            q_auto = flash_results.get('q_macro_auto')
+            if d_auto is not None and q_auto is not None:
+                self.flash_result_text.insert(tk.END, f"\n[핫스팟 자동 탐색]\n")
+                self.flash_result_text.insert(tk.END,
+                    f"  d_macro(자동) = {d_auto*1e3:.3f} mm\n")
+                self.flash_result_text.insert(tk.END,
+                    f"  q_macro = {q_auto:.2e} 1/m\n")
 
             self.flash_result_text.insert(tk.END,
                 f"\n{'v (m/s)':>10} {'ΔT_cold':>8} {'ΔT_hot':>8} {'T_hot':>8} "
@@ -11100,16 +11162,69 @@ class PerssonModelGUI_V2:
                         P_cold_j = details['details'][j]['P']
                         A_A0_cold_arr[j] = P_cold_j[-1]
 
-                    # ===== Per-Wavenumber Flash Temperature Accumulation =====
-                    # Instead of single lumped ΔT with d_macro, we accumulate ΔT(q)
-                    # sequentially from q₀ to q₁, using d(q)=2π/q at each scale.
+                    # ===== Phase 1: 핫스팟 자동 탐색 (find_macro_asperity_radius) =====
+                    auto_hotspot = self.flash_auto_hotspot_var.get()
+                    d_macro_auto = None
+                    q_macro_auto = None
+
+                    if auto_hotspot:
+                        try:
+                            vselect = float(self.flash_vselect_var.get())
+                            Amax_hs = float(self.flash_Amax_var.get())
+                            Amin_hs = float(self.flash_Amin_var.get())
+                            heatfrac_hs = float(self.flash_heatfrac_var.get())
+
+                            # Find velocity index closest to vselect
+                            v_sel_idx = int(np.argmin(np.abs(np.log10(v) - np.log10(max(vselect, 1e-10)))))
+                            P_sel = details['details'][v_sel_idx]['P']
+                            integrand_sel = details['details'][v_sel_idx]['integrand']
+                            mu_total_sel = details['details'][v_sel_idx].get('mu_visc', mu_array_raw[v_sel_idx])
+
+                            # Scan P(q) from low q to high q:
+                            # Find q where P(q) drops into [Amin, Amax] range
+                            for i_hs in range(len(q)):
+                                P_qi = P_sel[i_hs]
+                                if Amin_hs <= P_qi <= Amax_hs:
+                                    # Optional: check heatfrac condition
+                                    # mu_cumulative up to i_hs vs total mu
+                                    if heatfrac_hs > 0 and mu_total_sel > 0:
+                                        # Cumulative mu up to this q
+                                        cum_mu = details['details'][v_sel_idx].get('cumulative_mu')
+                                        if cum_mu is not None and i_hs < len(cum_mu):
+                                            mu_ratio = cum_mu[i_hs] / max(mu_total_sel, 1e-10)
+                                            if mu_ratio >= heatfrac_hs:
+                                                q_macro_auto = q[i_hs]
+                                                break
+                                    else:
+                                        q_macro_auto = q[i_hs]
+                                        break
+
+                            if q_macro_auto is None:
+                                q_macro_auto = q[0]  # Failsafe: use largest scale
+                                print(f"[Hotspot] Failsafe: q_macro={q_macro_auto:.2e} (no q found in Amin~Amax)")
+
+                            d_macro_auto = np.pi / q_macro_auto
+                            flash_calc.d_macro = d_macro_auto
+
+                            self.flash_auto_dmacro_var.set(
+                                f"d_macro(자동) = {d_macro_auto*1e3:.3f} mm  "
+                                f"(q={q_macro_auto:.2e}, P={P_sel[np.searchsorted(q, q_macro_auto)]:.3f})")
+                            print(f"[Hotspot] vselect={vselect} m/s (idx={v_sel_idx}), "
+                                  f"q_macro={q_macro_auto:.2e} → d_macro={d_macro_auto*1e3:.3f} mm")
+
+                        except Exception as e_hs:
+                            print(f"[Hotspot] 자동 탐색 실패: {e_hs}")
+                            self.flash_auto_dmacro_var.set(f"d_macro(자동) = 탐색 실패")
+
+                    # ===== Phase 2: Per-Wavenumber Flash Temperature Accumulation =====
+                    # q₀→q₁ sequential: d(q)=2π/q, q̇=dμ·σ₀·v/P(q)
                     #
                     # At each q_i:
                     #   1. T(q_i) = T_base + ΔT_accumulated(q_{i-1})
                     #   2. WLF shift E'' to T(q_i) → material softens progressively
                     #   3. Compute angle integral → friction contribution dμ_i
-                    #   4. d_i = 2π/q_i
-                    #   5. δT_i = Greenwood(dμ_i × σ₀ × v, d_i, v)
+                    #   4. d_i = 2π/q_i, q̇_i = dμ_i·σ₀·v / P(q_i)  ← A/A0 보정
+                    #   5. δT_i = Greenwood(q̇_i, d_i, v)
                     #   6. ΔT_accumulated += δT_i
                     #
                     # Result: Higher q (finer scale) sees hotter material → more softening
@@ -11164,18 +11279,30 @@ class PerssonModelGUI_V2:
                     for j in range(n_v):
                         detail_j = details['details'][j]
                         integrand_cold_j = detail_j['integrand']
+                        P_cold_for_heat = detail_j['P']
                         delta_T_cold_accum = 0.0
                         for i in range(1, n_q):
                             dq = q[i] - q[i - 1]
                             dmu_cold = 0.5 * 0.5 * (integrand_cold_j[i - 1] + integrand_cold_j[i]) * dq
                             d_local = 2.0 * np.pi / q[i]
-                            q_dot_local = dmu_cold * sigma_0 * v[j]
+                            # A/A0 보정: 실접촉 면적에 열유속 집중
+                            P_qi = max(P_cold_for_heat[i], 1e-6)
+                            q_dot_local = dmu_cold * sigma_0 * v[j] / P_qi
                             if q_dot_local > 0:
                                 delta_T_cold_accum += flash_calc.delta_T_at_scale(q_dot_local, d_local, v[j])
                         flash_delta_T_cold[j] = delta_T_cold_accum
 
                     # --- Hot per-q ΔT (with progressive WLF feedback) ---
                     for j in range(n_v):
+                        # 저속 무시: Peclet 수 부족으로 발열 무시 (v < 0.0001 m/s)
+                        if v[j] < 1e-4:
+                            mu_hot_array_raw[j] = mu_array_raw[j]
+                            flash_delta_T[j] = 0.0
+                            flash_T_hot[j] = temperature
+                            flash_q_dot[j] = 0.0
+                            flash_Jd[j] = 0.0
+                            continue
+
                         detail_j = details['details'][j]
                         P_cold_j = detail_j['P']
                         S_cold_j = detail_j['S']
@@ -11234,7 +11361,9 @@ class PerssonModelGUI_V2:
 
                             # Flash ΔT at this scale: d = 2π/q
                             d_local = 2.0 * np.pi / q[i]
-                            q_dot_local = dmu_i * sigma_0 * v[j]
+                            # A/A0 보정: 열유속을 실접촉 면적에 집중 (q̇ = dμ·σ₀·v / P(q))
+                            P_qi = max(P_cold_j[i], 1e-6)
+                            q_dot_local = dmu_i * sigma_0 * v[j] / P_qi
                             if q_dot_local > 0:
                                 delta_T_accum += flash_calc.delta_T_at_scale(q_dot_local, d_local, v[j])
 
@@ -11311,6 +11440,8 @@ class PerssonModelGUI_V2:
                         'q_dot': flash_q_dot,
                         'Jd': flash_Jd,
                         'T_base': temperature,
+                        'd_macro_auto': d_macro_auto,         # Auto-detected hotspot radius
+                        'q_macro_auto': q_macro_auto,         # Auto-detected hotspot wavenumber
                         'v': v,
                         'iterations': flash_iterations
                     }
