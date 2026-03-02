@@ -10648,6 +10648,24 @@ class PerssonModelGUI_V2:
                     print(f"\n[Flash Iteration] T_base={temperature}°C, log_aT_base={log_aT_base:.3f}, aT_base={aT_base:.4e}")
                     print(f"[Flash Iteration] omega_ref range: {omega_ref.min():.2e} ~ {omega_ref.max():.2e} rad/s")
 
+                    # Direct E'' comparison diagnostic at test frequency
+                    test_omega = 1e4  # rad/s (typical glass transition frequency)
+                    E_loss_cold_test = float(self.material.get_loss_modulus(test_omega))
+                    # Create a test hot material at T_base + 30°C
+                    test_T_hot = temperature + 30.0
+                    test_log_aT = float(self.persson_aT_interp(test_T_hot))
+                    test_aT = 10**test_log_aT
+                    test_omega_shifted = omega_ref / test_aT
+                    test_mat = create_material_from_dma(
+                        omega=test_omega_shifted, E_storage=E_storage_ref.copy(),
+                        E_loss=E_loss_ref.copy(), reference_temp=test_T_hot)
+                    E_loss_hot_test = float(test_mat.get_loss_modulus(test_omega))
+                    print(f"[Flash Diag] E''(ω={test_omega:.0e}) at T_base={temperature}°C: {E_loss_cold_test:.4e} Pa")
+                    print(f"[Flash Diag] E''(ω={test_omega:.0e}) at T_hot={test_T_hot}°C:  {E_loss_hot_test:.4e} Pa")
+                    print(f"[Flash Diag] Ratio E''_hot/E''_cold = {E_loss_hot_test/max(E_loss_cold_test,1):.4f}")
+                    print(f"[Flash Diag] log_aT(T_hot={test_T_hot}°C) = {test_log_aT:.3f}, aT = {test_aT:.4e}")
+                    del test_mat
+
                     for j in range(n_v):
                         # Initial ΔT from cold pass (μ_cold)
                         Jd_j = flash_calc.peclet_number(v[j])
