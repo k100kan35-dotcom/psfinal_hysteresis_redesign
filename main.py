@@ -8650,12 +8650,19 @@ class PerssonModelGUI_V2:
     def _update_flash_temp_plots(self, v, mu_cold, mu_hot, A_A0_cold, A_A0_hot, flash_results):
         """Update Flash Temperature tab plots after calculation."""
         try:
-            # Top-left: ΔT vs velocity
+            # Top-left: ΔT vs velocity (show both cold initial and converged)
             self.ax_flash_dT.clear()
-            self.ax_flash_dT.semilogx(v, flash_results['delta_T'], 'r-', linewidth=2.5, marker='o', markersize=4)
+            # Show initial (cold) ΔT as dashed for comparison
+            delta_T_cold = flash_results.get('delta_T_cold')
+            if delta_T_cold is not None and np.any(delta_T_cold > 0):
+                self.ax_flash_dT.semilogx(v, delta_T_cold, 'b--', linewidth=1.5, alpha=0.6,
+                                           label='ΔT (μ_cold, 반복 전)')
+            self.ax_flash_dT.semilogx(v, flash_results['delta_T'], 'r-', linewidth=2.5, marker='o', markersize=4,
+                                       label='ΔT (수렴, 반복 후)')
             self.ax_flash_dT.set_title('ΔT(v) - Flash 온도 상승', fontweight='bold', fontsize=11)
             self.ax_flash_dT.set_xlabel('속도 v (m/s)', fontsize=11)
             self.ax_flash_dT.set_ylabel('ΔT (°C)', fontsize=11)
+            self.ax_flash_dT.legend(fontsize=8)
             self.ax_flash_dT.grid(True, alpha=0.3)
 
             # Top-right: T_hot vs velocity
@@ -8700,12 +8707,30 @@ class PerssonModelGUI_V2:
 
             # Update flash result text
             self.flash_result_text.delete(1.0, tk.END)
-            self.flash_result_text.insert(tk.END, "=" * 40 + "\n")
-            self.flash_result_text.insert(tk.END, "Flash Temperature 결과\n")
-            self.flash_result_text.insert(tk.END, "=" * 40 + "\n")
+            self.flash_result_text.insert(tk.END, "=" * 50 + "\n")
+            self.flash_result_text.insert(tk.END, "Flash Temperature 결과 (Self-Consistent)\n")
+            self.flash_result_text.insert(tk.END, "=" * 50 + "\n")
             self.flash_result_text.insert(tk.END, f"T_base = {T_base:.1f} °C\n")
-            self.flash_result_text.insert(tk.END, f"ΔT 범위: {np.min(flash_results['delta_T']):.1f} ~ {np.max(flash_results['delta_T']):.1f} °C\n")
-            self.flash_result_text.insert(tk.END, f"T_hot 범위: {np.min(flash_results['T_hot']):.1f} ~ {np.max(flash_results['T_hot']):.1f} °C\n")
+            self.flash_result_text.insert(tk.END, f"ΔT 범위 (수렴): {np.min(flash_results['delta_T']):.1f} ~ {np.max(flash_results['delta_T']):.1f} °C\n")
+
+            # Show initial vs converged ΔT comparison
+            delta_T_cold = flash_results.get('delta_T_cold')
+            if delta_T_cold is not None:
+                self.flash_result_text.insert(tk.END, f"ΔT 범위 (μ_cold): {np.min(delta_T_cold):.1f} ~ {np.max(delta_T_cold):.1f} °C\n")
+                if np.max(delta_T_cold) > 0.1:
+                    reduction_dT = (1 - np.max(flash_results['delta_T']) / np.max(delta_T_cold)) * 100
+                    self.flash_result_text.insert(tk.END, f"ΔT 감소율 (반복 효과): {reduction_dT:+.1f}%\n")
+
+            # Iteration statistics
+            iterations = flash_results.get('iterations', np.zeros(len(v)))
+            active_iters = iterations[iterations > 0]
+            if len(active_iters) > 0:
+                self.flash_result_text.insert(tk.END, f"\n[반복 수렴 통계]\n")
+                self.flash_result_text.insert(tk.END, f"  평균 반복: {np.mean(active_iters):.1f}회\n")
+                self.flash_result_text.insert(tk.END, f"  최대 반복: {int(np.max(active_iters))}회\n")
+                self.flash_result_text.insert(tk.END, f"  반복 실행 포인트: {len(active_iters)}/{len(v)}\n")
+
+            self.flash_result_text.insert(tk.END, f"\nT_hot 범위: {np.min(flash_results['T_hot']):.1f} ~ {np.max(flash_results['T_hot']):.1f} °C\n")
             self.flash_result_text.insert(tk.END, f"Jd 범위: {np.min(flash_results['Jd']):.2e} ~ {np.max(flash_results['Jd']):.2e}\n")
             self.flash_result_text.insert(tk.END, f"q_dot 범위: {np.min(flash_results['q_dot']):.2e} ~ {np.max(flash_results['q_dot']):.2e} W/m²\n\n")
 
@@ -8713,15 +8738,17 @@ class PerssonModelGUI_V2:
             self.flash_result_text.insert(tk.END, f"μ_hot:  {np.min(mu_hot):.4f} ~ {np.max(mu_hot):.4f}\n")
             if np.max(mu_cold) > 0:
                 reduction = (1 - np.max(mu_hot) / np.max(mu_cold)) * 100
-                self.flash_result_text.insert(tk.END, f"Flash 감소율 (peak): {reduction:+.1f}%\n")
+                self.flash_result_text.insert(tk.END, f"Flash μ 감소율 (peak): {reduction:+.1f}%\n")
 
-            self.flash_result_text.insert(tk.END, f"\n{'v (m/s)':>10} {'ΔT':>8} {'T_hot':>8} {'μ_cold':>8} {'μ_hot':>8}\n")
-            self.flash_result_text.insert(tk.END, "-" * 50 + "\n")
+            self.flash_result_text.insert(tk.END, f"\n{'v (m/s)':>10} {'ΔT_cold':>8} {'ΔT_conv':>8} {'T_hot':>8} {'μ_cold':>8} {'μ_hot':>8} {'iter':>5}\n")
+            self.flash_result_text.insert(tk.END, "-" * 65 + "\n")
             step = max(1, len(v) // 15)
             for i in range(0, len(v), step):
+                dT_cold_i = delta_T_cold[i] if delta_T_cold is not None else 0.0
+                iter_i = int(iterations[i]) if i < len(iterations) else 0
                 self.flash_result_text.insert(tk.END,
-                    f"{v[i]:10.4f} {flash_results['delta_T'][i]:8.1f} "
-                    f"{flash_results['T_hot'][i]:8.1f} {mu_cold[i]:8.4f} {mu_hot[i]:8.4f}\n")
+                    f"{v[i]:10.4f} {dT_cold_i:8.1f} {flash_results['delta_T'][i]:8.1f} "
+                    f"{flash_results['T_hot'][i]:8.1f} {mu_cold[i]:8.4f} {mu_hot[i]:8.4f} {iter_i:5d}\n")
 
         except Exception as e:
             print(f"[DEBUG] Flash temp plot error: {e}")
@@ -10600,6 +10627,7 @@ class PerssonModelGUI_V2:
 
                     # Store final converged flash results
                     flash_delta_T = np.zeros(n_v)
+                    flash_delta_T_cold = np.zeros(n_v)  # Initial ΔT from μ_cold (no iteration)
                     flash_T_hot = np.zeros(n_v)
                     flash_q_dot = np.zeros(n_v)
                     flash_Jd = np.zeros(n_v)
@@ -10614,11 +10642,19 @@ class PerssonModelGUI_V2:
                     E_storage_ref = mc_data['E_storage'].copy()
                     E_loss_ref = mc_data['E_loss'].copy()
 
+                    # Also store aT at T_base for diagnostics
+                    log_aT_base = float(self.persson_aT_interp(temperature))
+                    aT_base = 10**log_aT_base
+                    print(f"\n[Flash Iteration] T_base={temperature}°C, log_aT_base={log_aT_base:.3f}, aT_base={aT_base:.4e}")
+                    print(f"[Flash Iteration] omega_ref range: {omega_ref.min():.2e} ~ {omega_ref.max():.2e} rad/s")
+
                     for j in range(n_v):
                         # Initial ΔT from cold pass (μ_cold)
                         Jd_j = flash_calc.peclet_number(v[j])
                         q_dot_cold = flash_calc.heat_flux(A_A0_cold_arr[j], mu_array_raw[j], sigma_0, v[j])
                         delta_T_j = flash_calc.delta_T(q_dot_cold, Jd_j)
+                        delta_T_cold_j = delta_T_j  # Store initial estimate
+                        flash_delta_T_cold[j] = delta_T_cold_j
 
                         if delta_T_j < 0.1:  # Negligible temperature rise
                             mu_hot_array_raw[j] = mu_array_raw[j]
@@ -10727,6 +10763,13 @@ class PerssonModelGUI_V2:
                         flash_q_dot[j] = flash_calc.heat_flux(A_A0_hot_j, mu_hot_j, sigma_0, v[j])
                         flash_Jd[j] = Jd_j
 
+                        # Diagnostic output for key velocities
+                        if j % max(1, n_v // 5) == 0 or j == n_v - 1:
+                            print(f"  v={v[j]:.4f} m/s: ΔT_cold={delta_T_cold_j:.2f} → ΔT_conv={delta_T_j:.2f}°C "
+                                  f"(iter={flash_iterations[j]}), μ_cold={mu_array_raw[j]:.4f} → μ_hot={mu_hot_j:.4f} "
+                                  f"(ratio={mu_hot_j/max(mu_array_raw[j],1e-10):.3f}), "
+                                  f"log_aT(T_hot={temperature+delta_T_j:.1f})={float(self.persson_aT_interp(temperature+delta_T_j)):.3f}")
+
                         # Progress
                         if j % max(1, n_v // 10) == 0:
                             self.status_var.set(
@@ -10735,9 +10778,10 @@ class PerssonModelGUI_V2:
                             )
                             self.root.update()
 
-                    # Build flash_results dict (same format as before)
+                    # Build flash_results dict
                     flash_results = {
                         'delta_T': flash_delta_T,
+                        'delta_T_cold': flash_delta_T_cold,  # Initial estimate (from μ_cold)
                         'T_hot': flash_T_hot,
                         'q_dot': flash_q_dot,
                         'Jd': flash_Jd,
