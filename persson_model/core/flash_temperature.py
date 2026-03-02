@@ -14,7 +14,7 @@ Algorithm (Two-Pass):
 Key Formulas:
     1. Heat Flux:     q_dot = mu × sigma_0 × v / P(q_m)  (macro-asperity area correction)
     2. Peclet Number: Jd = v × d_macro / D_th
-    3. Greenwood 91:  ΔT = (q_dot × d) / (2κ × sqrt(1 + (π/16) × Jd))
+    3. Persson 2006:  ΔT = (q_dot × d) / (8κ × sqrt(1 + (π/2) × Jd))  [circular contact]
     4. Hot Temp:      T_hot = T_base + ΔT
 
 References:
@@ -147,19 +147,21 @@ class FlashTemperatureCalculator:
 
     def delta_T(self, q_dot: float, Jd: float) -> float:
         """
-        Calculate flash temperature rise using Greenwood interpolation formula.
+        Calculate flash temperature rise using Persson (2006) circular contact formula.
 
-        ΔT = (q̇·d) / (2κ) × 1 / √(1 + (π/16)·Jd + Jh²/4)
+        ΔT = (q̇·d) / (8κ) × 1 / √(1 + (π/2)·Jd)
 
         where Jd = v·d/D_th is the Peclet number.
-        Jh term is set to 0 (negligible heat penetration effect).
 
-        This formula interpolates between:
-        - Low speed (Jd→0): ΔT ≈ q̇·d / (2κ)  (steady-state conduction)
+        This formula is for 3D circular contact patches (appropriate for
+        rubber friction on rough surfaces). Interpolates between:
+        - Low speed (Jd→0): ΔT ≈ q̇·d / (8κ)  (steady-state, circular source)
         - High speed (Jd>>1): ΔT ∝ 1/√v  (moving heat source)
 
-        Reference: Greenwood (1991) "An interpolation formula for flash
-        temperatures", Wear 150, 153-158.
+        Note: Greenwood (1991) band formula (2κ, π/16) gives ~11x larger ΔT
+        and is NOT appropriate for 3D circular contact patches.
+
+        Reference: Persson, B.N.J. (2006) J. Chem. Phys. 124, 054703
 
         Parameters
         ----------
@@ -177,10 +179,9 @@ class FlashTemperatureCalculator:
             return 0.0
         if not np.isfinite(Jd) or Jd < 0:
             Jd = 0.0
-        # Greenwood interpolation: ΔT = (q̇·d)/(2κ) / √(1 + (π/16)Jd)
-        # Jh² term omitted (Jh ≈ 0 for typical rubber friction conditions)
-        return (q_dot * self.d_macro) / (2.0 * self.kappa_th) / np.sqrt(
-            1.0 + (np.pi / 16.0) * Jd
+        # Persson 2006 circular contact: ΔT = (q̇·d)/(8κ) / √(1 + (π/2)Jd)
+        return (q_dot * self.d_macro) / (8.0 * self.kappa_th) / np.sqrt(
+            1.0 + (np.pi / 2.0) * Jd
         )
 
     def delta_T_at_scale(self, q_dot_local: float, d_local: float, velocity: float) -> float:
@@ -216,8 +217,8 @@ class FlashTemperatureCalculator:
         Jd_local = velocity * d_local / self.D_th
         if not np.isfinite(Jd_local) or Jd_local < 0:
             Jd_local = 0.0
-        return (q_dot_local * d_local) / (2.0 * self.kappa_th) / np.sqrt(
-            1.0 + (np.pi / 16.0) * Jd_local
+        return (q_dot_local * d_local) / (8.0 * self.kappa_th) / np.sqrt(
+            1.0 + (np.pi / 2.0) * Jd_local
         )
 
     def calculate(

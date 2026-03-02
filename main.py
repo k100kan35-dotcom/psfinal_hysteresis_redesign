@@ -7956,28 +7956,28 @@ class PerssonModelGUI_V2:
 
         # 3-C: Greenwood formula
         add_separator()
-        add_text('  3-C. Greenwood 보간 공식 — 단일 스케일에서의 ΔT', font_size=19, bold=True, fg='#1E293B')
-        add_text('  Greenwood(1991)가 도출한 이동 열원의 평균 온도 상승 공식:', font_size=17, fg='#64748B')
+        add_text('  3-C. Persson (2006) Flash Temperature 공식 — 원형 접촉에서의 ΔT', font_size=19, bold=True, fg='#1E293B')
+        add_text('  Persson(2006)이 원형(3D) 접촉 패치에 대해 도출한 이동 열원 온도 상승 공식:', font_size=17, fg='#64748B')
 
         add_equation(
-            r"$\Delta T = \frac{\dot{q} \cdot d}{2\kappa \sqrt{1 + \frac{\pi}{16} J_d}}$",
+            r"$\Delta T = \frac{\dot{q} \cdot d}{8\kappa \sqrt{1 + \frac{\pi}{2} J_d}}$",
             fig_height=1.3)
 
         add_text('  q̇ = μ × σ₀ × v / P(q_m) : 매크로 접촉면에 집중된 열유속(heat flux) [W/m²]', font_size=17, fg='#64748B')
         add_text('  P(q_m) = A(q_m)/A₀ : 매크로 돌기 파수 q_m에서의 접촉 면적 비율', font_size=17, fg='#DC2626')
         add_text('  이 공식은 저속(Jd→0)과 고속(Jd→∞) 극한을 부드럽게 보간합니다:', font_size=17, fg='#64748B')
-        add_text('  → 저속 극한: ΔT ≈ q̇·d/(2κ)  (정상 열전도)', font_size=17, fg='#059669')
-        add_text('  → 고속 극한: ΔT ≈ q̇·d/(2κ·√(πJd/16)) ∝ 1/√v  (이동 열원)', font_size=17, fg='#059669')
+        add_text('  → 저속 극한: ΔT ≈ q̇·d/(8κ)  (정상 열전도, 원형 열원)', font_size=17, fg='#059669')
+        add_text('  → 고속 극한: ΔT ≈ q̇·d/(8κ·√(πJd/2)) ∝ 1/√v  (이동 열원)', font_size=17, fg='#059669')
 
         def _plot_greenwood(ax, np):
             Jd = np.logspace(-2, 5, 500)
-            dT_normalized = 1.0 / np.sqrt(1 + (np.pi / 16) * Jd)
+            dT_normalized = 1.0 / np.sqrt(1 + (np.pi / 2) * Jd)
             ax.semilogx(Jd, dT_normalized, '-', linewidth=2.5, color='#DC2626')
             ax.axhline(y=1.0, color='gray', linestyle=':', alpha=0.5)
             ax.set_xlabel(r'$J_d = v \cdot d / D_{th}$', fontsize=12)
-            ax.set_ylabel(r'$\Delta T \;/\; (\dot{q} d / 2\kappa)$', fontsize=12)
+            ax.set_ylabel(r'$\Delta T \;/\; (\dot{q} d / 8\kappa)$', fontsize=12)
             ax.grid(True, alpha=0.3)
-            ax.set_title('Greenwood 1991 보간: 정규화된 ΔT vs Peclet 수', fontsize=12, pad=10)
+            ax.set_title('Persson 2006: 정규화된 ΔT vs Peclet 수 (원형 접촉)', fontsize=12, pad=10)
             ax.annotate('정상 전도\n(Jd \u226a 1)', xy=(0.03, 0.92), fontsize=11,
                          color='#2563EB', fontweight='bold')
             ax.annotate('이동 열원\n(Jd \u226b 1)', xy=(1e3, 0.15), fontsize=11,
@@ -8021,7 +8021,7 @@ class PerssonModelGUI_V2:
         # 3-E: Per-q accumulation — the core algorithm
         add_separator()
         add_text('  3-E. WLF Self-Consistent Iteration — 핵심 알고리즘', font_size=19, bold=True, fg='#1E293B')
-        add_text('  d_macro 기반: Greenwood 1991 공식으로 ΔT 계산, WLF shift 후 μ 재계산', font_size=17, fg='#DC2626', bold=True)
+        add_text('  d_macro 기반: Persson 2006 공식(원형 접촉)으로 ΔT 계산, WLF shift 후 μ 재계산', font_size=17, fg='#DC2626', bold=True)
         add_text('  ΔT 반복 수렴: ΔT = 0.5·ΔT_old + 0.5·ΔT_new (under-relaxation α=0.5)', font_size=17, fg='#DC2626', bold=True)
         add_text('  매크로 면적 보정: q̇ = μ·σ₀·v / P(q_m) (접촉면에 열 집중)', font_size=17, fg='#DC2626', bold=True)
 
@@ -8039,7 +8039,7 @@ class PerssonModelGUI_V2:
 
         add_equation(
             r"$\delta T(q_i) = \frac{\dot{q}(q_i) \cdot d(q_i)}"
-            r"{2\kappa\,\sqrt{1 + \frac{\pi}{16}\,\frac{v \cdot d(q_i)}{D_{th}}}}$",
+            r"{8\kappa\,\sqrt{1 + \frac{\pi}{2}\,\frac{v \cdot d(q_i)}{D_{th}}}}$",
             fig_height=1.3)
 
         add_text('  A/A₀ 보정: P(q) = A(q)/A₀ 는 파수 q까지의 접촉 면적 비율', font_size=17, fg='#DC2626', bold=True)
@@ -8056,7 +8056,7 @@ class PerssonModelGUI_V2:
         add_text('  \u2461 WLF shift: a_T(T_base + ΔT) → E\'\'(ω×a_T) 조회', font_size=17, fg='#059669')
         add_text('  \u2462 전체 q 적분으로 μ_new 재계산 (shifted E\'\' 사용)', font_size=17, fg='#059669')
         add_text('  \u2463 열유속: q̇ = μ_new·σ₀·v / P(q_m) (매크로 면적 보정)', font_size=17, fg='#059669')
-        add_text('  \u2464 ΔT_new = Greenwood(q̇, d_macro, v): (q̇·d)/(2κ)/√(1+(π/16)Jd)', font_size=17, fg='#059669')
+        add_text('  \u2464 ΔT_new = Persson(q̇, d_macro, v): (q̇·d)/(8κ)/√(1+(π/2)Jd)  [원형 접촉]', font_size=17, fg='#059669')
         add_text('  \u2465 Under-relax: ΔT = 0.5·ΔT_old + 0.5·ΔT_new', font_size=17, fg='#059669')
         add_text('  \u2466 |ΔT_new - ΔT_old| < tol 수렴 확인 → 반복 또는 종료', font_size=17, fg='#059669')
 
@@ -8081,7 +8081,7 @@ class PerssonModelGUI_V2:
                     P_q = np.exp(-((np.log10(q[i]) - 4)**2) / 6) * 0.3 + 0.01
                     q_dot = dmu * 1e6 * v_val / P_q
                     Jd = v_val * d_local / 1e-7
-                    dT = (q_dot * d_local / (2 * 0.3) / np.sqrt(1 + np.pi / 16 * Jd)
+                    dT = (q_dot * d_local / (8 * 0.3) / np.sqrt(1 + np.pi / 2 * Jd)
                            if q_dot > 0 else 0)
                     dT_accum[i] = dT_accum[i - 1] + dT
                 if np.max(dT_accum) > 0:
@@ -8105,7 +8105,7 @@ class PerssonModelGUI_V2:
             fig_height=1.0)
 
         add_text('  μ_hot: Self-Consistent 수렴 후 WLF-shifted E\'\'로 계산된 마찰 계수', font_size=17, fg='#64748B')
-        add_text('  ΔT: Greenwood 1991 공식으로 계산, SC 반복 수렴된 flash 온도 상승', font_size=17, fg='#64748B')
+        add_text('  ΔT: Persson 2006 원형 접촉 공식으로 계산, SC 반복 수렴된 flash 온도 상승', font_size=17, fg='#64748B')
         add_text('  A/A0_hot: 최종 ΔT에서 G(q) 재계산 → P(q₁) = erf(1/(2√G(q₁)))', font_size=17, fg='#64748B')
         add_text('  T_hot(v) = T_base + ΔT_total(v): 각 속도에서의 접촉 온도', font_size=17, fg='#64748B')
 
@@ -8815,10 +8815,10 @@ class PerssonModelGUI_V2:
         formula_frame = self._create_section(left_panel, "3) Greenwood 보간 공식")
 
         ttk.Label(formula_frame,
-                  text="[Greenwood 1991 공식]\n"
+                  text="[Persson 2006 원형 접촉 공식]\n"
                        "Jd = v×d_macro/D_th  (Peclet 수)\n"
                        "q̇ = μ×σ₀×v / P(q_m)  ← 매크로 면적 보정\n"
-                       "ΔT = q̇×d / (2κ√(1+(π/16)Jd))\n"
+                       "ΔT = q̇×d / (8κ√(1+(π/2)Jd))\n"
                        "T_hot = T_base + ΔT",
                   font=self.FONTS['mono_small'], foreground='#374151').pack(anchor=tk.W, pady=2)
 
@@ -8829,7 +8829,7 @@ class PerssonModelGUI_V2:
                        "3. WLF shift E'' at T_base+ΔT\n"
                        "   → μ_new 재계산 (전체 q 적분)\n"
                        "   → q̇ = μ_new·σ₀·v / P(q_m)\n"
-                       "   → ΔT_new = Greenwood(q̇, d_macro)\n"
+                       "   → ΔT_new = Persson 2006(q̇, d_macro)\n"
                        "4. Under-relax: ΔT = 0.5·ΔT_old + 0.5·ΔT_new\n"
                        "5. |ΔT_new - ΔT_old| < tol 까지 반복\n"
                        "6. A/A0_hot: 최종 ΔT로 G 재계산",
@@ -9081,7 +9081,7 @@ class PerssonModelGUI_V2:
                 self.flash_result_text.insert(tk.END,
                     f"  파수 범위: {q_array[0]:.2e} ~ {q_array[-1]:.2e} 1/m ({len(q_array)} pts)\n")
                 self.flash_result_text.insert(tk.END,
-                    f"  열유속: q̇ = μ·σ₀·v / P(q_m)  (Greenwood 1991 with d_macro)\n")
+                    f"  열유속: q̇ = μ·σ₀·v / P(q_m)  (Persson 2006 circular, d_macro)\n")
 
             # Auto-hotspot detection info
             d_auto = flash_results.get('d_macro_auto')
@@ -9271,7 +9271,7 @@ class PerssonModelGUI_V2:
                         f"# 공칭하중(MPa),{load_mpa:.3f}",
                         f"# 계산온도(°C),{calc_temp:.1f}",
                         f"# T_base(°C),{T_base:.1f}",
-                        f"# Flash 방식,Self-Consistent Iteration (Greenwood d_macro)",
+                        f"# Flash 방식,Self-Consistent Iteration (Persson 2006 circular d_macro)",
                         "#"
                     ]
 
@@ -11221,14 +11221,14 @@ class PerssonModelGUI_V2:
                             print(f"[Hotspot] 자동 탐색 실패: {e_hs}")
                             self.flash_auto_dmacro_var.set(f"d_macro(자동) = 탐색 실패")
 
-                    # ===== Phase 2: Self-Consistent Iteration (Greenwood 1991 + d_macro) =====
-                    # Algorithm (spec 5-step):
+                    # ===== Phase 2: Self-Consistent Iteration (Persson 2006 + d_macro) =====
+                    # Algorithm:
                     #   For each velocity v:
                     #     1. Start with ΔT = 0
                     #     2. WLF shift ALL E''(ω) at T_base + ΔT
                     #     3. Recompute μ from full q-integral with shifted E''
                     #     4. q̇ = μ × σ₀ × v / P(q_m)  [macro-asperity area correction]
-                    #     5. ΔT_new = (q̇·d)/(2κ)/√(1+(π/16)Jd)  [Greenwood 1991]
+                    #     5. ΔT_new = (q̇·d)/(8κ)/√(1+(π/2)Jd)  [Persson 2006 circular]
                     #     6. Under-relax ΔT = 0.5·ΔT_old + 0.5·ΔT_new
                     #     7. Repeat until |ΔT_new - ΔT_old| converges
 
@@ -11294,14 +11294,14 @@ class PerssonModelGUI_V2:
                                 delta_T_cold_accum += flash_calc.delta_T_at_scale(q_dot_local, d_local, v[j])
                         flash_delta_T_cold[j] = delta_T_cold_accum
 
-                    # --- Hot Pass: Self-Consistent Iteration (Greenwood, d_macro) ---
+                    # --- Hot Pass: Self-Consistent Iteration (Persson 2006 circular, d_macro) ---
                     # Algorithm (spec 5-step):
                     #   For each velocity v:
                     #     1. Start with ΔT = 0 (cold)
                     #     2. WLF shift ALL E''(ω) at T_base + ΔT
                     #     3. Recompute μ_new from full q-integral with shifted E''
                     #     4. q̇ = μ_new × σ₀ × v / P(q_m)  [macro-asperity area correction]
-                    #     5. ΔT_new = Greenwood(q̇, d_macro, v)  [Greenwood 1991: (q̇d)/(2κ)/√(1+(π/16)Jd)]
+                    #     5. ΔT_new = Persson(q̇, d_macro, v)  [circular: (q̇d)/(8κ)/√(1+(π/2)Jd)]
                     #     6. Under-relax: ΔT = 0.5·ΔT_old + 0.5·ΔT_new
                     #     7. Repeat until |ΔT_new - ΔT_old| < tol
 
@@ -11457,11 +11457,48 @@ class PerssonModelGUI_V2:
                                 f"Flash SC iter: {j+1}/{n_v} (ΔT={delta_T_final:.1f}°C, μ_hot={mu_converged:.3f})")
                             self.root.update()
 
-                    # --- A/A0_hot: flash temperature는 표면 현상이므로 ---
-                    # 접촉 면적(A/A0)은 벌크 탄성 특성에 의존하며,
-                    # flash로 인한 얇은 표면층 가열은 접촉 역학에 영향을 주지 않음.
-                    # 따라서 A/A0_hot = A/A0_cold (flash는 μ만 변화시킴).
-                    A_A0_hot_arr = A_A0_cold_arr.copy()
+                    # --- Recalculate A/A0_hot at terminal ΔT ---
+                    self.status_var.set("A/A0_hot 재계산 중...")
+                    self.root.update()
+                    for j in range(n_v):
+                        if flash_delta_T[j] < 0.1:
+                            A_A0_hot_arr[j] = A_A0_cold_arr[j]
+                            continue
+                        T_hot_j = flash_T_hot[j]
+                        log_aT_hot = float(self.persson_aT_interp(T_hot_j))
+                        aT_hot = 10**log_aT_hot
+                        omega_shifted_hot = omega_ref / aT_hot
+                        material_hot = create_material_from_dma(
+                            omega=omega_shifted_hot,
+                            E_storage=E_storage_ref.copy(),
+                            E_loss=E_loss_ref.copy(),
+                            reference_temp=T_hot_j
+                        )
+                        modulus_func_hot = lambda w, _mat=material_hot: _mat.get_modulus(w)
+                        g_calc_hot = GCalc_Hot(
+                            psd_func=self.psd_model,
+                            modulus_func=modulus_func_hot,
+                            sigma_0=sigma_0,
+                            velocity=v[j],
+                            poisson_ratio=poisson,
+                            n_angle_points=n_phi_gq
+                        )
+                        g_calc_hot.PSD_NORMALIZATION_FACTOR = norm_factor_val
+                        if use_fg and self.f_interpolator is not None and self.g_interpolator is not None:
+                            storage_func_hot = lambda w, _mat=material_hot: _mat.get_storage_modulus(w)
+                            loss_func_hot_raw = lambda w, _mat=material_hot: _mat.get_loss_modulus(w)
+                            g_calc_hot.storage_modulus_func = storage_func_hot
+                            g_calc_hot.loss_modulus_func = loss_func_hot_raw
+                            if strain_est is not None:
+                                strain_for_hot = strain_est(q, G_matrix_corrected[:, j], v[j])
+                            else:
+                                strain_for_hot = np.full(len(q), fixed_strain)
+                            g_calc_hot.set_nonlinear_correction(
+                                self.f_interpolator, self.g_interpolator,
+                                strain_for_hot, q
+                            )
+                        results_hot_j = g_calc_hot.calculate_G_with_details(q, q_min=q_min)
+                        A_A0_hot_arr[j] = results_hot_j['contact_area_ratio'][-1]
 
                     # Build flash_results dict
                     flash_results = {
@@ -15310,11 +15347,11 @@ class PerssonModelGUI_V2:
 
         add_equation(
             r"$\Delta T = \frac{\dot{q} \cdot d_{macro}}"
-            r"{2\kappa\,\sqrt{1 + \frac{\pi}{16} J_d}}"
+            r"{8\kappa\,\sqrt{1 + \frac{\pi}{2} J_d}}"
             r", \qquad \dot{q} = \frac{\mu \cdot \sigma_0 \cdot v}{P(q_m)}$",
             fig_height=1.3)
 
-        add_text('  ΔT: Self-Consistent 반복으로 수렴된 flash 온도 상승 (Greenwood 1991)', font_size=17, fg='#64748B')
+        add_text('  ΔT: Self-Consistent 반복으로 수렴된 flash 온도 상승 (Persson 2006 원형 접촉)', font_size=17, fg='#64748B')
         add_text('  q̇: 매크로 접촉면 보정 열유속, P(q_m) = 매크로 돌기 파수에서의 접촉 면적비', font_size=17, fg='#64748B')
         add_text('  a_T(T_base+ΔT): WLF 시프트 → E\'\'(ω, T) = E\'\'_master(ω × a_T)', font_size=17, fg='#DC2626')
 
