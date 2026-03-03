@@ -331,6 +331,77 @@ class FlashTemperatureCalculator:
             'v': v_arr
         }
 
+    def delta_T_persson_full(
+        self,
+        q_array: np.ndarray,
+        delta_mu_array: np.ndarray,
+        sigma_0: float,
+        velocity: float
+    ) -> np.ndarray:
+        """
+        Calculate per-scale flash temperature using Persson Full Integral method.
+
+        Instead of using a single macroscopic d_macro, this method computes
+        the temperature rise at each roughness scale q_i using the
+        scale-dependent characteristic contact size d(q) = 2*pi/q.
+
+        This mirrors the Fortran RubberFriction code's full heat calculation
+        (controlled by 'delnn' parameter in IN.mathematical), where the heat
+        generated at each magnification scale diffuses according to that
+        scale's own Peclet number.
+
+        At each scale q_i:
+            d_i = 2*pi / q_i             (contact patch size at this scale)
+            Jd_i = v * d_i / D_th        (scale-dependent Peclet number)
+            dq_dot_i = delta_mu_i * sigma_0 * v  (incremental heat flux)
+            delta_T_i = dq_dot_i * d_i / (8*kappa * sqrt(1 + pi/2 * Jd_i))
+
+        Total: DeltaT(q) = sum_{j=0}^{i} delta_T_j
+
+        Parameters
+        ----------
+        q_array : np.ndarray
+            Array of wavenumbers (1/m), ascending order
+        delta_mu_array : np.ndarray
+            Incremental friction contribution at each q (from trapezoidal
+            integration of the friction integrand). delta_mu_i >= 0.
+        sigma_0 : float
+            Nominal contact pressure (Pa)
+        velocity : float
+            Sliding velocity (m/s)
+
+        Returns
+        -------
+        np.ndarray
+            Cumulative flash temperature rise DeltaT(q) at each scale (degC)
+        """
+        n_q = len(q_array)
+        delta_T_per_q = np.zeros(n_q)
+        cumulative_dT = 0.0
+
+        for i in range(n_q):
+            # Scale-dependent contact diameter
+            d_i = 2.0 * np.pi / q_array[i]
+
+            # Scale-dependent Peclet number
+            Jd_i = velocity * d_i / self.D_th
+
+            # Incremental heat flux from friction at this scale
+            dq_dot_i = max(delta_mu_array[i], 0.0) * sigma_0 * velocity
+
+            # Greenwood formula at this scale's characteristic length
+            if dq_dot_i > 0 and np.isfinite(dq_dot_i):
+                dT_i = (dq_dot_i * d_i) / (8.0 * self.kappa_th) / np.sqrt(
+                    1.0 + (np.pi / 2.0) * Jd_i
+                )
+            else:
+                dT_i = 0.0
+
+            cumulative_dT += dT_i
+            delta_T_per_q[i] = cumulative_dT
+
+        return delta_T_per_q
+
     def get_summary(self) -> Dict:
         """Get current thermal parameters summary."""
         return {
