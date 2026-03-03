@@ -9236,7 +9236,7 @@ class PerssonModelGUI_V2:
                 self.flash_result_text.insert(tk.END,
                     f"  파수 범위: {q_array[0]:.2e} ~ {q_array[-1]:.2e} 1/m ({len(q_array)} pts)\n")
                 self.flash_result_text.insert(tk.END,
-                    f"  열유속: q̇ = μ_hot·σ₀·v / P_macro_hot  (Greenwood)\n")
+                    f"  열유속: q̇ = μ_hot·σ₀·v  (Persson 2006)\n")
 
             # Auto-hotspot detection info
             d_auto = flash_results.get('d_macro_auto')
@@ -11707,7 +11707,7 @@ class PerssonModelGUI_V2:
                     #       B.3: Compute G, P, S and μ integrand at q_i
                     #       B.4: Cumulative μ(q_i) via trapezoidal integration
                     #       B.5: ΔT(q_i) = macroscopic Greenwood formula:
-                    #            μ_cumul·σ₀·v/P_macro × d_macro/(8κ√(1+π/2·Jd))
+                    #            μ_cumul·σ₀·v × d_macro/(8κ√(1+π/2·Jd))
                     #       B.6: T(q_i) = T_base + ΔT(q_i)
 
                     from scipy.integrate import simpson as simpson_flash
@@ -11775,23 +11775,22 @@ class PerssonModelGUI_V2:
                     print(f"[Flash] q_macro={q_macro_eff:.2e} (i_macro={i_macro})")
 
                     # --- Cold ΔT estimate (no WLF feedback, for comparison) ---
+                    # Per Persson (2006): q_dot = μ·σ₀·v (without P_macro division)
                     for j in range(n_v):
-                        detail_j = details['details'][j]
-                        P_cold_for_heat = detail_j['P']
-                        P_macro_cold_j = max(P_cold_for_heat[i_macro], 1e-6)
-                        q_dot_cold = mu_array_raw[j] * sigma_0 * v[j] / P_macro_cold_j
+                        q_dot_cold = mu_array_raw[j] * sigma_0 * v[j]
                         Jd_cold = flash_calc.peclet_number(v[j])
                         flash_delta_T_cold[j] = flash_calc.delta_T(q_dot_cold, Jd_cold)
 
-                    def _hot_integration_v2(v_j, C_q_arr, strain_arr_j_local, P_macro_cold_val):
+                    def _hot_integration_v2(v_j, C_q_arr, strain_arr_j_local):
                         """Full-spectrum integration with per-q temperature feedback.
 
                         At each wavenumber q_i, the flash temperature ΔT(q_i) is
                         computed using the macroscopic Greenwood formula (Persson 2006)
                         with cumulative friction μ(q_i):
 
-                            ΔT(q) = μ_cumul(q)·σ₀·v / P_macro × d_macro / (8κ√(1+π/2·Jd))
+                            ΔT(q) = μ_cumul(q)·σ₀·v × d_macro / (8κ√(1+π/2·Jd))
 
+                        Per Persson (2006): q_dot = μ·σ₀·v (without P_macro division).
                         The WLF shift at each scale uses T(q) = T_base + ΔT(q),
                         producing a monotonically increasing temperature profile.
 
@@ -11881,14 +11880,9 @@ class PerssonModelGUI_V2:
                                 mu_cumul += delta_mu_i
 
                             # Flash temperature at magnification ζ = q/q₀:
-                            #   ΔT(q) = μ_cumul(q)·σ₀·v / P_macro × d_macro / (8κ√(1+π/2·Jd_macro))
-                            # Use P_hot at macro scale once available, else P_cold
-                            if i >= i_macro:
-                                P_macro_use = max(P_hot[i_macro], 1e-6)
-                            else:
-                                P_macro_use = max(P_macro_cold_val, 1e-6)
-
-                            q_dot_macro = mu_cumul * sigma_0 * v_j / P_macro_use
+                            #   ΔT(q) = μ_cumul(q)·σ₀·v × d_macro / (8κ√(1+π/2·Jd_macro))
+                            # Per Persson (2006): q_dot = μ·σ₀·v (without P_macro division)
+                            q_dot_macro = mu_cumul * sigma_0 * v_j
                             delta_T_q = flash_calc.delta_T(q_dot_macro, Jd_macro)
                             T_acc = temperature + delta_T_q
 
@@ -11908,7 +11902,7 @@ class PerssonModelGUI_V2:
                     # Persson (2006): At each magnification ζ=q/q₀, the flash
                     # temperature is computed from cumulative friction μ(q) using
                     # the macroscopic Greenwood formula:
-                    #   ΔT(q) = μ_cumul(q)·σ₀·v/P_macro × d_macro/(8κ√(1+π/2·Jd))
+                    #   ΔT(q) = μ_cumul(q)·σ₀·v × d_macro/(8κ√(1+π/2·Jd))
                     # The WLF shift at each scale uses T(q) = T_base + ΔT(q).
                     print(f"\n[Flash] Per-q Macroscopic Greenwood (Persson 2006) 시작")
                     print(f"[Flash] d_macro={flash_calc.d_macro*1e3:.3f} mm, D_th={flash_calc.D_th:.2e} m²/s")
@@ -11927,8 +11921,6 @@ class PerssonModelGUI_V2:
 
                         detail_j = details['details'][j]
                         C_q_j = detail_j['C_q']
-                        P_cold_j = detail_j['P']
-                        P_macro_cold_j = max(P_cold_j[i_macro], 1e-6)
 
                         # Strain array for nonlinear correction
                         if strain_est is not None and use_fg:
@@ -11938,7 +11930,7 @@ class PerssonModelGUI_V2:
 
                         # Per-q hot integration with macroscopic Greenwood formula
                         mu_hot_iter, G_hot_iter, P_hot_iter, S_hot_iter, A_A0_hot_iter, dT_profile_j = \
-                            _hot_integration_v2(v[j], C_q_j, strain_arr_j, P_macro_cold_j)
+                            _hot_integration_v2(v[j], C_q_j, strain_arr_j)
 
                         # Store results
                         total_dT = dT_profile_j[-1]  # Total ΔT at maximum magnification
@@ -11946,8 +11938,8 @@ class PerssonModelGUI_V2:
                         A_A0_hot_arr[j] = A_A0_hot_iter
                         flash_delta_T[j] = total_dT
                         flash_T_hot[j] = temperature + total_dT
-                        P_macro_hot_j = max(P_hot_iter[i_macro], 1e-6)
-                        flash_q_dot[j] = mu_hot_iter * sigma_0 * v[j] / P_macro_hot_j
+                        # Per Persson (2006): q_dot = μ·σ₀·v (without P_macro division)
+                        flash_q_dot[j] = mu_hot_iter * sigma_0 * v[j]
                         flash_Jd[j] = flash_calc.peclet_number(v[j])
                         flash_iterations[j] = 1  # Single forward pass
 

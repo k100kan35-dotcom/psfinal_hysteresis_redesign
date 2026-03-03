@@ -12,7 +12,7 @@ Algorithm (Two-Pass):
                    mu_hot and (A/A0)_hot at T_hot = T + ΔT
 
 Key Formulas:
-    1. Heat Flux:     q_dot = mu × sigma_0 × v / P(q_m)  (macro-asperity area correction)
+    1. Heat Flux:     q_dot = mu × sigma_0 × v  (Persson 2006, no P(q_m) division)
     2. Peclet Number: Jd = v × d_macro / D_th
     3. Persson 2006:  ΔT = (q_dot × d) / (8κ × sqrt(1 + (π/2) × Jd))  [circular contact]
     4. Hot Temp:      T_hot = T_base + ΔT
