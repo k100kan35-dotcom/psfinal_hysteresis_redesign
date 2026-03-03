@@ -9241,12 +9241,16 @@ class PerssonModelGUI_V2:
             # Auto-hotspot detection info
             d_auto = flash_results.get('d_macro_auto')
             q_auto = flash_results.get('q_macro_auto')
+            P_macro_val = flash_results.get('P_macro_cold')
             if d_auto is not None and q_auto is not None:
                 self.flash_result_text.insert(tk.END, f"\n[핫스팟 자동 탐색]\n")
                 self.flash_result_text.insert(tk.END,
                     f"  d_macro(자동) = {d_auto*1e3:.3f} mm\n")
                 self.flash_result_text.insert(tk.END,
                     f"  q_macro = {q_auto:.2e} 1/m\n")
+                if P_macro_val is not None:
+                    self.flash_result_text.insert(tk.END,
+                        f"  P_macro = {P_macro_val:.4f} (Amax/Amin clamped)\n")
 
             self.flash_result_text.insert(tk.END,
                 f"\n{'v (m/s)':>10} {'ΔT_cold':>8} {'ΔT_hot':>8} {'T_hot':>8} "
@@ -11710,6 +11714,7 @@ class PerssonModelGUI_V2:
                     auto_hotspot = self.flash_auto_hotspot_var.get()
                     d_macro_auto = None
                     q_macro_auto = None
+                    P_macro_cold = None  # Clamped P_macro for heat flux (Amax/Amin)
 
                     if auto_hotspot:
                         try:
@@ -11724,46 +11729,49 @@ class PerssonModelGUI_V2:
                             integrand_sel = details['details'][v_sel_idx]['integrand']
                             mu_total_sel = details['details'][v_sel_idx].get('mu_visc', mu_array_raw[v_sel_idx])
 
-                            # Scan P(q) from low q to high q:
-                            # Find q where P(q) drops into [Amin, Amax] range
-                            # 두 단계 검색: (1) P범위 + heatfrac 동시 충족, (2) P범위만
+                            # === Amax/Amin Clamping (Persson 2006) ===
+                            # Step 1: P_final = P(q_max) at vselect
+                            P_final_sel = P_sel[-1]
+
+                            # Step 2: Clamp with Amax, Amin → P_macro
+                            P_macro_sel = np.clip(P_final_sel, Amin_hs, Amax_hs)
+
+                            # Step 3: Find q_m where P(q) = P_macro via interpolation
+                            # P(q) is monotonically decreasing; reverse for np.interp
+                            if P_macro_sel >= P_sel[0]:
+                                # P_macro >= P(q_min) ≈ 1.0 → use q_min (largest scale)
+                                q_macro_auto = q[0]
+                            elif P_macro_sel <= P_sel[-1]:
+                                # P_macro <= P(q_max) → use q_max (no clamping needed)
+                                q_macro_auto = q[-1]
+                            else:
+                                q_macro_auto = np.interp(P_macro_sel, P_sel[::-1], q[::-1])
+
+                            # Optional: heatfrac additional constraint
                             cum_mu = details['details'][v_sel_idx].get('cumulative_mu')
-                            q_macro_fallback = None  # P범위만 충족하는 첫 q (heatfrac 무시)
-
-                            for i_hs in range(len(q)):
-                                P_qi = P_sel[i_hs]
-                                if Amin_hs <= P_qi <= Amax_hs:
-                                    # P범위 첫 진입 시 fallback 저장
-                                    if q_macro_fallback is None:
-                                        q_macro_fallback = q[i_hs]
-
-                                    # heatfrac 조건 추가 확인
-                                    if heatfrac_hs > 0 and mu_total_sel > 0 and cum_mu is not None:
-                                        if i_hs < len(cum_mu):
-                                            mu_ratio = cum_mu[i_hs] / max(mu_total_sel, 1e-10)
-                                            if mu_ratio >= heatfrac_hs:
-                                                q_macro_auto = q[i_hs]
+                            if heatfrac_hs > 0 and mu_total_sel > 0 and cum_mu is not None:
+                                i_qm = int(np.argmin(np.abs(q - q_macro_auto)))
+                                if i_qm < len(cum_mu):
+                                    mu_ratio = cum_mu[i_qm] / max(mu_total_sel, 1e-10)
+                                    if mu_ratio < heatfrac_hs:
+                                        # Scan further to find q where heatfrac is met
+                                        for i_hf in range(i_qm, len(q)):
+                                            if cum_mu[i_hf] / max(mu_total_sel, 1e-10) >= heatfrac_hs:
+                                                q_macro_auto = q[i_hf]
+                                                # Re-clamp P at the new q
+                                                P_macro_sel = np.clip(P_sel[i_hf], Amin_hs, Amax_hs)
+                                                print(f"[Hotspot] heatfrac 조건으로 q 조정: q={q_macro_auto:.2e}")
                                                 break
-                                    else:
-                                        q_macro_auto = q[i_hs]
-                                        break
-
-                            # Fallback: P범위만 충족한 첫 q 사용 (heatfrac 미충족 시)
-                            if q_macro_auto is None and q_macro_fallback is not None:
-                                q_macro_auto = q_macro_fallback
-                                print(f"[Hotspot] P범위 fallback: q_macro={q_macro_auto:.2e} "
-                                      f"(heatfrac 조건 미충족, P범위 [Amin={Amin_hs}, Amax={Amax_hs}] 첫 진입점 사용)")
-
-                            if q_macro_auto is None:
-                                q_macro_auto = q[0]  # Failsafe: use largest scale
-                                print(f"[Hotspot] Failsafe: q_macro={q_macro_auto:.2e} (no q found in Amin~Amax)")
 
                             d_macro_auto = np.pi / q_macro_auto
                             flash_calc.d_macro = d_macro_auto
+                            P_macro_cold = P_macro_sel  # Store for heat flux calculation
 
+                            print(f"[Hotspot] P_final={P_final_sel:.4f} → P_macro={P_macro_sel:.4f} "
+                                  f"(Amin={Amin_hs}, Amax={Amax_hs})")
                             self.flash_auto_dmacro_var.set(
                                 f"d_macro(자동) = {d_macro_auto*1e3:.3f} mm  "
-                                f"(q={q_macro_auto:.2e}, P={P_sel[np.searchsorted(q, q_macro_auto)]:.3f})")
+                                f"(q={q_macro_auto:.2e}, P_macro={P_macro_sel:.4f})")
                             print(f"[Hotspot] vselect={vselect} m/s (idx={v_sel_idx}), "
                                   f"q_macro={q_macro_auto:.2e} → d_macro={d_macro_auto*1e3:.3f} mm")
 
@@ -11848,13 +11856,17 @@ class PerssonModelGUI_V2:
                     print(f"[Flash] q range: {q[0]:.2e} ~ {q[-1]:.2e} 1/m ({n_q} pts)")
                     print(f"[Flash] Method: Per-q temperature accumulation (Persson 2006)")
                     print(f"[Flash] q_macro={q_macro_eff:.2e} (i_macro={i_macro})")
+                    if P_macro_cold is not None:
+                        print(f"[Flash] P_macro_cold={P_macro_cold:.4f} (Amax/Amin clamped, used in heat flux)")
 
                     # --- Cold ΔT estimate (no WLF feedback, for comparison) ---
-                    # Persson (2006): q̇ = μ·σ₀·v / P(q)  (실접촉면 열집중)
+                    # Persson (2006): q̇ = μ·σ₀·v / P_macro  (실접촉면 열집중)
                     # ΔT = q̇·d_macro/(8κ√(1+π/2·Jd))
+                    # P_macro_cold가 있으면 clamped 값 사용 (Amax/Amin 반영)
                     for j in range(n_v):
+                        P_for_cold = P_macro_cold if P_macro_cold is not None else A_A0_cold_arr[j]
                         q_dot_cold = flash_calc.heat_flux(
-                            A_A0_cold_arr[j], mu_array_raw[j], sigma_0, v[j])
+                            P_for_cold, mu_array_raw[j], sigma_0, v[j])
                         Jd_cold = flash_calc.peclet_number(v[j])
                         flash_delta_T_cold[j] = flash_calc.delta_T(q_dot_cold, Jd_cold)
 
@@ -12004,11 +12016,13 @@ class PerssonModelGUI_V2:
                                 T_acc = temperature + delta_T_per_q[i]
                             else:
                                 # --- Greenwood Macroscopic Formula (default) ---
-                                # q̇ = μ_cumul(q)·σ₀·v / P(q)  (실접촉면 열집중)
+                                # q̇ = μ_cumul(q)·σ₀·v / P_macro  (실접촉면 열집중)
                                 # ΔT = q̇·d_macro/(8κ√(1+π/2·Jd_macro))
                                 # Greenwood 거시적 공식: d_macro 스케일의 평균 온도 상승
-                                # 실접촉면 열집중 1/P(q) 포함 (Persson 2006)
-                                q_dot_macro = mu_cumul * sigma_0 * v_j / max(P_hot[i], 1e-6)
+                                # P_macro: Amax/Amin clamped 값 사용 (Fortran 방식)
+                                # P_macro_cold가 없으면 per-q P_hot[i] fallback
+                                P_eff = P_macro_cold if P_macro_cold is not None else P_hot[i]
+                                q_dot_macro = mu_cumul * sigma_0 * v_j / max(P_eff, 1e-6)
                                 delta_T_q = flash_calc.delta_T(q_dot_macro, Jd_macro)
                                 T_acc = temperature + delta_T_q
                                 delta_T_per_q[i] = T_acc - temperature
@@ -12084,8 +12098,9 @@ class PerssonModelGUI_V2:
                         A_A0_hot_arr[j] = A_A0_hot_iter
                         flash_delta_T[j] = total_dT
                         flash_T_hot[j] = temperature + total_dT
-                        # q̇ = μ·σ₀·v / P(q) (실접촉면 열유속, Persson 2006)
-                        flash_q_dot[j] = mu_hot_iter * sigma_0 * v[j] / max(A_A0_hot_arr[j], 1e-6)
+                        # q̇ = μ·σ₀·v / P_macro (실접촉면 열유속, Persson 2006)
+                        P_eff_result = P_macro_cold if P_macro_cold is not None else A_A0_hot_arr[j]
+                        flash_q_dot[j] = mu_hot_iter * sigma_0 * v[j] / max(P_eff_result, 1e-6)
                         flash_Jd[j] = flash_calc.peclet_number(v[j])
                         flash_iterations[j] = 1  # Single forward pass
 
@@ -12125,6 +12140,7 @@ class PerssonModelGUI_V2:
                         'T_base': temperature,
                         'd_macro_auto': d_macro_auto,
                         'q_macro_auto': q_macro_auto,
+                        'P_macro_cold': P_macro_cold,
                         'v': v,
                         'iterations': flash_iterations,
                         'flash_model': flash_model_type,
