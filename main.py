@@ -11770,7 +11770,8 @@ class PerssonModelGUI_V2:
                     #       B.3: Compute G, P, S and μ integrand at q_i
                     #       B.4: Cumulative μ(q_i) via trapezoidal integration
                     #       B.5: ΔT(q_i) = macroscopic Greenwood formula:
-                    #            μ_cumul·σ₀·v × d_macro/(8κ√(1+π/2·Jd))
+                    #            q̇ = μ_cumul·σ₀·v / P(q)  (실접촉면 열집중 보정)
+                    #            ΔT = q̇·d_macro/(8κ√(1+π/2·Jd))
                     #       B.6: T(q_i) = T_base + ΔT(q_i)
 
                     from scipy.integrate import simpson as simpson_flash
@@ -11838,11 +11839,11 @@ class PerssonModelGUI_V2:
                     print(f"[Flash] q_macro={q_macro_eff:.2e} (i_macro={i_macro})")
 
                     # --- Cold ΔT estimate (no WLF feedback, for comparison) ---
-                    # Persson (2006): q̇ = μ·σ₀·v (공칭면적 기준, 1/P 보정 없음)
-                    # 거시적 Greenwood 공식에서 d_macro 스케일의 온도는
-                    # 공칭 열유속으로 계산해야 함 (미시적 핫스팟은 순간적)
+                    # q̇ = μ·σ₀·v / P(q) (실접촉면 열집중 보정 포함)
+                    # Greenwood 공식: ΔT = q̇·d/(8κ√(1+π/2·Jd))
                     for j in range(n_v):
-                        q_dot_cold = mu_array_raw[j] * sigma_0 * v[j]
+                        P_cold_j = max(A_A0_cold_arr[j], 1e-6)
+                        q_dot_cold = mu_array_raw[j] * sigma_0 * v[j] / P_cold_j
                         Jd_cold = flash_calc.peclet_number(v[j])
                         flash_delta_T_cold[j] = flash_calc.delta_T(q_dot_cold, Jd_cold)
 
@@ -11975,9 +11976,11 @@ class PerssonModelGUI_V2:
                             if flash_model_type == "persson_full":
                                 # --- Persson Full Integral (Per-Scale Diffusion) ---
                                 # Each scale contributes ΔT using its own d(q) = 2π/q
+                                # 1/P 보정: 실접촉면 열집중
                                 d_i = 2.0 * np.pi / q_local[i]
                                 Jd_i = v_j * d_i / flash_calc.D_th
-                                dq_dot_i = delta_mu_i * sigma_0 * v_j
+                                P_i = max(P_hot[i], 1e-6)
+                                dq_dot_i = delta_mu_i * sigma_0 * v_j / P_i
                                 if dq_dot_i > 0 and np.isfinite(dq_dot_i):
                                     dT_i = (dq_dot_i * d_i) / (8.0 * flash_calc.kappa_th) / np.sqrt(
                                         1.0 + (np.pi / 2.0) * Jd_i)
@@ -11991,9 +11994,12 @@ class PerssonModelGUI_V2:
                                 T_acc = temperature + delta_T_per_q[i]
                             else:
                                 # --- Greenwood Macroscopic Formula (default) ---
-                                # q̇ = μ_cumul(q)·σ₀·v (공칭면적 기준)
+                                # q̇ = μ_cumul(q)·σ₀·v / P(q)  (실접촉면 열집중)
                                 # ΔT = q̇·d_macro/(8κ√(1+π/2·Jd_macro))
-                                q_dot_macro = mu_cumul * sigma_0 * v_j
+                                # 1/P 보정: 마찰열은 실접촉면(면적비 P)에 집중되므로
+                                # 실제 열유속 = 공칭열유속 / P(q)
+                                P_i = max(P_hot[i], 1e-6)
+                                q_dot_macro = mu_cumul * sigma_0 * v_j / P_i
                                 delta_T_q = flash_calc.delta_T(q_dot_macro, Jd_macro)
                                 T_acc = temperature + delta_T_q
                                 delta_T_per_q[i] = T_acc - temperature
@@ -12012,9 +12018,9 @@ class PerssonModelGUI_V2:
                     # --- Main Per-q Flash Temperature velocity loop ---
                     # Persson (2006): At each magnification ζ=q/q₀, the flash
                     # temperature is computed from cumulative friction μ(q):
-                    #   q̇(q) = μ_cumul(q)·σ₀·v   (공칭면적 기준, 1/P 보정 없음)
+                    #   q̇(q) = μ_cumul(q)·σ₀·v / P(q)  (실접촉면 열집중 보정)
                     #   ΔT(q) = q̇·d_macro/(8κ√(1+π/2·Jd))
-                    # 거시적 Greenwood formula는 공칭 열유속 사용 → 포화 수렴.
+                    # 1/P 보정: 마찰열은 실접촉면에 집중 → 열유속 증폭.
                     # The WLF shift at each scale uses T(q) = T_base + ΔT(q).
                     model_name = ("Greenwood 기반 근사" if flash_model_type == "greenwood"
                                   else "Persson Full Integral (Per-Scale)")
@@ -12069,8 +12075,8 @@ class PerssonModelGUI_V2:
                         A_A0_hot_arr[j] = A_A0_hot_iter
                         flash_delta_T[j] = total_dT
                         flash_T_hot[j] = temperature + total_dT
-                        # Persson (2006): q̇ = μ·σ₀·v (공칭면적 기준, 거시적 flash temp)
-                        flash_q_dot[j] = mu_hot_iter * sigma_0 * v[j]
+                        # q̇ = μ·σ₀·v / P (실접촉면 열집중 보정)
+                        flash_q_dot[j] = mu_hot_iter * sigma_0 * v[j] / max(A_A0_hot_iter, 1e-6)
                         flash_Jd[j] = flash_calc.peclet_number(v[j])
                         flash_iterations[j] = 1  # Single forward pass
 
