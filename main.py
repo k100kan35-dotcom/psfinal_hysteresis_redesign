@@ -11929,7 +11929,7 @@ class PerssonModelGUI_V2:
                         All q points use the SAME WLF shift from T_hot_uniform.
                         Used by self-consistent iteration (Greenwood model).
 
-                        Returns mu_hot, G_hot, P_hot, S_hot, A_A0_hot."""
+                        Returns mu_hot, G_hot, P_hot, S_hot, A_A0_hot, integrand_arr."""
                         q_local = q_hot
                         n_local = n_q_hot
 
@@ -12009,7 +12009,7 @@ class PerssonModelGUI_V2:
                             mu_hot = 0.5 * np.trapezoid(integrand_arr, q_local)
 
                         A_A0_hot = P_hot[-1]
-                        return mu_hot, G_hot, P_hot, S_hot, A_A0_hot
+                        return mu_hot, G_hot, P_hot, S_hot, A_A0_hot, integrand_arr
 
                     def _hot_integration_v2(v_j, C_q_arr, strain_arr_j_local):
                         """Full-spectrum integration with per-q temperature feedback.
@@ -12224,7 +12224,7 @@ class PerssonModelGUI_V2:
                                 T_hot_iter = temperature + delta_T_current
 
                                 # Compute mu and A/A0 at uniform T_hot
-                                mu_hot_iter, _, _, _, A_A0_hot_iter = \
+                                mu_hot_iter, _, _, _, A_A0_hot_iter, integrand_arr_hot = \
                                     _hot_pass_uniform_T(v[j], T_hot_iter, C_q_j_fine, strain_arr_j_fine)
 
                                 # New ΔT from hot mu and per-velocity clamped P
@@ -12254,8 +12254,24 @@ class PerssonModelGUI_V2:
                             flash_Jd[j] = flash_calc.peclet_number(v[j])
                             flash_iterations[j] = sc_iter + 1
 
-                            # Fill delta_T_profile with uniform converged ΔT
-                            delta_T_profile[:, j] = total_dT
+                            # Build per-q cumulative ΔT profile from friction integrand
+                            # ΔT(q) = total_dT × μ_cumul(q) / μ_cumul(q_max)
+                            # μ_cumul grows monotonically with q, giving a rising profile
+                            mu_cumul_hot = np.zeros(n_q_hot)
+                            for ii in range(1, n_q_hot):
+                                dq_ii = q_hot[ii] - q_hot[ii - 1]
+                                mu_cumul_hot[ii] = (mu_cumul_hot[ii - 1]
+                                    + 0.25 * (integrand_arr_hot[ii - 1] + integrand_arr_hot[ii]) * dq_ii)
+                            if mu_cumul_hot[-1] > 1e-15:
+                                dT_profile_j_fine = total_dT * (mu_cumul_hot / mu_cumul_hot[-1])
+                            else:
+                                dT_profile_j_fine = np.full(n_q_hot, total_dT)
+                            # Interpolate from fine grid back to original q grid
+                            dT_interp_back = interp1d_flash(
+                                np.log10(q_hot), dT_profile_j_fine,
+                                kind='linear', bounds_error=False,
+                                fill_value=(0.0, dT_profile_j_fine[-1]))
+                            delta_T_profile[:, j] = dT_interp_back(np.log10(q))
 
                         else:
                             # ===== Persson Full Integral (per-q forward pass) =====
