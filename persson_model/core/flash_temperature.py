@@ -336,7 +336,8 @@ class FlashTemperatureCalculator:
         q_array: np.ndarray,
         delta_mu_array: np.ndarray,
         sigma_0: float,
-        velocity: float
+        velocity: float,
+        P_array: Optional[np.ndarray] = None
     ) -> np.ndarray:
         """
         Calculate per-scale flash temperature using Persson Full Integral method.
@@ -353,8 +354,11 @@ class FlashTemperatureCalculator:
         At each scale q_i:
             d_i = 2*pi / q_i             (contact patch size at this scale)
             Jd_i = v * d_i / D_th        (scale-dependent Peclet number)
-            dq_dot_i = delta_mu_i * sigma_0 * v  (incremental heat flux)
+            dq_dot_i = delta_mu_i * sigma_0 * v / P(q_i)  (heat flux at real contact)
             delta_T_i = dq_dot_i * d_i / (8*kappa * sqrt(1 + pi/2 * Jd_i))
+
+        The 1/P(q_i) factor accounts for heat flux concentration at the
+        real contact area (Persson 2006).
 
         Total: DeltaT(q) = sum_{j=0}^{i} delta_T_j
 
@@ -369,6 +373,10 @@ class FlashTemperatureCalculator:
             Nominal contact pressure (Pa)
         velocity : float
             Sliding velocity (m/s)
+        P_array : np.ndarray, optional
+            Contact area fraction P(q) at each wavenumber. If provided,
+            heat flux is divided by P(q_i) for real-contact concentration.
+            If None, uses P=1 (no concentration, nominal heat flux).
 
         Returns
         -------
@@ -386,8 +394,12 @@ class FlashTemperatureCalculator:
             # Scale-dependent Peclet number
             Jd_i = velocity * d_i / self.D_th
 
-            # Incremental heat flux from friction at this scale
-            dq_dot_i = max(delta_mu_array[i], 0.0) * sigma_0 * velocity
+            # Contact area fraction at this scale (for heat concentration)
+            P_i = P_array[i] if P_array is not None else 1.0
+            P_i = max(P_i, 1e-6)  # Prevent division by zero
+
+            # Incremental heat flux at real contact area: 1/P(q) concentration
+            dq_dot_i = max(delta_mu_array[i], 0.0) * sigma_0 * velocity / P_i
 
             # Greenwood formula at this scale's characteristic length
             if dq_dot_i > 0 and np.isfinite(dq_dot_i):
