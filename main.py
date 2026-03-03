@@ -11911,13 +11911,9 @@ class PerssonModelGUI_V2:
                         q_local = q_hot
                         n_local = n_q_hot
 
-                        # Hot WLF shift for friction (E'')
+                        # Single WLF shift for all q points
                         log_aT_hot = float(self.persson_aT_interp(T_hot_uniform))
                         aT_hot = 10 ** log_aT_hot
-
-                        # Cold WLF shift for contact area G (bulk temperature)
-                        log_aT_cold = float(self.persson_aT_interp(temperature))
-                        aT_cold = 10 ** log_aT_cold
 
                         G_hot = np.zeros(n_local)
                         P_hot = np.ones(n_local)
@@ -11927,37 +11923,29 @@ class PerssonModelGUI_V2:
 
                         for i in range(n_local):
                             omega_physical = q_local[i] * v_j * cos_phi_flash
+                            omega_eff = np.maximum(omega_physical * aT_hot, 1e-30)
+                            log_omega_eff = np.log10(omega_eff)
 
-                            # --- Cold frequency for G (contact area = bulk properties) ---
-                            omega_cold = np.maximum(omega_physical * aT_cold, 1e-30)
-                            log_omega_cold = np.log10(omega_cold)
-                            log_Ep_cold = E_storage_master_interp_func(log_omega_cold)
-                            log_Epp_cold = E_loss_master_interp_func(log_omega_cold)
-                            Ep_cold = 10.0 ** np.clip(log_Ep_cold, 4.0, None)
-                            Epp_cold = 10.0 ** np.clip(log_Epp_cold, 3.0, None)
+                            log_Ep = E_storage_master_interp_func(log_omega_eff)
+                            log_Epp = E_loss_master_interp_func(log_omega_eff)
+                            Ep_vals = 10.0 ** np.clip(log_Ep, 4.0, None)
+                            Epp_vals = 10.0 ** np.clip(log_Epp, 3.0, None)
 
-                            # --- Hot frequency for μ (friction = surface flash temperature) ---
-                            omega_hot = np.maximum(omega_physical * aT_hot, 1e-30)
-                            log_omega_hot = np.log10(omega_hot)
-                            log_Epp_hot = E_loss_master_interp_func(log_omega_hot)
-                            Epp_hot = 10.0 ** np.clip(log_Epp_hot, 3.0, None)
-
-                            # Apply nonlinear correction
+                            # Apply nonlinear correction (f for E', g for E'')
                             if use_fg and strain_arr_j_local is not None:
                                 strain_i = float(strain_arr_j_local[i]) if i < len(strain_arr_j_local) else fixed_strain
                                 strain_i = np.clip(strain_i, 0.0, 1.0)
                                 if self.f_interpolator is not None:
                                     f_val = float(self.f_interpolator(strain_i))
                                     if np.isfinite(f_val):
-                                        Ep_cold = Ep_cold * np.clip(f_val, 0.01, 1.0)
+                                        Ep_vals = Ep_vals * np.clip(f_val, 0.01, 1.0)
                                 if g_interp is not None:
                                     g_val = float(g_interp(strain_i))
                                     if np.isfinite(g_val):
-                                        Epp_cold = Epp_cold * max(g_val, 0.01)
-                                        Epp_hot = Epp_hot * max(g_val, 0.01)
+                                        Epp_vals = Epp_vals * max(g_val, 0.01)
 
-                            # G integrand: use COLD |E*|² (contact area = bulk temperature)
-                            E_star_sq = Ep_cold**2 + Epp_cold**2
+                            # G integrand: |E_eff|^2
+                            E_star_sq = Ep_vals**2 + Epp_vals**2
                             G_integrand_phi = E_star_sq * prefactor_flash**2
                             if n_phi >= 3:
                                 G_angle_integral_i = 4.0 * simpson_flash(G_integrand_phi, x=phi_flash)
@@ -11983,8 +11971,8 @@ class PerssonModelGUI_V2:
                             # S(q) = gamma + (1-gamma)*P^p
                             S_hot[i] = gamma + (1 - gamma) * P_hot[i] ** p_exponent
 
-                            # mu integrand: use HOT E'' (friction = flash temperature)
-                            mu_phi_integrand = cos_phi_flash * Epp_hot * prefactor_flash
+                            # mu integrand
+                            mu_phi_integrand = cos_phi_flash * Epp_vals * prefactor_flash
                             if n_phi >= 3:
                                 mu_angle_integral_i = 4.0 * simpson_flash(mu_phi_integrand, x=phi_flash)
                             else:
@@ -12029,50 +12017,39 @@ class PerssonModelGUI_V2:
                         prev_mu_integrand = 0.0
                         mu_cumul = 0.0  # Cumulative friction coefficient up to current q
 
-                        # Cold WLF shift for G calculation (contact area = bulk temperature)
-                        log_aT_cold = float(self.persson_aT_interp(temperature))
-                        aT_cold = 10 ** log_aT_cold
-
                         # Macroscopic Peclet number (constant for given velocity)
                         Jd_macro = v_j * flash_calc.d_macro / flash_calc.D_th
 
                         for i in range(n_local):
-                            # Per-q WLF shift at current accumulated temperature (for friction)
+                            # Per-q WLF shift at current accumulated temperature
                             log_aT_i = float(self.persson_aT_interp(T_acc))
                             aT_i = 10 ** log_aT_i
 
                             omega_physical = q_local[i] * v_j * cos_phi_flash
+                            omega_eff = np.maximum(omega_physical * aT_i, 1e-30)
+                            log_omega_eff = np.log10(omega_eff)
 
-                            # --- Cold frequency for G (contact area = bulk properties) ---
-                            omega_cold = np.maximum(omega_physical * aT_cold, 1e-30)
-                            log_omega_cold = np.log10(omega_cold)
-                            log_Ep_cold = E_storage_master_interp_func(log_omega_cold)
-                            log_Epp_cold = E_loss_master_interp_func(log_omega_cold)
-                            Ep_cold = 10.0 ** np.clip(log_Ep_cold, 4.0, None)
-                            Epp_cold = 10.0 ** np.clip(log_Epp_cold, 3.0, None)
+                            # E'(ω·aT) and E''(ω·aT) at shifted frequency
+                            log_Ep = E_storage_master_interp_func(log_omega_eff)
+                            log_Epp = E_loss_master_interp_func(log_omega_eff)
+                            Ep_vals = 10.0 ** np.clip(log_Ep, 4.0, None)
+                            Epp_vals = 10.0 ** np.clip(log_Epp, 3.0, None)
 
-                            # --- Hot frequency for μ (friction = surface flash temperature) ---
-                            omega_hot = np.maximum(omega_physical * aT_i, 1e-30)
-                            log_omega_hot = np.log10(omega_hot)
-                            log_Epp_hot = E_loss_master_interp_func(log_omega_hot)
-                            Epp_hot = 10.0 ** np.clip(log_Epp_hot, 3.0, None)
-
-                            # Apply nonlinear correction
+                            # Apply nonlinear correction (f for E', g for E'')
                             if use_fg and strain_arr_j_local is not None:
                                 strain_i = float(strain_arr_j_local[i]) if i < len(strain_arr_j_local) else fixed_strain
                                 strain_i = np.clip(strain_i, 0.0, 1.0)
                                 if self.f_interpolator is not None:
                                     f_val = float(self.f_interpolator(strain_i))
                                     if np.isfinite(f_val):
-                                        Ep_cold = Ep_cold * np.clip(f_val, 0.01, 1.0)
+                                        Ep_vals = Ep_vals * np.clip(f_val, 0.01, 1.0)
                                 if g_interp is not None:
                                     g_val = float(g_interp(strain_i))
                                     if np.isfinite(g_val):
-                                        Epp_cold = Epp_cold * max(g_val, 0.01)
-                                        Epp_hot = Epp_hot * max(g_val, 0.01)
+                                        Epp_vals = Epp_vals * max(g_val, 0.01)
 
-                            # --- G(q) integrand: use COLD |E*|² (contact area = bulk temperature) ---
-                            E_star_sq = Ep_cold**2 + Epp_cold**2
+                            # --- G(q) integrand: |E_eff|² = (E')² + (E'')² ---
+                            E_star_sq = Ep_vals**2 + Epp_vals**2
                             G_integrand_phi = E_star_sq * prefactor_flash**2
                             if n_phi >= 3:
                                 G_angle_integral_i = 4.0 * simpson_flash(G_integrand_phi, x=phi_flash)
@@ -12098,8 +12075,8 @@ class PerssonModelGUI_V2:
                             # S(q) = γ + (1-γ)·P^p
                             S_hot[i] = gamma + (1 - gamma) * P_hot[i] ** p_exponent
 
-                            # --- μ integrand: use HOT E'' (friction = flash temperature) ---
-                            mu_phi_integrand = cos_phi_flash * Epp_hot * prefactor_flash
+                            # --- μ integrand: cos(φ) × E''(ω·aT) / ((1-ν²)σ₀) ---
+                            mu_phi_integrand = cos_phi_flash * Epp_vals * prefactor_flash
                             if n_phi >= 3:
                                 mu_angle_integral_i = 4.0 * simpson_flash(mu_phi_integrand, x=phi_flash)
                             else:
