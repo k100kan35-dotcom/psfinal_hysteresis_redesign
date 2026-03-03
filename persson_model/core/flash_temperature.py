@@ -12,7 +12,7 @@ Algorithm (Two-Pass):
                    mu_hot and (A/A0)_hot at T_hot = T + ΔT
 
 Key Formulas:
-    1. Heat Flux:     q_dot = mu × sigma_0 × v  (Persson 2006, no P(q_m) division)
+    1. Heat Flux:     q_dot = mu × sigma_0 × v / (A/A0)  (A/A0 보정: 실접촉면 열집중)
     2. Peclet Number: Jd = v × d_macro / D_th
     3. Persson 2006:  ΔT = (q_dot × d) / (8κ × sqrt(1 + (π/2) × Jd))  [circular contact]
     4. Hot Temp:      T_hot = T_base + ΔT
@@ -93,24 +93,26 @@ class FlashTemperatureCalculator:
         velocity: float
     ) -> float:
         """
-        Calculate frictional heat flux at the macroscopic contact.
+        Calculate frictional heat flux at the real contact area.
 
-        q_dot = mu × sigma_0 × v
+        q_dot = mu × sigma_0 × v / (A/A0)
 
-        This is the total frictional dissipation per unit nominal contact area.
-        The macroscopic Greenwood formula then calculates the temperature rise
-        for a heat source of diameter d_macro moving at velocity v.
+        The total frictional power per nominal area is μ·σ₀·v, but this
+        heat is generated only at the real contact patches (area fraction
+        A/A0). Therefore the actual heat flux at the contact is concentrated
+        by factor 1/(A/A0):
+            q_dot = μ·σ₀·v / P(q)
+        where P(q) = A(q)/A₀ is the contact area ratio.
 
-        Note: A_A0 is accepted for interface compatibility but NOT used in
-        the heat flux calculation. Per Persson (2006), the macroscopic
-        flash temperature uses q = μ·σ₀·v without the A/A₀ factor.
+        When A/A0 is small (sparse contact), the heat flux at the real
+        contact patches is much higher, leading to larger flash ΔT.
 
         Parameters
         ----------
         A_A0 : float
-            Real contact area ratio (A/A0) from cold pass (reserved)
+            Real contact area ratio (A/A0), used for heat flux concentration
         mu : float
-            Friction coefficient from cold pass
+            Friction coefficient
         sigma_0 : float
             Nominal contact pressure (Pa)
         velocity : float
@@ -119,9 +121,11 @@ class FlashTemperatureCalculator:
         Returns
         -------
         float
-            Heat flux q_dot (W/m²)
+            Heat flux q_dot (W/m²) at the real contact area
         """
-        return mu * sigma_0 * velocity
+        # Safeguard: prevent division by zero for very small contact areas
+        A_A0_safe = max(A_A0, 1e-6)
+        return mu * sigma_0 * velocity / A_A0_safe
 
     def peclet_number(self, velocity: float) -> float:
         """
