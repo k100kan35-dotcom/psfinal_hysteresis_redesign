@@ -7945,42 +7945,54 @@ class PerssonModelGUI_V2:
 
         # 3-B: Peclet number
         add_separator()
-        add_text('  3-B. Peclet 수 (Jd) — 대류 vs 전도 비율', font_size=19, bold=True, fg='#1E293B')
+        add_text('  3-B. Peclet 수 (Jd, Jh) — 대류 vs 전도 비율', font_size=19, bold=True, fg='#1E293B')
         add_text('  이동 열원 문제에서 열 수송의 특성을 결정하는 무차원수:', font_size=17, fg='#64748B')
 
-        add_equation(r"$J_d = \frac{v \cdot d}{D_{th}}$", fig_height=0.9)
+        add_equation(r"$J_d = \frac{v \cdot d}{D_{th}}, \qquad J_h = \frac{v \cdot h}{D_{th}}$", fig_height=0.9)
 
-        add_text('  v : 미끄럼 속도 [m/s],  d : 접촉 패치의 특성 직경 [m]', font_size=17, fg='#64748B')
-        add_text('  Jd ≫ 1 (빠른 속도): 열이 퍼지기 전에 새 접촉점으로 이동 → ΔT ∝ 1/√v 로 완화', font_size=17, fg='#059669')
+        add_text('  v : 미끄럼 속도 [m/s],  d : 접촉 패치의 특성 직경 [m],  h : 표면층 두께 [m] (≈1/q₁)', font_size=17, fg='#64748B')
+        add_text('  Jd : 열이 핫스팟 직경(d) 밖으로 빠져나가는 비율 — Jd≫1이면 이동 열원', font_size=17, fg='#059669')
+        add_text('  Jh : 초고속에서 열이 표면층(h) 깊이 이상 침투 못함 — Jh≫1이면 ΔT∝1/v (포화)', font_size=17, fg='#059669')
         add_text('  Jd ≪ 1 (느린 속도): 정상 열전도에 가까움 → ΔT ∝ q̇·d/κ', font_size=17, fg='#059669')
 
         # 3-C: Greenwood formula
         add_separator()
-        add_text('  3-C. Persson (2006) Flash Temperature 공식 — 원형 접촉에서의 ΔT', font_size=19, bold=True, fg='#1E293B')
-        add_text('  Persson(2006)이 원형(3D) 접촉 패치에 대해 도출한 이동 열원 온도 상승 공식:', font_size=17, fg='#64748B')
+        add_text('  3-C. Greenwood 원형 접촉 보간식 (Persson 2006) — ΔT', font_size=19, bold=True, fg='#1E293B')
+        add_text('  Persson(2006)이 채택한 Greenwood 보간식 — 원형(3D) 접촉 패치에 대한 이동 열원 공식:', font_size=17, fg='#64748B')
 
         add_equation(
-            r"$\Delta T = \frac{\dot{q} \cdot d}{8\kappa \sqrt{1 + \frac{\pi}{2} J_d}}$",
+            r"$\Delta T = \frac{\dot{q} \cdot d}{2\kappa \sqrt{1 + \frac{\pi}{16} J_d + \frac{J_h^2}{4}}}$",
             fig_height=1.3)
 
         add_text('  q̇ = μ × σ₀ × v / P(q_m) : 매크로 접촉면에 집중된 열유속(heat flux) [W/m²]', font_size=17, fg='#64748B')
         add_text('  P(q_m) = A(q_m)/A₀ : 매크로 돌기 파수 q_m에서의 접촉 면적 비율', font_size=17, fg='#DC2626')
-        add_text('  이 공식은 저속(Jd→0)과 고속(Jd→∞) 극한을 부드럽게 보간합니다:', font_size=17, fg='#64748B')
-        add_text('  → 저속 극한: ΔT ≈ q̇·d/(8κ)  (정상 열전도, 원형 열원)', font_size=17, fg='#059669')
-        add_text('  → 고속 극한: ΔT ≈ q̇·d/(8κ·√(πJd/2)) ∝ 1/√v  (이동 열원)', font_size=17, fg='#059669')
+        add_text('  이 공식은 세 가지 속도 영역을 부드럽게 보간합니다:', font_size=17, fg='#64748B')
+        add_text('  → 저속 극한 (Jd,Jh→0): ΔT ≈ q̇·d/(2κ)  (정상 열전도)', font_size=17, fg='#059669')
+        add_text('  → 중속 극한 (Jd≫1):     ΔT ∝ 1/√Jd ∝ 1/√v  (이동 열원)', font_size=17, fg='#059669')
+        add_text('  → 고속 극한 (Jh≫1):     ΔT ∝ 1/Jh ∝ 1/v  (표면층 포화)', font_size=17, fg='#059669')
 
         def _plot_greenwood(ax, np):
             Jd = np.logspace(-2, 5, 500)
-            dT_normalized = 1.0 / np.sqrt(1 + (np.pi / 2) * Jd)
-            ax.semilogx(Jd, dT_normalized, '-', linewidth=2.5, color='#DC2626')
+            # Jh = 0 case (only Jd effect)
+            dT_Jh0 = 1.0 / np.sqrt(1 + (np.pi / 16) * Jd)
+            # Jh = 10 case (high-speed saturation)
+            Jh_10 = 10.0
+            dT_Jh10 = 1.0 / np.sqrt(1 + (np.pi / 16) * Jd + (Jh_10**2) / 4)
+            # Jh = 100 case
+            Jh_100 = 100.0
+            dT_Jh100 = 1.0 / np.sqrt(1 + (np.pi / 16) * Jd + (Jh_100**2) / 4)
+            ax.semilogx(Jd, dT_Jh0, '-', linewidth=2.5, color='#DC2626', label='Jh=0')
+            ax.semilogx(Jd, dT_Jh10, '--', linewidth=2, color='#2563EB', label='Jh=10')
+            ax.semilogx(Jd, dT_Jh100, ':', linewidth=2, color='#059669', label='Jh=100')
             ax.axhline(y=1.0, color='gray', linestyle=':', alpha=0.5)
             ax.set_xlabel(r'$J_d = v \cdot d / D_{th}$', fontsize=12)
-            ax.set_ylabel(r'$\Delta T \;/\; (\dot{q} d / 8\kappa)$', fontsize=12)
+            ax.set_ylabel(r'$\Delta T \;/\; (\dot{q} d / 2\kappa)$', fontsize=12)
+            ax.legend(fontsize=10, loc='upper right')
             ax.grid(True, alpha=0.3)
-            ax.set_title('Persson 2006: 정규화된 ΔT vs Peclet 수 (원형 접촉)', fontsize=12, pad=10)
+            ax.set_title('Greenwood 원형 보간식: 정규화 ΔT vs Jd (Jh 비교)', fontsize=12, pad=10)
             ax.annotate('정상 전도\n(Jd \u226a 1)', xy=(0.03, 0.92), fontsize=11,
                          color='#2563EB', fontweight='bold')
-            ax.annotate('이동 열원\n(Jd \u226b 1)', xy=(1e3, 0.15), fontsize=11,
+            ax.annotate('고속 포화\n(Jh 효과)', xy=(1e3, 0.15), fontsize=11,
                          color='#DC2626', fontweight='bold')
             ax.set_ylim(0, 1.15)
         add_graph(_plot_greenwood)
@@ -8022,7 +8034,7 @@ class PerssonModelGUI_V2:
         add_separator()
         add_text('  3-E. Per-q Sequential Accumulation — 핵심 알고리즘', font_size=19, bold=True, fg='#1E293B')
         add_text('  파수별 순차 누적: 각 q 단계에서 누적 온도 기반 WLF shift 적용', font_size=17, fg='#DC2626', bold=True)
-        add_text('  Persson 2006 원형 접촉 공식: δT(q_i) = q̇·d/(8κ)/√(1+(π/2)Jd)', font_size=17, fg='#DC2626', bold=True)
+        add_text('  Greenwood 원형 보간식: δT(q_i) = q̇·d/(2κ)/√(1+(π/16)Jd+Jh²/4)', font_size=17, fg='#DC2626', bold=True)
         add_text('  면적 보정: q̇ = dμ·σ₀·v / P(q_i) (접촉면에 열 집중)', font_size=17, fg='#DC2626', bold=True)
 
         add_equation(
@@ -8039,9 +8051,10 @@ class PerssonModelGUI_V2:
 
         add_equation(
             r"$\delta T(q_i) = \frac{\dot{q}(q_i) \cdot d(q_i)}"
-            r"{8\kappa\,\sqrt{1 + \frac{\pi}{2}\,\frac{v \cdot d(q_i)}{D_{th}}}}$",
+            r"{2\kappa\,\sqrt{1 + \frac{\pi}{16} J_d(q_i) + \frac{J_h^2}{4}}}$",
             fig_height=1.3)
 
+        add_text('  Jh = v·h/D_th (h=1/q₁): 고속 표면층 포화 효과', font_size=17, fg='#DC2626', bold=True)
         add_text('  A/A₀ 보정: P(q) = A(q)/A₀ 는 파수 q까지의 접촉 면적 비율', font_size=17, fg='#DC2626', bold=True)
         add_text('  → 열유속 q̇ = dμ·σ₀·v / P(q) : 접촉 패치에 열이 집중됨', font_size=17, fg='#DC2626', bold=True)
         add_text('  → P(q)가 작을수록 (접촉 면적 ↓) 열유속 ↑ → ΔT ↑', font_size=17, fg='#DC2626')
@@ -8056,7 +8069,7 @@ class PerssonModelGUI_V2:
         add_text('  \u2461 각 q[i]에서: WLF shift a_T(T_current) → E\'\'(ω·a_T) 조회', font_size=17, fg='#059669')
         add_text('  \u2462 dμ[i] 계산: shifted E\'\'로 마찰 피적분함수 적분', font_size=17, fg='#059669')
         add_text('  \u2463 열유속: q̇(q_i) = dμ[i]·σ₀·v / P(q_i) (파수별 면적 보정)', font_size=17, fg='#059669')
-        add_text('  \u2464 δT(q_i) = Persson(q̇, d=2π/q_i, v): (q̇·d)/(8κ)/√(1+(π/2)Jd)  [원형 접촉]', font_size=17, fg='#059669')
+        add_text('  \u2464 δT(q_i) = Greenwood(q̇, d=2π/q_i, v): (q̇·d)/(2κ)/√(1+(π/16)Jd+Jh²/4)  [원형 접촉]', font_size=17, fg='#059669')
         add_text('  \u2465 T_current = T_base + ΔT_accum + δT(q_i) → 다음 q에서 사용', font_size=17, fg='#059669')
         add_text('  \u2466 최종: ΔT_total = Σ δT(q_i), μ_hot = Σ dμ[i]', font_size=17, fg='#059669')
 
@@ -8081,7 +8094,9 @@ class PerssonModelGUI_V2:
                     P_q = np.exp(-((np.log10(q[i]) - 4)**2) / 6) * 0.3 + 0.01
                     q_dot = dmu * 1e6 * v_val / P_q
                     Jd = v_val * d_local / 1e-7
-                    dT = (q_dot * d_local / (8 * 0.3) / np.sqrt(1 + np.pi / 2 * Jd)
+                    h_demo = 1.0 / q[i]  # h ~ 1/q1
+                    Jh = v_val * h_demo / 1e-7
+                    dT = (q_dot * d_local / (2 * 0.3) / np.sqrt(1 + np.pi / 16 * Jd + Jh**2 / 4)
                            if q_dot > 0 else 0)
                     dT_accum[i] = dT_accum[i - 1] + dT
                 if np.max(dT_accum) > 0:
@@ -8845,11 +8860,12 @@ class PerssonModelGUI_V2:
         formula_frame = self._create_section(left_panel, "3) Greenwood 보간 공식")
 
         ttk.Label(formula_frame,
-                  text="[Persson 2006 원형 접촉 공식]\n"
-                       "Jd = v×d_macro/D_th  (Peclet 수)\n"
+                  text="[Greenwood 원형 접촉 보간식 (Persson 2006)]\n"
+                       "Jd = v×d/D_th,  Jh = v×h/D_th\n"
                        "q̇ = μ_hot×σ₀×v / P_macro_hot\n"
-                       "ΔT = q̇×d / (8κ√(1+(π/2)Jd))\n"
-                       "T_hot = T_base + ΔT",
+                       "ΔT = q̇×d / (2κ√(1+(π/16)Jd+Jh²/4))\n"
+                       "T_hot = T_base + ΔT\n"
+                       "h = 1/q₁ (표면층 두께, 고속 포화 제어)",
                   font=self.FONTS['mono_small'], foreground='#374151').pack(anchor=tk.W, pady=2)
 
         ttk.Label(formula_frame,
@@ -10224,9 +10240,9 @@ class PerssonModelGUI_V2:
 
         # Description label that updates based on selection
         self.flash_model_desc_var = tk.StringVar(
-            value="거시적 d_macro 기준 Greenwood 보간식\n"
-                  "ΔT = μ_cumul·σ₀·v·d/(8κ√(1+π/2·Jd))\n"
-                  "빠른 연산, 정품과 거의 동일한 결과")
+            value="거시적 d_macro 기준 Greenwood 원형 보간식\n"
+                  "ΔT = q̇·d/(2κ√(1+(π/16)Jd+Jh²/4))\n"
+                  "빠른 연산, 정품과 동일한 결과")
         self.flash_model_desc_label = ttk.Label(
             flash_model_frame, textvariable=self.flash_model_desc_var,
             font=self.FONTS['small'], foreground='#64748B')
@@ -10236,13 +10252,13 @@ class PerssonModelGUI_V2:
             model = self.flash_model_var.get()
             if model == "greenwood":
                 self.flash_model_desc_var.set(
-                    "거시적 d_macro 기준 Greenwood 보간식\n"
-                    "ΔT = μ_cumul·σ₀·v·d/(8κ√(1+π/2·Jd))\n"
-                    "빠른 연산, 정품과 거의 동일한 결과")
+                    "거시적 d_macro 기준 Greenwood 원형 보간식\n"
+                    "ΔT = q̇·d/(2κ√(1+(π/16)Jd+Jh²/4))\n"
+                    "빠른 연산, 정품과 동일한 결과")
             elif model == "persson_full":
                 self.flash_model_desc_var.set(
                     "파수별 d(q)=2π/q 스케일 열확산 적분\n"
-                    "ΔT = Σ δμ_i·σ₀·v·d_i/(8κ√(1+π/2·Jd_i))\n"
+                    "ΔT = Σ δμ_i·σ₀·v·d_i/(2κ√(1+(π/16)Jd_i+Jh²/4))\n"
                     "정밀 계산, 연산 시간 증가")
 
         self.flash_model_var.trace_add('write', _on_flash_model_change)
@@ -11700,9 +11716,12 @@ class PerssonModelGUI_V2:
                     flash_kappa = float(self.flash_kappa_var.get())
                     flash_d = float(self.flash_d_macro_var.get()) / 1000.0  # mm → m
 
+                    # h_layer = surface layer thickness, typically 1/q1
+                    flash_h_layer = 1.0 / q[-1]  # Auto from upper cutoff wavenumber
                     flash_calc = FlashTemperatureCalculator(
                         rho=flash_rho, C_v=flash_Cv,
-                        kappa_th=flash_kappa, d_macro=flash_d
+                        kappa_th=flash_kappa, d_macro=flash_d,
+                        h_layer=flash_h_layer
                     )
 
                     # Extract A/A0_cold = P(q_max) for each velocity from Pass 1
@@ -11790,9 +11809,9 @@ class PerssonModelGUI_V2:
                     #       B.2: Shifted E'(ω·aT_i), E''(ω·aT_i) from master curve
                     #       B.3: Compute G, P, S and μ integrand at q_i
                     #       B.4: Cumulative μ(q_i) via trapezoidal integration
-                    #       B.5: ΔT(q_i) = macroscopic Greenwood formula:
+                    #       B.5: ΔT(q_i) = Greenwood circular interpolation:
                     #            q̇ = μ_cumul·σ₀·v / P(q)  (실접촉면 열집중, Persson 2006)
-                    #            ΔT = q̇·d_macro/(8κ√(1+π/2·Jd))
+                    #            ΔT = q̇·d/(2κ√(1+(π/16)Jd+Jh²/4))
                     #       B.6: T(q_i) = T_base + ΔT(q_i)
 
                     from scipy.integrate import simpson as simpson_flash
@@ -11854,7 +11873,9 @@ class PerssonModelGUI_V2:
                     log_aT_base = float(self.persson_aT_interp(temperature))
                     aT_base = 10**log_aT_base
                     print(f"\n[Flash] T_base={temperature}°C, log_aT_base={log_aT_base:.3f}")
-                    print(f"[Flash] d_macro={flash_calc.d_macro*1e3:.3f} mm, D_th={flash_calc.D_th:.2e} m²/s")
+                    print(f"[Flash] d_macro={flash_calc.d_macro*1e3:.3f} mm, "
+                          f"h_layer={flash_calc.h_layer:.2e} m (1/q1), "
+                          f"D_th={flash_calc.D_th:.2e} m²/s")
                     print(f"[Flash] q range: {q[0]:.2e} ~ {q[-1]:.2e} 1/m ({n_q} pts)")
                     print(f"[Flash] Method: Self-consistent iteration (Greenwood) / Per-q (Persson Full)")
                     print(f"[Flash] q_macro={q_macro_eff:.2e} (i_macro={i_macro})")
@@ -11876,7 +11897,8 @@ class PerssonModelGUI_V2:
                         q_dot_cold = flash_calc.heat_flux(
                             P_for_cold, mu_array_raw[j], sigma_0, v[j])
                         Jd_cold = flash_calc.peclet_number(v[j])
-                        flash_delta_T_cold[j] = flash_calc.delta_T(q_dot_cold, Jd_cold)
+                        Jh_cold = flash_calc.peclet_number_h(v[j])
+                        flash_delta_T_cold[j] = flash_calc.delta_T(q_dot_cold, Jd_cold, Jh_cold)
 
                     # Read flash model selection
                     flash_model_type = self.flash_model_var.get()  # "greenwood" or "persson_full"
@@ -11997,9 +12019,9 @@ class PerssonModelGUI_V2:
 
                         Supports two flash temperature models:
                         1. "greenwood" (default): Macroscopic Greenwood formula
-                           ΔT = μ_cumul·σ₀·v·d_macro / (8κ√(1+π/2·Jd_macro))
+                           ΔT = q̇·d/(2κ√(1+(π/16)Jd+Jh²/4))
                         2. "persson_full": Per-scale heat diffusion integral
-                           ΔT = Σ δμ_i·σ₀·v·d_i / (8κ√(1+π/2·Jd_i))
+                           ΔT = Σ δμ_i·σ₀·v·d_i/(2κ√(1+(π/16)Jd_i+Jh²/4))
                            where d_i = 2π/q_i (scale-dependent contact size)
 
                         Returns mu_hot, G_hot, P_hot, S_hot, A/A0_hot, delta_T_per_q."""
@@ -12095,13 +12117,15 @@ class PerssonModelGUI_V2:
                             if flash_model_type == "persson_full":
                                 # --- Persson Full Integral (Per-Scale Diffusion) ---
                                 # Each scale contributes ΔT using its own d(q) = 2π/q
+                                # Greenwood circular interpolation with Jd and Jh
                                 # 실접촉면 열집중: 1/P(q) 포함 (Persson 2006)
                                 d_i = 2.0 * np.pi / q_local[i]
                                 Jd_i = v_j * d_i / flash_calc.D_th
+                                Jh_i = flash_calc.peclet_number_h(v_j)
                                 dq_dot_i = delta_mu_i * sigma_0 * v_j / max(P_hot[i], 1e-6)
                                 if dq_dot_i > 0 and np.isfinite(dq_dot_i):
-                                    dT_i = (dq_dot_i * d_i) / (8.0 * flash_calc.kappa_th) / np.sqrt(
-                                        1.0 + (np.pi / 2.0) * Jd_i)
+                                    dT_i = (dq_dot_i * d_i) / (2.0 * flash_calc.kappa_th) / np.sqrt(
+                                        1.0 + (np.pi / 16.0) * Jd_i + (Jh_i**2) / 4.0)
                                 else:
                                     dT_i = 0.0
                                 # Accumulate ΔT from all scales
@@ -12113,13 +12137,14 @@ class PerssonModelGUI_V2:
                             else:
                                 # --- Greenwood Macroscopic Formula (default) ---
                                 # q̇ = μ_cumul(q)·σ₀·v / P_macro  (실접촉면 열집중)
-                                # ΔT = q̇·d_macro/(8κ√(1+π/2·Jd_macro))
-                                # Greenwood 거시적 공식: d_macro 스케일의 평균 온도 상승
+                                # ΔT = q̇·d/(2κ√(1+(π/16)Jd+Jh²/4))
+                                # Greenwood 원형 접촉 보간식: d_macro 스케일의 평균 온도 상승
                                 # P_macro: Amax/Amin clamped 값 사용 (Fortran 방식)
                                 # P_macro_cold가 없으면 per-q P_hot[i] fallback
                                 P_eff = P_macro_cold if P_macro_cold is not None else P_hot[i]
                                 q_dot_macro = mu_cumul * sigma_0 * v_j / max(P_eff, 1e-6)
-                                delta_T_q = flash_calc.delta_T(q_dot_macro, Jd_macro)
+                                Jh_macro = flash_calc.peclet_number_h(v_j)
+                                delta_T_q = flash_calc.delta_T(q_dot_macro, Jd_macro, Jh_macro)
                                 T_acc = temperature + delta_T_q
                                 delta_T_per_q[i] = T_acc - temperature
 
@@ -12184,11 +12209,12 @@ class PerssonModelGUI_V2:
                             # This prevents temperature runaway at high velocities:
                             #   high ΔT → low mu_hot → lower ΔT → converges to moderate T.
                             Jd_macro = v[j] * flash_calc.d_macro / flash_calc.D_th
+                            Jh_macro = flash_calc.peclet_number_h(v[j])
 
                             # Initial ΔT from cold pass (with Amax/Amin clamping)
                             P_eff_init = np.clip(A_A0_cold_arr[j], Amin_flash, Amax_flash)
                             q_dot_init = flash_calc.heat_flux(P_eff_init, mu_array_raw[j], sigma_0, v[j])
-                            delta_T_current = flash_calc.delta_T(q_dot_init, Jd_macro)
+                            delta_T_current = flash_calc.delta_T(q_dot_init, Jd_macro, Jh_macro)
 
                             mu_hot_iter = mu_array_raw[j]
                             A_A0_hot_iter = A_A0_cold_arr[j]
@@ -12204,7 +12230,7 @@ class PerssonModelGUI_V2:
                                 # New ΔT from hot mu and per-velocity clamped P
                                 P_eff_hot = np.clip(A_A0_hot_iter, Amin_flash, Amax_flash)
                                 q_dot_new = flash_calc.heat_flux(P_eff_hot, mu_hot_iter, sigma_0, v[j])
-                                delta_T_new = flash_calc.delta_T(q_dot_new, Jd_macro)
+                                delta_T_new = flash_calc.delta_T(q_dot_new, Jd_macro, Jh_macro)
 
                                 # Under-relaxation for stability
                                 delta_T_next = sc_relax * delta_T_new + (1.0 - sc_relax) * delta_T_current
@@ -16129,22 +16155,23 @@ class PerssonModelGUI_V2:
         add_text('Flash Temperature 중간 변수 (Per-q Sequential Accumulation):', bold=True, pady=(8, 0))
 
         add_equation(
-            r"$D_{th} = \frac{\kappa}{\rho \cdot C_v}, \qquad"
-            r" J_d(q) = \frac{v \cdot d(q)}{D_{th}}, \qquad"
+            r"$D_{th} = \frac{\kappa}{\rho \cdot C_v}, \quad"
+            r" J_d = \frac{v \cdot d}{D_{th}}, \quad"
+            r" J_h = \frac{v \cdot h}{D_{th}}, \quad"
             r" d(q) = \frac{2\pi}{q}$",
             fig_height=1.0)
 
-        add_text('  D_th: 열확산도 (열이 퍼지는 속도). Jd: Peclet 수 (대류/전도 비)', font_size=17, fg='#64748B')
-        add_text('  d(q): 파수 q에서의 특성 접촉 패치 직경 — 미세 스케일일수록 작음', font_size=17, fg='#64748B')
+        add_text('  D_th: 열확산도.  Jd: 거시 Peclet 수 (대류/전도 비).  Jh: 표면층 Peclet 수 (고속 포화)', font_size=17, fg='#64748B')
+        add_text('  d(q): 파수 q에서의 접촉 패치 직경.  h=1/q₁: 표면층 두께 (열 침투 깊이 한계)', font_size=17, fg='#64748B')
 
         add_equation(
             r"$\delta T(q_i) = \frac{\dot{q}(q_i) \cdot d(q_i)}"
-            r"{8\kappa\,\sqrt{1 + \frac{\pi}{2} J_d(q_i)}}"
+            r"{2\kappa\,\sqrt{1 + \frac{\pi}{16} J_d(q_i) + \frac{J_h^2}{4}}}"
             r", \quad \Delta T = \sum_i \delta T(q_i)"
             r", \quad \dot{q}(q_i) = \frac{d\mu_i \cdot \sigma_0 \cdot v}{P(q_i)}$",
             fig_height=1.3)
 
-        add_text('  ΔT(q_i): 파수별 순차 누적 flash 온도 상승 (Persson 2006 원형 접촉)', font_size=17, fg='#64748B')
+        add_text('  ΔT(q_i): 파수별 순차 누적 flash 온도 상승 (Greenwood 원형 접촉 보간식)', font_size=17, fg='#64748B')
         add_text('  q̇(q_i): 파수별 면적 보정 열유속, P(q_i) = 파수 q_i까지의 접촉 면적비', font_size=17, fg='#64748B')
         add_text('  a_T(T_base+ΔT): WLF 시프트 → E\'\'(ω, T) = E\'\'_master(ω × a_T)', font_size=17, fg='#DC2626')
 
@@ -16245,7 +16272,8 @@ class PerssonModelGUI_V2:
             ('\u03bc_hot', '[무차원]', '점탄성 마찰 계수 (flash 적용)'),
             ('D_th', '[m\u00b2/s]', '열확산도 = \u03ba/(\u03c1\u00b7C_v)'),
             ('d(q)', '[m]', '특성 접촉 직경 = 2\u03c0/q'),
-            ('J_d', '[무차원]', 'Peclet 수 = v\u00b7d/D_th'),
+            ('J_d', '[무차원]', 'Peclet 수 (거시) = v\u00b7d/D_th'),
+            ('J_h', '[무차원]', 'Peclet 수 (표면층) = v\u00b7h/D_th, h=1/q\u2081'),
             ('\u0394T(q)', '[\u00b0C]', '파수별 누적 온도 상승'),
             ('a_T', '[무차원]', 'WLF 시프트 팩터'),
             ('q\u0307', '[W/m\u00b2]', '열유속 = d\u03bc\u00b7\u03c3\u2080\u00b7v'),

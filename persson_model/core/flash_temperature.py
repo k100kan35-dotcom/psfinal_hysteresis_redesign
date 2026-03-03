@@ -3,8 +3,8 @@ Flash Temperature Calculator (Greenwood Interpolation)
 ======================================================
 
 Implements the flash temperature calculation for rubber friction using
-Greenwood's interpolation formula. This avoids the complex 3D thermal
-integral by using Peclet number-based approximation.
+Greenwood's interpolation formula modified for circular contact patches,
+as adopted by Persson (2006).
 
 Algorithm (Two-Pass):
     Pass 1 (Cold): Calculate mu_cold and (A/A0)_cold at base temperature T
@@ -13,13 +13,18 @@ Algorithm (Two-Pass):
 
 Key Formulas:
     1. Heat Flux:     q_dot = mu × sigma_0 × v / (A/A0)  (A/A0 보정: 실접촉면 열집중)
-    2. Peclet Number: Jd = v × d_macro / D_th
-    3. Persson 2006:  ΔT = (q_dot × d) / (8κ × sqrt(1 + (π/2) × Jd))  [circular contact]
+    2. Peclet Numbers: Jd = v × d / D_th,  Jh = v × h / D_th
+    3. Greenwood-modified circular interpolation (Persson 2006):
+         ΔT = (q_dot × d) / (2κ) / sqrt(1 + (π/16)Jd + Jh²/4)
     4. Hot Temp:      T_hot = T_base + ΔT
+
+    where h is the surface layer thickness (typically 1/q1) controlling
+    the high-speed asymptote. Without Jh, ΔT diverges at high v.
 
 References:
     - Greenwood, J.A. (1991) "An interpolation formula for flash temperatures"
     - Persson, B.N.J. (2006) "Rubber friction: role of the flash temperature"
+      J. Chem. Phys. 124, 054703
 """
 
 import numpy as np
@@ -45,6 +50,11 @@ class FlashTemperatureCalculator:
         Thermal conductivity (W/(m·K)). Default: 0.3
     d_macro : float
         Macroscopic asperity contact diameter (m). Default: 0.001 (1 mm)
+    h_layer : float or None
+        Surface layer thickness (m) for high-speed thermal penetration.
+        Controls the Jh Péclet number: Jh = v·h/D_th.
+        Typically h ≈ 1/q1 (inverse of upper cutoff wavenumber).
+        If None, Jh = 0 (no high-speed saturation term).
     """
 
     def __init__(
@@ -52,12 +62,14 @@ class FlashTemperatureCalculator:
         rho: float = 1150.0,
         C_v: float = 1500.0,
         kappa_th: float = 0.3,
-        d_macro: float = 0.001
+        d_macro: float = 0.001,
+        h_layer: Optional[float] = None
     ):
         self.rho = rho
         self.C_v = C_v
         self.kappa_th = kappa_th
         self.d_macro = d_macro
+        self.h_layer = h_layer
 
         # Derived: thermal diffusivity D_th = kappa / (rho * Cv)
         self.D_th = kappa_th / (rho * C_v)
@@ -72,7 +84,8 @@ class FlashTemperatureCalculator:
         rho: Optional[float] = None,
         C_v: Optional[float] = None,
         kappa_th: Optional[float] = None,
-        d_macro: Optional[float] = None
+        d_macro: Optional[float] = None,
+        h_layer: Optional[float] = None
     ):
         """Update thermal properties and recompute D_th."""
         if rho is not None:
@@ -83,6 +96,8 @@ class FlashTemperatureCalculator:
             self.kappa_th = kappa_th
         if d_macro is not None:
             self.d_macro = d_macro
+        if h_layer is not None:
+            self.h_layer = h_layer
         self.D_th = self.kappa_th / (self.rho * self.C_v)
 
     def heat_flux(
@@ -129,7 +144,7 @@ class FlashTemperatureCalculator:
 
     def peclet_number(self, velocity: float) -> float:
         """
-        Calculate Peclet number (dimensionless).
+        Calculate macroscopic Peclet number Jd (dimensionless).
 
         Jd = v × d_macro / D_th
 
@@ -149,30 +164,65 @@ class FlashTemperatureCalculator:
         """
         return velocity * self.d_macro / self.D_th
 
-    def delta_T(self, q_dot: float, Jd: float) -> float:
+    def peclet_number_h(self, velocity: float) -> float:
         """
-        Calculate flash temperature rise using Persson (2006) circular contact formula.
+        Calculate surface-layer Peclet number Jh (dimensionless).
 
-        ΔT = (q̇·d) / (8κ) × 1 / √(1 + (π/2)·Jd)
+        Jh = v × h / D_th
 
-        where Jd = v·d/D_th is the Peclet number.
+        Controls the high-speed (ultra-high frequency) asymptote.
+        At very high speeds, heat cannot penetrate deeper than the
+        thin surface layer of thickness h ≈ 1/q1. Without this term,
+        ΔT diverges at high velocities.
 
-        This formula is for 3D circular contact patches (appropriate for
-        rubber friction on rough surfaces). Interpolates between:
-        - Low speed (Jd→0): ΔT ≈ q̇·d / (8κ)  (steady-state, circular source)
-        - High speed (Jd>>1): ΔT ∝ 1/√v  (moving heat source)
+        - Jh → 0: Heat penetrates fully through the contact depth
+        - Jh >> 1: Heat is trapped in a thin surface layer of thickness h
 
-        Note: Greenwood (1991) band formula (2κ, π/16) gives ~11x larger ΔT
-        and is NOT appropriate for 3D circular contact patches.
+        Parameters
+        ----------
+        velocity : float
+            Sliding velocity (m/s)
+
+        Returns
+        -------
+        float
+            Surface-layer Peclet number Jh (dimensionless)
+        """
+        if self.h_layer is None or self.h_layer <= 0:
+            return 0.0
+        return velocity * self.h_layer / self.D_th
+
+    def delta_T(self, q_dot: float, Jd: float, Jh: float = 0.0) -> float:
+        """
+        Calculate flash temperature rise using Greenwood interpolation
+        modified for circular contact (as adopted by Persson 2006).
+
+        ΔT = (q̇·d) / (2κ) × 1 / √(1 + (π/16)·Jd + Jh²/4)
+
+        where:
+            Jd = v·d/D_th  (macroscopic Peclet number)
+            Jh = v·h/D_th  (surface-layer Peclet number)
+
+        Three asymptotic regimes:
+        - Low speed  (Jd, Jh → 0): ΔT ≈ q̇·d / (2κ)       [steady-state]
+        - Mid speed  (Jd >> 1):     ΔT ∝ 1/√(Jd) ∝ 1/√v   [moving source]
+        - High speed (Jh >> 1):     ΔT ∝ 1/Jh ∝ 1/v        [surface-layer saturation]
+
+        The Jh term prevents ΔT from diverging at very high velocities
+        by limiting heat penetration to a thin surface layer of thickness h.
 
         Reference: Persson, B.N.J. (2006) J. Chem. Phys. 124, 054703
+                   Greenwood, J.A. (1991) Wear 150, 153-170
 
         Parameters
         ----------
         q_dot : float
             Heat flux (W/m²)
         Jd : float
-            Peclet number (dimensionless), Jd = v·d/D_th
+            Macroscopic Peclet number, Jd = v·d/D_th
+        Jh : float, optional
+            Surface-layer Peclet number, Jh = v·h/D_th.
+            Default: 0.0 (no high-speed saturation)
 
         Returns
         -------
@@ -183,9 +233,11 @@ class FlashTemperatureCalculator:
             return 0.0
         if not np.isfinite(Jd) or Jd < 0:
             Jd = 0.0
-        # Persson 2006 circular contact: ΔT = (q̇·d)/(8κ) / √(1 + (π/2)Jd)
-        return (q_dot * self.d_macro) / (8.0 * self.kappa_th) / np.sqrt(
-            1.0 + (np.pi / 2.0) * Jd
+        if not np.isfinite(Jh) or Jh < 0:
+            Jh = 0.0
+        # Greenwood circular interpolation: ΔT = (q̇·d)/(2κ) / √(1 + (π/16)Jd + Jh²/4)
+        return (q_dot * self.d_macro) / (2.0 * self.kappa_th) / np.sqrt(
+            1.0 + (np.pi / 16.0) * Jd + (Jh**2) / 4.0
         )
 
     def delta_T_at_scale(self, q_dot_local: float, d_local: float, velocity: float) -> float:
@@ -194,6 +246,10 @@ class FlashTemperatureCalculator:
 
         Uses the Greenwood interpolation formula with a scale-dependent
         characteristic length d = 2π/q instead of the fixed d_macro.
+
+        ΔT = (q̇·d_local) / (2κ) / √(1 + (π/16)·Jd_local + Jh²/4)
+
+        where Jd_local = v·d_local/D_th and Jh = v·h/D_th (global).
 
         This enables per-wavenumber flash temperature accumulation:
             ΔT_total = Σ_i δT(q_i)
@@ -221,8 +277,9 @@ class FlashTemperatureCalculator:
         Jd_local = velocity * d_local / self.D_th
         if not np.isfinite(Jd_local) or Jd_local < 0:
             Jd_local = 0.0
-        return (q_dot_local * d_local) / (8.0 * self.kappa_th) / np.sqrt(
-            1.0 + (np.pi / 2.0) * Jd_local
+        Jh = self.peclet_number_h(velocity)
+        return (q_dot_local * d_local) / (2.0 * self.kappa_th) / np.sqrt(
+            1.0 + (np.pi / 16.0) * Jd_local + (Jh**2) / 4.0
         )
 
     def calculate(
@@ -259,14 +316,16 @@ class FlashTemperatureCalculator:
         """
         q_dot = self.heat_flux(A_A0_cold, mu_cold, sigma_0, velocity)
         Jd = self.peclet_number(velocity)
-        dT = self.delta_T(q_dot, Jd)
+        Jh = self.peclet_number_h(velocity)
+        dT = self.delta_T(q_dot, Jd, Jh)
         T_hot = T_base + dT
 
         return {
             'delta_T': dT,
             'T_hot': T_hot,
             'q_dot': q_dot,
-            'Jd': Jd
+            'Jd': Jd,
+            'Jh': Jh
         }
 
     def calculate_multi_velocity(
@@ -354,8 +413,9 @@ class FlashTemperatureCalculator:
         At each scale q_i:
             d_i = 2*pi / q_i             (contact patch size at this scale)
             Jd_i = v * d_i / D_th        (scale-dependent Peclet number)
+            Jh = v * h / D_th            (global surface-layer Peclet number)
             dq_dot_i = delta_mu_i * sigma_0 * v / P(q_i)  (heat flux at real contact)
-            delta_T_i = dq_dot_i * d_i / (8*kappa * sqrt(1 + pi/2 * Jd_i))
+            delta_T_i = dq_dot_i * d_i / (2*kappa * sqrt(1 + pi/16 * Jd_i + Jh^2/4))
 
         The 1/P(q_i) factor accounts for heat flux concentration at the
         real contact area (Persson 2006).
@@ -387,6 +447,9 @@ class FlashTemperatureCalculator:
         delta_T_per_q = np.zeros(n_q)
         cumulative_dT = 0.0
 
+        # Global surface-layer Peclet number (same for all scales)
+        Jh = self.peclet_number_h(velocity)
+
         for i in range(n_q):
             # Scale-dependent contact diameter
             d_i = 2.0 * np.pi / q_array[i]
@@ -401,10 +464,10 @@ class FlashTemperatureCalculator:
             # Incremental heat flux at real contact area: 1/P(q) concentration
             dq_dot_i = max(delta_mu_array[i], 0.0) * sigma_0 * velocity / P_i
 
-            # Greenwood formula at this scale's characteristic length
+            # Greenwood circular interpolation at this scale's characteristic length
             if dq_dot_i > 0 and np.isfinite(dq_dot_i):
-                dT_i = (dq_dot_i * d_i) / (8.0 * self.kappa_th) / np.sqrt(
-                    1.0 + (np.pi / 2.0) * Jd_i
+                dT_i = (dq_dot_i * d_i) / (2.0 * self.kappa_th) / np.sqrt(
+                    1.0 + (np.pi / 16.0) * Jd_i + (Jh**2) / 4.0
                 )
             else:
                 dT_i = 0.0
@@ -421,16 +484,19 @@ class FlashTemperatureCalculator:
             'C_v': self.C_v,
             'kappa_th': self.kappa_th,
             'd_macro': self.d_macro,
+            'h_layer': self.h_layer,
             'D_th': self.D_th,
             'D_th_formatted': f'{self.D_th:.2e} m²/s'
         }
 
     def __repr__(self) -> str:
+        h_str = f"{self.h_layer:.2e} m" if self.h_layer else "None"
         return (
             f"FlashTemperatureCalculator("
             f"ρ={self.rho} kg/m³, "
             f"Cv={self.C_v} J/(kg·K), "
             f"κ={self.kappa_th} W/(m·K), "
             f"d={self.d_macro*1000:.1f} mm, "
+            f"h={h_str}, "
             f"D={self.D_th:.2e} m²/s)"
         )
