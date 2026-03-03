@@ -10223,26 +10223,26 @@ class PerssonModelGUI_V2:
         ttk.Label(flash_model_frame, text="Flash ΔT 계산 모델:",
                   font=self.FONTS['body_bold']).pack(anchor=tk.W)
 
-        self.flash_model_var = tk.StringVar(value="greenwood")
+        self.flash_model_var = tk.StringVar(value="persson_full")
 
         flash_rb_frame = ttk.Frame(flash_model_frame)
         flash_rb_frame.pack(fill=tk.X, pady=1)
 
         rb_greenwood = ttk.Radiobutton(
-            flash_rb_frame, text="Greenwood 기반 근사 (권장)",
+            flash_rb_frame, text="Greenwood 기반 근사",
             variable=self.flash_model_var, value="greenwood")
         rb_greenwood.pack(anchor=tk.W)
 
         rb_persson = ttk.Radiobutton(
-            flash_rb_frame, text="Persson Full Integral (Per-Scale)",
+            flash_rb_frame, text="Persson Full Integral (Per-Scale) (권장)",
             variable=self.flash_model_var, value="persson_full")
         rb_persson.pack(anchor=tk.W)
 
         # Description label that updates based on selection
         self.flash_model_desc_var = tk.StringVar(
-            value="거시적 d_macro 기준 Greenwood 원형 보간식\n"
-                  "ΔT = q̇·d/(2κ√(1+(π/16)Jd+Jh²/4))\n"
-                  "빠른 연산, 정품과 동일한 결과")
+            value="파수별 d(q)=2π/q 스케일 열확산 적분\n"
+                  "ΔT = Σ δμ_i·σ₀·v·d_i/(2κ√(1+(π/16)Jd_i+Jh²/4))\n"
+                  "정밀 계산, 연산 시간 증가")
         self.flash_model_desc_label = ttk.Label(
             flash_model_frame, textvariable=self.flash_model_desc_var,
             font=self.FONTS['small'], foreground='#64748B')
@@ -10274,6 +10274,14 @@ class PerssonModelGUI_V2:
                   text="작을수록 고배율 ΔT 스파이크 정밀 포착 (0.005 권장)\n"
                        "0.03: ~200pts, 0.005: ~1200pts (6 decade 기준)",
                   font=self.FONTS['small'], foreground='#64748B').pack(anchor=tk.W, pady=1)
+
+        # Flash Temperature 적용 체크박스 (Tab 8과 동일 변수 사용)
+        flash_enable_row = tk.Frame(mu_settings_frame, bg='#DC2626', padx=2, pady=2)
+        flash_enable_row.pack(fill=tk.X, pady=(4, 2))
+        flash_enable_inner2 = ttk.Frame(flash_enable_row)
+        flash_enable_inner2.pack(fill=tk.X)
+        ttk.Checkbutton(flash_enable_inner2, text="Flash Temperature 적용 (WITH FLASH)",
+                        variable=self.use_flash_temp_var).pack(side=tk.LEFT)
 
         # Calculate button and progress bar
         calc_row = ttk.Frame(mu_settings_frame)
