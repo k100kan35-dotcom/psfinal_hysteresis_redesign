@@ -11726,15 +11726,20 @@ class PerssonModelGUI_V2:
 
                             # Scan P(q) from low q to high q:
                             # Find q where P(q) drops into [Amin, Amax] range
+                            # 두 단계 검색: (1) P범위 + heatfrac 동시 충족, (2) P범위만
+                            cum_mu = details['details'][v_sel_idx].get('cumulative_mu')
+                            q_macro_fallback = None  # P범위만 충족하는 첫 q (heatfrac 무시)
+
                             for i_hs in range(len(q)):
                                 P_qi = P_sel[i_hs]
                                 if Amin_hs <= P_qi <= Amax_hs:
-                                    # Optional: check heatfrac condition
-                                    # mu_cumulative up to i_hs vs total mu
-                                    if heatfrac_hs > 0 and mu_total_sel > 0:
-                                        # Cumulative mu up to this q
-                                        cum_mu = details['details'][v_sel_idx].get('cumulative_mu')
-                                        if cum_mu is not None and i_hs < len(cum_mu):
+                                    # P범위 첫 진입 시 fallback 저장
+                                    if q_macro_fallback is None:
+                                        q_macro_fallback = q[i_hs]
+
+                                    # heatfrac 조건 추가 확인
+                                    if heatfrac_hs > 0 and mu_total_sel > 0 and cum_mu is not None:
+                                        if i_hs < len(cum_mu):
                                             mu_ratio = cum_mu[i_hs] / max(mu_total_sel, 1e-10)
                                             if mu_ratio >= heatfrac_hs:
                                                 q_macro_auto = q[i_hs]
@@ -11742,6 +11747,12 @@ class PerssonModelGUI_V2:
                                     else:
                                         q_macro_auto = q[i_hs]
                                         break
+
+                            # Fallback: P범위만 충족한 첫 q 사용 (heatfrac 미충족 시)
+                            if q_macro_auto is None and q_macro_fallback is not None:
+                                q_macro_auto = q_macro_fallback
+                                print(f"[Hotspot] P범위 fallback: q_macro={q_macro_auto:.2e} "
+                                      f"(heatfrac 조건 미충족, P범위 [Amin={Amin_hs}, Amax={Amax_hs}] 첫 진입점 사용)")
 
                             if q_macro_auto is None:
                                 q_macro_auto = q[0]  # Failsafe: use largest scale
@@ -11770,7 +11781,7 @@ class PerssonModelGUI_V2:
                     #       B.3: Compute G, P, S and μ integrand at q_i
                     #       B.4: Cumulative μ(q_i) via trapezoidal integration
                     #       B.5: ΔT(q_i) = macroscopic Greenwood formula:
-                    #            q̇ = μ_cumul·σ₀·v / P(q)  (실접촉면 열집중 보정)
+                    #            q̇ = μ_cumul·σ₀·v  (공칭 열유속)
                     #            ΔT = q̇·d_macro/(8κ√(1+π/2·Jd))
                     #       B.6: T(q_i) = T_base + ΔT(q_i)
 
@@ -11839,11 +11850,10 @@ class PerssonModelGUI_V2:
                     print(f"[Flash] q_macro={q_macro_eff:.2e} (i_macro={i_macro})")
 
                     # --- Cold ΔT estimate (no WLF feedback, for comparison) ---
-                    # q̇ = μ·σ₀·v / P(q) (실접촉면 열집중 보정 포함)
-                    # Greenwood 공식: ΔT = q̇·d/(8κ√(1+π/2·Jd))
+                    # Greenwood 거시적 공식: q̇ = μ·σ₀·v (공칭 열유속, 1/P 미포함)
+                    # ΔT = q̇·d_macro/(8κ√(1+π/2·Jd))
                     for j in range(n_v):
-                        P_cold_j = max(A_A0_cold_arr[j], 1e-6)
-                        q_dot_cold = mu_array_raw[j] * sigma_0 * v[j] / P_cold_j
+                        q_dot_cold = mu_array_raw[j] * sigma_0 * v[j]
                         Jd_cold = flash_calc.peclet_number(v[j])
                         flash_delta_T_cold[j] = flash_calc.delta_T(q_dot_cold, Jd_cold)
 
@@ -11976,11 +11986,10 @@ class PerssonModelGUI_V2:
                             if flash_model_type == "persson_full":
                                 # --- Persson Full Integral (Per-Scale Diffusion) ---
                                 # Each scale contributes ΔT using its own d(q) = 2π/q
-                                # 1/P 보정: 실접촉면 열집중
+                                # 공칭 열유속 사용 (1/P 미포함 — Greenwood와 일관)
                                 d_i = 2.0 * np.pi / q_local[i]
                                 Jd_i = v_j * d_i / flash_calc.D_th
-                                P_i = max(P_hot[i], 1e-6)
-                                dq_dot_i = delta_mu_i * sigma_0 * v_j / P_i
+                                dq_dot_i = delta_mu_i * sigma_0 * v_j
                                 if dq_dot_i > 0 and np.isfinite(dq_dot_i):
                                     dT_i = (dq_dot_i * d_i) / (8.0 * flash_calc.kappa_th) / np.sqrt(
                                         1.0 + (np.pi / 2.0) * Jd_i)
@@ -11994,12 +12003,11 @@ class PerssonModelGUI_V2:
                                 T_acc = temperature + delta_T_per_q[i]
                             else:
                                 # --- Greenwood Macroscopic Formula (default) ---
-                                # q̇ = μ_cumul(q)·σ₀·v / P(q)  (실접촉면 열집중)
+                                # q̇ = μ_cumul(q)·σ₀·v  (공칭 열유속)
                                 # ΔT = q̇·d_macro/(8κ√(1+π/2·Jd_macro))
-                                # 1/P 보정: 마찰열은 실접촉면(면적비 P)에 집중되므로
-                                # 실제 열유속 = 공칭열유속 / P(q)
-                                P_i = max(P_hot[i], 1e-6)
-                                q_dot_macro = mu_cumul * sigma_0 * v_j / P_i
+                                # Greenwood 거시적 공식: d_macro 스케일의 평균 온도 상승
+                                # 공칭면적 기준 열유속 사용 (정품 프로그램과 일치)
+                                q_dot_macro = mu_cumul * sigma_0 * v_j
                                 delta_T_q = flash_calc.delta_T(q_dot_macro, Jd_macro)
                                 T_acc = temperature + delta_T_q
                                 delta_T_per_q[i] = T_acc - temperature
@@ -12018,9 +12026,9 @@ class PerssonModelGUI_V2:
                     # --- Main Per-q Flash Temperature velocity loop ---
                     # Persson (2006): At each magnification ζ=q/q₀, the flash
                     # temperature is computed from cumulative friction μ(q):
-                    #   q̇(q) = μ_cumul(q)·σ₀·v / P(q)  (실접촉면 열집중 보정)
+                    #   q̇(q) = μ_cumul(q)·σ₀·v  (공칭 열유속)
                     #   ΔT(q) = q̇·d_macro/(8κ√(1+π/2·Jd))
-                    # 1/P 보정: 마찰열은 실접촉면에 집중 → 열유속 증폭.
+                    # Greenwood 거시적 공식: d_macro 스케일의 평균 온도 상승.
                     # The WLF shift at each scale uses T(q) = T_base + ΔT(q).
                     model_name = ("Greenwood 기반 근사" if flash_model_type == "greenwood"
                                   else "Persson Full Integral (Per-Scale)")
@@ -12075,8 +12083,8 @@ class PerssonModelGUI_V2:
                         A_A0_hot_arr[j] = A_A0_hot_iter
                         flash_delta_T[j] = total_dT
                         flash_T_hot[j] = temperature + total_dT
-                        # q̇ = μ·σ₀·v / P (실접촉면 열집중 보정)
-                        flash_q_dot[j] = mu_hot_iter * sigma_0 * v[j] / max(A_A0_hot_iter, 1e-6)
+                        # q̇ = μ·σ₀·v (공칭 열유속)
+                        flash_q_dot[j] = mu_hot_iter * sigma_0 * v[j]
                         flash_Jd[j] = flash_calc.peclet_number(v[j])
                         flash_iterations[j] = 1  # Single forward pass
 
