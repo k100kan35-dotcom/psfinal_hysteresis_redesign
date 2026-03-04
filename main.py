@@ -19367,7 +19367,13 @@ class PerssonModelGUI_V2:
                 return
 
             v_model = self.mu_visc_results['v']
-            mu_visc_model = self.mu_visc_results['mu']
+            # Use mu_hot if flash temperature is active (measured data includes flash effects)
+            if (self.mu_visc_results.get('use_flash', False)
+                    and self.mu_visc_results.get('mu_hot') is not None
+                    and len(self.mu_visc_results['mu_hot']) == len(self.mu_visc_results['v'])):
+                mu_visc_model = self.mu_visc_results['mu_hot']
+            else:
+                mu_visc_model = self.mu_visc_results['mu']
 
             # Need A/A0 data
             area_source = self.adh_area_source_var.get()
@@ -19403,8 +19409,19 @@ class PerssonModelGUI_V2:
             T = T_calc_C + 273.15
             p0 = float(p0_str) * 1e6  # MPa → Pa
 
-            # Arrhenius shift factor (fixed for given T)
-            aT_prime = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
+            # Arrhenius shift factor
+            # Check for flash temperature data (per-velocity T_hot)
+            use_flash_in_fit = False
+            aT_prime_cold = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
+            aT_prime = aT_prime_cold  # default: cold (scalar)
+
+            if (self.mu_visc_results is not None
+                    and self.mu_visc_results.get('use_flash', False)
+                    and self.mu_visc_results.get('flash_results') is not None):
+                flash_res = self.mu_visc_results['flash_results']
+                T_hot_model_C = np.array(flash_res.get('T_hot', []))
+                if len(T_hot_model_C) == len(v_model) and np.any(T_hot_model_C > 0):
+                    use_flash_in_fit = True
 
             # Create interpolators for mu_visc and A_ratio at measured velocities
             log_v_model = np.log10(v_model)
@@ -19416,6 +19433,14 @@ class PerssonModelGUI_V2:
             log_v_meas = np.log10(v_meas)
             mu_visc_at_meas = mu_visc_interp(log_v_meas)
             A_ratio_at_meas = A_ratio_interp(log_v_meas)
+
+            # If flash active, interpolate T_hot to measured velocities → per-velocity aT_prime
+            if use_flash_in_fit:
+                T_hot_interp = interp1d(log_v_model, T_hot_model_C,
+                                        kind='linear', fill_value='extrapolate')
+                T_hot_at_meas_C = T_hot_interp(log_v_meas)
+                T_hot_at_meas_K = T_hot_at_meas_C + 273.15
+                aT_prime = np.exp((epsilon / k_B) * (1.0 / T_hot_at_meas_K - 1.0 / T_ref))
 
             # ── Read bounds ──
             tau_min = float(self.fit_tau_min_var.get()) * 1e6   # MPa → Pa
@@ -19545,7 +19570,8 @@ class PerssonModelGUI_V2:
 
             # ── Display fit results ──
             self.fit_result_text.delete(1.0, tk.END)
-            self.fit_result_text.insert(tk.END, "=== 자동 피팅 결과 (DE + Nelder-Mead) ===\n")
+            flash_label = " (Flash T 보정 적용)" if use_flash_in_fit else ""
+            self.fit_result_text.insert(tk.END, f"=== 자동 피팅 결과 (DE + Nelder-Mead){flash_label} ===\n")
             self.fit_result_text.insert(tk.END, f"  탐색: DE {total_trials}회 + Nelder-Mead {len(initial_guesses)}회\n")
             self.fit_result_text.insert(tk.END, f"  τ_f0  = {opt_tau_f0/1e6:.4f} MPa\n")
             self.fit_result_text.insert(tk.END, f"  v₀*   = {opt_v0_star:.6e} m/s\n")
