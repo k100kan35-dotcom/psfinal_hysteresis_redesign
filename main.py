@@ -688,6 +688,7 @@ class PerssonModelGUI_V2:
             ('tab_mu_visc',         'μ_visc 계산',        self._create_mu_visc_tab),
             ('tab_mu_adh',          'μ_adh 계산',         self._create_mu_adh_tab),
             ('tab_cold_hot_branch', 'Cold & Hot Branch',  self._create_cold_hot_branch_tab),
+            ('tab_2d_brush',        '2D Brush Model',     self._create_2d_brush_tab),
             ('tab_ve_advisor',      '점탄성 설계',        self._create_ve_advisor_tab),
             ('tab_strain_map',      'Strain Map',         self._create_strain_map_tab),
             ('tab_results',         '계산 과정',           self._create_results_tab),
@@ -20547,6 +20548,855 @@ class PerssonModelGUI_V2:
         except Exception as e:
             messagebox.showerror("오류", f"CSV 저장 실패:\n{str(e)}")
 
+
+
+    # ================================================================
+    # ====  2D Brush (Mass-Spring) Tire Dynamics Model Tab  ====
+    # ================================================================
+
+    def _create_2d_brush_tab(self, parent):
+        """Create 2D Brush Model tab for tire force simulation.
+
+        Implements a 2D mass-spring network (extended brush model) that uses
+        Cold & Hot branch friction curves to simulate tire braking (μ-slip)
+        and cornering (μ-slip angle) forces.
+        """
+        layout = self._create_tab_layout(parent, toolbar_buttons=[
+            ("제동 해석 (μ-slip)", self._run_brush_braking, 'Accent.TButton'),
+            ("선회 해석 (μ-α)", self._run_brush_cornering, 'Accent.TButton'),
+        ])
+        left_panel = layout['content']
+
+        # Internal storage
+        self.brush_results = None
+
+        # ── 1) 타이어 / 격자 파라미터 ──
+        sec1 = self._create_section(left_panel, "1) 타이어 / 격자 설정")
+
+        row_nx = ttk.Frame(sec1); row_nx.pack(fill=tk.X, pady=1)
+        ttk.Label(row_nx, text="Nx (종방향 격자):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_Nx_var = tk.StringVar(value="60")
+        ttk.Entry(row_nx, textvariable=self.br_Nx_var, width=6).pack(side=tk.LEFT, padx=2)
+
+        row_ny = ttk.Frame(sec1); row_ny.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ny, text="Ny (횡방향 격자):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_Ny_var = tk.StringVar(value="12")
+        ttk.Entry(row_ny, textvariable=self.br_Ny_var, width=6).pack(side=tk.LEFT, padx=2)
+
+        row_L = ttk.Frame(sec1); row_L.pack(fill=tk.X, pady=1)
+        ttk.Label(row_L, text="풋프린트 길이 L:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_L_var = tk.StringVar(value="0.15")
+        ttk.Entry(row_L, textvariable=self.br_L_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_L, text="m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row_W = ttk.Frame(sec1); row_W.pack(fill=tk.X, pady=1)
+        ttk.Label(row_W, text="풋프린트 폭 W:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_W_var = tk.StringVar(value="0.12")
+        ttk.Entry(row_W, textvariable=self.br_W_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_W, text="m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row_Fz = ttk.Frame(sec1); row_Fz.pack(fill=tk.X, pady=1)
+        ttk.Label(row_Fz, text="수직 하중 Fz:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_Fz_var = tk.StringVar(value="4000")
+        ttk.Entry(row_Fz, textvariable=self.br_Fz_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_Fz, text="N", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row_kx = ttk.Frame(sec1); row_kx.pack(fill=tk.X, pady=1)
+        ttk.Label(row_kx, text="kx (종방향 강성):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_kx_var = tk.StringVar(value="8e5")
+        ttk.Entry(row_kx, textvariable=self.br_kx_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_kx, text="N/m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row_ky = ttk.Frame(sec1); row_ky.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ky, text="ky (횡방향 강성):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_ky_var = tk.StringVar(value="6e5")
+        ttk.Entry(row_ky, textvariable=self.br_ky_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_ky, text="N/m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row_cx = ttk.Frame(sec1); row_cx.pack(fill=tk.X, pady=1)
+        ttk.Label(row_cx, text="cx (종방향 감쇠):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_cx_var = tk.StringVar(value="50")
+        ttk.Entry(row_cx, textvariable=self.br_cx_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_cx, text="N·s/m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row_cy = ttk.Frame(sec1); row_cy.pack(fill=tk.X, pady=1)
+        ttk.Label(row_cy, text="cy (횡방향 감쇠):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_cy_var = tk.StringVar(value="50")
+        ttk.Entry(row_cy, textvariable=self.br_cy_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_cy, text="N·s/m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        # ── 2) 주행 조건 ──
+        sec2 = self._create_section(left_panel, "2) 주행 조건")
+
+        row_vc = ttk.Frame(sec2); row_vc.pack(fill=tk.X, pady=1)
+        ttk.Label(row_vc, text="차량 속도 vc:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_vc_var = tk.StringVar(value="16.67")
+        ttk.Entry(row_vc, textvariable=self.br_vc_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_vc, text="m/s (= 60 km/h)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        row_D = ttk.Frame(sec2); row_D.pack(fill=tk.X, pady=1)
+        ttk.Label(row_D, text="D (돌기 직경):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_D_macro_var = tk.StringVar(value="2.0")
+        ttk.Entry(row_D, textvariable=self.br_D_macro_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_D, text="mm  (s₀ = 0.2D)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        row_ptype = ttk.Frame(sec2); row_ptype.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ptype, text="압력 분포:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_pressure_type_var = tk.StringVar(value="parabolic")
+        ttk.Combobox(row_ptype, textvariable=self.br_pressure_type_var, width=12,
+                     values=['uniform', 'parabolic', 'elliptic'],
+                     state='readonly').pack(side=tk.LEFT, padx=2)
+
+        # ── 3) 스윕 설정 ──
+        sec3 = self._create_section(left_panel, "3) 스윕 설정")
+
+        row_smode = ttk.Frame(sec3); row_smode.pack(fill=tk.X, pady=1)
+        ttk.Label(row_smode, text="해석 모드:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_sweep_mode_var = tk.StringVar(value="braking")
+        ttk.Combobox(row_smode, textvariable=self.br_sweep_mode_var, width=14,
+                     values=['braking', 'cornering'],
+                     state='readonly').pack(side=tk.LEFT, padx=2)
+
+        row_smin = ttk.Frame(sec3); row_smin.pack(fill=tk.X, pady=1)
+        ttk.Label(row_smin, text="슬립 시작:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_slip_min_var = tk.StringVar(value="0.005")
+        ttk.Entry(row_smin, textvariable=self.br_slip_min_var, width=8).pack(side=tk.LEFT, padx=2)
+
+        row_smax = ttk.Frame(sec3); row_smax.pack(fill=tk.X, pady=1)
+        ttk.Label(row_smax, text="슬립 끝:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_slip_max_var = tk.StringVar(value="0.30")
+        ttk.Entry(row_smax, textvariable=self.br_slip_max_var, width=8).pack(side=tk.LEFT, padx=2)
+
+        row_ns = ttk.Frame(sec3); row_ns.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ns, text="스윕 개수:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_n_sweep_var = tk.StringVar(value="25")
+        ttk.Entry(row_ns, textvariable=self.br_n_sweep_var, width=6).pack(side=tk.LEFT, padx=2)
+
+        sweep_note = ttk.Label(sec3,
+                               text="※ 제동: s = (vc - vR)/vc, 0~0.3\n"
+                                    "   선회: α = slip angle, 0~25°",
+                               font=self.FONTS['small'], foreground='#64748B')
+        sweep_note.pack(anchor=tk.W, pady=(2, 0))
+
+        # ── 4) 시뮬레이션 설정 ──
+        sec4 = self._create_section(left_panel, "4) 시뮬레이션 설정")
+
+        row_dt = ttk.Frame(sec4); row_dt.pack(fill=tk.X, pady=1)
+        ttk.Label(row_dt, text="Δt:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_dt_var = tk.StringVar(value="1e-5")
+        ttk.Entry(row_dt, textvariable=self.br_dt_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_dt, text="s", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row_nstep = ttk.Frame(sec4); row_nstep.pack(fill=tk.X, pady=1)
+        ttk.Label(row_nstep, text="최대 스텝 수:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_max_steps_var = tk.StringVar(value="5000")
+        ttk.Entry(row_nstep, textvariable=self.br_max_steps_var, width=8).pack(side=tk.LEFT, padx=2)
+
+        row_tol = ttk.Frame(sec4); row_tol.pack(fill=tk.X, pady=1)
+        ttk.Label(row_tol, text="정상 상태 수렴:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_ss_tol_var = tk.StringVar(value="1e-4")
+        ttk.Entry(row_tol, textvariable=self.br_ss_tol_var, width=8).pack(side=tk.LEFT, padx=2)
+
+        sim_note = ttk.Label(sec4,
+                             text="※ Euler 적분, 수렴 시 조기 종료\n"
+                                  "   Cold & Hot Branch 결과 필요",
+                             font=self.FONTS['small'], foreground='#DC2626')
+        sim_note.pack(anchor=tk.W, pady=(2, 0))
+
+        # ── 5) 실행 & 결과 ──
+        sec5 = self._create_section(left_panel, "5) 실행")
+
+        calc_row = ttk.Frame(sec5); calc_row.pack(fill=tk.X, pady=2)
+        self.br_calc_btn = ttk.Button(calc_row, text="제동 해석 (μ-slip)",
+                                       command=self._run_brush_braking, width=18,
+                                       style='Accent.TButton')
+        self.br_calc_btn.pack(side=tk.LEFT, padx=2)
+        self.br_calc_btn2 = ttk.Button(calc_row, text="선회 해석 (μ-α)",
+                                        command=self._run_brush_cornering, width=18)
+        self.br_calc_btn2.pack(side=tk.LEFT, padx=2)
+
+        self.br_progress_var = tk.IntVar()
+        self.br_progress_bar = ttk.Progressbar(calc_row, variable=self.br_progress_var,
+                                                maximum=100, length=120)
+        self.br_progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        # Sync button
+        sync_row = ttk.Frame(sec5); sync_row.pack(fill=tk.X, pady=2)
+        ttk.Button(sync_row, text="Cold & Hot 동기화",
+                   command=self._sync_brush_from_cold_hot, width=18).pack(side=tk.LEFT, padx=2)
+        self.br_sync_status_var = tk.StringVar(value="(Cold & Hot 결과 필요)")
+        ttk.Label(sync_row, textvariable=self.br_sync_status_var,
+                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=4)
+
+        # Result text
+        sec6 = self._create_section(left_panel, "6) 결과 요약")
+        self.br_result_text = tk.Text(sec6, height=10, font=self.FONTS['mono_small'], wrap=tk.WORD)
+        self.br_result_text.pack(fill=tk.X)
+
+        export_row = ttk.Frame(sec6); export_row.pack(fill=tk.X, pady=2)
+        ttk.Button(export_row, text="CSV 내보내기",
+                   command=self._export_brush_csv, width=14).pack(side=tk.LEFT, padx=1)
+
+        # ============== Right Panel: Plots ==============
+        right_panel = layout['right']
+
+        plot_frame = ttk.LabelFrame(right_panel, text="2D Brush Model 시뮬레이션", padding=5)
+        plot_frame.pack(fill=tk.BOTH, expand=True)
+
+        self.fig_brush = Figure(figsize=(10, 8), dpi=100)
+
+        # (1) 컨택 패치 2D 시각화 - top left
+        self.ax_br_patch = self.fig_brush.add_subplot(221)
+        self.ax_br_patch.set_title('Contact Patch (Slip Distance)', fontweight='bold', fontsize=10)
+        self.ax_br_patch.set_xlabel('x (종방향, m)')
+        self.ax_br_patch.set_ylabel('y (횡방향, m)')
+        self.ax_br_patch.set_aspect('equal')
+
+        # (2) μ_eff 분포 - top right
+        self.ax_br_mu_map = self.fig_brush.add_subplot(222)
+        self.ax_br_mu_map.set_title('μ_eff Distribution', fontweight='bold', fontsize=10)
+        self.ax_br_mu_map.set_xlabel('x (종방향, m)')
+        self.ax_br_mu_map.set_ylabel('y (횡방향, m)')
+        self.ax_br_mu_map.set_aspect('equal')
+
+        # (3) μ-slip 커브 - bottom left
+        self.ax_br_mu_slip = self.fig_brush.add_subplot(223)
+        self.ax_br_mu_slip.set_title('μ vs Slip (Braking / Cornering)', fontweight='bold', fontsize=10)
+        self.ax_br_mu_slip.set_xlabel('Slip ratio s  or  Slip angle α (°)')
+        self.ax_br_mu_slip.set_ylabel('μ = F / Fz')
+        self.ax_br_mu_slip.grid(True, alpha=0.3)
+
+        # (4) Fx, Fy, Mz - bottom right
+        self.ax_br_forces = self.fig_brush.add_subplot(224)
+        self.ax_br_forces.set_title('Fx, Fy, Mz vs Slip', fontweight='bold', fontsize=10)
+        self.ax_br_forces.set_xlabel('Slip ratio s  or  Slip angle α (°)')
+        self.ax_br_forces.set_ylabel('Force (N) / Torque (N·m)')
+        self.ax_br_forces.grid(True, alpha=0.3)
+
+        self.fig_brush.subplots_adjust(left=0.10, right=0.92, top=0.95, bottom=0.08,
+                                        hspace=0.45, wspace=0.35)
+
+        self.canvas_brush = FigureCanvasTkAgg(self.fig_brush, plot_frame)
+        self.canvas_brush.draw_idle()
+        self.canvas_brush.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        toolbar = NavigationToolbar2Tk(self.canvas_brush, plot_frame)
+        toolbar.update()
+
+    # ── 2D Brush: LUT Sync ──
+
+    def _sync_brush_from_cold_hot(self):
+        """Sync Cold & Hot branch curves for LUT interpolation."""
+        if self.cold_hot_results is None:
+            self.br_sync_status_var.set("(Cold & Hot 결과 없음 → 먼저 계산)")
+            self._show_status("Cold & Hot Branch 결과가 필요합니다.", 'warning')
+            return
+        r = self.cold_hot_results
+        self.br_sync_status_var.set(
+            f"동기화 완료 (v: {len(r['v'])}pts, "
+            f"μ_cold: {np.max(r['mu_cold_total']):.3f}, "
+            f"μ_hot: {np.max(r['mu_hot_total']):.3f})")
+        # Sync D
+        if 'D' in r:
+            self.br_D_macro_var.set(f"{r['D']*1e3:.1f}")
+        self._show_status("Cold & Hot Branch 데이터 동기화 완료", 'success')
+
+    # ── 2D Brush: Core simulation engine ──
+
+    def _build_brush_lut(self):
+        """Build spline LUTs from Cold & Hot branch results.
+
+        Returns (lut_cold, lut_hot) - callable interpolators mu(v).
+        """
+        from scipy.interpolate import interp1d
+        r = self.cold_hot_results
+        v = r['v']
+        mu_cold = r['mu_cold_total']
+        mu_hot = r['mu_hot_total']
+
+        # Log-scale interpolation for better accuracy across decades
+        log_v = np.log10(np.clip(v, 1e-12, None))
+        lut_cold = interp1d(log_v, mu_cold, kind='cubic',
+                            bounds_error=False, fill_value=(mu_cold[0], mu_cold[-1]))
+        lut_hot = interp1d(log_v, mu_hot, kind='cubic',
+                           bounds_error=False, fill_value=(mu_hot[0], mu_hot[-1]))
+
+        def mu_cold_fn(v_query):
+            return lut_cold(np.log10(np.clip(np.abs(v_query) + 1e-15, 1e-12, None)))
+
+        def mu_hot_fn(v_query):
+            return lut_hot(np.log10(np.clip(np.abs(v_query) + 1e-15, 1e-12, None)))
+
+        return mu_cold_fn, mu_hot_fn
+
+    def _build_pressure_map(self, Nx, Ny, L, W, Fz, ptype='parabolic'):
+        """Build 2D pressure distribution over the contact patch.
+
+        Returns:
+            p_map: (Nx, Ny) array of local pressure (Pa)
+            x_arr: (Nx,) longitudinal positions (m), centred at 0
+            y_arr: (Ny,) lateral positions (m), centred at 0
+            dx, dy: grid spacing (m)
+        """
+        x_arr = np.linspace(-L / 2, L / 2, Nx)
+        y_arr = np.linspace(-W / 2, W / 2, Ny)
+        dx = L / max(Nx - 1, 1)
+        dy = W / max(Ny - 1, 1)
+        dA = dx * dy  # element area
+
+        xx, yy = np.meshgrid(x_arr, y_arr, indexing='ij')  # (Nx, Ny)
+
+        if ptype == 'uniform':
+            p_map = np.ones((Nx, Ny))
+        elif ptype == 'elliptic':
+            # Elliptic (Hertzian-like): p = p0 * sqrt(1 - (2x/L)^2 - (2y/W)^2)
+            r2 = (2 * xx / L) ** 2 + (2 * yy / W) ** 2
+            p_map = np.sqrt(np.clip(1 - r2, 0, None))
+        else:  # parabolic (default)
+            # Parabolic: p = p0 * (1 - (2x/L)^2) * (1 - (2y/W)^2)
+            p_map = np.clip(1 - (2 * xx / L) ** 2, 0, None) * \
+                    np.clip(1 - (2 * yy / W) ** 2, 0, None)
+
+        # Normalise so total force = Fz
+        total_raw = np.sum(p_map) * dA
+        if total_raw > 0:
+            p_map *= Fz / total_raw  # now Pa * m^2 / m^2 → N/m^2
+
+        return p_map, x_arr, y_arr, dx, dy
+
+    def _run_brush_simulation(self, mode='braking'):
+        """Run the 2D brush model ODE integration.
+
+        Mode: 'braking' sweeps longitudinal slip ratio s
+              'cornering' sweeps slip angle alpha
+
+        Returns dict with sweep results.
+        """
+        # ── Validate data ──
+        if self.cold_hot_results is None:
+            raise ValueError("Cold & Hot Branch 결과가 필요합니다. 먼저 계산하세요.")
+
+        # ── Read parameters ──
+        Nx = int(self.br_Nx_var.get())
+        Ny = int(self.br_Ny_var.get())
+        L = float(self.br_L_var.get())
+        W = float(self.br_W_var.get())
+        Fz = float(self.br_Fz_var.get())
+        kx = float(self.br_kx_var.get())
+        ky = float(self.br_ky_var.get())
+        cx = float(self.br_cx_var.get())
+        cy = float(self.br_cy_var.get())
+        vc = float(self.br_vc_var.get())
+        D_mm = float(self.br_D_macro_var.get())
+        s0 = 0.2 * D_mm * 1e-3  # metres
+        dt = float(self.br_dt_var.get())
+        max_steps = int(self.br_max_steps_var.get())
+        ss_tol = float(self.br_ss_tol_var.get())
+        ptype = self.br_pressure_type_var.get()
+        slip_min = float(self.br_slip_min_var.get())
+        slip_max = float(self.br_slip_max_var.get())
+        n_sweep = int(self.br_n_sweep_var.get())
+
+        # ── Build LUT ──
+        lut_cold, lut_hot = self._build_brush_lut()
+
+        # ── Build pressure map & grid ──
+        p_map, x_arr, y_arr, dx, dy = self._build_pressure_map(
+            Nx, Ny, L, W, Fz, ptype)
+        dA = dx * dy
+
+        # Element normal force
+        Fz_ij = p_map * dA  # (Nx, Ny) in Newtons
+
+        # Sweep values
+        if mode == 'braking':
+            sweep_vals = np.linspace(slip_min, slip_max, n_sweep)
+        else:  # cornering
+            # Convert degrees to radians for internal use
+            sweep_vals_deg = np.linspace(slip_min, slip_max, n_sweep)
+            sweep_vals = np.deg2rad(sweep_vals_deg)
+
+        # Output arrays
+        Fx_arr = np.zeros(n_sweep)
+        Fy_arr = np.zeros(n_sweep)
+        Mz_arr = np.zeros(n_sweep)
+        mu_x_arr = np.zeros(n_sweep)
+        mu_y_arr = np.zeros(n_sweep)
+
+        # Store last contact patch data for visualisation
+        last_slip_dist = None
+        last_mu_eff = None
+        mid_slip_dist = None
+        mid_mu_eff = None
+
+        for si, sweep_val in enumerate(sweep_vals):
+            # ── Determine rim velocity components ──
+            if mode == 'braking':
+                s = sweep_val  # slip ratio
+                alpha = 0.0
+                vR = vc * (1 - s)  # wheel peripheral speed
+                v_rim_x = vc - vR  # longitudinal slip velocity at rim
+                v_rim_y = 0.0
+            else:  # cornering
+                alpha = sweep_val  # slip angle (rad)
+                s = 0.0
+                vR = vc
+                v_rim_x = 0.0
+                v_rim_y = vc * np.sin(alpha)  # lateral slip velocity
+
+            # ── State arrays (displacements & velocities) ──
+            # ux, uy: deformation of tread element relative to its anchor point
+            ux = np.zeros((Nx, Ny))
+            uy = np.zeros((Nx, Ny))
+            vx_node = np.zeros((Nx, Ny))
+            vy_node = np.zeros((Nx, Ny))
+            s_dist = np.zeros((Nx, Ny))  # cumulative slip distance
+
+            # ── Time integration (Euler) ──
+            Fx_prev = 0.0
+            converged = False
+
+            for step in range(max_steps):
+                # -- Compute local slip speed for each element --
+                # The tread element is attached to the carcass via springs.
+                # Its slip speed relative to road = imposed rim slip - spring restoring velocity
+                # Simplified: v_slip = v_rim - k/c * u  (quasi-static brush interpretation)
+                # But we do full dynamics: the nodal velocity IS the slip velocity
+
+                # Restoring forces from carcass springs (each element connected to
+                # its nominal position which moves with rim)
+                Fspring_x = -kx * ux - cx * vx_node
+                Fspring_y = -ky * uy - cy * vy_node
+
+                # Neighbour coupling (bending stiffness): Laplacian of displacement
+                # creates tendency to keep grid smooth
+                kBx = kx * 0.05  # bending stiffness = small fraction of elongation
+                kBy = ky * 0.05
+
+                lap_ux = np.zeros_like(ux)
+                lap_uy = np.zeros_like(uy)
+                # Interior Laplacian (5-point stencil)
+                if Nx > 2:
+                    lap_ux[1:-1, :] += ux[:-2, :] + ux[2:, :] - 2 * ux[1:-1, :]
+                    lap_uy[1:-1, :] += uy[:-2, :] + uy[2:, :] - 2 * uy[1:-1, :]
+                if Ny > 2:
+                    lap_ux[:, 1:-1] += ux[:, :-2] + ux[:, 2:] - 2 * ux[:, 1:-1]
+                    lap_uy[:, 1:-1] += uy[:, :-2] + uy[:, 2:] - 2 * uy[:, 1:-1]
+
+                F_bend_x = kBx * lap_ux
+                F_bend_y = kBy * lap_uy
+
+                # Node slip velocity relative to road
+                # Each node approaches the road at v_rim and is held back by spring
+                # In steady state: friction force = spring force
+                # Slip speed = how fast the tread base moves relative to road
+                v_slip_x = v_rim_x + vx_node
+                v_slip_y = v_rim_y + vy_node
+                v_slip_mag = np.sqrt(v_slip_x**2 + v_slip_y**2) + 1e-15
+
+                # Update cumulative slip distance
+                s_dist += v_slip_mag * dt
+
+                # ── Friction force (history-dependent blending) ──
+                mu_cold_vals = lut_cold(v_slip_mag)
+                mu_hot_vals = lut_hot(v_slip_mag)
+
+                # Blending: mu_eff = mu_cold * exp(-s/s0) + mu_hot * (1 - exp(-s/s0))
+                blend = np.exp(-s_dist / max(s0, 1e-10))
+                mu_eff = mu_cold_vals * blend + mu_hot_vals * (1 - blend)
+
+                # Friction force (opposes slip direction), only where Fz > 0
+                F_fric_x = -mu_eff * Fz_ij * v_slip_x / v_slip_mag
+                F_fric_y = -mu_eff * Fz_ij * v_slip_y / v_slip_mag
+                # Zero friction outside footprint
+                mask_contact = Fz_ij > 0
+                F_fric_x *= mask_contact
+                F_fric_y *= mask_contact
+
+                # ── Total force on each node ──
+                Ftot_x = Fspring_x + F_bend_x + F_fric_x
+                Ftot_y = Fspring_y + F_bend_y + F_fric_y
+
+                # ── Euler integration (heavily damped → use velocity-verlet-like) ──
+                # Effective mass per node (small for fast convergence to steady state)
+                m_node = 0.001  # kg (artificial small mass for quick relaxation)
+                ax_node = Ftot_x / m_node
+                ay_node = Ftot_y / m_node
+
+                vx_node += ax_node * dt
+                vy_node += ay_node * dt
+
+                # Strong damping to reach steady state quickly
+                damp = 0.85
+                vx_node *= damp
+                vy_node *= damp
+
+                ux += vx_node * dt
+                uy += vy_node * dt
+
+                # ── Convergence check (every 100 steps) ──
+                if step > 0 and step % 100 == 0:
+                    Fx_now = np.sum(F_fric_x)
+                    if abs(Fx_prev) > 1e-10:
+                        rel_change = abs(Fx_now - Fx_prev) / (abs(Fx_prev) + 1e-10)
+                        if rel_change < ss_tol:
+                            converged = True
+                            break
+                    Fx_prev = Fx_now
+
+            # ── Post-processing: total forces ──
+            Fx_total = np.sum(F_fric_x)
+            Fy_total = np.sum(F_fric_y)
+
+            # Self-aligning torque about patch centre (x=0, y=0)
+            xx, yy = np.meshgrid(x_arr, y_arr, indexing='ij')
+            Mz_total = np.sum(xx * F_fric_y - yy * F_fric_x)
+
+            Fx_arr[si] = Fx_total
+            Fy_arr[si] = Fy_total
+            Mz_arr[si] = Mz_total
+            mu_x_arr[si] = abs(Fx_total) / max(Fz, 1e-10)
+            mu_y_arr[si] = abs(Fy_total) / max(Fz, 1e-10)
+
+            # Store visualisation data for mid and last sweep point
+            if si == n_sweep // 2:
+                mid_slip_dist = s_dist.copy()
+                mid_mu_eff = mu_eff.copy()
+            if si == n_sweep - 1:
+                last_slip_dist = s_dist.copy()
+                last_mu_eff = mu_eff.copy()
+
+            # Update progress
+            progress = int(100 * (si + 1) / n_sweep)
+            self.br_progress_var.set(progress)
+            self.root.update()
+
+        # ── Build result dict ──
+        if mode == 'braking':
+            sweep_display = sweep_vals  # slip ratio
+        else:
+            sweep_display = np.rad2deg(sweep_vals)  # degrees
+
+        result = {
+            'mode': mode,
+            'sweep': sweep_display,
+            'Fx': Fx_arr,
+            'Fy': Fy_arr,
+            'Mz': Mz_arr,
+            'mu_x': mu_x_arr,
+            'mu_y': mu_y_arr,
+            'Fz': Fz,
+            'x_arr': x_arr,
+            'y_arr': y_arr,
+            'last_slip_dist': last_slip_dist,
+            'last_mu_eff': last_mu_eff,
+            'mid_slip_dist': mid_slip_dist,
+            'mid_mu_eff': mid_mu_eff,
+            'p_map': p_map,
+            'vc': vc,
+            's0': s0,
+        }
+        return result
+
+    # ── 2D Brush: Run wrappers ──
+
+    def _run_brush_braking(self):
+        """Run 2D brush braking (μ-slip) analysis."""
+        try:
+            self.br_calc_btn.config(state='disabled')
+            self.br_progress_var.set(0)
+            self.status_var.set("2D Brush 제동 해석 중...")
+            self.root.update()
+
+            self.brush_results = self._run_brush_simulation(mode='braking')
+            self._update_brush_plots()
+            self._update_brush_result_text()
+
+            self.br_progress_var.set(100)
+            self.status_var.set("2D Brush 제동 해석 완료")
+            self.br_calc_btn.config(state='normal')
+            self._show_status("2D Brush 제동 해석 완료 (μ-slip curve 생성)", 'success')
+
+        except ValueError as e:
+            self.br_calc_btn.config(state='normal')
+            self._show_status(f"입력값 오류: {str(e)}", 'warning')
+        except Exception as e:
+            self.br_calc_btn.config(state='normal')
+            messagebox.showerror("오류", f"2D Brush 제동 해석 실패:\n{str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    def _run_brush_cornering(self):
+        """Run 2D brush cornering (μ-slip angle) analysis."""
+        try:
+            self.br_calc_btn2.config(state='disabled')
+            self.br_progress_var.set(0)
+            self.status_var.set("2D Brush 선회 해석 중...")
+            self.root.update()
+
+            self.brush_results = self._run_brush_simulation(mode='cornering')
+            self._update_brush_plots()
+            self._update_brush_result_text()
+
+            self.br_progress_var.set(100)
+            self.status_var.set("2D Brush 선회 해석 완료")
+            self.br_calc_btn2.config(state='normal')
+            self._show_status("2D Brush 선회 해석 완료 (μ-slip angle curve 생성)", 'success')
+
+        except ValueError as e:
+            self.br_calc_btn2.config(state='normal')
+            self._show_status(f"입력값 오류: {str(e)}", 'warning')
+        except Exception as e:
+            self.br_calc_btn2.config(state='normal')
+            messagebox.showerror("오류", f"2D Brush 선회 해석 실패:\n{str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    # ── 2D Brush: Plot update ──
+
+    def _update_brush_plots(self):
+        """Update all 4 subplots for the 2D Brush Model results."""
+        if self.brush_results is None:
+            return
+
+        try:
+            r = self.brush_results
+            mode = r['mode']
+            sweep = r['sweep']
+            x_arr = r['x_arr']
+            y_arr = r['y_arr']
+
+            # Remove old colorbars if they exist
+            for attr in ('_cb_br_patch', '_cb_br_mu_map'):
+                if hasattr(self, attr) and getattr(self, attr) is not None:
+                    try:
+                        getattr(self, attr).remove()
+                    except Exception:
+                        pass
+                    setattr(self, attr, None)
+            # Remove old twin axis for Mz
+            if hasattr(self, '_ax_br_mz_twin') and self._ax_br_mz_twin is not None:
+                try:
+                    self._ax_br_mz_twin.remove()
+                except Exception:
+                    pass
+                self._ax_br_mz_twin = None
+
+            slip_label = ""
+            if mode == 'braking':
+                slip_label = f"s={sweep[len(sweep)//2]:.3f}"
+            else:
+                slip_label = f"α={sweep[len(sweep)//2]:.1f}°"
+
+            # ── (1) Contact patch: cumulative slip distance (coloured) ──
+            self.ax_br_patch.clear()
+            if r['mid_slip_dist'] is not None:
+                s_dist_show = r['mid_slip_dist']
+                im1 = self.ax_br_patch.pcolormesh(
+                    x_arr, y_arr, s_dist_show.T,
+                    shading='auto', cmap='YlOrRd')
+                self._cb_br_patch = self.fig_brush.colorbar(
+                    im1, ax=self.ax_br_patch, shrink=0.8, pad=0.02)
+                self._cb_br_patch.set_label('Slip distance (m)', fontsize=8)
+                self.ax_br_patch.set_title(
+                    f'Contact Patch - Slip Dist ({slip_label})',
+                    fontweight='bold', fontsize=10)
+            else:
+                self.ax_br_patch.set_title('Contact Patch (No data)', fontsize=10)
+            self.ax_br_patch.set_xlabel('x (m)')
+            self.ax_br_patch.set_ylabel('y (m)')
+            self.ax_br_patch.set_aspect('equal')
+
+            # ── (2) μ_eff distribution at mid-sweep ──
+            self.ax_br_mu_map.clear()
+            if r['mid_mu_eff'] is not None:
+                mu_show = r['mid_mu_eff']
+                im2 = self.ax_br_mu_map.pcolormesh(
+                    x_arr, y_arr, mu_show.T,
+                    shading='auto', cmap='viridis')
+                self._cb_br_mu_map = self.fig_brush.colorbar(
+                    im2, ax=self.ax_br_mu_map, shrink=0.8, pad=0.02)
+                self._cb_br_mu_map.set_label('μ_eff', fontsize=8)
+                self.ax_br_mu_map.set_title(
+                    f'μ_eff Distribution ({slip_label})',
+                    fontweight='bold', fontsize=10)
+            else:
+                self.ax_br_mu_map.set_title('μ_eff (No data)', fontsize=10)
+            self.ax_br_mu_map.set_xlabel('x (m)')
+            self.ax_br_mu_map.set_ylabel('y (m)')
+            self.ax_br_mu_map.set_aspect('equal')
+
+            # ── (3) μ-slip or μ-slip angle curve ──
+            self.ax_br_mu_slip.clear()
+            if mode == 'braking':
+                self.ax_br_mu_slip.plot(sweep, r['mu_x'], 'b-o', linewidth=2,
+                                         markersize=4, label='μ_x (제동력)')
+                if np.any(r['mu_y'] > 1e-6):
+                    self.ax_br_mu_slip.plot(sweep, r['mu_y'], 'r--', linewidth=1.5,
+                                             label='μ_y (횡력)')
+                self.ax_br_mu_slip.set_xlabel('Slip ratio s')
+                self.ax_br_mu_slip.set_title('μ vs Slip Ratio (Braking)',
+                                              fontweight='bold', fontsize=10)
+            else:
+                self.ax_br_mu_slip.plot(sweep, r['mu_y'], 'r-o', linewidth=2,
+                                         markersize=4, label='μ_y (코너링 포스)')
+                if np.any(r['mu_x'] > 1e-6):
+                    self.ax_br_mu_slip.plot(sweep, r['mu_x'], 'b--', linewidth=1.5,
+                                             label='μ_x (종방향)')
+                self.ax_br_mu_slip.set_xlabel('Slip angle α (°)')
+                self.ax_br_mu_slip.set_title('μ vs Slip Angle (Cornering)',
+                                              fontweight='bold', fontsize=10)
+            self.ax_br_mu_slip.set_ylabel('μ = |F| / Fz')
+            self.ax_br_mu_slip.legend(fontsize=8)
+            self.ax_br_mu_slip.grid(True, alpha=0.3)
+
+            # Peak marker
+            if mode == 'braking':
+                mu_main = r['mu_x']
+            else:
+                mu_main = r['mu_y']
+
+            if len(mu_main) > 0 and np.max(mu_main) > 0:
+                idx_peak = np.argmax(mu_main)
+                self.ax_br_mu_slip.annotate(
+                    f'Peak: μ={mu_main[idx_peak]:.3f}\n@ {sweep[idx_peak]:.3f}',
+                    xy=(sweep[idx_peak], mu_main[idx_peak]),
+                    xytext=(sweep[idx_peak] + (sweep[-1] - sweep[0]) * 0.1,
+                            mu_main[idx_peak] * 0.9),
+                    fontsize=8, color='#DC2626',
+                    arrowprops=dict(arrowstyle='->', color='#DC2626', lw=1.2))
+
+            # ── (4) Forces Fx, Fy, Mz ──
+            self.ax_br_forces.clear()
+            ax_f = self.ax_br_forces
+            ax_f.plot(sweep, r['Fx'], 'b-', linewidth=2, label='Fx (종방향)')
+            ax_f.plot(sweep, r['Fy'], 'r-', linewidth=2, label='Fy (횡방향)')
+            ax_f.set_ylabel('Force (N)', color='black')
+            ax_f.legend(loc='upper left', fontsize=8)
+            ax_f.grid(True, alpha=0.3)
+
+            # Twin axis for Mz
+            self._ax_br_mz_twin = ax_f.twinx()
+            self._ax_br_mz_twin.plot(sweep, r['Mz'], 'g--', linewidth=1.5, label='Mz (토크)')
+            self._ax_br_mz_twin.set_ylabel('Mz (N·m)', color='green')
+            self._ax_br_mz_twin.tick_params(axis='y', labelcolor='green')
+            self._ax_br_mz_twin.legend(loc='upper right', fontsize=8)
+
+            if mode == 'braking':
+                ax_f.set_xlabel('Slip ratio s')
+                ax_f.set_title('Fx, Fy, Mz vs Slip Ratio', fontweight='bold', fontsize=10)
+            else:
+                ax_f.set_xlabel('Slip angle α (°)')
+                ax_f.set_title('Fx, Fy, Mz vs Slip Angle', fontweight='bold', fontsize=10)
+
+            self.fig_brush.tight_layout(pad=1.5)
+            self.canvas_brush.draw_idle()
+
+        except Exception as e:
+            print(f"[2D Brush] Plot update error: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # ── 2D Brush: Result text ──
+
+    def _update_brush_result_text(self):
+        """Update result summary text for 2D Brush model."""
+        if self.brush_results is None:
+            return
+
+        r = self.brush_results
+        mode = r['mode']
+        sweep = r['sweep']
+
+        self.br_result_text.delete('1.0', tk.END)
+
+        self.br_result_text.insert(tk.END, f"=== 2D Brush Model 결과 ===\n")
+        self.br_result_text.insert(tk.END,
+            f"모드: {'제동 (Braking)' if mode == 'braking' else '선회 (Cornering)'}\n")
+        self.br_result_text.insert(tk.END, f"차량 속도: {r['vc']:.2f} m/s\n")
+        self.br_result_text.insert(tk.END, f"s₀ = {r['s0']*1e3:.2f} mm\n\n")
+
+        if mode == 'braking':
+            mu_main = r['mu_x']
+            idx_peak = np.argmax(mu_main)
+            self.br_result_text.insert(tk.END,
+                f"μ_x Peak: {mu_main[idx_peak]:.4f} @ s={sweep[idx_peak]:.4f}\n")
+            self.br_result_text.insert(tk.END,
+                f"Fx Peak: {r['Fx'][idx_peak]:.1f} N\n")
+            self.br_result_text.insert(tk.END,
+                f"μ_x at s=0.1: {np.interp(0.1, sweep, mu_main):.4f}\n")
+            self.br_result_text.insert(tk.END,
+                f"μ_x at s=0.2: {np.interp(0.2, sweep, mu_main):.4f}\n\n")
+        else:
+            mu_main = r['mu_y']
+            idx_peak = np.argmax(mu_main)
+            self.br_result_text.insert(tk.END,
+                f"μ_y Peak: {mu_main[idx_peak]:.4f} @ α={sweep[idx_peak]:.1f}°\n")
+            self.br_result_text.insert(tk.END,
+                f"Fy Peak: {r['Fy'][idx_peak]:.1f} N\n")
+            self.br_result_text.insert(tk.END,
+                f"Mz at peak: {r['Mz'][idx_peak]:.2f} N·m\n\n")
+
+        # Table header
+        if mode == 'braking':
+            self.br_result_text.insert(tk.END,
+                f"{'s':>8s} {'μ_x':>8s} {'Fx(N)':>10s} {'Fy(N)':>10s} {'Mz(Nm)':>10s}\n")
+            self.br_result_text.insert(tk.END, "-" * 50 + "\n")
+            for i in range(len(sweep)):
+                self.br_result_text.insert(tk.END,
+                    f"{sweep[i]:8.4f} {r['mu_x'][i]:8.4f} "
+                    f"{r['Fx'][i]:10.1f} {r['Fy'][i]:10.1f} {r['Mz'][i]:10.3f}\n")
+        else:
+            self.br_result_text.insert(tk.END,
+                f"{'α(°)':>8s} {'μ_y':>8s} {'Fx(N)':>10s} {'Fy(N)':>10s} {'Mz(Nm)':>10s}\n")
+            self.br_result_text.insert(tk.END, "-" * 50 + "\n")
+            for i in range(len(sweep)):
+                self.br_result_text.insert(tk.END,
+                    f"{sweep[i]:8.2f} {r['mu_y'][i]:8.4f} "
+                    f"{r['Fx'][i]:10.1f} {r['Fy'][i]:10.1f} {r['Mz'][i]:10.3f}\n")
+
+    # ── 2D Brush: CSV export ──
+
+    def _export_brush_csv(self):
+        """Export 2D Brush model results to CSV."""
+        if self.brush_results is None:
+            self._show_status("2D Brush 결과가 없습니다.", 'warning')
+            return
+
+        filepath = filedialog.asksaveasfilename(
+            defaultextension='.csv',
+            filetypes=[('CSV files', '*.csv')],
+            title='2D Brush Model 결과 내보내기')
+        if not filepath:
+            return
+
+        try:
+            r = self.brush_results
+            mode = r['mode']
+            sweep = r['sweep']
+
+            with open(filepath, 'w') as f:
+                f.write(f"# 2D Brush Model Results\n")
+                f.write(f"# Mode: {mode}\n")
+                f.write(f"# vc = {r['vc']:.4f} m/s, Fz = {r['Fz']:.1f} N\n")
+                f.write(f"# s0 = {r['s0']:.6f} m\n")
+
+                if mode == 'braking':
+                    f.write("slip_ratio,mu_x,mu_y,Fx_N,Fy_N,Mz_Nm\n")
+                    for i in range(len(sweep)):
+                        f.write(f"{sweep[i]:.6f},{r['mu_x'][i]:.6f},{r['mu_y'][i]:.6f},"
+                                f"{r['Fx'][i]:.4f},{r['Fy'][i]:.4f},{r['Mz'][i]:.6f}\n")
+                else:
+                    f.write("slip_angle_deg,mu_x,mu_y,Fx_N,Fy_N,Mz_Nm\n")
+                    for i in range(len(sweep)):
+                        f.write(f"{sweep[i]:.4f},{r['mu_x'][i]:.6f},{r['mu_y'][i]:.6f},"
+                                f"{r['Fx'][i]:.4f},{r['Fy'][i]:.4f},{r['Mz'][i]:.6f}\n")
+
+            self._show_status(f"2D Brush CSV 저장 완료: {filepath}", 'success')
+        except Exception as e:
+            messagebox.showerror("오류", f"CSV 저장 실패:\n{str(e)}")
 
 
     # ================================================================
