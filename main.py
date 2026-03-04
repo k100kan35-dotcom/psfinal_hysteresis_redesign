@@ -20305,28 +20305,30 @@ class PerssonModelGUI_V2:
             self.ax_ch_adh.legend(loc='best', fontsize=7)
             self.ax_ch_adh.grid(True, alpha=0.3)
 
-            # ── Plot 3: ΔT + A/A0 dual y-axis ──
-            line_dT = self.ax_ch_flash.semilogx(v, r['delta_T'], 'r-', linewidth=2,
-                                                  label='ΔT')
-            max_dT_idx = np.argmax(r['delta_T'])
-            self.ax_ch_flash.plot(v[max_dT_idx], r['delta_T'][max_dT_idx], 'r*',
-                                   markersize=12,
-                                   label=f'max ΔT={r["delta_T"][max_dT_idx]:.1f}°C')
-            self.ax_ch_flash.set_title('Flash Temp ΔT(v) + A/A0', fontweight='bold', fontsize=10)
+            # ── Plot 3: A/A0 + τ_f (shear stress) dual y-axis ──
+            line_ac = self.ax_ch_flash.semilogx(v, r['A_A0_cold'], 'b-', linewidth=2,
+                                                  marker='o', markersize=3, label='A/A0 (Cold)')
+            line_ah = self.ax_ch_flash.semilogx(v, r['A_A0_hot'], '-', color='#DC2626',
+                                                  linewidth=2, marker='s', markersize=3,
+                                                  label='A/A0 (Hot)')
+            self.ax_ch_flash.set_title('A/A0 + τ_f: Cold vs Hot', fontweight='bold', fontsize=10)
             self.ax_ch_flash.set_xlabel('v (m/s)', fontsize=10)
-            self.ax_ch_flash.set_ylabel('ΔT (°C)', fontsize=10, color='r')
-            self.ax_ch_flash.tick_params(axis='y', labelcolor='r')
+            self.ax_ch_flash.set_ylabel('A/A0', fontsize=10, color='b')
+            self.ax_ch_flash.tick_params(axis='y', labelcolor='b')
 
-            # A/A0 on twin axis
+            # τ_f (shear stress) on twin axis
             self._ax_ch_flash_twin = self.ax_ch_flash.twinx()
-            line_ac = self._ax_ch_flash_twin.semilogx(v, r['A_A0_cold'], 'b--', linewidth=1.5,
-                                                       alpha=0.7, label='A/A0 (Cold)')
-            line_ah = self._ax_ch_flash_twin.semilogx(v, r['A_A0_hot'], 'g--', linewidth=1.5,
-                                                       alpha=0.7, label='A/A0 (Hot)')
-            self._ax_ch_flash_twin.set_ylabel('A/A0', fontsize=10, color='b')
-            self._ax_ch_flash_twin.tick_params(axis='y', labelcolor='b')
+            tau_f_cold_MPa = r['tau_f_cold'] / 1e6  # Pa → MPa
+            tau_f_hot_MPa = r['tau_f_hot'] / 1e6    # Pa → MPa
+            line_tc = self._ax_ch_flash_twin.semilogx(v, tau_f_cold_MPa, 'b--', linewidth=1.5,
+                                                       alpha=0.7, label='τ_f Cold (MPa)')
+            line_th = self._ax_ch_flash_twin.semilogx(v, tau_f_hot_MPa, '--', color='#DC2626',
+                                                       linewidth=1.5, alpha=0.7,
+                                                       label='τ_f Hot (MPa)')
+            self._ax_ch_flash_twin.set_ylabel('τ_f (MPa)', fontsize=10, color='#666666')
+            self._ax_ch_flash_twin.tick_params(axis='y', labelcolor='#666666')
 
-            lines = line_dT + line_ac + line_ah
+            lines = line_ac + line_ah + line_tc + line_th
             labels = [l.get_label() for l in lines]
             self.ax_ch_flash.legend(lines, labels, loc='best', fontsize=7)
             self.ax_ch_flash.grid(True, alpha=0.3)
