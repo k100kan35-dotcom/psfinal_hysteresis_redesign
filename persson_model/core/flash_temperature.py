@@ -15,7 +15,10 @@ Key Formulas:
     1. Heat Flux:     q_dot = mu × sigma_0 × v / (A/A0)  (A/A0 보정: 실접촉면 열집중)
     2. Peclet Numbers: Jd = v × d / D_th,  Jh = v × h / D_th
     3. Greenwood-modified circular interpolation (Persson 2006):
-         ΔT = (q_dot × d) / (2κ) / sqrt(1 + (π/16)Jd + Jh²/4)
+         d = contact diameter, a = d/2 = contact radius
+         ΔT = (q_dot × a) / (2κ) / sqrt(1 + (π/16)·Ja + Jh²/4)
+            = (q_dot × d) / (4κ) / sqrt(1 + (π/32)·Jd + Jh²/4)
+         where Ja = v·a/D_th = Jd/2 (radius-based Peclet)
     4. Hot Temp:      T_hot = T_base + ΔT
 
     where h is the surface layer thickness (typically 1/q1) controlling
@@ -197,14 +200,17 @@ class FlashTemperatureCalculator:
         Calculate flash temperature rise using Greenwood interpolation
         modified for circular contact (as adopted by Persson 2006).
 
-        ΔT = (q̇·d) / (2κ) × 1 / √(1 + (π/16)·Jd + Jh²/4)
+        d = contact diameter (d_macro), a = d/2 = contact radius
+        ΔT = (q̇·a) / (2κ) / √(1 + (π/16)·Ja + Jh²/4)
+           = (q̇·d) / (4κ) / √(1 + (π/32)·Jd + Jh²/4)
 
         where:
-            Jd = v·d/D_th  (macroscopic Peclet number)
+            Jd = v·d/D_th  (diameter-based Peclet number)
+            Ja = Jd/2      (radius-based Peclet number)
             Jh = v·h/D_th  (surface-layer Peclet number)
 
         Three asymptotic regimes:
-        - Low speed  (Jd, Jh → 0): ΔT ≈ q̇·d / (2κ)       [steady-state]
+        - Low speed  (Jd, Jh → 0): ΔT ≈ q̇·d / (4κ)       [steady-state]
         - Mid speed  (Jd >> 1):     ΔT ∝ 1/√(Jd) ∝ 1/√v   [moving source]
         - High speed (Jh >> 1):     ΔT ∝ 1/Jh ∝ 1/v        [surface-layer saturation]
 
@@ -219,7 +225,7 @@ class FlashTemperatureCalculator:
         q_dot : float
             Heat flux (W/m²)
         Jd : float
-            Macroscopic Peclet number, Jd = v·d/D_th
+            Macroscopic Peclet number, Jd = v·d/D_th (diameter-based)
         Jh : float, optional
             Surface-layer Peclet number, Jh = v·h/D_th.
             Default: 0.0 (no high-speed saturation)
@@ -235,9 +241,10 @@ class FlashTemperatureCalculator:
             Jd = 0.0
         if not np.isfinite(Jh) or Jh < 0:
             Jh = 0.0
-        # Greenwood circular interpolation: ΔT = (q̇·d)/(2κ) / √(1 + (π/16)Jd + Jh²/4)
-        return (q_dot * self.d_macro) / (2.0 * self.kappa_th) / np.sqrt(
-            1.0 + (np.pi / 16.0) * Jd + (Jh**2) / 4.0
+        # Greenwood circular interpolation using radius a = d/2:
+        # ΔT = (q̇·d)/(4κ) / √(1 + (π/32)·Jd + Jh²/4)
+        return (q_dot * self.d_macro) / (4.0 * self.kappa_th) / np.sqrt(
+            1.0 + (np.pi / 32.0) * Jd + (Jh**2) / 4.0
         )
 
     def delta_T_at_scale(self, q_dot_local: float, d_local: float, velocity: float) -> float:
@@ -245,16 +252,16 @@ class FlashTemperatureCalculator:
         Calculate flash temperature rise at a specific length scale.
 
         Uses the Greenwood interpolation formula with a scale-dependent
-        characteristic length d = π/q instead of the fixed d_macro.
+        characteristic diameter d = π/q, converted to radius a = d/2.
 
-        ΔT = (q̇·d_local) / (2κ) / √(1 + (π/16)·Jd_local + Jh²/4)
+        ΔT = (q̇·d_local) / (4κ) / √(1 + (π/32)·Jd_local + Jh²/4)
 
-        where Jd_local = v·d_local/D_th and Jh = v·h/D_th (global).
+        where Jd_local = v·d_local/D_th (diameter-based) and Jh = v·h/D_th.
 
         This enables per-wavenumber flash temperature accumulation:
             ΔT_total = Σ_i δT(q_i)
         where each scale contributes its own temperature rise based on
-        its characteristic contact patch size d(q) = π/q.
+        its characteristic contact patch diameter d(q) = π/q.
 
         Parameters
         ----------
@@ -278,8 +285,10 @@ class FlashTemperatureCalculator:
         if not np.isfinite(Jd_local) or Jd_local < 0:
             Jd_local = 0.0
         Jh = self.peclet_number_h(velocity)
-        return (q_dot_local * d_local) / (2.0 * self.kappa_th) / np.sqrt(
-            1.0 + (np.pi / 16.0) * Jd_local + (Jh**2) / 4.0
+        # Use radius a = d/2 in Greenwood formula:
+        # ΔT = (q̇·d)/(4κ) / √(1 + (π/32)·Jd + Jh²/4)
+        return (q_dot_local * d_local) / (4.0 * self.kappa_th) / np.sqrt(
+            1.0 + (np.pi / 32.0) * Jd_local + (Jh**2) / 4.0
         )
 
     def calculate(
@@ -411,11 +420,12 @@ class FlashTemperatureCalculator:
         scale's own Peclet number.
 
         At each scale q_i:
-            d_i = pi / q_i               (contact patch size at this scale)
-            Jd_i = v * d_i / D_th        (scale-dependent Peclet number)
+            d_i = pi / q_i               (contact patch diameter at this scale)
+            a_i = d_i / 2                (contact patch radius)
+            Jd_i = v * d_i / D_th        (diameter-based Peclet number)
             Jh = v * h / D_th            (global surface-layer Peclet number)
             dq_dot_i = delta_mu_i * sigma_0 * v / P(q_i)  (heat flux at real contact)
-            delta_T_i = dq_dot_i * d_i / (2*kappa * sqrt(1 + pi/16 * Jd_i + Jh^2/4))
+            delta_T_i = dq_dot_i * d_i / (4*kappa * sqrt(1 + pi/32 * Jd_i + Jh^2/4))
 
         The 1/P(q_i) factor accounts for heat flux concentration at the
         real contact area (Persson 2006).
@@ -454,7 +464,7 @@ class FlashTemperatureCalculator:
             # Scale-dependent contact diameter
             d_i = np.pi / q_array[i]
 
-            # Scale-dependent Peclet number
+            # Scale-dependent Peclet number (diameter-based)
             Jd_i = velocity * d_i / self.D_th
 
             # Contact area fraction at this scale (for heat concentration)
@@ -464,10 +474,11 @@ class FlashTemperatureCalculator:
             # Incremental heat flux at real contact area: 1/P(q) concentration
             dq_dot_i = max(delta_mu_array[i], 0.0) * sigma_0 * velocity / P_i
 
-            # Greenwood circular interpolation at this scale's characteristic length
+            # Greenwood circular interpolation using radius a = d/2:
+            # ΔT = (q̇·d)/(4κ) / √(1 + (π/32)·Jd + Jh²/4)
             if dq_dot_i > 0 and np.isfinite(dq_dot_i):
-                dT_i = (dq_dot_i * d_i) / (2.0 * self.kappa_th) / np.sqrt(
-                    1.0 + (np.pi / 16.0) * Jd_i + (Jh**2) / 4.0
+                dT_i = (dq_dot_i * d_i) / (4.0 * self.kappa_th) / np.sqrt(
+                    1.0 + (np.pi / 32.0) * Jd_i + (Jh**2) / 4.0
                 )
             else:
                 dT_i = 0.0
