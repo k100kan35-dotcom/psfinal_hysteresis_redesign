@@ -18583,14 +18583,37 @@ class PerssonModelGUI_V2:
             self.root.update()
 
             # ── Step 1: Arrhenius adhesion shift factor aT' ──
-            # aT' = exp[(ε / k_B) × (1/T - 1/T_ref)]
-            aT_prime = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
+            # Check if flash temperature data is available for per-velocity T_hot(v)
+            use_flash_for_adh = False
+            T_hot_arr_K = None
+            flash_results_adh = None
+
+            if (self.mu_visc_results is not None
+                    and self.mu_visc_results.get('use_flash', False)
+                    and self.mu_visc_results.get('flash_results') is not None):
+                flash_results_adh = self.mu_visc_results['flash_results']
+                T_hot_arr_C = np.array(flash_results_adh.get('T_hot', []))
+                if len(T_hot_arr_C) == n_v and np.any(T_hot_arr_C > 0):
+                    T_hot_arr_K = T_hot_arr_C + 273.15
+                    use_flash_for_adh = True
+
+            if use_flash_for_adh:
+                # Per-velocity Arrhenius shift: aT'(v) = exp[(ε/k_B)(1/T_hot(v) - 1/T_ref)]
+                # Each velocity has its own flash temperature → its own shift factor
+                aT_prime = np.exp((epsilon / k_B) * (1.0 / T_hot_arr_K - 1.0 / T_ref))
+                # Also compute cold aT' for comparison
+                aT_prime_cold = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
+            else:
+                # Cold (uniform temperature): single scalar aT'
+                # aT' = exp[(ε / k_B) × (1/T - 1/T_ref)]
+                aT_prime = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
+                aT_prime_cold = aT_prime
 
             self.adh_progress_var.set(25)
             self.root.update()
 
             # ── Step 2: Temperature-corrected effective velocity ──
-            # v_eff = v × aT'
+            # v_eff = v × aT'  (array × array if flash, array × scalar if cold)
             v_eff = v_array * aT_prime
 
             self.adh_progress_var.set(40)
@@ -18600,6 +18623,14 @@ class PerssonModelGUI_V2:
             # τ_f = τ_f0 × exp[-c × (log10(v_eff / v₀*))²]
             log_ratio = np.log10(v_eff / v0_star)
             tau_f = tau_f0 * np.exp(-c * log_ratio**2)
+
+            # Also compute cold tau_f for comparison when flash is active
+            if use_flash_for_adh:
+                v_eff_cold = v_array * aT_prime_cold
+                log_ratio_cold = np.log10(v_eff_cold / v0_star)
+                tau_f_cold = tau_f0 * np.exp(-c * log_ratio_cold**2)
+            else:
+                tau_f_cold = None
 
             self.adh_progress_var.set(60)
             self.root.update()
@@ -18615,10 +18646,13 @@ class PerssonModelGUI_V2:
             self.mu_adh_results = {
                 'v': v_array,
                 'mu_adh': mu_adh,
-                'tau_f': tau_f,            # Pa
+                'tau_f': tau_f,            # Pa (flash-corrected if available)
+                'tau_f_cold': tau_f_cold,  # Pa (cold, without flash; None if no flash)
                 'A_ratio': A_ratio,
-                'aT_prime': aT_prime,
+                'aT_prime': aT_prime,      # array if flash, scalar if cold
+                'aT_prime_cold': aT_prime_cold,
                 'v_eff': v_eff,
+                'use_flash': use_flash_for_adh,
                 'params': {
                     'tau_f0': tau_f0,       # Pa
                     'v0_star': v0_star,
@@ -18637,7 +18671,10 @@ class PerssonModelGUI_V2:
             # ── Update result text ──
             self.adh_result_text.delete(1.0, tk.END)
             self.adh_result_text.insert(tk.END, "=" * 40 + "\n")
-            self.adh_result_text.insert(tk.END, "μ_adh 계산 결과 (점착 마찰)\n")
+            if use_flash_for_adh:
+                self.adh_result_text.insert(tk.END, "μ_adh 계산 결과 (Flash T 보정 적용)\n")
+            else:
+                self.adh_result_text.insert(tk.END, "μ_adh 계산 결과 (점착 마찰)\n")
             self.adh_result_text.insert(tk.END, "=" * 40 + "\n\n")
 
             self.adh_result_text.insert(tk.END, "[파라미터]\n")
@@ -18651,9 +18688,17 @@ class PerssonModelGUI_V2:
             self.adh_result_text.insert(tk.END, f"  k_B  = {k_B:.4e} eV/K\n\n")
 
             self.adh_result_text.insert(tk.END, "[중간 계산값]\n")
-            self.adh_result_text.insert(tk.END, f"  aT' (Arrhenius) = {aT_prime:.6e}\n")
-            self.adh_result_text.insert(tk.END, f"    exp[(ε/k_B)×(1/T - 1/T_ref)]\n")
-            self.adh_result_text.insert(tk.END, f"    = exp[({epsilon}/{k_B:.4e})×({1/T:.6f} - {1/T_ref:.6f})]\n")
+            if use_flash_for_adh:
+                self.adh_result_text.insert(tk.END, f"  *** Flash Temperature 보정 활성 ***\n")
+                self.adh_result_text.insert(tk.END, f"  aT'_cold (Arrhenius, T_base) = {aT_prime_cold:.6e}\n")
+                self.adh_result_text.insert(tk.END, f"  aT'_hot  범위: {np.min(aT_prime):.4e} ~ {np.max(aT_prime):.4e}\n")
+                T_hot_arr_C = flash_results_adh['T_hot']
+                self.adh_result_text.insert(tk.END, f"  T_hot(v) 범위: {np.min(T_hot_arr_C):.1f} ~ {np.max(T_hot_arr_C):.1f} °C\n")
+                self.adh_result_text.insert(tk.END, f"  → 속도별 aT'(T_hot(v))로 τ_f stretching 적용\n")
+            else:
+                self.adh_result_text.insert(tk.END, f"  aT' (Arrhenius) = {aT_prime:.6e}\n")
+                self.adh_result_text.insert(tk.END, f"    exp[(ε/k_B)×(1/T - 1/T_ref)]\n")
+                self.adh_result_text.insert(tk.END, f"    = exp[({epsilon}/{k_B:.4e})×({1/T:.6f} - {1/T_ref:.6f})]\n")
             self.adh_result_text.insert(tk.END, f"  A/A0 출처: {'μ_visc 결과' if area_source == 'from_mu_visc' else '고정값'}\n")
             self.adh_result_text.insert(tk.END, f"  A/A0 범위: {np.min(A_ratio):.6f} ~ {np.max(A_ratio):.6f}\n\n")
 
@@ -18756,12 +18801,23 @@ class PerssonModelGUI_V2:
                 return f'{val:.4f}'
 
             # ── Plot 1: τ_f (shear stress) + A/A0 dual y-axis vs velocity ──
-            line_tau = self.ax_adh_tau.semilogx(v, tau_f / 1e6, 'r-', linewidth=2,
-                                                 marker='o', markersize=3, label='τ_f')
+            use_flash = self.mu_adh_results.get('use_flash', False)
+            tau_f_cold_plot = self.mu_adh_results.get('tau_f_cold')
+
+            # If flash active, show cold (dashed) and hot (solid) τ_f
+            if use_flash and tau_f_cold_plot is not None:
+                self.ax_adh_tau.semilogx(v, tau_f_cold_plot / 1e6, 'b--', linewidth=1.5,
+                                         alpha=0.6, label='τ_f (Cold)')
+                line_tau = self.ax_adh_tau.semilogx(v, tau_f / 1e6, 'r-', linewidth=2,
+                                                     marker='o', markersize=3, label='τ_f (Hot, stretched)')
+            else:
+                line_tau = self.ax_adh_tau.semilogx(v, tau_f / 1e6, 'r-', linewidth=2,
+                                                     marker='o', markersize=3, label='τ_f')
             peak_tau_idx = np.argmax(tau_f)
             self.ax_adh_tau.plot(v[peak_tau_idx], tau_f[peak_tau_idx] / 1e6, 'r*', markersize=12,
                                 label=f'최대: {tau_f[peak_tau_idx]/1e6:.3f} MPa')
-            self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v) + A/A0', fontweight='bold', fontsize=11)
+            title_suffix = ' (Flash 보정)' if use_flash else ''
+            self.ax_adh_tau.set_title(f'점착 전단 응력 τ_f(v) + A/A0{title_suffix}', fontweight='bold', fontsize=11)
             self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=11)
             self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=11, color='r')
             self.ax_adh_tau.tick_params(axis='y', labelcolor='r')
@@ -18874,10 +18930,27 @@ class PerssonModelGUI_V2:
                                   label=f'전단응력 aT\' (Arrhenius, ε={epsilon:.2f}eV)')
 
             # Mark current calculation temperature
-            aT_prime_current = self.mu_adh_results.get('aT_prime', 1.0)
+            aT_prime_current = self.mu_adh_results.get('aT_prime_cold', self.mu_adh_results.get('aT_prime', 1.0))
+            if np.ndim(aT_prime_current) > 0:
+                aT_prime_current = float(aT_prime_current[0]) if len(aT_prime_current) > 0 else 1.0
             log_aT_current = np.log10(aT_prime_current) if aT_prime_current > 0 else 0
             self.ax_adh_area.plot(T_calc_C, log_aT_current, 'r*', markersize=15, zorder=10,
-                                  label=f'현재 T={T_calc_C:.1f}°C (aT\'={aT_prime_current:.2e})')
+                                  label=f'T_base={T_calc_C:.1f}°C (aT\'={aT_prime_current:.2e})')
+
+            # If flash active, show T_hot range on the aT curve
+            if self.mu_adh_results.get('use_flash', False):
+                flash_res = self.mu_visc_results.get('flash_results', {}) if self.mu_visc_results else {}
+                T_hot_arr_C_plot = np.array(flash_res.get('T_hot', []))
+                if len(T_hot_arr_C_plot) > 0:
+                    T_hot_max_C = np.max(T_hot_arr_C_plot)
+                    T_hot_max_K = T_hot_max_C + 273.15
+                    aT_at_max = np.exp((epsilon / k_B) * (1.0 / T_hot_max_K - 1.0 / T_ref_K))
+                    log_aT_max = np.log10(aT_at_max) if aT_at_max > 0 else 0
+                    self.ax_adh_area.plot(T_hot_max_C, log_aT_max, 'r^', markersize=12, zorder=10,
+                                          label=f'T_hot_max={T_hot_max_C:.1f}°C')
+                    # Shade the flash temperature range
+                    self.ax_adh_area.axvspan(T_calc_C, T_hot_max_C, alpha=0.1, color='red',
+                                              label='Flash T 범위')
 
             # Mark master curve aT at current temperature if available
             if has_mc_aT and hasattr(self, 'persson_aT_interp') and self.persson_aT_interp is not None:
@@ -19552,19 +19625,47 @@ class PerssonModelGUI_V2:
                     v_array = np.logspace(-4, 1, 50)
                 A_ratio = np.full(len(v_array), fixed_area)
 
-            aT_prime = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
+            # Check for flash temperature data (per-velocity T_hot)
+            n_v = len(v_array)
+            use_flash_for_adh = False
+            if (self.mu_visc_results is not None
+                    and self.mu_visc_results.get('use_flash', False)
+                    and self.mu_visc_results.get('flash_results') is not None):
+                flash_res = self.mu_visc_results['flash_results']
+                T_hot_arr_C = np.array(flash_res.get('T_hot', []))
+                if len(T_hot_arr_C) == n_v and np.any(T_hot_arr_C > 0):
+                    T_hot_arr_K = T_hot_arr_C + 273.15
+                    aT_prime = np.exp((epsilon / k_B) * (1.0 / T_hot_arr_K - 1.0 / T_ref))
+                    aT_prime_cold = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
+                    use_flash_for_adh = True
+
+            if not use_flash_for_adh:
+                aT_prime = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
+                aT_prime_cold = aT_prime
+
             v_eff = v_array * aT_prime
             log_ratio = np.log10(v_eff / v0_star)
             tau_f = tau_f0 * np.exp(-c * log_ratio**2)
             mu_adh = (tau_f / p0) * A_ratio
 
+            # Cold tau_f for comparison
+            if use_flash_for_adh:
+                v_eff_cold = v_array * aT_prime_cold
+                log_ratio_cold = np.log10(v_eff_cold / v0_star)
+                tau_f_cold = tau_f0 * np.exp(-c * log_ratio_cold**2)
+            else:
+                tau_f_cold = None
+
             self.mu_adh_results = {
                 'v': v_array,
                 'mu_adh': mu_adh,
                 'tau_f': tau_f,
+                'tau_f_cold': tau_f_cold,
                 'A_ratio': A_ratio,
                 'aT_prime': aT_prime,
+                'aT_prime_cold': aT_prime_cold,
                 'v_eff': v_eff,
+                'use_flash': use_flash_for_adh,
                 'params': {
                     'tau_f0': tau_f0,
                     'v0_star': v0_star,
@@ -20149,9 +20250,9 @@ class PerssonModelGUI_V2:
                 T_hot_arr = np.full(n_v, float(self.ch_T0_var.get()))
 
             # Hot adhesion = A_A0_hot × tau_f_hot / p0
-            # tau_f_hot: cold tau_f와 동일한 Gaussian 모양 유지, 중심만 이동
-            # 대표 T_hot에서 단일 aT'를 사용하여 전체 커브를 균일 시프트
-            # → cold Gaussian 모양이 보존됨 (per-velocity 시프트에 의한 왜곡 방지)
+            # tau_f_hot: per-velocity aT'(T_hot(v))로 각 속도별 Arrhenius 시프트
+            # 속도가 빨라질수록 T_hot 상승 → aT' 감소 → 피크가 고속으로 이동
+            # 결과: 오른쪽 꼬리가 길게 잡아 늘여진(Stretched) 비대칭 형태
             adh_params = self.mu_adh_results['params']
             tau_f0_val = adh_params['tau_f0']   # Pa
             v0_star_val = adh_params['v0_star']  # m/s
@@ -20164,29 +20265,20 @@ class PerssonModelGUI_V2:
             T_cold_K = adh_params['T'] if 'T' in adh_params else (float(self.ch_T0_var.get()) + 273.15)
             aT_prime_cold = np.exp((epsilon_val / k_B) * (1.0 / T_cold_K - 1.0 / T_ref_val))
 
-            # 대표 T_hot 결정: cold tau_f 피크 속도에서의 T_hot 사용
-            # cold tau_f 피크 = v0_star / aT_cold (log-velocity 공간 중심)
-            v_peak_cold = v0_star_val / aT_prime_cold
-            # 가장 가까운 속도 인덱스 찾기
-            j_peak = int(np.argmin(np.abs(np.log10(np.maximum(v_array, 1e-30))
-                                          - np.log10(max(v_peak_cold, 1e-30)))))
-            T_hot_representative = T_hot_arr[j_peak]  # °C
-            T_hot_rep_K = T_hot_representative + 273.15  # K
+            # Per-velocity aT'(T_hot(v)): 각 속도에서의 플래시 온도로 개별 시프트
+            T_hot_arr_K = T_hot_arr + 273.15  # °C → K (array)
+            aT_prime_hot = np.exp((epsilon_val / k_B) * (1.0 / T_hot_arr_K - 1.0 / T_ref_val))
 
-            # 단일 aT' for hot (전체 커브 균일 시프트)
-            aT_prime_hot_single = np.exp((epsilon_val / k_B) * (1.0 / T_hot_rep_K - 1.0 / T_ref_val))
-
-            # tau_f_hot: cold와 동일한 Gaussian 모양, 중심만 aT_hot으로 이동
-            v_eff_hot = v_array * aT_prime_hot_single
+            # tau_f_hot: per-velocity Arrhenius shifted Gaussian
+            # v_eff(v) = v × aT'(T_hot(v)), tau_f = tau_f0 × exp[-c × (log10(v_eff/v0*))²]
+            v_eff_hot = v_array * aT_prime_hot
             log_ratio_hot = np.log10(v_eff_hot / v0_star_val)
             tau_f_hot = tau_f0_val * np.exp(-c_val * log_ratio_hot**2)
 
-            # per-velocity aT' 저장 (진단/표시용, 대표값으로 균일)
-            aT_prime_hot = np.full(n_v, aT_prime_hot_single)
-
-            print(f"[Cold&Hot] tau_f shift: T_hot_rep={T_hot_representative:.1f}°C "
-                  f"(v_peak={v_peak_cold:.2e} m/s, idx={j_peak}), "
-                  f"aT_cold={aT_prime_cold:.4e}, aT_hot={aT_prime_hot_single:.4e}")
+            print(f"[Cold&Hot] tau_f per-velocity shift: "
+                  f"aT_cold={aT_prime_cold:.4e}, "
+                  f"aT_hot range=[{np.min(aT_prime_hot):.4e}, {np.max(aT_prime_hot):.4e}], "
+                  f"T_hot range=[{np.min(T_hot_arr):.1f}, {np.max(T_hot_arr):.1f}]°C")
 
             mu_hot_ad = (A_A0_hot * tau_f_hot) / p0
             mu_hot_total = mu_hot_hys + mu_hot_ad
@@ -20223,9 +20315,9 @@ class PerssonModelGUI_V2:
                 'mu_hot_total': mu_hot_total,
                 'A_A0_hot': A_A0_hot,
                 'tau_f_cold': tau_f,          # Cold 전단응력 (Pa)
-                'tau_f_hot': tau_f_hot,       # Hot 전단응력 - 균일 Arrhenius shifted (Pa)
-                'aT_prime_hot': aT_prime_hot, # Hot Arrhenius shift factor (단일 대표값)
-                'T_hot_representative': T_hot_representative,  # 대표 T_hot (°C)
+                'tau_f_hot': tau_f_hot,       # Hot 전단응력 - per-velocity Arrhenius shifted (Pa)
+                'aT_prime_hot': aT_prime_hot, # Hot Arrhenius shift factor (per-velocity array)
+                'aT_prime_cold': aT_prime_cold,  # Cold Arrhenius shift factor (scalar)
                 'delta_T': delta_T_arr,
                 'T_hot': T_hot_arr,
                 'hot_converged': np.ones(n_v, dtype=bool),
@@ -20416,11 +20508,11 @@ class PerssonModelGUI_V2:
         txt.insert(tk.END, f"  Cold μ_hys: μ_visc 탭 계산 결과\n")
         txt.insert(tk.END, f"  Cold μ_adh: μ_adh 탭 계산 결과\n")
         txt.insert(tk.END, f"  Hot μ_hys:  μ_visc 탭 mu_hot (Flash)\n")
-        txt.insert(tk.END, f"  Hot μ_adh:  A/A0_hot × τ_f_hot(T_hot) / p₀\n")
-        txt.insert(tk.END, f"    (Arrhenius aT' 균일 시프트: cold 커브 모양 유지)\n")
-        if 'T_hot_representative' in r:
-            txt.insert(tk.END, f"    대표 T_hot={r['T_hot_representative']:.1f}°C "
-                               f"(τ_f 피크 속도에서)\n\n")
+        txt.insert(tk.END, f"  Hot μ_adh:  A/A0_hot × τ_f_hot(T_hot(v)) / p₀\n")
+        txt.insert(tk.END, f"    (Per-velocity Arrhenius aT'(T_hot(v)) — stretched 형태)\n")
+        if 'T_hot' in r and np.any(r['T_hot'] > 0):
+            txt.insert(tk.END, f"    T_hot 범위: {np.min(r['T_hot']):.1f}~{np.max(r['T_hot']):.1f}°C\n")
+            txt.insert(tk.END, f"    aT'_hot 범위: {np.min(r['aT_prime_hot']):.4e}~{np.max(r['aT_prime_hot']):.4e}\n\n")
         else:
             txt.insert(tk.END, "\n")
 
