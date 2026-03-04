@@ -18563,13 +18563,7 @@ class PerssonModelGUI_V2:
                     self.adh_calc_button.config(state='normal')
                     return
                 v_array = self.mu_visc_results['v']
-                # When flash is active, use A/A0_hot for consistency with mu_hot
-                if (self.mu_visc_results.get('use_flash', False)
-                        and self.mu_visc_results.get('A_A0_hot') is not None
-                        and len(self.mu_visc_results['A_A0_hot']) == len(v_array)):
-                    A_ratio = self.mu_visc_results['A_A0_hot']
-                else:
-                    A_ratio = self.mu_visc_results['P_qmax']
+                A_ratio = self.mu_visc_results['P_qmax']
             else:
                 # Fixed A/A0 value
                 fixed_area = float(self.adh_fixed_area_var.get())
@@ -19382,20 +19376,13 @@ class PerssonModelGUI_V2:
                 mu_visc_model = self.mu_visc_results['mu']
 
             # Need A/A0 data
-            # When flash temperature is active, use A/A0_hot (hot pass contact area)
-            # instead of P_qmax (cold pass) for consistency with mu_hot.
             area_source = self.adh_area_source_var.get()
             if area_source == "from_mu_visc":
-                if (self.mu_visc_results.get('use_flash', False)
-                        and self.mu_visc_results.get('A_A0_hot') is not None
-                        and len(self.mu_visc_results['A_A0_hot']) == len(self.mu_visc_results['v'])):
-                    A_ratio_model = self.mu_visc_results['A_A0_hot']
-                elif 'P_qmax' in self.mu_visc_results:
-                    A_ratio_model = self.mu_visc_results['P_qmax']
-                else:
+                if 'P_qmax' not in self.mu_visc_results:
                     self._show_status("A/A0 데이터 없음. μ_visc 결과에 P_qmax가 필요합니다.", 'warning')
                     self.fit_button.config(state='normal')
                     return
+                A_ratio_model = self.mu_visc_results['P_qmax']
             else:
                 fixed_area = float(self.adh_fixed_area_var.get())
                 A_ratio_model = np.full(len(v_model), np.clip(fixed_area, 0.0, 1.0))
@@ -19654,13 +19641,7 @@ class PerssonModelGUI_V2:
             area_source = self.adh_area_source_var.get()
             if area_source == "from_mu_visc":
                 v_array = self.mu_visc_results['v']
-                # When flash is active, use A/A0_hot for consistency with mu_hot
-                if (self.mu_visc_results.get('use_flash', False)
-                        and self.mu_visc_results.get('A_A0_hot') is not None
-                        and len(self.mu_visc_results['A_A0_hot']) == len(v_array)):
-                    A_ratio = self.mu_visc_results['A_A0_hot']
-                else:
-                    A_ratio = self.mu_visc_results['P_qmax']
+                A_ratio = self.mu_visc_results['P_qmax']
             else:
                 fixed_area = float(self.adh_fixed_area_var.get())
                 fixed_area = np.clip(fixed_area, 0.0, 1.0)
