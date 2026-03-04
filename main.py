@@ -18583,31 +18583,11 @@ class PerssonModelGUI_V2:
             self.root.update()
 
             # ── Step 1: Arrhenius adhesion shift factor aT' ──
-            # Check if flash temperature data is available for per-velocity T_hot(v)
-            use_flash_for_adh = False
-            T_hot_arr_K = None
-            flash_results_adh = None
-
-            if (self.mu_visc_results is not None
-                    and self.mu_visc_results.get('use_flash', False)
-                    and self.mu_visc_results.get('flash_results') is not None):
-                flash_results_adh = self.mu_visc_results['flash_results']
-                T_hot_arr_C = np.array(flash_results_adh.get('T_hot', []))
-                if len(T_hot_arr_C) == n_v and np.any(T_hot_arr_C > 0):
-                    T_hot_arr_K = T_hot_arr_C + 273.15
-                    use_flash_for_adh = True
-
-            if use_flash_for_adh:
-                # Per-velocity Arrhenius shift: aT'(v) = exp[(ε/k_B)(1/T_hot(v) - 1/T_ref)]
-                # Each velocity has its own flash temperature → its own shift factor
-                aT_prime = np.exp((epsilon / k_B) * (1.0 / T_hot_arr_K - 1.0 / T_ref))
-                # Also compute cold aT' for comparison
-                aT_prime_cold = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
-            else:
-                # Cold (uniform temperature): single scalar aT'
-                # aT' = exp[(ε / k_B) × (1/T - 1/T_ref)]
-                aT_prime = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
-                aT_prime_cold = aT_prime
+            # 항상 cold (기본 온도) aT_prime 사용.
+            # mu_adh 탭은 cold 조건에서 피팅/계산. Hot 효과는 Cold & Hot Branch 탭에서 적용.
+            # aT' = exp[(ε / k_B) × (1/T - 1/T_ref)]
+            aT_prime = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
+            aT_prime_cold = aT_prime
 
             self.adh_progress_var.set(25)
             self.root.update()
@@ -18624,14 +18604,6 @@ class PerssonModelGUI_V2:
             log_ratio = np.log10(v_eff / v0_star)
             tau_f = tau_f0 * np.exp(-c * log_ratio**2)
 
-            # Also compute cold tau_f for comparison when flash is active
-            if use_flash_for_adh:
-                v_eff_cold = v_array * aT_prime_cold
-                log_ratio_cold = np.log10(v_eff_cold / v0_star)
-                tau_f_cold = tau_f0 * np.exp(-c * log_ratio_cold**2)
-            else:
-                tau_f_cold = None
-
             self.adh_progress_var.set(60)
             self.root.update()
 
@@ -18646,13 +18618,13 @@ class PerssonModelGUI_V2:
             self.mu_adh_results = {
                 'v': v_array,
                 'mu_adh': mu_adh,
-                'tau_f': tau_f,            # Pa (flash-corrected if available)
-                'tau_f_cold': tau_f_cold,  # Pa (cold, without flash; None if no flash)
+                'tau_f': tau_f,            # Pa (cold)
+                'tau_f_cold': None,        # not needed (everything is cold)
                 'A_ratio': A_ratio,
-                'aT_prime': aT_prime,      # array if flash, scalar if cold
+                'aT_prime': aT_prime,      # scalar (cold)
                 'aT_prime_cold': aT_prime_cold,
                 'v_eff': v_eff,
-                'use_flash': use_flash_for_adh,
+                'use_flash': False,
                 'params': {
                     'tau_f0': tau_f0,       # Pa
                     'v0_star': v0_star,
@@ -18671,10 +18643,7 @@ class PerssonModelGUI_V2:
             # ── Update result text ──
             self.adh_result_text.delete(1.0, tk.END)
             self.adh_result_text.insert(tk.END, "=" * 40 + "\n")
-            if use_flash_for_adh:
-                self.adh_result_text.insert(tk.END, "μ_adh 계산 결과 (Flash T 보정 적용)\n")
-            else:
-                self.adh_result_text.insert(tk.END, "μ_adh 계산 결과 (점착 마찰)\n")
+            self.adh_result_text.insert(tk.END, "μ_adh 계산 결과 (Cold, 점착 마찰)\n")
             self.adh_result_text.insert(tk.END, "=" * 40 + "\n\n")
 
             self.adh_result_text.insert(tk.END, "[파라미터]\n")
@@ -18688,17 +18657,9 @@ class PerssonModelGUI_V2:
             self.adh_result_text.insert(tk.END, f"  k_B  = {k_B:.4e} eV/K\n\n")
 
             self.adh_result_text.insert(tk.END, "[중간 계산값]\n")
-            if use_flash_for_adh:
-                self.adh_result_text.insert(tk.END, f"  *** Flash Temperature 보정 활성 ***\n")
-                self.adh_result_text.insert(tk.END, f"  aT'_cold (Arrhenius, T_base) = {aT_prime_cold:.6e}\n")
-                self.adh_result_text.insert(tk.END, f"  aT'_hot  범위: {np.min(aT_prime):.4e} ~ {np.max(aT_prime):.4e}\n")
-                T_hot_arr_C = flash_results_adh['T_hot']
-                self.adh_result_text.insert(tk.END, f"  T_hot(v) 범위: {np.min(T_hot_arr_C):.1f} ~ {np.max(T_hot_arr_C):.1f} °C\n")
-                self.adh_result_text.insert(tk.END, f"  → 속도별 aT'(T_hot(v))로 τ_f stretching 적용\n")
-            else:
-                self.adh_result_text.insert(tk.END, f"  aT' (Arrhenius) = {aT_prime:.6e}\n")
-                self.adh_result_text.insert(tk.END, f"    exp[(ε/k_B)×(1/T - 1/T_ref)]\n")
-                self.adh_result_text.insert(tk.END, f"    = exp[({epsilon}/{k_B:.4e})×({1/T:.6f} - {1/T_ref:.6f})]\n")
+            self.adh_result_text.insert(tk.END, f"  aT' (Arrhenius, Cold) = {aT_prime:.6e}\n")
+            self.adh_result_text.insert(tk.END, f"    exp[(ε/k_B)×(1/T - 1/T_ref)]\n")
+            self.adh_result_text.insert(tk.END, f"    = exp[({epsilon}/{k_B:.4e})×({1/T:.6f} - {1/T_ref:.6f})]\n")
             self.adh_result_text.insert(tk.END, f"  A/A0 출처: {'μ_visc 결과' if area_source == 'from_mu_visc' else '고정값'}\n")
             self.adh_result_text.insert(tk.END, f"  A/A0 범위: {np.min(A_ratio):.6f} ~ {np.max(A_ratio):.6f}\n\n")
 
@@ -18892,7 +18853,7 @@ class PerssonModelGUI_V2:
                                         markeredgecolor='darkred', markeredgewidth=1.5,
                                         zorder=20, label=f'실측 μ_dry ({len(v_meas)}점)')
 
-            self.ax_adh_total.set_title('μ_total = μ_visc + μ_adh', fontweight='bold', fontsize=11)
+            self.ax_adh_total.set_title('μ_total(cold) = μ_visc + μ_adh', fontweight='bold', fontsize=11)
             self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=11)
             self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=11)
             self.ax_adh_total.legend(loc='best', fontsize=8)
@@ -19367,13 +19328,10 @@ class PerssonModelGUI_V2:
                 return
 
             v_model = self.mu_visc_results['v']
-            # Use mu_hot if flash temperature is active (measured data includes flash effects)
-            if (self.mu_visc_results.get('use_flash', False)
-                    and self.mu_visc_results.get('mu_hot') is not None
-                    and len(self.mu_visc_results['mu_hot']) == len(self.mu_visc_results['v'])):
-                mu_visc_model = self.mu_visc_results['mu_hot']
-            else:
-                mu_visc_model = self.mu_visc_results['mu']
+            # 항상 cold mu_visc 사용: 실측 mu_dry는 기본 온도(cold) 데이터이므로
+            # cold mu_visc + cold mu_adh = mu_dry 로 피팅해야 함.
+            # Hot 효과는 Cold & Hot Branch 탭에서 별도 적용.
+            mu_visc_model = self.mu_visc_results['mu']
 
             # Need A/A0 data
             area_source = self.adh_area_source_var.get()
@@ -19409,19 +19367,11 @@ class PerssonModelGUI_V2:
             T = T_calc_C + 273.15
             p0 = float(p0_str) * 1e6  # MPa → Pa
 
-            # Arrhenius shift factor
-            # Check for flash temperature data (per-velocity T_hot)
-            use_flash_in_fit = False
+            # Arrhenius shift factor — 항상 cold (기본 온도) 사용
+            # mu_adh 탭의 피팅은 cold 조건에서 수행.
+            # Flash temperature 효과는 Cold & Hot Branch 탭에서 적용.
             aT_prime_cold = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
-            aT_prime = aT_prime_cold  # default: cold (scalar)
-
-            if (self.mu_visc_results is not None
-                    and self.mu_visc_results.get('use_flash', False)
-                    and self.mu_visc_results.get('flash_results') is not None):
-                flash_res = self.mu_visc_results['flash_results']
-                T_hot_model_C = np.array(flash_res.get('T_hot', []))
-                if len(T_hot_model_C) == len(v_model) and np.any(T_hot_model_C > 0):
-                    use_flash_in_fit = True
+            aT_prime = aT_prime_cold  # always cold (scalar)
 
             # Create interpolators for mu_visc and A_ratio at measured velocities
             log_v_model = np.log10(v_model)
@@ -19433,14 +19383,6 @@ class PerssonModelGUI_V2:
             log_v_meas = np.log10(v_meas)
             mu_visc_at_meas = mu_visc_interp(log_v_meas)
             A_ratio_at_meas = A_ratio_interp(log_v_meas)
-
-            # If flash active, interpolate T_hot to measured velocities → per-velocity aT_prime
-            if use_flash_in_fit:
-                T_hot_interp = interp1d(log_v_model, T_hot_model_C,
-                                        kind='linear', fill_value='extrapolate')
-                T_hot_at_meas_C = T_hot_interp(log_v_meas)
-                T_hot_at_meas_K = T_hot_at_meas_C + 273.15
-                aT_prime = np.exp((epsilon / k_B) * (1.0 / T_hot_at_meas_K - 1.0 / T_ref))
 
             # ── Read bounds ──
             tau_min = float(self.fit_tau_min_var.get()) * 1e6   # MPa → Pa
@@ -19570,8 +19512,7 @@ class PerssonModelGUI_V2:
 
             # ── Display fit results ──
             self.fit_result_text.delete(1.0, tk.END)
-            flash_label = " (Flash T 보정 적용)" if use_flash_in_fit else ""
-            self.fit_result_text.insert(tk.END, f"=== 자동 피팅 결과 (DE + Nelder-Mead){flash_label} ===\n")
+            self.fit_result_text.insert(tk.END, f"=== 자동 피팅 결과 (DE + Nelder-Mead, Cold) ===\n")
             self.fit_result_text.insert(tk.END, f"  탐색: DE {total_trials}회 + Nelder-Mead {len(initial_guesses)}회\n")
             self.fit_result_text.insert(tk.END, f"  τ_f0  = {opt_tau_f0/1e6:.4f} MPa\n")
             self.fit_result_text.insert(tk.END, f"  v₀*   = {opt_v0_star:.6e} m/s\n")
@@ -19651,47 +19592,26 @@ class PerssonModelGUI_V2:
                     v_array = np.logspace(-4, 1, 50)
                 A_ratio = np.full(len(v_array), fixed_area)
 
-            # Check for flash temperature data (per-velocity T_hot)
-            n_v = len(v_array)
-            use_flash_for_adh = False
-            if (self.mu_visc_results is not None
-                    and self.mu_visc_results.get('use_flash', False)
-                    and self.mu_visc_results.get('flash_results') is not None):
-                flash_res = self.mu_visc_results['flash_results']
-                T_hot_arr_C = np.array(flash_res.get('T_hot', []))
-                if len(T_hot_arr_C) == n_v and np.any(T_hot_arr_C > 0):
-                    T_hot_arr_K = T_hot_arr_C + 273.15
-                    aT_prime = np.exp((epsilon / k_B) * (1.0 / T_hot_arr_K - 1.0 / T_ref))
-                    aT_prime_cold = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
-                    use_flash_for_adh = True
-
-            if not use_flash_for_adh:
-                aT_prime = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
-                aT_prime_cold = aT_prime
+            # 항상 cold (기본 온도) aT_prime 사용
+            # mu_adh 탭은 cold 조건에서 피팅/계산. Hot 효과는 Cold & Hot Branch 탭에서 적용.
+            aT_prime = np.exp((epsilon / k_B) * (1.0 / T - 1.0 / T_ref))
+            aT_prime_cold = aT_prime
 
             v_eff = v_array * aT_prime
             log_ratio = np.log10(v_eff / v0_star)
             tau_f = tau_f0 * np.exp(-c * log_ratio**2)
             mu_adh = (tau_f / p0) * A_ratio
 
-            # Cold tau_f for comparison
-            if use_flash_for_adh:
-                v_eff_cold = v_array * aT_prime_cold
-                log_ratio_cold = np.log10(v_eff_cold / v0_star)
-                tau_f_cold = tau_f0 * np.exp(-c * log_ratio_cold**2)
-            else:
-                tau_f_cold = None
-
             self.mu_adh_results = {
                 'v': v_array,
                 'mu_adh': mu_adh,
                 'tau_f': tau_f,
-                'tau_f_cold': tau_f_cold,
+                'tau_f_cold': None,
                 'A_ratio': A_ratio,
                 'aT_prime': aT_prime,
                 'aT_prime_cold': aT_prime_cold,
                 'v_eff': v_eff,
-                'use_flash': use_flash_for_adh,
+                'use_flash': False,
                 'params': {
                     'tau_f0': tau_f0,
                     'v0_star': v0_star,
