@@ -687,6 +687,7 @@ class PerssonModelGUI_V2:
             ('tab_flash_temp',      'Flash Temp 설정',    self._create_flash_temp_tab),
             ('tab_mu_visc',         'μ_visc 계산',        self._create_mu_visc_tab),
             ('tab_mu_adh',          'μ_adh 계산',         self._create_mu_adh_tab),
+            ('tab_cold_hot_branch', 'Cold & Hot Branch',  self._create_cold_hot_branch_tab),
             ('tab_ve_advisor',      '점탄성 설계',        self._create_ve_advisor_tab),
             ('tab_strain_map',      'Strain Map',         self._create_strain_map_tab),
             ('tab_results',         '계산 과정',           self._create_results_tab),
@@ -19578,6 +19579,1081 @@ class PerssonModelGUI_V2:
             "μ_adh 피팅이 초기화되었습니다.\n"
             "기존 μ_visc / A/A0 데이터도 함께 초기화되었습니다.\n"
             "μ_visc를 재계산한 후 피팅을 다시 시작하세요.", 'success')
+
+
+    # ================================================================
+    # ====  Cold & Hot Branch Tab  ====
+    # ================================================================
+
+    def _create_cold_hot_branch_tab(self, parent):
+        """Create Cold & Hot Branch analysis tab.
+
+        Implements Persson friction theory Cold/Hot branch generation
+        and brush-model blending for tire dynamics:
+          Module 1: Cold Branch (no flash temperature)
+          Module 2: Hot Branch (self-consistent flash temperature iteration)
+          Module 3: Brush Model Blending (exponential decay weighting)
+        """
+        layout = self._create_tab_layout(parent, toolbar_buttons=[
+            ("Cold & Hot 계산", self._calculate_cold_hot_branch, 'Accent.TButton'),
+        ])
+        left_panel = layout['content']
+
+        # Internal storage
+        self.cold_hot_results = None
+
+        # ── 1) 기본 조건 (Base Conditions) ──
+        sec1 = self._create_section(left_panel, "1) 기본 조건")
+
+        # T0: base temperature
+        row_t0 = ttk.Frame(sec1)
+        row_t0.pack(fill=tk.X, pady=1)
+        ttk.Label(row_t0, text="T₀ (기준 온도):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_T0_var = tk.StringVar(value="20.0")
+        ttk.Entry(row_t0, textvariable=self.ch_T0_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_t0, text="°C", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # p0: nominal contact pressure
+        row_p0 = ttk.Frame(sec1)
+        row_p0.pack(fill=tk.X, pady=1)
+        ttk.Label(row_p0, text="p₀ (명목 압력):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_p0_var = tk.StringVar(value="0.3")
+        ttk.Entry(row_p0, textvariable=self.ch_p0_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_p0, text="MPa", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # D: macro-asperity diameter
+        row_D = ttk.Frame(sec1)
+        row_D.pack(fill=tk.X, pady=1)
+        ttk.Label(row_D, text="D (돌기 직경):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_D_macro_var = tk.StringVar(value="2.0")
+        ttk.Entry(row_D, textvariable=self.ch_D_macro_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_D, text="mm  (s₀ = 0.2D)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # Sync button
+        sync_row = ttk.Frame(sec1)
+        sync_row.pack(fill=tk.X, pady=2)
+        ttk.Button(sync_row, text="μ_visc/μ_adh 동기화",
+                   command=self._sync_cold_hot_from_tabs, width=20).pack(side=tk.LEFT, padx=2)
+        self.ch_sync_status_var = tk.StringVar(value="(μ_visc + μ_adh 결과 필요)")
+        ttk.Label(sync_row, textvariable=self.ch_sync_status_var,
+                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=4)
+
+        # ── 2) 속도 범위 (Velocity Sweep) ──
+        sec2 = self._create_section(left_panel, "2) 속도 스윕 설정")
+
+        row_vmin = ttk.Frame(sec2)
+        row_vmin.pack(fill=tk.X, pady=1)
+        ttk.Label(row_vmin, text="log₁₀(v_min):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_log_vmin_var = tk.StringVar(value="-6")
+        ttk.Entry(row_vmin, textvariable=self.ch_log_vmin_var, width=6).pack(side=tk.LEFT, padx=2)
+
+        row_vmax = ttk.Frame(sec2)
+        row_vmax.pack(fill=tk.X, pady=1)
+        ttk.Label(row_vmax, text="log₁₀(v_max):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_log_vmax_var = tk.StringVar(value="2")
+        ttk.Entry(row_vmax, textvariable=self.ch_log_vmax_var, width=6).pack(side=tk.LEFT, padx=2)
+
+        row_nv = ttk.Frame(sec2)
+        row_nv.pack(fill=tk.X, pady=1)
+        ttk.Label(row_nv, text="속도 개수:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_n_v_var = tk.StringVar(value="80")
+        ttk.Entry(row_nv, textvariable=self.ch_n_v_var, width=6).pack(side=tk.LEFT, padx=2)
+
+        vel_note = ttk.Label(sec2,
+                             text="※ 독립 속도 스윕: μ_visc 탭과 별도로\n"
+                                  "   Cold/Hot 브랜치 마스터 커브 생성",
+                             font=self.FONTS['small'], foreground='#64748B')
+        vel_note.pack(anchor=tk.W, pady=(2, 0))
+
+        # ── 3) Flash Temp 열물성 (Thermal Properties) ──
+        sec3 = self._create_section(left_panel, "3) 열물성 (Flash Temp)")
+
+        row_rho = ttk.Frame(sec3)
+        row_rho.pack(fill=tk.X, pady=1)
+        ttk.Label(row_rho, text="ρ (밀도):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_rho_var = tk.StringVar(value="1150")
+        ttk.Entry(row_rho, textvariable=self.ch_rho_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_rho, text="kg/m³", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        row_cv = ttk.Frame(sec3)
+        row_cv.pack(fill=tk.X, pady=1)
+        ttk.Label(row_cv, text="Cv (비열):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_Cv_var = tk.StringVar(value="1500")
+        ttk.Entry(row_cv, textvariable=self.ch_Cv_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_cv, text="J/(kg·K)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        row_kappa = ttk.Frame(sec3)
+        row_kappa.pack(fill=tk.X, pady=1)
+        ttk.Label(row_kappa, text="κ (열전도):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_kappa_var = tk.StringVar(value="0.3")
+        ttk.Entry(row_kappa, textvariable=self.ch_kappa_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_kappa, text="W/(m·K)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # Hot branch iteration settings
+        row_sc = ttk.Frame(sec3)
+        row_sc.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sc, text="수렴 반복:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_sc_max_iter_var = tk.StringVar(value="30")
+        ttk.Entry(row_sc, textvariable=self.ch_sc_max_iter_var, width=5).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_sc, text="회  tol:", font=self.FONTS['small']).pack(side=tk.LEFT)
+        self.ch_sc_tol_var = tk.StringVar(value="0.1")
+        ttk.Entry(row_sc, textvariable=self.ch_sc_tol_var, width=5).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_sc, text="°C", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        row_relax = ttk.Frame(sec3)
+        row_relax.pack(fill=tk.X, pady=1)
+        ttk.Label(row_relax, text="Under-relax:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_sc_relax_var = tk.StringVar(value="0.5")
+        ttk.Entry(row_relax, textvariable=self.ch_sc_relax_var, width=5).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_relax, text="(0~1, 낮을수록 안정)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        flash_note = ttk.Label(sec3,
+                               text="※ Hot Branch: μ_hys만 발열 (μ_ad 배제, iflag1=1)\n"
+                                    "   자기일관 루프: ΔT ↔ μ_hys 수렴",
+                               font=self.FONTS['small'], foreground='#DC2626')
+        flash_note.pack(anchor=tk.W, pady=(2, 0))
+
+        # ── 4) 점착 파라미터 (Adhesion Parameters) ──
+        sec4 = self._create_section(left_panel, "4) 점착 파라미터 (Arrhenius)")
+
+        row_eps = ttk.Frame(sec4)
+        row_eps.pack(fill=tk.X, pady=1)
+        ttk.Label(row_eps, text="ε (활성화 에너지):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_epsilon_var = tk.StringVar(value="0.97")
+        ttk.Entry(row_eps, textvariable=self.ch_epsilon_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_eps, text="eV", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        row_tref = ttk.Frame(sec4)
+        row_tref.pack(fill=tk.X, pady=1)
+        ttk.Label(row_tref, text="T_ref (기준 온도):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_T_ref_adh_var = tk.StringVar(value="293.15")
+        ttk.Entry(row_tref, textvariable=self.ch_T_ref_adh_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_tref, text="K", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        row_tau = ttk.Frame(sec4)
+        row_tau.pack(fill=tk.X, pady=1)
+        ttk.Label(row_tau, text="τ_f0:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_tau_f0_var = tk.StringVar(value="6.5")
+        ttk.Entry(row_tau, textvariable=self.ch_tau_f0_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_tau, text="MPa", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        row_v0s = ttk.Frame(sec4)
+        row_v0s.pack(fill=tk.X, pady=1)
+        ttk.Label(row_v0s, text="v₀*:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_v0_star_var = tk.StringVar(value="10")
+        ttk.Entry(row_v0s, textvariable=self.ch_v0_star_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_v0s, text="m/s", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        row_c = ttk.Frame(sec4)
+        row_c.pack(fill=tk.X, pady=1)
+        ttk.Label(row_c, text="c (가우시안 폭):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_c_gauss_var = tk.StringVar(value="0.1")
+        ttk.Entry(row_c, textvariable=self.ch_c_gauss_var, width=8).pack(side=tk.LEFT, padx=2)
+
+        adh_note = ttk.Label(sec4,
+                             text="※ Cold: aT'(T₀), Hot: aT'(T_hot)\n"
+                                  "   WLF(체적)과 Arrhenius(표면) 분리 적용",
+                             font=self.FONTS['small'], foreground='#2563EB')
+        adh_note.pack(anchor=tk.W, pady=(2, 0))
+
+        # Sync adhesion params from mu_adh tab
+        adh_sync_row = ttk.Frame(sec4)
+        adh_sync_row.pack(fill=tk.X, pady=2)
+        ttk.Button(adh_sync_row, text="μ_adh 파라미터 동기화",
+                   command=self._sync_cold_hot_adh_params, width=22).pack(side=tk.LEFT, padx=2)
+
+        # ── 5) 브러쉬 모델 (Brush Model) ──
+        sec5 = self._create_section(left_panel, "5) 브러쉬 모델 (Exponential Blending)")
+
+        self.ch_enable_brush_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(sec5, text="브러쉬 모델 블렌딩 활성화",
+                        variable=self.ch_enable_brush_var).pack(anchor=tk.W, pady=1)
+
+        row_v_brush = ttk.Frame(sec5)
+        row_v_brush.pack(fill=tk.X, pady=1)
+        ttk.Label(row_v_brush, text="슬라이딩 속도:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_brush_v_var = tk.StringVar(value="1.0")
+        ttk.Entry(row_v_brush, textvariable=self.ch_brush_v_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_v_brush, text="m/s", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        row_smax = ttk.Frame(sec5)
+        row_smax.pack(fill=tk.X, pady=1)
+        ttk.Label(row_smax, text="최대 슬립 거리:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_brush_s_max_var = tk.StringVar(value="10.0")
+        ttk.Entry(row_smax, textvariable=self.ch_brush_s_max_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_smax, text="mm", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        row_ns = ttk.Frame(sec5)
+        row_ns.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ns, text="타임 스텝:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ch_brush_n_steps_var = tk.StringVar(value="200")
+        ttk.Entry(row_ns, textvariable=self.ch_brush_n_steps_var, width=6).pack(side=tk.LEFT, padx=2)
+
+        brush_note = ttk.Label(sec5,
+                               text="s₀ = 0.2D (플래시 온도 발달 기준거리)\n"
+                                    "W_cold = exp(-s/s₀), W_hot = 1 - exp(-s/s₀)\n"
+                                    "μ(s) = μ_cold·W_cold + μ_hot·W_hot",
+                               font=self.FONTS['small'], foreground='#64748B')
+        brush_note.pack(anchor=tk.W, pady=(2, 0))
+
+        # ── 6) 계산 실행 ──
+        sec6 = self._create_section(left_panel, "6) 계산 실행")
+
+        calc_row = ttk.Frame(sec6)
+        calc_row.pack(fill=tk.X, pady=2)
+        self.ch_calc_button = ttk.Button(calc_row, text="Cold & Hot 계산",
+                                          command=self._calculate_cold_hot_branch, width=18,
+                                          style='Accent.TButton')
+        self.ch_calc_button.pack(side=tk.LEFT, padx=2)
+
+        self.ch_progress_var = tk.IntVar()
+        self.ch_progress_bar = ttk.Progressbar(calc_row, variable=self.ch_progress_var,
+                                                maximum=100, length=140)
+        self.ch_progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        # ── 7) 결과 텍스트 ──
+        sec7 = self._create_section(left_panel, "7) 결과")
+
+        self.ch_result_text = tk.Text(sec7, height=12, font=self.FONTS['mono_small'], wrap=tk.WORD)
+        self.ch_result_text.pack(fill=tk.X)
+
+        export_row = ttk.Frame(sec7)
+        export_row.pack(fill=tk.X, pady=2)
+        ttk.Button(export_row, text="Branch CSV 내보내기",
+                   command=self._export_cold_hot_csv, width=18).pack(side=tk.LEFT, padx=1)
+        ttk.Button(export_row, text="Brush CSV 내보내기",
+                   command=self._export_brush_csv, width=18).pack(side=tk.LEFT, padx=1)
+
+        # ============== Right Panel: Plots ==============
+        right_panel = layout['right']
+
+        plot_frame = ttk.LabelFrame(right_panel, text="Cold & Hot Branch 그래프", padding=5)
+        plot_frame.pack(fill=tk.BOTH, expand=True)
+
+        # Create figure with 2x2 subplots
+        self.fig_cold_hot = Figure(figsize=(9, 7), dpi=100)
+
+        # Top-left: Cold vs Hot Branch (μ_hys)
+        self.ax_ch_hys = self.fig_cold_hot.add_subplot(221)
+        self.ax_ch_hys.set_title('μ_hys: Cold vs Hot Branch', fontweight='bold', fontsize=10)
+        self.ax_ch_hys.set_xlabel('v (m/s)', fontsize=10)
+        self.ax_ch_hys.set_ylabel('μ_hys', fontsize=10)
+        self.ax_ch_hys.set_xscale('log')
+        self.ax_ch_hys.grid(True, alpha=0.3)
+
+        # Top-right: Cold vs Hot Branch (μ_total = μ_hys + μ_ad)
+        self.ax_ch_total = self.fig_cold_hot.add_subplot(222)
+        self.ax_ch_total.set_title('μ_total: Cold vs Hot', fontweight='bold', fontsize=10)
+        self.ax_ch_total.set_xlabel('v (m/s)', fontsize=10)
+        self.ax_ch_total.set_ylabel('μ_total', fontsize=10)
+        self.ax_ch_total.set_xscale('log')
+        self.ax_ch_total.grid(True, alpha=0.3)
+
+        # Bottom-left: Flash temperature ΔT + A/A0
+        self.ax_ch_flash = self.fig_cold_hot.add_subplot(223)
+        self.ax_ch_flash.set_title('ΔT(v) + A/A0', fontweight='bold', fontsize=10)
+        self.ax_ch_flash.set_xlabel('v (m/s)', fontsize=10)
+        self.ax_ch_flash.set_ylabel('ΔT (°C)', fontsize=10)
+        self.ax_ch_flash.set_xscale('log')
+        self.ax_ch_flash.grid(True, alpha=0.3)
+
+        # Bottom-right: Brush model blending
+        self.ax_ch_brush = self.fig_cold_hot.add_subplot(224)
+        self.ax_ch_brush.set_title('Brush Model μ(s)', fontweight='bold', fontsize=10)
+        self.ax_ch_brush.set_xlabel('슬립 거리 s (mm)', fontsize=10)
+        self.ax_ch_brush.set_ylabel('μ', fontsize=10)
+        self.ax_ch_brush.grid(True, alpha=0.3)
+
+        self.fig_cold_hot.subplots_adjust(left=0.10, right=0.90, top=0.96, bottom=0.08,
+                                           hspace=0.50, wspace=0.40)
+
+        self.canvas_cold_hot = FigureCanvasTkAgg(self.fig_cold_hot, plot_frame)
+        self.canvas_cold_hot.draw_idle()
+        self.canvas_cold_hot.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        toolbar = NavigationToolbar2Tk(self.canvas_cold_hot, plot_frame)
+        toolbar.update()
+
+    # ── Cold & Hot Branch: Sync helpers ──
+
+    def _sync_cold_hot_from_tabs(self):
+        """Synchronize base conditions from μ_visc and μ_adh tabs."""
+        try:
+            # Temperature
+            if hasattr(self, 'mu_calc_temp_var'):
+                self.ch_T0_var.set(self.mu_calc_temp_var.get())
+            # Pressure
+            if hasattr(self, 'mu_sigma0_var') and self.mu_sigma0_var.get().strip():
+                self.ch_p0_var.set(self.mu_sigma0_var.get())
+            elif hasattr(self, 'sigma_0_var'):
+                self.ch_p0_var.set(self.sigma_0_var.get())
+            # Flash temp thermal properties
+            if hasattr(self, 'flash_rho_var'):
+                self.ch_rho_var.set(self.flash_rho_var.get())
+            if hasattr(self, 'flash_cv_var'):
+                self.ch_Cv_var.set(self.flash_cv_var.get())
+            if hasattr(self, 'flash_kappa_var'):
+                self.ch_kappa_var.set(self.flash_kappa_var.get())
+            if hasattr(self, 'flash_d_macro_var'):
+                self.ch_D_macro_var.set(self.flash_d_macro_var.get())
+            # Adhesion params
+            self._sync_cold_hot_adh_params()
+            # T_ref from aT data
+            if hasattr(self, 'persson_aT_data') and self.persson_aT_data is not None:
+                T_ref_C = self.persson_aT_data.get('T_ref', None)
+                if T_ref_C is not None:
+                    T_ref_K = T_ref_C + 273.15
+                    self.ch_T_ref_adh_var.set(f"{T_ref_K:.2f}")
+
+            self.ch_sync_status_var.set("동기화 완료")
+            self._show_status("Cold & Hot Branch 조건 동기화 완료", 'success')
+        except Exception as e:
+            self.ch_sync_status_var.set(f"동기화 실패: {e}")
+
+    def _sync_cold_hot_adh_params(self):
+        """Sync adhesion parameters from μ_adh tab."""
+        try:
+            if hasattr(self, 'adh_tau_f0_var'):
+                self.ch_tau_f0_var.set(self.adh_tau_f0_var.get())
+            if hasattr(self, 'adh_v0_star_var'):
+                self.ch_v0_star_var.set(self.adh_v0_star_var.get())
+            if hasattr(self, 'adh_c_var'):
+                self.ch_c_gauss_var.set(self.adh_c_var.get())
+            if hasattr(self, 'adh_epsilon_var'):
+                self.ch_epsilon_var.set(self.adh_epsilon_var.get())
+            if hasattr(self, 'adh_T_ref_var'):
+                self.ch_T_ref_adh_var.set(self.adh_T_ref_var.get())
+        except Exception:
+            pass
+
+    # ── Cold & Hot Branch: Main calculation ──
+
+    def _calculate_cold_hot_branch(self):
+        """Run Cold Branch (Module 1) + Hot Branch (Module 2) + Brush Model (Module 3).
+
+        Module 1 (Cold): Fixed T = T0, single-pass μ_hys + μ_ad for each v.
+        Module 2 (Hot):  Self-consistent flash temp iteration for each v.
+                         Only μ_hys generates heat (iflag1=1).
+        Module 3 (Brush): Exponential blending of Cold/Hot via slip distance.
+        """
+        try:
+            self.ch_calc_button.config(state='disabled')
+            self.ch_progress_var.set(0)
+            self.status_var.set("Cold & Hot Branch 계산 시작...")
+            self.root.update()
+
+            # ── Local imports ──
+            from scipy.special import erf
+            from scipy.interpolate import interp1d
+            from scipy.integrate import simpson as sp_simpson
+
+            # ── Validate prerequisites ──
+            if not hasattr(self, 'persson_master_curve') or self.persson_master_curve is None:
+                self._show_status("마스터 커브 데이터가 없습니다. Tab 2에서 먼저 로드하세요.", 'warning')
+                self.ch_calc_button.config(state='normal')
+                return
+
+            if not hasattr(self, 'persson_aT_interp') or self.persson_aT_interp is None:
+                self._show_status("aT(T) 이동 인자 데이터가 없습니다.", 'warning')
+                self.ch_calc_button.config(state='normal')
+                return
+
+            if not hasattr(self, 'current_psd') or self.current_psd is None:
+                self._show_status("PSD 데이터가 없습니다. Tab 1에서 먼저 생성하세요.", 'warning')
+                self.ch_calc_button.config(state='normal')
+                return
+
+            # ── Read parameters ──
+            T0 = float(self.ch_T0_var.get())                    # °C
+            p0_MPa = float(self.ch_p0_var.get())
+            sigma_0 = p0_MPa * 1e6                               # Pa
+            D_mm = float(self.ch_D_macro_var.get())
+            D_m = D_mm * 1e-3                                    # m
+            s0 = 0.2 * D_m                                       # flash temp development distance (m)
+
+            log_vmin = float(self.ch_log_vmin_var.get())
+            log_vmax = float(self.ch_log_vmax_var.get())
+            n_v = int(self.ch_n_v_var.get())
+            v_array = np.logspace(log_vmin, log_vmax, n_v)
+
+            rho = float(self.ch_rho_var.get())
+            Cv = float(self.ch_Cv_var.get())
+            kappa = float(self.ch_kappa_var.get())
+            sc_max_iter = int(self.ch_sc_max_iter_var.get())
+            sc_tol = float(self.ch_sc_tol_var.get())
+            sc_relax = float(self.ch_sc_relax_var.get())
+
+            # Adhesion parameters
+            tau_f0 = float(self.ch_tau_f0_var.get()) * 1e6       # MPa → Pa
+            v0_star = float(self.ch_v0_star_var.get())            # m/s
+            c_gauss = float(self.ch_c_gauss_var.get())
+            epsilon = float(self.ch_epsilon_var.get())             # eV
+            T_ref_K = float(self.ch_T_ref_adh_var.get())          # K
+            k_B = 8.6173e-5                                        # eV/K
+
+            # ── Prepare master curve interpolation ──
+            mc = self.persson_master_curve
+            omega_ref = mc['frequencies']
+            E_storage_ref = mc['E_storage']
+            E_loss_ref = mc['E_loss']
+
+            log_omega_ref = np.log10(omega_ref)
+            log_E_storage = np.log10(np.maximum(E_storage_ref, 1e-30))
+            log_E_loss = np.log10(np.maximum(E_loss_ref, 1e-30))
+
+            E_storage_interp = interp1d(log_omega_ref, log_E_storage,
+                                         kind='cubic', fill_value='extrapolate')
+            E_loss_interp = interp1d(log_omega_ref, log_E_loss,
+                                      kind='cubic', fill_value='extrapolate')
+
+            # PSD and q array
+            if hasattr(self, 'results') and self.results and '2d_results' in self.results:
+                q = self.results['2d_results'].get('q', None)
+            else:
+                q = None
+
+            if q is None:
+                # Generate q array from PSD
+                q0 = getattr(self.current_psd, 'q_min', 1e2)
+                q1 = getattr(self.current_psd, 'q_max', 1e9)
+                q = np.logspace(np.log10(q0), np.log10(q1), 200)
+
+            C_q = self.current_psd(q) if callable(self.current_psd) else np.zeros_like(q)
+
+            # Poisson's ratio and gamma
+            nu = 0.5
+            if hasattr(self, 'poisson_var'):
+                try:
+                    nu = float(self.poisson_var.get())
+                except (ValueError, AttributeError):
+                    pass
+            gamma = 0.6
+            if hasattr(self, 'gamma_var'):
+                try:
+                    gamma = float(self.gamma_var.get())
+                except (ValueError, AttributeError):
+                    pass
+
+            # Flash temperature calculator
+            from persson_model.core.flash_temperature import FlashTemperatureCalculator
+            flash_calc = FlashTemperatureCalculator(
+                rho=rho, C_v=Cv, kappa_th=kappa, d_macro=D_m
+            )
+
+            # ── Helper: compute mu_hys + A/A0 at given temperature ──
+            def _compute_mu_hys_at_T(v_j, T_current):
+                """Compute μ_hys and A/A0 at T_current for velocity v_j.
+
+                Uses WLF shift aT(T) to shift master curve frequency.
+                Returns (mu_hys, A_A0).
+                """
+                log_aT = float(self.persson_aT_interp(T_current))
+                aT = 10.0 ** log_aT
+
+                # Angle integration for friction integrand
+                n_phi = 36
+                phi = np.linspace(0, np.pi / 2, n_phi)
+                cos_phi = np.cos(phi)
+
+                prefactor = 1.0 / ((1.0 - nu**2) * sigma_0)
+
+                # G(q) calculation for contact area
+                # Simplified G(q) calculation and friction integral
+                G_arr = np.zeros(len(q))
+                P_arr = np.zeros(len(q))
+                integrand_arr = np.zeros(len(q))
+
+                # Cumulative G(q) = (1/8) ∫ dq' q'^3 C(q') |E*|^2 / σ0^2 (simplified)
+                cumulative_G = 0.0
+                for i_q in range(len(q)):
+                    q_i = q[i_q]
+
+                    # E*(q·v) at this q
+                    omega_0 = q_i * v_j
+                    omega_eff = omega_0 * aT
+                    log_w = np.log10(max(omega_eff, 1e-30))
+                    Ep_val = 10.0 ** float(E_storage_interp(log_w))
+                    Epp_val = 10.0 ** float(E_loss_interp(log_w))
+                    E_abs = np.sqrt(Ep_val**2 + Epp_val**2)
+
+                    # Accumulate G(q)
+                    if i_q > 0:
+                        dq = q[i_q] - q[i_q - 1]
+                        integrand_G = q[i_q]**3 * C_q[i_q] * E_abs**2 / sigma_0**2
+                        cumulative_G += (1.0 / (8.0 * np.pi)) * integrand_G * dq
+                    G_arr[i_q] = cumulative_G
+
+                    # P(q) = erf(1 / (2√G))
+                    if cumulative_G > 1e-10:
+                        P_arr[i_q] = float(erf(1.0 / (2.0 * np.sqrt(cumulative_G))))
+                    else:
+                        P_arr[i_q] = 1.0
+
+                    # S(q) = γ + (1-γ)·P(q)
+                    S_i = gamma + (1.0 - gamma) * P_arr[i_q]
+
+                    # Angle integral at this q
+                    angle_sum = 0.0
+                    for j_phi in range(n_phi):
+                        omega_phi = q_i * v_j * cos_phi[j_phi]
+                        omega_phi_eff = omega_phi * aT
+                        log_w_phi = np.log10(max(omega_phi_eff, 1e-30))
+                        ImE_phi = 10.0 ** float(E_loss_interp(log_w_phi))
+                        angle_sum += cos_phi[j_phi] * ImE_phi * prefactor
+
+                    # Simpson-like: multiply by dphi and symmetry factor 4
+                    dphi = phi[1] - phi[0] if n_phi > 1 else np.pi / 2
+                    angle_integral = 4.0 * angle_sum * dphi
+
+                    # Full integrand: q^3 · C(q) · P(q) · S(q) · angle_integral
+                    integrand_arr[i_q] = q_i**3 * C_q[i_q] * P_arr[i_q] * S_i * angle_integral
+
+                # Integrate over q for mu_hys
+                if len(q) >= 3:
+                    mu_hys = 0.5 * sp_simpson(integrand_arr, x=q)
+                else:
+                    mu_hys = 0.5 * np.trapezoid(integrand_arr, q)
+
+                A_A0 = P_arr[-1] if len(P_arr) > 0 else 0.01
+
+                return max(mu_hys, 0.0), max(A_A0, 1e-6)
+
+            # ── Helper: compute mu_ad at given temperature ──
+            def _compute_mu_ad(v_j, T_current, A_A0):
+                """Compute μ_ad at T_current using Arrhenius shift."""
+                T_K = T_current + 273.15
+                aT_prime = np.exp((epsilon / k_B) * (1.0 / T_K - 1.0 / T_ref_K))
+                v_eff = v_j * aT_prime
+                log_ratio = np.log10(max(v_eff / v0_star, 1e-30))
+                tau_f = tau_f0 * np.exp(-c_gauss * log_ratio**2)
+                mu_ad = (tau_f / sigma_0) * A_A0
+                return max(mu_ad, 0.0), tau_f, aT_prime
+
+            # ── Output arrays ──
+            mu_cold_hys = np.zeros(n_v)
+            mu_cold_ad = np.zeros(n_v)
+            mu_cold_total = np.zeros(n_v)
+            A_A0_cold = np.zeros(n_v)
+
+            mu_hot_hys = np.zeros(n_v)
+            mu_hot_ad = np.zeros(n_v)
+            mu_hot_total = np.zeros(n_v)
+            A_A0_hot = np.zeros(n_v)
+            delta_T_arr = np.zeros(n_v)
+            T_hot_arr = np.zeros(n_v)
+            hot_converged = np.zeros(n_v, dtype=bool)
+            hot_iters = np.zeros(n_v, dtype=int)
+
+            # ========================================
+            # MODULE 1: Cold Branch (T = T0, no flash)
+            # ========================================
+            self.status_var.set("Module 1: Cold Branch 계산 중...")
+            self.root.update()
+
+            for j in range(n_v):
+                v_j = v_array[j]
+
+                # Cold hys + A/A0
+                mu_hys_j, A_j = _compute_mu_hys_at_T(v_j, T0)
+                mu_cold_hys[j] = mu_hys_j
+                A_A0_cold[j] = A_j
+
+                # Cold ad
+                mu_ad_j, _, _ = _compute_mu_ad(v_j, T0, A_j)
+                mu_cold_ad[j] = mu_ad_j
+                mu_cold_total[j] = mu_hys_j + mu_ad_j
+
+                # Progress (Cold = 0~40%)
+                self.ch_progress_var.set(int(40 * (j + 1) / n_v))
+                if j % max(1, n_v // 10) == 0:
+                    self.root.update()
+
+            # ========================================
+            # MODULE 2: Hot Branch (flash temp loop)
+            # ========================================
+            self.status_var.set("Module 2: Hot Branch 계산 중 (Flash Temp 반복)...")
+            self.root.update()
+
+            for j in range(n_v):
+                v_j = v_array[j]
+
+                # Self-consistent flash temperature iteration
+                T_guess = T0
+                dT_current = 0.0
+                converged = False
+
+                for it in range(sc_max_iter):
+                    T_hot_iter = T0 + dT_current
+
+                    # mu_hys at T_hot_iter (WLF shifted)
+                    mu_hys_iter, A_iter = _compute_mu_hys_at_T(v_j, T_hot_iter)
+
+                    # Heat generation: ONLY mu_hys (iflag1=1, exclude mu_ad)
+                    P_eff = np.clip(A_iter, 1e-4, 0.99)
+                    q_dot = flash_calc.heat_flux(P_eff, mu_hys_iter, sigma_0, v_j)
+                    Jd = flash_calc.peclet_number(v_j)
+                    Jh = flash_calc.peclet_number_h(v_j)
+                    dT_new = flash_calc.delta_T(q_dot, Jd, Jh)
+
+                    # Under-relaxation
+                    dT_next = sc_relax * dT_new + (1.0 - sc_relax) * dT_current
+
+                    # Convergence check
+                    if abs(dT_next - dT_current) < sc_tol:
+                        dT_current = dT_next
+                        converged = True
+                        hot_iters[j] = it + 1
+                        break
+
+                    dT_current = dT_next
+
+                if not converged:
+                    hot_iters[j] = sc_max_iter
+
+                # Final hot state
+                T_hot_final = T0 + dT_current
+                delta_T_arr[j] = dT_current
+                T_hot_arr[j] = T_hot_final
+                hot_converged[j] = converged
+
+                # Final mu_hys and A/A0 at T_hot
+                mu_hys_hot_j, A_hot_j = _compute_mu_hys_at_T(v_j, T_hot_final)
+                mu_hot_hys[j] = mu_hys_hot_j
+                A_A0_hot[j] = A_hot_j
+
+                # mu_ad at T_hot using Arrhenius shift (NOT WLF!)
+                mu_ad_hot_j, _, _ = _compute_mu_ad(v_j, T_hot_final, A_hot_j)
+                mu_hot_ad[j] = mu_ad_hot_j
+                mu_hot_total[j] = mu_hys_hot_j + mu_ad_hot_j
+
+                # Progress (Hot = 40~80%)
+                self.ch_progress_var.set(40 + int(40 * (j + 1) / n_v))
+                if j % max(1, n_v // 10) == 0:
+                    self.root.update()
+
+            # ========================================
+            # MODULE 3: Brush Model Blending
+            # ========================================
+            brush_results = None
+            if self.ch_enable_brush_var.get():
+                self.status_var.set("Module 3: Brush Model 블렌딩 중...")
+                self.root.update()
+
+                v_brush = float(self.ch_brush_v_var.get())
+                s_max_mm = float(self.ch_brush_s_max_var.get())
+                s_max = s_max_mm * 1e-3    # mm → m
+                n_steps = int(self.ch_brush_n_steps_var.get())
+
+                # Build lookup table via interpolation
+                log_v = np.log10(v_array)
+                cold_interp = interp1d(log_v, mu_cold_total, kind='cubic',
+                                        fill_value='extrapolate')
+                hot_interp = interp1d(log_v, mu_hot_total, kind='cubic',
+                                       fill_value='extrapolate')
+
+                # Time/distance arrays
+                s_arr = np.linspace(0, s_max, n_steps)  # slip distance (m)
+                t_arr = s_arr / max(v_brush, 1e-10)     # time (s)
+
+                # Lookup Cold/Hot μ at brush velocity
+                log_v_brush = np.log10(max(v_brush, 1e-30))
+                mu_cold_at_v = float(cold_interp(log_v_brush))
+                mu_hot_at_v = float(hot_interp(log_v_brush))
+
+                # Exponential blending weights
+                W_cold = np.exp(-s_arr / s0)
+                W_hot = 1.0 - np.exp(-s_arr / s0)
+
+                mu_brush = mu_cold_at_v * W_cold + mu_hot_at_v * W_hot
+
+                brush_results = {
+                    'v_brush': v_brush,
+                    's': s_arr,
+                    't': t_arr,
+                    's0': s0,
+                    'W_cold': W_cold,
+                    'W_hot': W_hot,
+                    'mu_cold_at_v': mu_cold_at_v,
+                    'mu_hot_at_v': mu_hot_at_v,
+                    'mu_brush': mu_brush,
+                }
+
+            self.ch_progress_var.set(90)
+            self.root.update()
+
+            # ── Store results ──
+            self.cold_hot_results = {
+                'v': v_array,
+                'T0': T0,
+                'sigma_0': sigma_0,
+                'D': D_m,
+                's0': s0,
+                # Cold branch
+                'mu_cold_hys': mu_cold_hys,
+                'mu_cold_ad': mu_cold_ad,
+                'mu_cold_total': mu_cold_total,
+                'A_A0_cold': A_A0_cold,
+                # Hot branch
+                'mu_hot_hys': mu_hot_hys,
+                'mu_hot_ad': mu_hot_ad,
+                'mu_hot_total': mu_hot_total,
+                'A_A0_hot': A_A0_hot,
+                'delta_T': delta_T_arr,
+                'T_hot': T_hot_arr,
+                'hot_converged': hot_converged,
+                'hot_iters': hot_iters,
+                # Brush model
+                'brush': brush_results,
+            }
+
+            # ── Update plots ──
+            self._update_cold_hot_plots()
+
+            # ── Update result text ──
+            self._update_cold_hot_result_text()
+
+            self.ch_progress_var.set(100)
+            self.status_var.set("Cold & Hot Branch 계산 완료")
+            self.ch_calc_button.config(state='normal')
+
+            n_conv = np.sum(hot_converged)
+            self._show_status(
+                f"Cold & Hot Branch 계산 완료 ({n_v}점)\n"
+                f"Hot 수렴: {n_conv}/{n_v}, ΔT 범위: {np.min(delta_T_arr):.1f}~{np.max(delta_T_arr):.1f}°C",
+                'success')
+
+        except ValueError as e:
+            self.ch_calc_button.config(state='normal')
+            self._show_status(f"입력값 오류: {str(e)}", 'warning')
+        except Exception as e:
+            self.ch_calc_button.config(state='normal')
+            messagebox.showerror("오류", f"Cold & Hot Branch 계산 실패:\n{str(e)}")
+            import traceback
+            traceback.print_exc()
+
+    # ── Cold & Hot Branch: Plot update ──
+
+    def _update_cold_hot_plots(self):
+        """Update all 4 subplots for Cold & Hot Branch results."""
+        if self.cold_hot_results is None:
+            return
+
+        try:
+            r = self.cold_hot_results
+            v = r['v']
+
+            # Clear all subplots
+            self.ax_ch_hys.clear()
+            self.ax_ch_total.clear()
+            self.ax_ch_flash.clear()
+            # Remove old twin axes
+            if hasattr(self, '_ax_ch_flash_twin') and self._ax_ch_flash_twin is not None:
+                self._ax_ch_flash_twin.remove()
+                self._ax_ch_flash_twin = None
+            self.ax_ch_brush.clear()
+
+            def smart_fmt(val):
+                if abs(val) < 0.001 and val != 0:
+                    return f'{val:.2e}'
+                return f'{val:.4f}'
+
+            # ── Plot 1: μ_hys Cold vs Hot ──
+            self.ax_ch_hys.semilogx(v, r['mu_cold_hys'], 'b-', linewidth=2,
+                                     label='μ_hys (Cold)')
+            self.ax_ch_hys.semilogx(v, r['mu_hot_hys'], 'r-', linewidth=2,
+                                     label='μ_hys (Hot)')
+            # Mark peaks
+            cold_peak = np.argmax(r['mu_cold_hys'])
+            hot_peak = np.argmax(r['mu_hot_hys'])
+            self.ax_ch_hys.plot(v[cold_peak], r['mu_cold_hys'][cold_peak], 'b*',
+                                markersize=12,
+                                label=f'Cold max: {smart_fmt(r["mu_cold_hys"][cold_peak])}')
+            self.ax_ch_hys.plot(v[hot_peak], r['mu_hot_hys'][hot_peak], 'r*',
+                                markersize=12,
+                                label=f'Hot max: {smart_fmt(r["mu_hot_hys"][hot_peak])}')
+            self.ax_ch_hys.set_title('μ_hys: Cold vs Hot Branch', fontweight='bold', fontsize=10)
+            self.ax_ch_hys.set_xlabel('v (m/s)', fontsize=10)
+            self.ax_ch_hys.set_ylabel('μ_hys', fontsize=10)
+            self.ax_ch_hys.legend(loc='best', fontsize=7)
+            self.ax_ch_hys.grid(True, alpha=0.3)
+
+            # ── Plot 2: μ_total Cold vs Hot ──
+            self.ax_ch_total.semilogx(v, r['mu_cold_total'], 'b-', linewidth=2.5,
+                                       label='μ_total (Cold)')
+            self.ax_ch_total.semilogx(v, r['mu_hot_total'], 'r-', linewidth=2.5,
+                                       label='μ_total (Hot)')
+            # Individual components as dashed
+            self.ax_ch_total.semilogx(v, r['mu_cold_hys'], 'b--', linewidth=1, alpha=0.5,
+                                       label='μ_hys (Cold)')
+            self.ax_ch_total.semilogx(v, r['mu_cold_ad'], 'b:', linewidth=1, alpha=0.5,
+                                       label='μ_ad (Cold)')
+            self.ax_ch_total.semilogx(v, r['mu_hot_hys'], 'r--', linewidth=1, alpha=0.5,
+                                       label='μ_hys (Hot)')
+            self.ax_ch_total.semilogx(v, r['mu_hot_ad'], 'r:', linewidth=1, alpha=0.5,
+                                       label='μ_ad (Hot)')
+            # Mark peaks
+            cold_total_peak = np.argmax(r['mu_cold_total'])
+            hot_total_peak = np.argmax(r['mu_hot_total'])
+            self.ax_ch_total.plot(v[cold_total_peak], r['mu_cold_total'][cold_total_peak],
+                                  'b*', markersize=12,
+                                  label=f'Cold max: {smart_fmt(r["mu_cold_total"][cold_total_peak])}')
+            self.ax_ch_total.plot(v[hot_total_peak], r['mu_hot_total'][hot_total_peak],
+                                  'r*', markersize=12,
+                                  label=f'Hot max: {smart_fmt(r["mu_hot_total"][hot_total_peak])}')
+            self.ax_ch_total.set_title('μ_total: Cold vs Hot (hys+ad)', fontweight='bold', fontsize=10)
+            self.ax_ch_total.set_xlabel('v (m/s)', fontsize=10)
+            self.ax_ch_total.set_ylabel('μ_total', fontsize=10)
+            self.ax_ch_total.legend(loc='best', fontsize=6)
+            self.ax_ch_total.grid(True, alpha=0.3)
+
+            # ── Plot 3: ΔT + A/A0 dual y-axis ──
+            line_dT = self.ax_ch_flash.semilogx(v, r['delta_T'], 'r-', linewidth=2,
+                                                  label='ΔT')
+            max_dT_idx = np.argmax(r['delta_T'])
+            self.ax_ch_flash.plot(v[max_dT_idx], r['delta_T'][max_dT_idx], 'r*',
+                                   markersize=12,
+                                   label=f'max ΔT={r["delta_T"][max_dT_idx]:.1f}°C')
+            self.ax_ch_flash.set_title('Flash Temp ΔT(v) + A/A0', fontweight='bold', fontsize=10)
+            self.ax_ch_flash.set_xlabel('v (m/s)', fontsize=10)
+            self.ax_ch_flash.set_ylabel('ΔT (°C)', fontsize=10, color='r')
+            self.ax_ch_flash.tick_params(axis='y', labelcolor='r')
+
+            # A/A0 on twin axis
+            self._ax_ch_flash_twin = self.ax_ch_flash.twinx()
+            line_ac = self._ax_ch_flash_twin.semilogx(v, r['A_A0_cold'], 'b--', linewidth=1.5,
+                                                       alpha=0.7, label='A/A0 (Cold)')
+            line_ah = self._ax_ch_flash_twin.semilogx(v, r['A_A0_hot'], 'g--', linewidth=1.5,
+                                                       alpha=0.7, label='A/A0 (Hot)')
+            self._ax_ch_flash_twin.set_ylabel('A/A0', fontsize=10, color='b')
+            self._ax_ch_flash_twin.tick_params(axis='y', labelcolor='b')
+
+            lines = line_dT + line_ac + line_ah
+            labels = [l.get_label() for l in lines]
+            self.ax_ch_flash.legend(lines, labels, loc='best', fontsize=7)
+            self.ax_ch_flash.grid(True, alpha=0.3)
+
+            # ── Plot 4: Brush Model μ(s) ──
+            brush = r.get('brush')
+            if brush is not None:
+                s_mm = brush['s'] * 1e3  # m → mm
+                s0_mm = brush['s0'] * 1e3
+
+                self.ax_ch_brush.plot(s_mm, brush['mu_brush'], 'k-', linewidth=2.5,
+                                       label='μ_final(s)')
+                self.ax_ch_brush.axhline(y=brush['mu_cold_at_v'], color='b', linestyle='--',
+                                          alpha=0.7, linewidth=1,
+                                          label=f'μ_cold={smart_fmt(brush["mu_cold_at_v"])}')
+                self.ax_ch_brush.axhline(y=brush['mu_hot_at_v'], color='r', linestyle='--',
+                                          alpha=0.7, linewidth=1,
+                                          label=f'μ_hot={smart_fmt(brush["mu_hot_at_v"])}')
+                # Mark s0
+                self.ax_ch_brush.axvline(x=s0_mm, color='gray', linestyle=':', alpha=0.8,
+                                          label=f's₀={s0_mm:.3f} mm')
+                # Show weights at characteristic points
+                self.ax_ch_brush.fill_between(s_mm, brush['mu_brush'],
+                                               brush['mu_hot_at_v'],
+                                               alpha=0.1, color='blue',
+                                               label='Cold 기여')
+                self.ax_ch_brush.set_title(
+                    f'Brush Model (v={brush["v_brush"]:.2f} m/s)',
+                    fontweight='bold', fontsize=10)
+                self.ax_ch_brush.set_xlabel('슬립 거리 s (mm)', fontsize=10)
+                self.ax_ch_brush.set_ylabel('μ', fontsize=10)
+                self.ax_ch_brush.legend(loc='best', fontsize=7)
+            else:
+                self.ax_ch_brush.text(0.5, 0.5, 'Brush Model 비활성',
+                                       ha='center', va='center',
+                                       transform=self.ax_ch_brush.transAxes,
+                                       fontsize=12, color='#94A3B8')
+            self.ax_ch_brush.grid(True, alpha=0.3)
+
+            self.fig_cold_hot.subplots_adjust(left=0.10, right=0.90, top=0.96, bottom=0.08,
+                                               hspace=0.50, wspace=0.40)
+            self.canvas_cold_hot.draw()
+
+        except Exception as e:
+            print(f"Cold & Hot plot update error: {e}")
+            import traceback
+            traceback.print_exc()
+
+    # ── Cold & Hot Branch: Result text ──
+
+    def _update_cold_hot_result_text(self):
+        """Update result text box with Cold & Hot Branch calculation summary."""
+        if self.cold_hot_results is None:
+            return
+
+        r = self.cold_hot_results
+        v = r['v']
+        n_v = len(v)
+
+        def smart_fmt(val):
+            if abs(val) < 0.001 and val != 0:
+                return f'{val:.2e}'
+            return f'{val:.4f}'
+
+        txt = self.ch_result_text
+        txt.delete(1.0, tk.END)
+        txt.insert(tk.END, "=" * 40 + "\n")
+        txt.insert(tk.END, "Cold & Hot Branch 계산 결과\n")
+        txt.insert(tk.END, "=" * 40 + "\n\n")
+
+        txt.insert(tk.END, f"[기본 조건]\n")
+        txt.insert(tk.END, f"  T₀={r['T0']:.1f}°C, σ₀={r['sigma_0']/1e6:.3f} MPa\n")
+        txt.insert(tk.END, f"  D={r['D']*1e3:.2f} mm, s₀={r['s0']*1e3:.4f} mm\n\n")
+
+        txt.insert(tk.END, f"[Cold Branch (T = T₀)]\n")
+        txt.insert(tk.END, f"  μ_hys: {smart_fmt(np.min(r['mu_cold_hys']))} ~ {smart_fmt(np.max(r['mu_cold_hys']))}\n")
+        txt.insert(tk.END, f"  μ_ad:  {smart_fmt(np.min(r['mu_cold_ad']))} ~ {smart_fmt(np.max(r['mu_cold_ad']))}\n")
+        txt.insert(tk.END, f"  μ_tot: {smart_fmt(np.min(r['mu_cold_total']))} ~ {smart_fmt(np.max(r['mu_cold_total']))}\n")
+        cold_peak = np.argmax(r['mu_cold_total'])
+        txt.insert(tk.END, f"  최대: μ={smart_fmt(r['mu_cold_total'][cold_peak])} @ v={v[cold_peak]:.2e}\n\n")
+
+        txt.insert(tk.END, f"[Hot Branch (T = T₀ + ΔT)]\n")
+        txt.insert(tk.END, f"  μ_hys: {smart_fmt(np.min(r['mu_hot_hys']))} ~ {smart_fmt(np.max(r['mu_hot_hys']))}\n")
+        txt.insert(tk.END, f"  μ_ad:  {smart_fmt(np.min(r['mu_hot_ad']))} ~ {smart_fmt(np.max(r['mu_hot_ad']))}\n")
+        txt.insert(tk.END, f"  μ_tot: {smart_fmt(np.min(r['mu_hot_total']))} ~ {smart_fmt(np.max(r['mu_hot_total']))}\n")
+        hot_peak = np.argmax(r['mu_hot_total'])
+        txt.insert(tk.END, f"  최대: μ={smart_fmt(r['mu_hot_total'][hot_peak])} @ v={v[hot_peak]:.2e}\n")
+        txt.insert(tk.END, f"  ΔT: {np.min(r['delta_T']):.1f} ~ {np.max(r['delta_T']):.1f}°C\n")
+        n_conv = np.sum(r['hot_converged'])
+        txt.insert(tk.END, f"  수렴: {n_conv}/{n_v}\n\n")
+
+        # Brush model summary
+        brush = r.get('brush')
+        if brush is not None:
+            txt.insert(tk.END, f"[Brush Model]\n")
+            txt.insert(tk.END, f"  v_brush={brush['v_brush']:.2f} m/s\n")
+            txt.insert(tk.END, f"  μ_cold(v)={smart_fmt(brush['mu_cold_at_v'])}\n")
+            txt.insert(tk.END, f"  μ_hot(v) ={smart_fmt(brush['mu_hot_at_v'])}\n")
+            txt.insert(tk.END, f"  s₀={brush['s0']*1e3:.4f} mm\n")
+            txt.insert(tk.END, f"  μ(0)={smart_fmt(brush['mu_brush'][0])}")
+            txt.insert(tk.END, f" → μ(∞)={smart_fmt(brush['mu_brush'][-1])}\n\n")
+
+        # Sample velocity table
+        txt.insert(tk.END, f"[속도별 요약]\n")
+        txt.insert(tk.END, f"{'v(m/s)':>12s} {'μ_C_hys':>8s} {'μ_C_ad':>8s} {'μ_C_tot':>8s} "
+                            f"{'μ_H_hys':>8s} {'μ_H_ad':>8s} {'μ_H_tot':>8s} {'ΔT':>6s}\n")
+        step = max(1, n_v // 10)
+        for i in range(0, n_v, step):
+            txt.insert(tk.END,
+                f"{v[i]:12.2e} {r['mu_cold_hys'][i]:8.4f} {r['mu_cold_ad'][i]:8.4f} "
+                f"{r['mu_cold_total'][i]:8.4f} {r['mu_hot_hys'][i]:8.4f} "
+                f"{r['mu_hot_ad'][i]:8.4f} {r['mu_hot_total'][i]:8.4f} "
+                f"{r['delta_T'][i]:6.1f}\n")
+
+    # ── Cold & Hot Branch: CSV export ──
+
+    def _export_cold_hot_csv(self):
+        """Export Cold & Hot Branch results to CSV."""
+        if self.cold_hot_results is None:
+            self._show_status("Cold & Hot Branch 결과가 없습니다.", 'warning')
+            return
+
+        mc_prefix = self._get_mc_prefix() if hasattr(self, '_get_mc_prefix') else ''
+        default_fn = f"{mc_prefix}_cold_hot_branch.csv" if mc_prefix else "cold_hot_branch.csv"
+
+        filepath = filedialog.asksaveasfilename(
+            title="Cold & Hot Branch 데이터 내보내기",
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv"), ("텍스트", "*.txt")],
+            initialfile=default_fn
+        )
+        if not filepath:
+            return
+
+        try:
+            from datetime import datetime
+            r = self.cold_hot_results
+            v = r['v']
+
+            lines = [
+                f"# Cold & Hot Branch Results",
+                f"# 생성일시,{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                f"# T0 (°C),{r['T0']:.1f}",
+                f"# sigma_0 (MPa),{r['sigma_0']/1e6:.3f}",
+                f"# D (mm),{r['D']*1e3:.2f}",
+                f"# s0 (mm),{r['s0']*1e3:.4f}",
+                "#",
+                "log10(v),v [m/s],mu_cold_hys,mu_cold_ad,mu_cold_total,"
+                "mu_hot_hys,mu_hot_ad,mu_hot_total,A_A0_cold,A_A0_hot,delta_T,T_hot,converged"
+            ]
+            for i in range(len(v)):
+                lines.append(
+                    f"{np.log10(v[i]):.6f},{v[i]:.6e},"
+                    f"{r['mu_cold_hys'][i]:.6f},{r['mu_cold_ad'][i]:.6f},{r['mu_cold_total'][i]:.6f},"
+                    f"{r['mu_hot_hys'][i]:.6f},{r['mu_hot_ad'][i]:.6f},{r['mu_hot_total'][i]:.6f},"
+                    f"{r['A_A0_cold'][i]:.6f},{r['A_A0_hot'][i]:.6f},"
+                    f"{r['delta_T'][i]:.2f},{r['T_hot'][i]:.2f},{int(r['hot_converged'][i])}"
+                )
+
+            with open(filepath, 'w', encoding='utf-8-sig') as f:
+                f.write("\n".join(lines))
+
+            self._show_status(f"Cold & Hot Branch CSV 저장 완료: {filepath}", 'success')
+        except Exception as e:
+            messagebox.showerror("오류", f"CSV 저장 실패:\n{str(e)}")
+
+    def _export_brush_csv(self):
+        """Export Brush Model blending results to CSV."""
+        if self.cold_hot_results is None or self.cold_hot_results.get('brush') is None:
+            self._show_status("Brush Model 결과가 없습니다.", 'warning')
+            return
+
+        mc_prefix = self._get_mc_prefix() if hasattr(self, '_get_mc_prefix') else ''
+        default_fn = f"{mc_prefix}_brush_model.csv" if mc_prefix else "brush_model.csv"
+
+        filepath = filedialog.asksaveasfilename(
+            title="Brush Model 데이터 내보내기",
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv"), ("텍스트", "*.txt")],
+            initialfile=default_fn
+        )
+        if not filepath:
+            return
+
+        try:
+            from datetime import datetime
+            brush = self.cold_hot_results['brush']
+            r = self.cold_hot_results
+
+            lines = [
+                f"# Brush Model Blending Results",
+                f"# 생성일시,{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+                f"# v_brush (m/s),{brush['v_brush']:.4f}",
+                f"# s0 (mm),{brush['s0']*1e3:.4f}",
+                f"# mu_cold_at_v,{brush['mu_cold_at_v']:.6f}",
+                f"# mu_hot_at_v,{brush['mu_hot_at_v']:.6f}",
+                "#",
+                "s [mm],t [s],W_cold,W_hot,mu_final"
+            ]
+            for i in range(len(brush['s'])):
+                lines.append(
+                    f"{brush['s'][i]*1e3:.6f},{brush['t'][i]:.6e},"
+                    f"{brush['W_cold'][i]:.6f},{brush['W_hot'][i]:.6f},"
+                    f"{brush['mu_brush'][i]:.6f}"
+                )
+
+            with open(filepath, 'w', encoding='utf-8-sig') as f:
+                f.write("\n".join(lines))
+
+            self._show_status(f"Brush Model CSV 저장 완료: {filepath}", 'success')
+        except Exception as e:
+            messagebox.showerror("오류", f"CSV 저장 실패:\n{str(e)}")
 
 
     # ================================================================
