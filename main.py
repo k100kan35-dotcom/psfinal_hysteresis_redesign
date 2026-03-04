@@ -4136,7 +4136,7 @@ class PerssonModelGUI_V2:
         desc = self._create_section(left_panel, "탭 설명")
         ttk.Label(desc, text=
             "계산 매개변수를 설정합니다: 압력, 속도 범위 (로그 스케일), 온도.\n"
-            "속도 범위: 0.0001~10 m/s (로그 간격)로 주파수 스윕을 수행합니다.",
+            "속도 범위: 0.00001~100 m/s (로그 간격)로 주파수 스윕을 수행합니다.",
             justify=tk.LEFT).pack(anchor=tk.W)
 
         # Input panel in left column (scrollable)
@@ -4153,7 +4153,7 @@ class PerssonModelGUI_V2:
         # Velocity range
         row += 1
         ttk.Label(input_frame, text="속도 범위:").grid(row=row, column=0, sticky=tk.W, pady=5)
-        ttk.Label(input_frame, text="로그 스케일: 1e-7~10000 m/s").grid(row=row, column=1, sticky=tk.W, pady=5)
+        ttk.Label(input_frame, text="로그 스케일: 0.00001~100 m/s").grid(row=row, column=1, sticky=tk.W, pady=5)
 
         row += 1
         ttk.Label(input_frame, text="  최소 속도 v_min (m/s):").grid(row=row, column=0, sticky=tk.W, pady=5)
@@ -4162,7 +4162,7 @@ class PerssonModelGUI_V2:
 
         row += 1
         ttk.Label(input_frame, text="  최대 속도 v_max (m/s):").grid(row=row, column=0, sticky=tk.W, pady=5)
-        self.v_max_var = tk.StringVar(value="1000")
+        self.v_max_var = tk.StringVar(value="100")
         ttk.Entry(input_frame, textvariable=self.v_max_var, width=15).grid(row=row, column=1, pady=5)
 
         row += 1
@@ -6603,7 +6603,7 @@ class PerssonModelGUI_V2:
         dialog.resizable(True, True)
         dialog.transient(self.root)
 
-        dlg_w, dlg_h = 750, 850
+        dlg_w, dlg_h = 850, 900
         x = self.root.winfo_x() + (self.root.winfo_width() - dlg_w) // 2
         y = self.root.winfo_y() + (self.root.winfo_height() - dlg_h) // 2
         dialog.geometry(f"{dlg_w}x{dlg_h}+{x}+{y}")
@@ -6616,6 +6616,9 @@ class PerssonModelGUI_V2:
         tk.Label(title_frame, text="Persson 마찰 모델 v3.0 — 사용자 가이드",
                  bg=C['sidebar'], fg='white',
                  font=self.FONTS['subheading']).pack(anchor=tk.W)
+        tk.Label(title_frame, text="NEXEN Rubber Friction Modelling Program",
+                 bg=C['sidebar'], fg='#94A3B8',
+                 font=self.FONTS['body']).pack(anchor=tk.W)
 
         # Scrollable text content
         text_frame = ttk.Frame(dialog)
@@ -6635,9 +6638,13 @@ class PerssonModelGUI_V2:
                                   spacing1=10, spacing3=4)
         text_widget.tag_configure('section', font=self.FONTS['heading'], foreground='#7C3AED',
                                   spacing1=12, spacing3=4)
+        text_widget.tag_configure('subsection', font=('Segoe UI', 14, 'bold'), foreground='#059669',
+                                  spacing1=8, spacing3=2, lmargin1=10, lmargin2=10)
         text_widget.tag_configure('body', font=self.FONTS['tiny'], foreground='#1E293B',
                                   spacing1=1, spacing3=1, lmargin1=15, lmargin2=15)
         text_widget.tag_configure('indent', font=self.FONTS['tiny'], foreground='#64748B',
+                                  lmargin1=30, lmargin2=30, spacing1=1, spacing3=1)
+        text_widget.tag_configure('feature', font=('Segoe UI', 13, 'bold'), foreground='#2563EB',
                                   lmargin1=30, lmargin2=30, spacing1=1, spacing3=1)
         text_widget.tag_configure('note', font=('Segoe UI', 13, 'italic'), foreground='#DC2626',
                                   lmargin1=15, lmargin2=15, spacing1=2, spacing3=2)
@@ -6645,96 +6652,224 @@ class PerssonModelGUI_V2:
         def add(text, tag='body'):
             text_widget.insert(tk.END, text + '\n', tag)
 
+        # ============================================================
         add('프로그램 개요', 'title')
-        add('Persson 점탄성 마찰 이론에 기반하여 고무-바닥 접촉의 마찰 계수(μ_visc)를 계산하는 프로그램입니다.')
+        add('Persson 점탄성 마찰 이론(Persson, B.N.J., 2001/2006)에 기반하여')
+        add('고무-노면 접촉의 마찰 계수를 계산하는 프로그램입니다.')
         add('DMA 마스터 커브(재료 물성)와 PSD(표면 거칠기) 데이터를 입력하면,')
-        add('G(q,v) → P(q) → μ_visc를 단계적으로 계산합니다.')
+        add('G(q,v) -> P(q) -> mu_visc -> mu_adh -> mu_total 을 단계적으로 계산합니다.')
+        add('')
+
+        # ============================================================
+        add('구현된 기능 목록', 'title')
+        add('')
+
+        add('A. 입력 데이터 처리', 'subsection')
+        add('  [PSD 생성] 표면 프로파일(.txt) -> PSD C(q) 변환', 'feature')
+        add('    - Self-affine 프랙탈 PSD 모델 또는 실측 PSD 직접 로드', 'indent')
+        add('    - Hurst 지수, RMS 거칠기 자동 계산', 'indent')
+        add('    - PSD 데이터 프리셋 저장/로드', 'indent')
+        add('  [마스터 커브 생성] 다온도 DMA 데이터 -> 단일 마스터 커브', 'feature')
+        add('    - WLF / Arrhenius 시프트 인자(aT) 자동 계산', 'indent')
+        add('    - 기준 온도(T_ref) 설정 및 온도 시프트', 'indent')
+        add('    - 시프트 인자 수동 조정 가능', 'indent')
+        add('    - E\'(w), E\'\'(w), tan(d) 그래프 출력', 'indent')
+        add('')
+
+        add('B. G(q,v) 핵심 계산', 'subsection')
+        add('  [G(q,v) 행렬 계산] 파수-속도 2D 적분', 'feature')
+        add('    - 공칭 압력 sigma_0, 속도 범위, 온도 설정', 'indent')
+        add('    - q0~q1 파수 범위 자동/수동 설정', 'indent')
+        add('    - G(q) 곡선, G(q,v) 히트맵, P(q,v) 접촉 면적 시각화', 'indent')
+        add('  [h\'rms / Strain 계산] 표면 RMS 기울기 + 국소 변형률', 'feature')
+        add('    - xi(q) = h\'_rms(q): 누적 RMS 기울기', 'indent')
+        add('    - epsilon(q) = alpha * xi: 국소 변형률 프로파일', 'indent')
+        add('    - q1 <-> h\'rms 상호 변환', 'indent')
+        add('')
+
+        add('C. mu_visc (점탄성 마찰) 계산', 'subsection')
+        add('  [Strain Sweep 비선형 보정]', 'feature')
+        add('    - Strain Sweep 데이터 로드 -> f(e), g(e) 곡선 생성', 'indent')
+        add('    - f,g 곡선 직접 로드/프리셋 저장 가능', 'indent')
+        add('    - 온도별 f,g 계산 후 Persson average (Zone1/2/3 분할 평균)', 'indent')
+        add('    - Zone1(<Split1), Zone2(Split1~Split2), Zone3(>Split2) 개별 온도 선택', 'indent')
+        add('    - Strain 방식: rms_slope / fixed / persson / simple 선택', 'indent')
+        add('  [mu_visc 적분 계산]', 'feature')
+        add('    - 선형/비선형 모드 자동 전환', 'indent')
+        add('    - S(q) 보정 (P^1 / P^2 방식 선택)', 'indent')
+        add('    - gamma, n_phi 적분 파라미터 조절', 'indent')
+        add('    - 온도, q1, 하중(sigma_0) 실시간 변경 후 재계산', 'indent')
+        add('    - Savitzky-Golay 스무딩 적용', 'indent')
+        add('    - mu_visc vs v, A/A0 vs v, 누적 기여 그래프 출력', 'indent')
+        add('')
+
+        add('D. Flash Temperature (마찰열 효과)', 'subsection')
+        add('  [Flash Temperature 계산]', 'feature')
+        add('    - Greenwood 기반 근사 / Persson Full Integral (Per-Scale) 모델 선택', 'indent')
+        add('    - 열물성 입력: 밀도(rho), 비열(Cv), 열전도율(kappa), 접촉 직경(d)', 'indent')
+        add('    - 열확산도 D_th = kappa/(rho*Cv) 자동 계산', 'indent')
+        add('    - 핫스팟 자동 탐색 파라미터', 'indent')
+        add('    - 파수별(per-q) 순차 누적: dT -> WLF shift -> E\'\' 변화 -> dmu 계산', 'indent')
+        add('    - mu_cold vs mu_hot 비교 출력', 'indent')
+        add('    - dT(v), dT(q,v) 히트맵, A/A0 cold vs hot 비교', 'indent')
+        add('    - delnn 적분 스텝 사이즈 조절 (정밀도 조절)', 'indent')
+        add('')
+
+        add('E. mu_adh (점착 마찰) 계산', 'subsection')
+        add('  [점착 마찰 모델]', 'feature')
+        add('    - Arrhenius 온도 시프트: aT\' = exp[(e/k_B)(1/T - 1/T_ref)]', 'indent')
+        add('    - Gaussian 전단 응력 마스터 커브: tau_f = tau_f0 * exp[-c*(log(v_eff/v0*))^2]', 'indent')
+        add('    - mu_adh = (tau_f / p0) * A/A0', 'indent')
+        add('    - A/A0: mu_visc 결과에서 자동 연계 또는 고정값 사용', 'indent')
+        add('  [실측 데이터 기반 자동 피팅]', 'feature')
+        add('    - 실측 mu_dry 데이터 직접 입력/CSV 로드/추가/삭제', 'indent')
+        add('    - Differential Evolution + Nelder-Mead 하이브리드 최적화', 'indent')
+        add('    - 피팅 파라미터: tau_f0, v0*, c (범위 지정 가능)', 'indent')
+        add('    - R^2, RMSE 피팅 품질 지표', 'indent')
+        add('    - mu_total = mu_visc + mu_adh 합산 출력', 'indent')
+        add('    - 온도 변경 시 mu_visc 자동 재계산 (일관성 보장)', 'indent')
+        add('')
+
+        add('F. 분석 및 설계 도구', 'subsection')
+        add('  [점탄성 설계 가이드] (점탄성 설계 탭)', 'feature')
+        add('    - 주파수 감도 분석 W(f): 어떤 주파수 대역이 마찰에 기여하는지 분석', 'indent')
+        add('    - 마찰 기여 주파수 대역 식별', 'indent')
+        add('    - mu_visc 간이 계산 및 비교', 'indent')
+        add('  [Strain Map] (Strain Map 탭)', 'feature')
+        add('    - 파수-속도 2D 평면에서의 strain 분포 히트맵', 'indent')
+        add('    - G matrix 시각화', 'indent')
+        add('  [피적분함수 분석] (피적분함수 탭)', 'feature')
+        add('    - G(q) 및 mu_visc 적분의 피적분함수 시각화', 'indent')
+        add('    - 어떤 파수 대역이 계산에 가장 큰 기여를 하는지 분석', 'indent')
+        add('  [영향 인자 분석] (영향 인자 탭)', 'feature')
+        add('    - 마찰 계수에 영향을 미치는 주요 인자들의 감도 분석', 'indent')
+        add('')
+
+        add('G. 레퍼런스 및 유틸리티', 'subsection')
+        add('  [수식 정리 탭] Persson 이론의 모든 수식을 LaTeX 렌더링으로 정리', 'feature')
+        add('  [변수 관계 탭] 입력 -> 중간 변수 -> 출력 관계도 및 단위 정리', 'feature')
+        add('  [디버그 탭] 계산 중간값, 진단 정보 확인', 'feature')
+        add('  [데이터 내보내기] CSV, Excel 형식으로 모든 결과 내보내기', 'feature')
+        add('  [참조 데이터 비교] mu_visc, A/A0 참조 데이터 오버레이', 'feature')
+        add('  [레이아웃 설정] 글꼴 크기, 패널 폭, 창 크기 조절', 'feature')
+        add('  [초기변수 제어판] 주요 계산 파라미터 일괄 설정', 'feature')
+        add('')
+
+        # ============================================================
+        add('탭별 상세 안내', 'title')
         add('')
 
         add('탭 1: PSD 생성', 'section')
         add('표면 프로파일 데이터(.txt)로부터 PSD C(q)를 계산합니다.')
-        add('  • 프로파일 데이터 로드 후 "PSD 계산" 클릭', 'indent')
-        add('  • 생성된 PSD를 검증 후 "PSD 확정 → 계산에 사용" 클릭', 'indent')
-        add('  • 또는 기존 PSD 파일을 직접 로드할 수도 있습니다', 'indent')
+        add('  1. 프로파일 데이터 로드 후 "PSD 계산" 클릭', 'indent')
+        add('  2. 생성된 PSD를 검증 후 "PSD 확정 -> 계산에 사용" 클릭', 'indent')
+        add('  3. 또는 기존 PSD 파일(.txt)을 직접 로드 가능', 'indent')
+        add('  4. Fractal PSD 모델(Hurst 지수)도 지원', 'indent')
         add('')
 
         add('탭 2: 마스터 커브', 'section')
-        add('DMA 데이터로부터 마스터 커브를 생성하고, 시프트 인자(aT)를 확인합니다.')
-        add('  • DMA 데이터(.txt): 주파수, E\', E\'\', 온도 데이터 포함', 'indent')
-        add('  • 기준 온도(T_ref)를 설정하고 WLF/Arrhenius 시프트 적용', 'indent')
-        add('  • 마스터 커브가 부드럽게 연결되는지 확인', 'indent')
+        add('다온도 DMA 데이터로부터 단일 마스터 커브를 생성합니다.')
+        add('  1. DMA 데이터(.txt) 로드: 주파수, E\', E\'\', 온도 포함', 'indent')
+        add('  2. 기준 온도(T_ref) 설정하고 WLF/Arrhenius 시프트 적용', 'indent')
+        add('  3. 시프트 인자(aT) 수동 미세 조정 가능', 'indent')
+        add('  4. "마스터 커브 확정" 클릭하여 계산에 사용', 'indent')
         add('')
 
         add('탭 3: 계산 설정', 'section')
-        add('G(q,v) 계산에 필요한 파라미터를 설정합니다.')
-        add('  • σ₀: 공칭 접촉 압력 [Pa] — 하중/면적', 'indent')
-        add('  • 속도 범위: 0.0001 ~ 10 m/s (로그 스케일)', 'indent')
-        add('  • q 범위: PSD 적분에 사용할 파수 범위', 'indent')
-        add('  • 설정 완료 후 "G(q,v) 계산 실행" 클릭', 'indent')
+        add('G(q,v) 계산에 필요한 핵심 파라미터를 설정합니다.')
+        add('  - sigma_0: 공칭 접촉 압력 [MPa]', 'indent')
+        add('  - 속도 범위: v_min ~ v_max (로그 스케일, 기본 0.00001~100 m/s)', 'indent')
+        add('  - 속도 포인트 수 (기본 30점)', 'indent')
+        add('  - 온도, 푸아송 비, 파수 범위(q_min, q_max)', 'indent')
+        add('  - 설정 완료 후 "G(q,v) 계산 실행" 클릭', 'indent')
         add('')
 
-        add('탭 4: G(q,v) 결과', 'section')
-        add('계산된 G(q,v) 결과를 시각화합니다.')
-        add('  • G(q) 곡선: 각 속도별 누적 탄성 에너지', 'indent')
-        add('  • G(q,v) 히트맵: 파수-속도 평면에서의 G 분포', 'indent')
-        add('  • P(q,v) 접촉 면적: 실접촉 면적 비율', 'indent')
+        add('탭 4: h\'rms / Strain 계산', 'section')
+        add('표면 거칠기의 RMS 기울기와 국소 변형률을 계산합니다.')
+        add('  - h\'_rms(q): 파수까지의 누적 RMS 기울기', 'indent')
+        add('  - epsilon(q) = alpha * h\'_rms: 국소 변형률', 'indent')
+        add('  - q1 <-> xi(h\'rms) 상호 변환 기능', 'indent')
         add('')
 
-        add('탭 5: h\'rms / Strain', 'section')
-        add('표면 거칠기의 RMS 기울기와 국소 변형률(strain)을 계산합니다.')
-        add('  • h\'_rms(q): 파수까지의 누적 RMS 기울기', 'indent')
-        add('  • ε(q) = α × h\'_rms: 국소 변형률 (비선형 보정에 필요)', 'indent')
+        add('탭 5: Flash Temp 설정', 'section')
+        add('마찰열에 의한 접촉면 온도 상승(Flash Temperature)을 계산합니다.')
+        add('  - 열물성(rho, Cv, kappa) 입력', 'indent')
+        add('  - Greenwood 근사 / Persson Per-Scale 모델 선택', 'indent')
+        add('  - mu_visc 계산 시 자동으로 Flash 보정 적용', 'indent')
         add('')
 
-        add('탭 6: μ_visc 계산', 'section')
-        add('최종 점탄성 마찰 계수를 계산합니다.')
-        add('  • Strain Sweep 데이터로 f(ε), g(ε) 비선형 보정 가능', 'indent')
-        add('  • 선형/비선형 모드 비교 지원', 'indent')
-        add('  • 속도-마찰계수 곡선 (μ vs v) 출력', 'indent')
+        add('탭 6: mu_visc 계산', 'section')
+        add('점탄성 마찰 계수를 계산합니다. 프로그램의 핵심 탭입니다.')
+        add('  1. Strain Sweep / f,g 곡선 로드 (비선형 보정용)', 'indent')
+        add('  2. f,g 계산 -> Persson average f,g 계산 (Zone1/2/3)', 'indent')
+        add('  3. mu_visc 계산 실행 (선형/비선형, Flash ON/OFF)', 'indent')
+        add('  4. 온도, q1, 하중 실시간 변경 후 재계산 가능', 'indent')
+        add('  - Ctrl+Enter: 빠른 계산 실행', 'indent')
         add('')
 
-        add('탭 7: μ_adh 계산', 'section')
-        add('점착 마찰 계수를 계산합니다 (Arrhenius 모델).')
-        add('  • μ_visc의 A/A0 결과를 연계하여 점착 마찰 산출', 'indent')
-        add('  • 아레니우스 온도 시프트 + 가우시안 전단 응력 마스터 커브', 'indent')
-        add('  • μ_total = μ_visc + μ_adh 합산 표시', 'indent')
+        add('탭 7: mu_adh 계산', 'section')
+        add('점착 마찰 계수를 계산합니다.')
+        add('  1. 계산 조건 설정 (온도, 하중, mu_visc 동기화)', 'indent')
+        add('  2. 실측 mu_dry 데이터 입력 (수동/CSV)', 'indent')
+        add('  3. 자동 피팅 실행 -> tau_f0, v0*, c 최적화', 'indent')
+        add('  4. "피팅 완료" 버튼으로 파라미터 확정', 'indent')
+        add('  5. mu_adh 계산 실행 -> mu_total 출력', 'indent')
         add('')
 
         add('탭 8: 점탄성 설계', 'section')
         add('재료 설계 가이드라인을 제공합니다.')
-        add('  • 주파수 감도 분석 W(f)', 'indent')
-        add('  • 마찰 기여 주파수 대역 식별', 'indent')
+        add('  - 주파수 감도 분석 W(f): 어떤 주파수 대역이 마찰에 기여하는지', 'indent')
+        add('  - 마찰 기여 주파수 대역 식별', 'indent')
         add('')
 
         add('탭 9: Strain Map', 'section')
-        add('파수-속도 평면에서의 strain 분포를 히트맵으로 시각화합니다.')
+        add('파수-속도 2D 평면에서의 strain 분포를 히트맵으로 시각화합니다.')
         add('')
 
-        add('탭 10: 피적분함수', 'section')
-        add('G(q) 및 μ_visc 적분의 피적분함수(integrand)를 시각화하여 어떤 파수 대역이 계산에 가장 큰 기여를 하는지 분석합니다.')
+        add('탭 10: 계산 과정', 'section')
+        add('계산된 G(q,v) 결과와 상세 계산 과정을 시각화합니다.')
         add('')
 
-        add('탭 11-12: 수식 정리 / 변수 관계', 'section')
-        add('이론 수식과 변수 관계를 참조할 수 있는 레퍼런스 탭입니다.')
+        add('탭 11: 피적분함수', 'section')
+        add('G(q) 및 mu_visc 적분의 피적분함수를 시각화합니다.')
         add('')
 
-        add('탭 13: 디버그', 'section')
+        add('탭 12-13: 수식 정리 / 변수 관계', 'section')
+        add('이론 수식(LaTeX 렌더링)과 변수 관계를 참조할 수 있는 레퍼런스 탭입니다.')
+        add('')
+
+        add('탭 14: 디버그', 'section')
         add('계산 중간값과 진단 정보를 확인할 수 있습니다.')
         add('')
 
-        add('탭 14: 영향 인자', 'section')
+        add('탭 15: 영향 인자', 'section')
         add('마찰 계수에 영향을 미치는 주요 인자들의 감도 분석입니다.')
         add('')
 
-        add('일반 사용 팁', 'section')
-        add('  • File > Load DMA Data: DMA 마스터 커브 데이터 로드', 'indent')
-        add('  • File > Save Results: 계산 결과를 CSV로 저장', 'indent')
-        add('  • File > Graph Data Export: 그래프 데이터를 내보내기', 'indent')
-        add('  • Settings > 레이아웃 설정: 글꼴 크기, 패널 폭, 창 크기 조절', 'indent')
-        add('  • 각 탭 상단의 도구 모음에서 주요 동작 버튼을 사용하세요', 'indent')
+        # ============================================================
+        add('계산 순서 (권장 워크플로우)', 'title')
+        add('')
+        add('  Step 1. PSD 생성 탭에서 표면 거칠기 데이터 준비', 'indent')
+        add('  Step 2. 마스터 커브 탭에서 DMA 데이터 로드 + 마스터 커브 생성', 'indent')
+        add('  Step 3. 계산 설정 탭에서 sigma_0, 속도 범위, 온도 설정 -> G(q,v) 계산', 'indent')
+        add('  Step 4. h\'rms/Strain 탭에서 RMS 기울기 확인', 'indent')
+        add('  Step 5. Flash Temp 탭에서 열물성 설정 (필요 시)', 'indent')
+        add('  Step 6. mu_visc 탭에서 f,g 계산 -> mu_visc 계산', 'indent')
+        add('  Step 7. mu_adh 탭에서 실측 데이터 피팅 -> mu_total 확인', 'indent')
+        add('')
+        add('※ 필수 순서: PSD/마스터커브 준비 -> G(q,v) 계산 -> mu_visc -> mu_adh', 'note')
         add('')
 
-        add('※ 계산 순서: 탭 1~3 → 탭 4 (G 계산) → 탭 5 (h\'rms) → 탭 6 (μ_visc) → 탭 7 (μ_adh)', 'note')
+        # ============================================================
+        add('일반 사용 팁', 'title')
+        add('  - File > Load DMA/PSD: 데이터 로드', 'indent')
+        add('  - File > Save Results: 계산 결과를 CSV로 저장', 'indent')
+        add('  - File > Graph Data Export: 그래프 데이터를 내보내기', 'indent')
+        add('  - Settings > 초기변수 설정: 주요 파라미터 일괄 설정/확인', 'indent')
+        add('  - Settings > 레이아웃 설정: 글꼴 크기, 패널 폭, 창 크기 조절', 'indent')
+        add('  - Ctrl+Enter: 현재 탭에서 빠른 계산 실행 (mu_visc / mu_adh)', 'indent')
+        add('  - 각 탭 상단의 도구 모음에서 주요 동작 버튼을 사용하세요', 'indent')
+        add('')
 
         text_widget.config(state='disabled')
 
@@ -7089,11 +7224,11 @@ class PerssonModelGUI_V2:
         ttk.Button(btn_frame, text="취소", command=dialog.destroy, width=12).pack(side=tk.RIGHT, padx=5)
 
     def _open_initial_var_settings(self):
-        """Open initial variable settings dialog."""
+        """Open comprehensive initial variable settings dialog."""
         dialog = tk.Toplevel(self.root)
-        dialog.title("초기변수 설정")
+        dialog.title("초기변수 제어판")
         dialog.resizable(True, True)
-        dialog.geometry("500x520")
+        dialog.geometry("650x800")
         dialog.transient(self.root)
         dialog.grab_set()
 
@@ -7102,8 +7237,11 @@ class PerssonModelGUI_V2:
         # Title
         title_frame = tk.Frame(dialog, bg=C['sidebar'], pady=8)
         title_frame.pack(fill=tk.X)
-        tk.Label(title_frame, text="초기변수 설정", bg=C['sidebar'], fg='white',
+        tk.Label(title_frame, text="초기변수 제어판", bg=C['sidebar'], fg='white',
                  font=self.FONTS['heading']).pack(anchor=tk.W, padx=15)
+        tk.Label(title_frame, text="모든 주요 계산 파라미터를 한 곳에서 확인/수정합니다",
+                 bg=C['sidebar'], fg='#94A3B8',
+                 font=self.FONTS['body']).pack(anchor=tk.W, padx=15)
 
         # Scrollable content
         canvas = tk.Canvas(dialog, bg='white', highlightthickness=0)
@@ -7112,34 +7250,94 @@ class PerssonModelGUI_V2:
         canvas.create_window((0, 0), window=content, anchor='nw')
         canvas.configure(yscrollcommand=scrollbar.set)
         content.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox('all')))
+        canvas.bind_all('<MouseWheel>', lambda e: canvas.yview_scroll(int(-1 * (e.delta / 120)), 'units'))
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # ── Variable entries ──
-        vars_config = [
-            ("공칭 압력 σ₀ (MPa)", self.sigma_0_var),
-            ("γ (contact correction)", self.gamma_var),
-            ("φ 적분 점수", self.n_phi_var),
-            ("계산 온도 (°C)", self.mu_calc_temp_var),
-            ("Split1 (%)", self.split1_var),
-            ("Split2 (%)", self.split2_var),
-            ("N pts (평균 점수)", self.n_avg_pts_var),
-            ("Grid Max Strain (%)", self.extend_strain_var),
-            ("Smoothing Window", self.smooth_window_var),
-        ]
+        def _add_section(parent, title, vars_list, bg_header='#1B2A4A'):
+            """Helper to add a section with variable entries."""
+            sec = ttk.LabelFrame(parent, text=title, padding=8)
+            sec.pack(fill=tk.X, padx=12, pady=(8, 2))
+            for label_text, var, unit_text in vars_list:
+                if var is None:
+                    continue
+                row = ttk.Frame(sec)
+                row.pack(fill=tk.X, pady=2)
+                ttk.Label(row, text=label_text, font=self.FONTS['body'], width=28, anchor='w').pack(side=tk.LEFT)
+                ttk.Entry(row, textvariable=var, width=12).pack(side=tk.LEFT, padx=3)
+                if unit_text:
+                    ttk.Label(row, text=unit_text, font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+            return sec
 
-        section = ttk.LabelFrame(content, text="주요 초기변수", padding=10)
-        section.pack(fill=tk.X, padx=15, pady=10)
+        # ── Section 1: G(q,v) 계산 핵심 변수 ──
+        _add_section(content, "1. G(q,v) 계산 핵심 변수", [
+            ("공칭 압력 σ₀", self.sigma_0_var, "MPa"),
+            ("최소 속도 v_min", self.v_min_var, "m/s"),
+            ("최대 속도 v_max", self.v_max_var, "m/s"),
+            ("속도 포인트 수", self.n_velocity_var, "개"),
+            ("온도", self.temperature_var, "°C"),
+            ("푸아송 비 ν", self.poisson_var, ""),
+            ("최소 파수 q_min", self.q_min_var, "1/m"),
+            ("최대 파수 q_max", self.q_max_var, "1/m"),
+            ("q 포인트 수", self.n_q_var, "개"),
+            ("G(q) φ 적분 점수", self.n_phi_gq_var, ""),
+            ("G 정규화 인자", self.g_norm_factor_var, ""),
+        ])
 
-        for i, (label_text, var) in enumerate(vars_config):
-            row = ttk.Frame(section)
-            row.pack(fill=tk.X, pady=3)
-            ttk.Label(row, text=label_text, font=self.FONTS['body'], width=25, anchor='w').pack(side=tk.LEFT)
-            ttk.Entry(row, textvariable=var, width=12).pack(side=tk.LEFT, padx=5)
+        # ── Section 2: μ_visc 계산 변수 ──
+        _add_section(content, "2. μ_visc 계산 변수", [
+            ("계산 온도 (μ_visc)", self.mu_calc_temp_var, "°C"),
+            ("γ (접촉 보정)", self.gamma_var, ""),
+            ("φ 적분 점수 (μ)", self.n_phi_var, ""),
+            ("Smoothing Window", self.smooth_window_var, ""),
+            ("고정 Strain", self.fixed_strain_var, "%"),
+        ])
+
+        # ── Section 3: f,g 비선형 보정 변수 ──
+        _add_section(content, "3. f,g 비선형 보정 (Persson Average)", [
+            ("Split1 (Zone1/2 경계)", self.split1_var, "%"),
+            ("Split2 (Zone2/3 경계)", self.split2_var, "%"),
+            ("N pts (평균 점수)", self.n_avg_pts_var, ""),
+            ("Grid Max Strain", self.extend_strain_var, "%"),
+        ])
+
+        # ── Section 4: Flash Temperature 변수 ──
+        _add_section(content, "4. Flash Temperature 열물성", [
+            ("밀도 ρ", self.flash_rho_var, "kg/m³"),
+            ("비열 Cv", self.flash_Cv_var, "J/(kg·K)"),
+            ("열전도율 κ", self.flash_kappa_var, "W/(m·K)"),
+            ("접촉 직경 d", self.flash_d_macro_var, "mm"),
+            ("적분 스텝 delnn", self.flash_delnn_var, "log10(q) 간격"),
+        ])
+
+        # ── Section 5: μ_adh 점착 마찰 변수 ──
+        _add_section(content, "5. μ_adh 점착 마찰 변수", [
+            ("τ_f0 (최대 전단 응력)", getattr(self, 'adh_tau_f0_var', None), "MPa"),
+            ("v₀* (기준 속도)", getattr(self, 'adh_v0_star_var', None), "m/s"),
+            ("c (Gaussian 폭)", getattr(self, 'adh_c_var', None), ""),
+            ("ε (활성화 에너지)", getattr(self, 'adh_epsilon_var', None), "eV"),
+            ("T_ref (기준 온도)", getattr(self, 'adh_T_ref_var', None), "K"),
+            ("계산 온도 (μ_adh)", getattr(self, 'adh_calc_temp_var', None), "°C"),
+            ("p₀ (명목 압력)", getattr(self, 'adh_p0_var', None), "MPa"),
+        ])
+
+        # ── Section 6: 자동 피팅 범위 ──
+        _add_section(content, "6. 자동 피팅 범위", [
+            ("τ_f0 최소", getattr(self, 'fit_tau_min_var', None), "MPa"),
+            ("τ_f0 최대", getattr(self, 'fit_tau_max_var', None), "MPa"),
+            ("v₀* 최소", getattr(self, 'fit_v0_min_var', None), "m/s"),
+            ("v₀* 최대", getattr(self, 'fit_v0_max_var', None), "m/s"),
+            ("c 최소", getattr(self, 'fit_c_min_var', None), ""),
+            ("c 최대", getattr(self, 'fit_c_max_var', None), ""),
+            ("DE 반복 횟수", getattr(self, 'fit_de_count_var', None), "회"),
+        ])
+
+        # Bottom padding
+        tk.Frame(content, bg='white', height=30).pack(fill=tk.X)
 
         # Buttons
         btn_frame = ttk.Frame(dialog)
-        btn_frame.pack(fill=tk.X, padx=15, pady=10)
+        btn_frame.pack(fill=tk.X, padx=15, pady=8)
         ttk.Button(btn_frame, text="닫기", command=dialog.destroy, width=12).pack(side=tk.RIGHT, padx=5)
 
     def _show_about(self):
@@ -8149,6 +8347,86 @@ class PerssonModelGUI_V2:
         add_text('  v\u2191 → q̇\u2191 → ΔT\u2191 → a_T\u2193 → E\'\'\u2193 → μ\u2193 → q̇\u2193 → ΔT\u2193', font_size=17, fg='#DC2626', bold=True)
         add_text('  → 이 피드백은 per-q 순차 처리에서 자연스럽게 구현됨 (외부 반복 불필요)', font_size=17, fg='#64748B')
         add_text('  → A/A₀ 보정(q̇ /= P(q))으로 접촉 패치의 실제 열유속을 정확히 반영', font_size=17, fg='#DC2626')
+
+        # ═══════════════════════════════════════════════════════
+        # Section 4: μ_adh (점착 마찰)
+        # ═══════════════════════════════════════════════════════
+        add_separator()
+        add_section_title('4. μ_adh — 점착 마찰 계수')
+
+        add_text('접착 마찰은 고무 표면 분자와 노면 분자 사이의 점착(adhesion)에 의해 발생하는 마찰 성분입니다.',
+                 font_size=17, fg='#1E293B')
+        add_text('이 모델은 Arrhenius 온도 시프트 + Gaussian 전단 응력 마스터 커브를 사용합니다.',
+                 font_size=17, fg='#64748B')
+        add_text('', pady=4)
+
+        add_text('4-A. Arrhenius 온도 시프트 팩터:', bold=True, pady=(8, 0))
+        add_equation(
+            r"$a_T' = \exp\!\left[\frac{\varepsilon}{k_B}"
+            r"\left(\frac{1}{T} - \frac{1}{T_{ref}}\right)\right]$",
+            fig_height=1.2)
+        add_text('  aT\' : 점착 온도 시프트 팩터 — 온도에 따라 분자 이동도가 변하는 정도', font_size=17, fg='#64748B')
+        add_text('  epsilon : 활성화 에너지 [eV] — 표면 분자의 점착 결합을 끊는 데 필요한 에너지 장벽 (보통 ~0.97 eV)', font_size=17, fg='#64748B')
+        add_text('  k_B : 볼츠만 상수 = 8.6173 x 10^-5 eV/K', font_size=17, fg='#64748B')
+        add_text('  T : 계산 온도 [K], T_ref : 기준 온도 [K] (마스터 커브의 기준 온도)', font_size=17, fg='#64748B')
+        add_text('  → T > T_ref이면 aT\' < 1 (고온에서 분자 이동 빨라짐 → 점착 감소)', font_size=17, fg='#DC2626')
+        add_text('  → T < T_ref이면 aT\' > 1 (저온에서 분자 이동 느려짐 → 점착 증가 가능)', font_size=17, fg='#DC2626')
+        add_text('', pady=4)
+
+        add_text('4-B. 유효 속도 (온도 보정):', bold=True, pady=(8, 0))
+        add_equation(r"$v_{eff} = v \times a_T'$", fig_height=0.9)
+        add_text('  v_eff : 유효 속도 — 온도 효과를 속도 축으로 변환한 값', font_size=17, fg='#64748B')
+        add_text('  → 온도가 높으면 분자가 빨리 움직이므로, 실제보다 느린 속도와 같은 효과', font_size=17, fg='#64748B')
+        add_text('', pady=4)
+
+        add_text('4-C. Gaussian 전단 응력 마스터 커브:', bold=True, pady=(8, 0))
+        add_equation(
+            r"$\tau_f = \tau_{f0} \cdot \exp\!\left[-c \cdot"
+            r" \left(\log_{10}\frac{v_{eff}}{v_0^*}\right)^2\right]$",
+            fig_height=1.2)
+        add_text('  tau_f : 점착 전단 응력 [Pa] — 고무 표면의 점착 결합이 끊어질 때의 전단 응력', font_size=17, fg='#64748B')
+        add_text('  tau_f0 : 최대 점착 전단 응력 [Pa] — Gaussian 피크값 (피팅 파라미터)', font_size=17, fg='#2563EB')
+        add_text('  v0* : 기준 속도 [m/s] — 점착 피크가 나타나는 유효 속도 (피팅 파라미터)', font_size=17, fg='#2563EB')
+        add_text('  c : Gaussian 폭 상수 — 값이 작을수록 넓은 속도 범위에서 점착 발생 (피팅 파라미터)', font_size=17, fg='#2563EB')
+        add_text('  → v_eff = v0* 일 때 tau_f가 최대 (tau_f0)', font_size=17, fg='#DC2626')
+        add_text('  → v_eff >> v0* 또는 v_eff << v0* 이면 tau_f 급격히 감소', font_size=17, fg='#DC2626')
+        add_text('', pady=4)
+
+        add_text('4-D. 최종 점착 마찰 계수:', bold=True, pady=(8, 0))
+        add_equation(
+            r"$\mu_{adh} = \frac{\tau_f}{p_0} \times \frac{A}{A_0}$",
+            fig_height=1.0)
+        add_text('  mu_adh : 점착 마찰 계수 — 실접촉 면적에 작용하는 전단 응력의 마찰 기여분', font_size=17, fg='#64748B')
+        add_text('  p0 : 명목 접촉 압력 [Pa] — 하중/전체면적 (sigma_0)', font_size=17, fg='#64748B')
+        add_text('  A/A0 : 실접촉 면적비 — mu_visc 계산의 P(q1) 결과에서 가져옴', font_size=17, fg='#64748B')
+        add_text('  → tau_f가 크고 A/A0가 클수록 점착 마찰 증가', font_size=17, fg='#DC2626')
+        add_text('', pady=4)
+
+        add_text('4-E. 전체 마찰 합산:', bold=True, pady=(8, 0))
+        add_equation(
+            r"$\mu_{total} = \mu_{visc} + \mu_{adh}$",
+            fig_height=0.9)
+        add_text('  mu_total : 전체 건조 마찰 계수 — 점탄성 마찰(히스테리시스) + 점착 마찰의 합', font_size=17, fg='#64748B')
+        add_text('  mu_visc : 점탄성 마찰 — 고무 내부 에너지 소산에 의한 마찰 (Section 2)', font_size=17, fg='#64748B')
+        add_text('  mu_adh : 점착 마찰 — 표면 분자 결합/해체에 의한 마찰 (이 Section)', font_size=17, fg='#64748B')
+
+        def _plot_mu_adh_components(ax, np):
+            """Show mu_visc, mu_adh, and mu_total."""
+            v = np.logspace(-5, 2, 300)
+            mu_visc = 0.6 * np.exp(-0.5 * ((np.log10(v) + 1) / 2)**2) + 0.08
+            mu_adh = 0.35 * np.exp(-0.3 * ((np.log10(v) + 2.5) / 1.5)**2)
+            mu_total = mu_visc + mu_adh
+            ax.semilogx(v, mu_visc, 'b--', linewidth=2, label=r'$\mu_{visc}$ (점탄성)')
+            ax.semilogx(v, mu_adh, 'g--', linewidth=2, label=r'$\mu_{adh}$ (점착)')
+            ax.semilogx(v, mu_total, 'r-', linewidth=2.5, label=r'$\mu_{total}$ (합산)')
+            ax.fill_between(v, 0, mu_visc, alpha=0.06, color='blue')
+            ax.fill_between(v, mu_visc, mu_total, alpha=0.06, color='green')
+            ax.set_xlabel('v (m/s)', fontsize=12)
+            ax.set_ylabel(r'$\mu$', fontsize=12)
+            ax.legend(fontsize=10, loc='upper right')
+            ax.grid(True, alpha=0.3)
+            ax.set_title(r'$\mu_{total} = \mu_{visc} + \mu_{adh}$ (대표적 형상)', fontsize=12, pad=10)
+        add_graph(_plot_mu_adh_components)
 
         # Bottom padding for scroll
         tk.Frame(scrollable_frame, bg='white', height=80).pack(fill=tk.X)
@@ -10018,15 +10296,36 @@ class PerssonModelGUI_V2:
         ttk.Label(persson_avg_frame, text="개별보간 → nanmean → zone stitching",
                   font=self.FONTS['small'], foreground='#64748B').pack(anchor=tk.W, pady=1)
 
-        # Zone1 온도 (< Split1) - header + dynamic checkbox area
-        zone1_header = ttk.Frame(persson_avg_frame)
-        zone1_header.pack(fill=tk.X, pady=(3, 0))
-        ttk.Label(zone1_header, text="Zone1 온도 (< Split1):", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.zone1_container = ttk.Frame(persson_avg_frame)
-        self.zone1_container.pack(fill=tk.X, padx=(15, 0))
-        self.zone1_placeholder = ttk.Label(self.zone1_container,
-            text="(f,g 곡선 계산 후 표시됩니다)", font=self.FONTS['small'], foreground='#64748B')
-        self.zone1_placeholder.pack(anchor=tk.W)
+        # Helper: create collapsible zone section
+        def _make_zone_toggle(parent_frame, zone_label, zone_num):
+            """Create a collapsible zone header with toggle button."""
+            header = ttk.Frame(parent_frame)
+            header.pack(fill=tk.X, pady=(3, 0))
+            expanded_var = tk.BooleanVar(value=False)
+            container = ttk.Frame(parent_frame)
+            placeholder = ttk.Label(container,
+                text="(f,g 곡선 계산 후 표시됩니다)", font=self.FONTS['small'], foreground='#64748B')
+            placeholder.pack(anchor=tk.W)
+
+            def _toggle():
+                if expanded_var.get():
+                    container.pack_forget()
+                    expanded_var.set(False)
+                    toggle_btn.config(text=f"+ {zone_label}")
+                else:
+                    # Re-pack container after the header
+                    container.pack(fill=tk.X, padx=(15, 0), after=header)
+                    expanded_var.set(True)
+                    toggle_btn.config(text=f"- {zone_label}")
+
+            toggle_btn = ttk.Button(header, text=f"+ {zone_label}", command=_toggle, width=30)
+            toggle_btn.pack(side=tk.LEFT)
+            # Start collapsed (don't pack container initially)
+            return container, placeholder, toggle_btn, expanded_var
+
+        # Zone1 온도 (< Split1) - collapsible
+        self.zone1_container, self.zone1_placeholder, self._zone1_toggle, self._zone1_expanded = \
+            _make_zone_toggle(persson_avg_frame, "Zone1 온도 (< Split1)", 1)
         self.zone1_checkbuttons = []  # [(var, T, widget), ...]
 
         # Split1 row
@@ -10036,15 +10335,9 @@ class PerssonModelGUI_V2:
         self.split1_var = tk.StringVar(value="10")
         ttk.Entry(split1_row, textvariable=self.split1_var, width=6).pack(side=tk.LEFT, padx=2)
 
-        # Zone2 온도 (Split1 ~ Split2) - header + dynamic checkbox area
-        zone2_header = ttk.Frame(persson_avg_frame)
-        zone2_header.pack(fill=tk.X, pady=(3, 0))
-        ttk.Label(zone2_header, text="Zone2 온도 (Split1~Split2):", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.zone2_container = ttk.Frame(persson_avg_frame)
-        self.zone2_container.pack(fill=tk.X, padx=(15, 0))
-        self.zone2_placeholder = ttk.Label(self.zone2_container,
-            text="(f,g 곡선 계산 후 표시됩니다)", font=self.FONTS['small'], foreground='#64748B')
-        self.zone2_placeholder.pack(anchor=tk.W)
+        # Zone2 온도 (Split1 ~ Split2) - collapsible
+        self.zone2_container, self.zone2_placeholder, self._zone2_toggle, self._zone2_expanded = \
+            _make_zone_toggle(persson_avg_frame, "Zone2 온도 (Split1~Split2)", 2)
         self.zone2_checkbuttons = []
 
         # Split2 row
@@ -10054,15 +10347,9 @@ class PerssonModelGUI_V2:
         self.split2_var = tk.StringVar(value="20")
         ttk.Entry(split2_row, textvariable=self.split2_var, width=6).pack(side=tk.LEFT, padx=2)
 
-        # Zone3 온도 (> Split2) - header + dynamic checkbox area
-        zone3_header = ttk.Frame(persson_avg_frame)
-        zone3_header.pack(fill=tk.X, pady=(3, 0))
-        ttk.Label(zone3_header, text="Zone3 온도 (> Split2):", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.zone3_container = ttk.Frame(persson_avg_frame)
-        self.zone3_container.pack(fill=tk.X, padx=(15, 0))
-        self.zone3_placeholder = ttk.Label(self.zone3_container,
-            text="(f,g 곡선 계산 후 표시됩니다)", font=self.FONTS['small'], foreground='#64748B')
-        self.zone3_placeholder.pack(anchor=tk.W)
+        # Zone3 온도 (> Split2) - collapsible
+        self.zone3_container, self.zone3_placeholder, self._zone3_toggle, self._zone3_expanded = \
+            _make_zone_toggle(persson_avg_frame, "Zone3 온도 (> Split2)", 3)
         self.zone3_checkbuttons = []
 
         # Backward compatibility: keep split_strain_var pointing to split1
@@ -11027,11 +11314,23 @@ class PerssonModelGUI_V2:
             self.zone2_checkbuttons,
             lambda T: T != t_min and T != t_2nd)
 
-        # Zone3: Split2 초과 온도만 체크
+        # Zone3: Split2 초과 온도 중 최고온도 1개만 체크
+        t_max = temps[-1] if temps else None
         self.zone3_checkbuttons = populate_zone(
             self.zone3_container, self.zone3_placeholder,
             self.zone3_checkbuttons,
-            lambda T: T > split2)
+            lambda T: T == t_max and T > split2)
+
+        # Update toggle button labels with selection count
+        def _zone_count_str(cbs):
+            n_checked = sum(1 for var, _, _ in cbs if var.get())
+            return f" ({n_checked}/{len(cbs)})"
+        if hasattr(self, '_zone1_toggle'):
+            self._zone1_toggle.config(text=f"+ Zone1 온도 (< Split1)" + _zone_count_str(self.zone1_checkbuttons))
+        if hasattr(self, '_zone2_toggle'):
+            self._zone2_toggle.config(text=f"+ Zone2 온도 (Split1~Split2)" + _zone_count_str(self.zone2_checkbuttons))
+        if hasattr(self, '_zone3_toggle'):
+            self._zone3_toggle.config(text=f"+ Zone3 온도 (> Split2)" + _zone_count_str(self.zone3_checkbuttons))
 
     def _average_fg_curves(self):
         """Average f,g curves from selected temperatures."""
@@ -16275,6 +16574,51 @@ class PerssonModelGUI_V2:
         add_text('  A/A0_hot: 최종 \u0394T에서 G(q) 재계산', bold=True, fg='#DC2626', pady=(0, 8))
 
         # ═══════════════════════════════════════════════════════
+        # Section 5-B: μ_adh 관련 변수
+        # ═══════════════════════════════════════════════════════
+        add_section_title('5-B. μ_adh (점착 마찰) 관련 변수')
+
+        add_text('점착 마찰의 핵심 파라미터와 중간 변수:', bold=True, pady=(8, 0))
+        add_text('', pady=2)
+
+        adh_param_frame = tk.Frame(scrollable_frame, bg='white', padx=20, pady=6)
+        adh_param_frame.pack(fill=tk.X, padx=10)
+        adh_param_data = [
+            ('\u03c4_f0', '[Pa]', '최대 점착 전단 응력 — Gaussian 피크값 [피팅 파라미터]'),
+            ('v\u2080*', '[m/s]', '기준 속도 — 점착 전단 응력이 최대인 유효 속도 [피팅 파라미터]'),
+            ('c', '[무차원]', 'Gaussian 폭 상수 — 작을수록 넓은 속도 범위에서 점착 작용 [피팅 파라미터]'),
+            ('\u03b5 (epsilon)', '[eV]', '활성화 에너지 — 표면 분자의 점착 결합 해리 에너지 (~0.97)'),
+            ('T_ref', '[K]', '기준 온도 — 마스터 커브 기준 온도 (Tab2 aT에서 자동 동기화)'),
+            ('k_B', '[eV/K]', '볼츠만 상수 = 8.6173 x 10^-5'),
+            ('aT\'', '[무차원]', 'Arrhenius 시프트 — 온도에 따른 분자 이동도 변화'),
+            ('v_eff', '[m/s]', '유효 속도 = v x aT\' — 온도 효과를 속도 축으로 변환'),
+            ('\u03c4_f', '[Pa]', '점착 전단 응력 = \u03c4_f0 x exp[-c(log(v_eff/v0*))^2]'),
+            ('p\u2080', '[Pa]', '명목 접촉 압력 = \u03c3\u2080 (하중/전체면적)'),
+            ('A/A\u2080', '[0~1]', '실접촉 면적비 — mu_visc의 P(q1) 결과'),
+            ('\u03bc_adh', '[무차원]', '점착 마찰 계수 = (\u03c4_f / p0) x (A/A0)'),
+            ('\u03bc_total', '[무차원]', '전체 마찰 = \u03bc_visc + \u03bc_adh'),
+        ]
+        for col_idx, header in enumerate(['기호', '단위', '의미 / 직관적 설명']):
+            lbl = tk.Label(adh_param_frame, text=header, bg='#059669', fg='white',
+                           font=('Segoe UI', 12, 'bold'), padx=12, pady=7, anchor='center')
+            lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
+        for row_idx, (sym, unit, meaning) in enumerate(adh_param_data, start=1):
+            bg = '#F0FDF4' if row_idx % 2 == 0 else 'white'
+            for col_idx, val in enumerate([sym, unit, meaning]):
+                weight = 'bold' if col_idx == 0 else 'normal'
+                lbl = tk.Label(adh_param_frame, text=val, bg=bg, fg='#1E293B',
+                               font=('Segoe UI', 17, weight), padx=12, pady=6, anchor='w')
+                lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
+        adh_param_frame.columnconfigure(0, weight=1)
+        adh_param_frame.columnconfigure(1, weight=1)
+        adh_param_frame.columnconfigure(2, weight=4)
+
+        add_separator()
+        add_text('mu_adh 데이터 흐름:', bold=True, fg='#059669', pady=(4, 0))
+        add_text('  mu_visc 결과 (v[], A/A0[]) + 실측 mu_dry -> 자동 피팅 (DE + Nelder-Mead)', bold=True, fg='#059669', pady=(0, 2))
+        add_text('  -> tau_f0, v0*, c 최적화 -> mu_adh 계산 -> mu_total = mu_visc + mu_adh', bold=True, fg='#059669', pady=(0, 8))
+
+        # ═══════════════════════════════════════════════════════
         # Section 6: 단위 정리
         # ═══════════════════════════════════════════════════════
         add_section_title('6. 단위 정리')
@@ -16303,6 +16647,14 @@ class PerssonModelGUI_V2:
             ('\u0394T(q)', '[\u00b0C]', '파수별 누적 온도 상승'),
             ('a_T', '[무차원]', 'WLF 시프트 팩터'),
             ('q\u0307', '[W/m\u00b2]', '열유속 = d\u03bc\u00b7\u03c3\u2080\u00b7v'),
+            ('\u03c4_f0', '[Pa]', '최대 점착 전단 응력 (피팅)'),
+            ('v\u2080*', '[m/s]', '점착 기준 속도 (피팅)'),
+            ('c', '[무차원]', 'Gaussian 폭 상수 (피팅)'),
+            ('\u03b5 (epsilon)', '[eV]', '활성화 에너지 (~0.97 eV)'),
+            ('aT\'', '[무차원]', 'Arrhenius 시프트 팩터'),
+            ('\u03c4_f', '[Pa]', '점착 전단 응력'),
+            ('\u03bc_adh', '[무차원]', '점착 마찰 계수'),
+            ('\u03bc_total', '[무차원]', '전체 마찰 = \u03bc_visc + \u03bc_adh'),
         ]
         for col_idx, header in enumerate(['기호', '단위', '의미']):
             lbl = tk.Label(unit_frame, text=header, bg='#1B2A4A', fg='white',
@@ -17758,12 +18110,22 @@ class PerssonModelGUI_V2:
         self.meas_mu_tree.pack(side=tk.LEFT, fill=tk.X, expand=True)
         tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Buttons: delete selected, clear all, load CSV
+        # Buttons: delete selected, clear all, load CSV, export CSV
         meas_btn_row = ttk.Frame(meas_frame)
         meas_btn_row.pack(fill=tk.X, pady=2)
-        ttk.Button(meas_btn_row, text="선택 삭제", command=self._delete_selected_measured, width=10).pack(side=tk.LEFT, padx=1)
-        ttk.Button(meas_btn_row, text="전체 삭제", command=self._clear_measured_mu_dry, width=10).pack(side=tk.LEFT, padx=1)
-        ttk.Button(meas_btn_row, text="CSV 로드", command=self._load_measured_mu_dry_csv, width=10).pack(side=tk.LEFT, padx=1)
+
+        meas_add_btn_wrapper = tk.Frame(meas_btn_row, bg='#059669', padx=1, pady=1)
+        meas_add_btn_wrapper.pack(side=tk.LEFT, padx=1)
+        ttk.Button(meas_add_btn_wrapper, text="+ 추가", command=self._add_measured_mu_dry, width=7).pack()
+
+        ttk.Button(meas_btn_row, text="선택 삭제", command=self._delete_selected_measured, width=8).pack(side=tk.LEFT, padx=1)
+        ttk.Button(meas_btn_row, text="전체 삭제", command=self._clear_measured_mu_dry, width=8).pack(side=tk.LEFT, padx=1)
+
+        meas_csv_load_wrapper = tk.Frame(meas_btn_row, bg='#2563EB', padx=1, pady=1)
+        meas_csv_load_wrapper.pack(side=tk.LEFT, padx=1)
+        ttk.Button(meas_csv_load_wrapper, text="CSV 로드", command=self._load_measured_mu_dry_csv, width=8).pack()
+
+        ttk.Button(meas_btn_row, text="CSV 저장", command=self._export_measured_mu_dry_csv, width=8).pack(side=tk.LEFT, padx=1)
 
         # 3. Auto-Fitting (right below input)
         fit_frame = self._create_section(left_panel, "3) 자동 피팅 (τ_f0, v₀*, c)")
@@ -17808,7 +18170,7 @@ class PerssonModelGUI_V2:
         de_row = ttk.Frame(fit_frame)
         de_row.pack(fill=tk.X, pady=1)
         ttk.Label(de_row, text="DE 횟수:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.fit_de_count_var = tk.StringVar(value="3")
+        self.fit_de_count_var = tk.StringVar(value="1")
         ttk.Entry(de_row, textvariable=self.fit_de_count_var, width=4).pack(side=tk.LEFT, padx=1)
         ttk.Label(de_row, text="× 4전략  (클수록 정밀, 느림)", font=self.FONTS['small'],
                   foreground='#64748B').pack(side=tk.LEFT, padx=2)
@@ -18714,6 +19076,29 @@ class PerssonModelGUI_V2:
         except Exception as e:
             messagebox.showerror("오류", f"파일 로드 실패:\n{str(e)}")
 
+    def _export_measured_mu_dry_csv(self):
+        """Export measured μ_dry data to CSV file."""
+        items = self.meas_mu_tree.get_children()
+        if not items:
+            self._show_status("내보낼 실측 데이터가 없습니다.", 'warning')
+            return
+        filepath = filedialog.asksaveasfilename(
+            title="실측 μ_dry 데이터 저장",
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv"), ("텍스트", "*.txt")]
+        )
+        if not filepath:
+            return
+        try:
+            with open(filepath, 'w') as f:
+                f.write("# log10(v_m/s),mu_dry\n")
+                for item in items:
+                    vals = self.meas_mu_tree.item(item)['values']
+                    f.write(f"{vals[0]},{vals[1]}\n")
+            self._show_status(f"실측 데이터 {len(items)}개 저장 완료: {os.path.basename(filepath)}", 'success')
+        except Exception as e:
+            messagebox.showerror("오류", f"저장 실패:\n{str(e)}")
+
     def _get_measured_mu_dry_data(self):
         """Get measured μ_dry data as numpy arrays.
 
@@ -18788,16 +19173,26 @@ class PerssonModelGUI_V2:
                 fixed_area = float(self.adh_fixed_area_var.get())
                 A_ratio_model = np.full(len(v_model), np.clip(fixed_area, 0.0, 1.0))
 
+            # ── Auto-sync T_ref from Tab 2 aT data ──
+            if hasattr(self, 'persson_aT_data') and self.persson_aT_data is not None:
+                T_ref_C = self.persson_aT_data.get('T_ref', None)
+                if T_ref_C is not None:
+                    T_ref_K = T_ref_C + 273.15
+                    self.adh_T_ref_var.set(f"{T_ref_K:.2f}")
+
+            # ── Auto-sync p0 from σ₀ if empty ──
+            p0_str = self.adh_p0_var.get().strip()
+            if not p0_str:
+                if hasattr(self, 'sigma_0_var'):
+                    p0_str = self.sigma_0_var.get()
+                    self.adh_p0_var.set(p0_str)
+
             # Read fixed parameters (ε, T_ref, T, p0)
             epsilon = float(self.adh_epsilon_var.get())
             T_ref = float(self.adh_T_ref_var.get())
             k_B = 8.6173e-5
             T_calc_C = float(self.adh_calc_temp_var.get())
             T = T_calc_C + 273.15
-            p0_str = self.adh_p0_var.get().strip()
-            if not p0_str:
-                if hasattr(self, 'sigma_0_var'):
-                    p0_str = self.sigma_0_var.get()
             p0 = float(p0_str) * 1e6  # MPa → Pa
 
             # Arrhenius shift factor (fixed for given T)
@@ -19134,7 +19529,7 @@ class PerssonModelGUI_V2:
         self.fit_v0_max_var.set("50")
         self.fit_c_min_var.set("0.001")
         self.fit_c_max_var.set("5.0")
-        self.fit_de_count_var.set("3")
+        self.fit_de_count_var.set("1")
 
         # Clear fit result text
         self.fit_result_text.delete(1.0, tk.END)
