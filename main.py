@@ -19972,8 +19972,8 @@ class PerssonModelGUI_V2:
                 self.ch_calc_button.config(state='normal')
                 return
 
-            if not hasattr(self, 'current_psd') or self.current_psd is None:
-                self._show_status("PSD 데이터가 없습니다. Tab 1에서 먼저 생성하세요.", 'warning')
+            if not hasattr(self, 'psd_model') or self.psd_model is None:
+                self._show_status("PSD 데이터가 없습니다. Tab 0에서 PSD를 확정하세요.", 'warning')
                 self.ch_calc_button.config(state='normal')
                 return
 
@@ -20028,11 +20028,11 @@ class PerssonModelGUI_V2:
 
             if q is None:
                 # Generate q array from PSD
-                q0 = getattr(self.current_psd, 'q_min', 1e2)
-                q1 = getattr(self.current_psd, 'q_max', 1e9)
+                q0 = getattr(self.psd_model, 'q_min', 1e2)
+                q1 = getattr(self.psd_model, 'q_max', 1e9)
                 q = np.logspace(np.log10(q0), np.log10(q1), 200)
 
-            C_q = self.current_psd(q) if callable(self.current_psd) else np.zeros_like(q)
+            C_q = self.psd_model(q) if callable(self.psd_model) else np.zeros_like(q)
 
             # Poisson's ratio and gamma
             nu = 0.5
