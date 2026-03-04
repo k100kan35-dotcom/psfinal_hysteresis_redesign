@@ -20077,12 +20077,12 @@ class PerssonModelGUI_V2:
     # ── Cold & Hot Branch: Main calculation ──
 
     def _calculate_cold_hot_branch(self):
-        """Run Cold Branch (Module 1) + Hot Branch (Module 2) + Brush Model (Module 3).
+        """Cold & Hot Branch + Brush Model using pre-computed μ_visc / μ_adh tab data.
 
-        Module 1 (Cold): Fixed T = T0, single-pass μ_hys + μ_ad for each v.
-        Module 2 (Hot):  Self-consistent flash temp iteration for each v.
-                         Only μ_hys generates heat (iflag1=1).
-        Module 3 (Brush): Exponential blending of Cold/Hot via slip distance.
+        Cold: mu_visc_results['mu'] (cold hys) + mu_adh_results['mu_adh'] (cold adh)
+        Hot hys: mu_visc_results['mu_hot']
+        Hot adh: mu_visc_results['A_A0_hot'] × mu_adh_results['tau_f'] / p0
+        Brush: Exponential blending of Cold/Hot via slip distance.
         """
         try:
             self.ch_calc_button.config(state='disabled')
@@ -20090,301 +20090,123 @@ class PerssonModelGUI_V2:
             self.status_var.set("Cold & Hot Branch 계산 시작...")
             self.root.update()
 
-            # ── Local imports ──
-            from scipy.special import erf
             from scipy.interpolate import interp1d
-            from scipy.integrate import simpson as sp_simpson
 
-            # ── Validate prerequisites ──
-            if not hasattr(self, 'persson_master_curve') or self.persson_master_curve is None:
-                self._show_status("마스터 커브 데이터가 없습니다. Tab 2에서 먼저 로드하세요.", 'warning')
+            # ── Validate: μ_visc results must exist ──
+            if not hasattr(self, 'mu_visc_results') or self.mu_visc_results is None:
+                self._show_status(
+                    "μ_visc 결과가 없습니다.\n"
+                    "μ_visc 탭에서 먼저 계산을 실행하세요.", 'warning')
                 self.ch_calc_button.config(state='normal')
                 return
 
-            if not hasattr(self, 'persson_aT_interp') or self.persson_aT_interp is None:
-                self._show_status("aT(T) 이동 인자 데이터가 없습니다.", 'warning')
+            # ── Validate: μ_adh results must exist ──
+            if not hasattr(self, 'mu_adh_results') or self.mu_adh_results is None:
+                self._show_status(
+                    "μ_adh 결과가 없습니다.\n"
+                    "μ_adh 탭에서 먼저 계산을 실행하세요.", 'warning')
                 self.ch_calc_button.config(state='normal')
                 return
 
-            if not hasattr(self, 'psd_model') or self.psd_model is None:
-                self._show_status("PSD 데이터가 없습니다. Tab 0에서 PSD를 확정하세요.", 'warning')
+            # ── Validate: Flash (Hot) data must exist in μ_visc ──
+            mu_hot_from_visc = self.mu_visc_results.get('mu_hot')
+            A_A0_hot_from_visc = self.mu_visc_results.get('A_A0_hot')
+            if mu_hot_from_visc is None or A_A0_hot_from_visc is None:
+                self._show_status(
+                    "Flash Temperature (Hot) 데이터가 없습니다.\n"
+                    "μ_visc 탭에서 Flash ON으로 계산하세요.", 'warning')
                 self.ch_calc_button.config(state='normal')
                 return
 
-            # ── Read parameters ──
-            T0 = float(self.ch_T0_var.get())                    # °C
-            p0_MPa = float(self.ch_p0_var.get())
-            sigma_0 = p0_MPa * 1e6                               # Pa
-            D_mm = float(self.ch_D_macro_var.get())
-            D_m = D_mm * 1e-3                                    # m
-            s0 = 0.2 * D_m                                       # flash temp development distance (m)
+            self.ch_progress_var.set(10)
+            self.root.update()
 
-            log_vmin = float(self.ch_log_vmin_var.get())
-            log_vmax = float(self.ch_log_vmax_var.get())
-            n_v = int(self.ch_n_v_var.get())
-            v_array = np.logspace(log_vmin, log_vmax, n_v)
+            # ══════════════════════════════════════════
+            # Cold Branch: μ_visc + μ_adh 탭 데이터 직접 사용
+            # ══════════════════════════════════════════
+            self.status_var.set("Cold Branch: μ_visc/μ_adh 탭 데이터 로드 중...")
+            self.root.update()
 
-            rho = float(self.ch_rho_var.get())
-            Cv = float(self.ch_Cv_var.get())
-            kappa = float(self.ch_kappa_var.get())
-            sc_max_iter = int(self.ch_sc_max_iter_var.get())
-            sc_tol = float(self.ch_sc_tol_var.get())
-            sc_relax = float(self.ch_sc_relax_var.get())
+            v_visc = self.mu_visc_results['v']
+            v_adh = self.mu_adh_results['v']
+            v_array = v_visc
+            n_v = len(v_array)
 
-            # Adhesion parameters
-            tau_f0 = float(self.ch_tau_f0_var.get()) * 1e6       # MPa → Pa
-            v0_star = float(self.ch_v0_star_var.get())            # m/s
-            c_gauss = float(self.ch_c_gauss_var.get())
-            epsilon = float(self.ch_epsilon_var.get())             # eV
-            T_ref_K = float(self.ch_T_ref_adh_var.get())          # K
-            k_B = 8.6173e-5                                        # eV/K
+            # Cold hysteresis: μ_visc 탭의 mu (cold, base temperature)
+            mu_cold_hys = self.mu_visc_results['mu'].copy()
 
-            # ── Prepare master curve interpolation ──
-            mc = self.persson_master_curve
-            omega_ref = mc['omega']
-            E_storage_ref = mc['E_storage']
-            E_loss_ref = mc['E_loss']
-
-            log_omega_ref = np.log10(omega_ref)
-            log_E_storage = np.log10(np.maximum(E_storage_ref, 1e-30))
-            log_E_loss = np.log10(np.maximum(E_loss_ref, 1e-30))
-
-            E_storage_interp = interp1d(log_omega_ref, log_E_storage,
-                                         kind='cubic', fill_value='extrapolate')
-            E_loss_interp = interp1d(log_omega_ref, log_E_loss,
-                                      kind='cubic', fill_value='extrapolate')
-
-            # PSD and q array
-            if hasattr(self, 'results') and self.results and '2d_results' in self.results:
-                q = self.results['2d_results'].get('q', None)
+            # Cold A/A0: μ_visc 탭의 A_A0_cold 또는 P_qmax
+            A_A0_cold = self.mu_visc_results.get('A_A0_cold')
+            if A_A0_cold is None:
+                A_A0_cold = self.mu_visc_results.get('P_qmax', np.zeros(n_v))
+            if A_A0_cold is not None:
+                A_A0_cold = A_A0_cold.copy()
             else:
-                q = None
+                A_A0_cold = np.zeros(n_v)
 
-            if q is None:
-                # Generate q array from PSD
-                q0 = getattr(self.psd_model, 'q_min', 1e2)
-                q1 = getattr(self.psd_model, 'q_max', 1e9)
-                q = np.logspace(np.log10(q0), np.log10(q1), 200)
+            # Cold adhesion + tau_f: μ_adh 탭 데이터
+            mu_adh_cold_raw = self.mu_adh_results['mu_adh']
+            tau_f_raw = self.mu_adh_results['tau_f']
+            p0 = self.mu_adh_results['params']['p0']    # Pa
 
-            C_q = self.psd_model(q) if callable(self.psd_model) else np.zeros_like(q)
+            # 속도 배열이 다를 경우 보간
+            if len(v_adh) == len(v_visc) and np.allclose(v_adh, v_visc):
+                mu_cold_ad = mu_adh_cold_raw.copy()
+                tau_f = tau_f_raw.copy()
+            else:
+                log_v_adh = np.log10(np.maximum(v_adh, 1e-30))
+                log_v_visc = np.log10(np.maximum(v_visc, 1e-30))
+                mu_cold_ad = np.interp(log_v_visc, log_v_adh, mu_adh_cold_raw)
+                tau_f = np.interp(log_v_visc, log_v_adh, tau_f_raw)
 
-            # Poisson's ratio and gamma
-            nu = 0.5
-            if hasattr(self, 'poisson_var'):
-                try:
-                    nu = float(self.poisson_var.get())
-                except (ValueError, AttributeError):
-                    pass
-            gamma = 0.6
-            if hasattr(self, 'gamma_var'):
-                try:
-                    gamma = float(self.gamma_var.get())
-                except (ValueError, AttributeError):
-                    pass
+            mu_cold_total = mu_cold_hys + mu_cold_ad
 
-            # Flash temperature calculator
-            from persson_model.core.flash_temperature import FlashTemperatureCalculator
-            flash_calc = FlashTemperatureCalculator(
-                rho=rho, C_v=Cv, kappa_th=kappa, d_macro=D_m
-            )
-
-            # ── Helper: compute mu_hys + A/A0 at given temperature ──
-            def _compute_mu_hys_at_T(v_j, T_current):
-                """Compute μ_hys and A/A0 at T_current for velocity v_j.
-
-                Uses WLF shift aT(T) to shift master curve frequency.
-                Returns (mu_hys, A_A0).
-                """
-                log_aT = float(self.persson_aT_interp(T_current))
-                aT = 10.0 ** log_aT
-
-                # Angle integration for friction integrand
-                n_phi = 36
-                phi = np.linspace(0, np.pi / 2, n_phi)
-                cos_phi = np.cos(phi)
-
-                prefactor = 1.0 / ((1.0 - nu**2) * sigma_0)
-
-                # G(q) calculation for contact area
-                # Simplified G(q) calculation and friction integral
-                G_arr = np.zeros(len(q))
-                P_arr = np.zeros(len(q))
-                integrand_arr = np.zeros(len(q))
-
-                # Cumulative G(q) = (1/8) ∫ dq' q'^3 C(q') |E*|^2 / σ0^2 (simplified)
-                cumulative_G = 0.0
-                for i_q in range(len(q)):
-                    q_i = q[i_q]
-
-                    # E*(q·v) at this q
-                    omega_0 = q_i * v_j
-                    omega_eff = omega_0 * aT
-                    log_w = np.log10(max(omega_eff, 1e-30))
-                    Ep_val = 10.0 ** float(E_storage_interp(log_w))
-                    Epp_val = 10.0 ** float(E_loss_interp(log_w))
-                    E_abs = np.sqrt(Ep_val**2 + Epp_val**2)
-
-                    # Accumulate G(q)
-                    if i_q > 0:
-                        dq = q[i_q] - q[i_q - 1]
-                        integrand_G = q[i_q]**3 * C_q[i_q] * E_abs**2 / sigma_0**2
-                        cumulative_G += (1.0 / (8.0 * np.pi)) * integrand_G * dq
-                    G_arr[i_q] = cumulative_G
-
-                    # P(q) = erf(1 / (2√G))
-                    if cumulative_G > 1e-10:
-                        P_arr[i_q] = float(erf(1.0 / (2.0 * np.sqrt(cumulative_G))))
-                    else:
-                        P_arr[i_q] = 1.0
-
-                    # S(q) = γ + (1-γ)·P(q)
-                    S_i = gamma + (1.0 - gamma) * P_arr[i_q]
-
-                    # Angle integral at this q
-                    angle_sum = 0.0
-                    for j_phi in range(n_phi):
-                        omega_phi = q_i * v_j * cos_phi[j_phi]
-                        omega_phi_eff = omega_phi * aT
-                        log_w_phi = np.log10(max(omega_phi_eff, 1e-30))
-                        ImE_phi = 10.0 ** float(E_loss_interp(log_w_phi))
-                        angle_sum += cos_phi[j_phi] * ImE_phi * prefactor
-
-                    # Simpson-like: multiply by dphi and symmetry factor 4
-                    dphi = phi[1] - phi[0] if n_phi > 1 else np.pi / 2
-                    angle_integral = 4.0 * angle_sum * dphi
-
-                    # Full integrand: q^3 · C(q) · P(q) · S(q) · angle_integral
-                    integrand_arr[i_q] = q_i**3 * C_q[i_q] * P_arr[i_q] * S_i * angle_integral
-
-                # Integrate over q for mu_hys
-                if len(q) >= 3:
-                    mu_hys = 0.5 * sp_simpson(integrand_arr, x=q)
-                else:
-                    mu_hys = 0.5 * np.trapezoid(integrand_arr, q)
-
-                A_A0 = P_arr[-1] if len(P_arr) > 0 else 0.01
-
-                return max(mu_hys, 0.0), max(A_A0, 1e-6)
-
-            # ── Helper: compute mu_ad at given temperature ──
-            def _compute_mu_ad(v_j, T_current, A_A0):
-                """Compute μ_ad at T_current using Arrhenius shift."""
-                T_K = T_current + 273.15
-                aT_prime = np.exp((epsilon / k_B) * (1.0 / T_K - 1.0 / T_ref_K))
-                v_eff = v_j * aT_prime
-                log_ratio = np.log10(max(v_eff / v0_star, 1e-30))
-                tau_f = tau_f0 * np.exp(-c_gauss * log_ratio**2)
-                mu_ad = (tau_f / sigma_0) * A_A0
-                return max(mu_ad, 0.0), tau_f, aT_prime
-
-            # ── Output arrays ──
-            mu_cold_hys = np.zeros(n_v)
-            mu_cold_ad = np.zeros(n_v)
-            mu_cold_total = np.zeros(n_v)
-            A_A0_cold = np.zeros(n_v)
-
-            mu_hot_hys = np.zeros(n_v)
-            mu_hot_ad = np.zeros(n_v)
-            mu_hot_total = np.zeros(n_v)
-            A_A0_hot = np.zeros(n_v)
-            delta_T_arr = np.zeros(n_v)
-            T_hot_arr = np.zeros(n_v)
-            hot_converged = np.zeros(n_v, dtype=bool)
-            hot_iters = np.zeros(n_v, dtype=int)
-
-            # ========================================
-            # MODULE 1: Cold Branch (T = T0, no flash)
-            # ========================================
-            self.status_var.set("Module 1: Cold Branch 계산 중...")
+            self.ch_progress_var.set(30)
             self.root.update()
 
-            for j in range(n_v):
-                v_j = v_array[j]
-
-                # Cold hys + A/A0
-                mu_hys_j, A_j = _compute_mu_hys_at_T(v_j, T0)
-                mu_cold_hys[j] = mu_hys_j
-                A_A0_cold[j] = A_j
-
-                # Cold ad
-                mu_ad_j, _, _ = _compute_mu_ad(v_j, T0, A_j)
-                mu_cold_ad[j] = mu_ad_j
-                mu_cold_total[j] = mu_hys_j + mu_ad_j
-
-                # Progress (Cold = 0~40%)
-                self.ch_progress_var.set(int(40 * (j + 1) / n_v))
-                if j % max(1, n_v // 10) == 0:
-                    self.root.update()
-
-            # ========================================
-            # MODULE 2: Hot Branch (flash temp loop)
-            # ========================================
-            self.status_var.set("Module 2: Hot Branch 계산 중 (Flash Temp 반복)...")
+            # ══════════════════════════════════════════
+            # Hot Branch: μ_visc 탭의 mu_hot + A_A0_hot × tau_f / p0
+            # ══════════════════════════════════════════
+            self.status_var.set("Hot Branch: μ_visc 탭 Flash 데이터 로드 중...")
             self.root.update()
 
-            for j in range(n_v):
-                v_j = v_array[j]
+            # Hot hysteresis: μ_visc 탭의 mu_hot 그대로
+            mu_hot_hys = mu_hot_from_visc.copy()
 
-                # Self-consistent flash temperature iteration
-                T_guess = T0
-                dT_current = 0.0
-                converged = False
+            # Hot A/A0: μ_visc 탭의 A_A0_hot 그대로
+            A_A0_hot = A_A0_hot_from_visc.copy()
 
-                for it in range(sc_max_iter):
-                    T_hot_iter = T0 + dT_current
+            # Hot adhesion = A_A0_hot × tau_f / p0
+            # (A_A0_hot: μ_visc에서, tau_f: μ_adh 가우시안 전단응력, p0: 수직하중)
+            mu_hot_ad = (A_A0_hot * tau_f) / p0
+            mu_hot_total = mu_hot_hys + mu_hot_ad
 
-                    # mu_hys at T_hot_iter (WLF shifted)
-                    mu_hys_iter, A_iter = _compute_mu_hys_at_T(v_j, T_hot_iter)
+            # Flash temp data from μ_visc
+            flash_results = self.mu_visc_results.get('flash_results')
+            if flash_results is not None:
+                delta_T_arr = np.array(flash_results.get('delta_T', np.zeros(n_v)))
+                T_hot_arr = np.array(flash_results.get('T_hot', np.zeros(n_v)))
+            else:
+                delta_T_arr = np.zeros(n_v)
+                T_hot_arr = np.full(n_v, float(self.ch_T0_var.get()))
 
-                    # Heat generation: ONLY mu_hys (iflag1=1, exclude mu_ad)
-                    P_eff = np.clip(A_iter, 1e-4, 0.99)
-                    q_dot = flash_calc.heat_flux(P_eff, mu_hys_iter, sigma_0, v_j)
-                    Jd = flash_calc.peclet_number(v_j)
-                    Jh = flash_calc.peclet_number_h(v_j)
-                    dT_new = flash_calc.delta_T(q_dot, Jd, Jh)
+            self.ch_progress_var.set(60)
+            self.root.update()
 
-                    # Under-relaxation
-                    dT_next = sc_relax * dT_new + (1.0 - sc_relax) * dT_current
+            # ── Read Brush model parameters ──
+            T0 = float(self.ch_T0_var.get())
+            p0_MPa = float(self.ch_p0_var.get())
+            sigma_0 = p0_MPa * 1e6
+            D_mm = float(self.ch_D_macro_var.get())
+            D_m = D_mm * 1e-3
+            s0 = 0.2 * D_m
 
-                    # Convergence check
-                    if abs(dT_next - dT_current) < sc_tol:
-                        dT_current = dT_next
-                        converged = True
-                        hot_iters[j] = it + 1
-                        break
-
-                    dT_current = dT_next
-
-                if not converged:
-                    hot_iters[j] = sc_max_iter
-
-                # Final hot state
-                T_hot_final = T0 + dT_current
-                delta_T_arr[j] = dT_current
-                T_hot_arr[j] = T_hot_final
-                hot_converged[j] = converged
-
-                # Final mu_hys and A/A0 at T_hot
-                mu_hys_hot_j, A_hot_j = _compute_mu_hys_at_T(v_j, T_hot_final)
-                mu_hot_hys[j] = mu_hys_hot_j
-                A_A0_hot[j] = A_hot_j
-
-                # mu_ad at T_hot using Arrhenius shift (NOT WLF!)
-                mu_ad_hot_j, _, _ = _compute_mu_ad(v_j, T_hot_final, A_hot_j)
-                mu_hot_ad[j] = mu_ad_hot_j
-                mu_hot_total[j] = mu_hys_hot_j + mu_ad_hot_j
-
-                # Progress (Hot = 40~80%)
-                self.ch_progress_var.set(40 + int(40 * (j + 1) / n_v))
-                if j % max(1, n_v // 10) == 0:
-                    self.root.update()
-
-            # ========================================
-            # MODULE 3: Brush Model Blending
-            # ========================================
+            # ══════════════════════════════════════════
+            # Brush Model Blending (유일한 연산)
+            # ══════════════════════════════════════════
             brush_results = None
             if self.ch_enable_brush_var.get():
-                self.status_var.set("Module 3: Brush Model 블렌딩 중...")
+                self.status_var.set("Brush Model 블렌딩 중...")
                 self.root.update()
 
                 v_brush = float(self.ch_brush_v_var.get())
@@ -20436,20 +20258,20 @@ class PerssonModelGUI_V2:
                 'sigma_0': sigma_0,
                 'D': D_m,
                 's0': s0,
-                # Cold branch
+                # Cold branch (from μ_visc + μ_adh tabs)
                 'mu_cold_hys': mu_cold_hys,
                 'mu_cold_ad': mu_cold_ad,
                 'mu_cold_total': mu_cold_total,
                 'A_A0_cold': A_A0_cold,
-                # Hot branch
+                # Hot branch (mu_hot from μ_visc, mu_adh = A_A0_hot × τ_f / p0)
                 'mu_hot_hys': mu_hot_hys,
                 'mu_hot_ad': mu_hot_ad,
                 'mu_hot_total': mu_hot_total,
                 'A_A0_hot': A_A0_hot,
                 'delta_T': delta_T_arr,
                 'T_hot': T_hot_arr,
-                'hot_converged': hot_converged,
-                'hot_iters': hot_iters,
+                'hot_converged': np.ones(n_v, dtype=bool),
+                'hot_iters': np.zeros(n_v, dtype=int),
                 # Brush model
                 'brush': brush_results,
             }
@@ -20464,10 +20286,11 @@ class PerssonModelGUI_V2:
             self.status_var.set("Cold & Hot Branch 계산 완료")
             self.ch_calc_button.config(state='normal')
 
-            n_conv = np.sum(hot_converged)
             self._show_status(
-                f"Cold & Hot Branch 계산 완료 ({n_v}점)\n"
-                f"Hot 수렴: {n_conv}/{n_v}, ΔT 범위: {np.min(delta_T_arr):.1f}~{np.max(delta_T_arr):.1f}°C",
+                f"Cold & Hot Branch 완료 ({n_v}점)\n"
+                f"데이터 출처: μ_visc + μ_adh 탭 계산 결과\n"
+                f"Hot μ_adh = A/A0_hot × τ_f / p0\n"
+                f"ΔT 범위: {np.min(delta_T_arr):.1f}~{np.max(delta_T_arr):.1f}°C",
                 'success')
 
         except ValueError as e:
@@ -20645,6 +20468,12 @@ class PerssonModelGUI_V2:
         txt.insert(tk.END, "=" * 40 + "\n")
         txt.insert(tk.END, "Cold & Hot Branch 계산 결과\n")
         txt.insert(tk.END, "=" * 40 + "\n\n")
+
+        txt.insert(tk.END, f"[데이터 출처]\n")
+        txt.insert(tk.END, f"  Cold μ_hys: μ_visc 탭 계산 결과\n")
+        txt.insert(tk.END, f"  Cold μ_adh: μ_adh 탭 계산 결과\n")
+        txt.insert(tk.END, f"  Hot μ_hys:  μ_visc 탭 mu_hot (Flash)\n")
+        txt.insert(tk.END, f"  Hot μ_adh:  A/A0_hot × τ_f / p₀\n\n")
 
         txt.insert(tk.END, f"[기본 조건]\n")
         txt.insert(tk.END, f"  T₀={r['T0']:.1f}°C, σ₀={r['sigma_0']/1e6:.3f} MPa\n")
