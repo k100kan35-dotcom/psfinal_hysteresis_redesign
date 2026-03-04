@@ -18111,7 +18111,7 @@ class PerssonModelGUI_V2:
         self.meas_mu_tree.pack(side=tk.LEFT, fill=tk.X, expand=True)
         tree_scroll.pack(side=tk.RIGHT, fill=tk.Y)
 
-        # Buttons: delete selected, clear all, load CSV, export CSV
+        # Buttons: delete selected, clear all, CSV load
         meas_btn_row = ttk.Frame(meas_frame)
         meas_btn_row.pack(fill=tk.X, pady=2)
 
@@ -18126,7 +18126,25 @@ class PerssonModelGUI_V2:
         meas_csv_load_wrapper.pack(side=tk.LEFT, padx=1)
         ttk.Button(meas_csv_load_wrapper, text="CSV 로드", command=self._load_measured_mu_dry_csv, width=8).pack()
 
-        ttk.Button(meas_btn_row, text="CSV 저장", command=self._export_measured_mu_dry_csv, width=8).pack(side=tk.LEFT, padx=1)
+        # ===== 내장 μ_dry 프리셋 섹션 =====
+        ttk.Separator(meas_frame, orient='horizontal').pack(fill=tk.X, pady=5)
+        ttk.Label(meas_frame, text="─ 내장 μ_dry 프리셋 ─",
+                  font=self.FONTS['body_bold'], foreground='#059669').pack(anchor=tk.CENTER)
+
+        preset_mu_dry_frame = ttk.Frame(meas_frame)
+        preset_mu_dry_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(preset_mu_dry_frame, text="프리셋:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.preset_mu_dry_var = tk.StringVar(value="(선택...)")
+        self.preset_mu_dry_combo = ttk.Combobox(preset_mu_dry_frame, textvariable=self.preset_mu_dry_var,
+                                                 state='readonly', width=18, font=self.FONTS['body'])
+        self.preset_mu_dry_combo.pack(side=tk.LEFT, padx=3)
+        ttk.Button(preset_mu_dry_frame, text="로드", command=self._load_preset_mu_dry, width=4,
+                   style='Outline.TButton').pack(side=tk.LEFT)
+        ttk.Button(preset_mu_dry_frame, text="추가", command=self._add_preset_mu_dry, width=4).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_mu_dry_frame, text="삭제", command=self._delete_preset_mu_dry, width=4).pack(side=tk.LEFT, padx=2)
+
+        # 프로그램 시작 시 내장 μ_dry 프리셋 목록 로드
+        self._refresh_preset_mu_dry_list()
 
         # 3. Auto-Fitting (right below input)
         fit_frame = self._create_section(left_panel, "3) 자동 피팅 (τ_f0, v₀*, c)")
@@ -19100,6 +19118,122 @@ class PerssonModelGUI_V2:
         except Exception as e:
             messagebox.showerror("오류", f"저장 실패:\n{str(e)}")
 
+    def _refresh_preset_mu_dry_list(self):
+        """Refresh the preset μ_dry list in the combobox."""
+        try:
+            preset_dir = self._get_preset_data_dir('mu_dry')
+            files = [f for f in os.listdir(preset_dir) if f.endswith(('.txt', '.csv'))]
+            if files:
+                self.preset_mu_dry_combo['values'] = files
+            else:
+                self.preset_mu_dry_combo['values'] = ['(데이터 없음)']
+        except Exception as e:
+            print(f"[내장 μ_dry] 목록 로드 오류: {e}")
+            self.preset_mu_dry_combo['values'] = ['(오류)']
+
+    def _load_preset_mu_dry(self):
+        """Load a preset μ_dry file into the treeview table."""
+        selected = self.preset_mu_dry_var.get()
+        if not selected or selected.startswith('('):
+            self._show_status("내장 μ_dry 프리셋을 선택하세요.", 'warning')
+            return
+
+        try:
+            preset_dir = self._get_preset_data_dir('mu_dry')
+            filepath = os.path.join(preset_dir, selected)
+
+            # Clear existing data
+            for item in self.meas_mu_tree.get_children():
+                self.meas_mu_tree.delete(item)
+
+            # Load data (multi-encoding)
+            count = 0
+            data_loaded = False
+            for enc in ['utf-8', 'cp949', 'euc-kr', 'latin-1']:
+                try:
+                    with open(filepath, 'r', encoding=enc) as f:
+                        for line in f:
+                            line = line.strip()
+                            if not line or line.startswith('#'):
+                                continue
+                            for sep in ['\t', ',', None]:
+                                parts = line.split(sep)
+                                if len(parts) >= 2:
+                                    try:
+                                        log_v_val = float(parts[0].strip())
+                                        mu_val = float(parts[1].strip())
+                                        self.meas_mu_tree.insert('', tk.END,
+                                                                 values=(f"{log_v_val:.4f}", f"{mu_val:.6f}"))
+                                        count += 1
+                                        break
+                                    except ValueError:
+                                        continue
+                    data_loaded = True
+                    break
+                except UnicodeDecodeError:
+                    continue
+
+            if not data_loaded:
+                raise ValueError("파일 인코딩을 인식할 수 없습니다.")
+
+            self._show_status(f"내장 μ_dry 프리셋 로드 완료: {selected} ({count}개)", 'success')
+
+        except Exception as e:
+            messagebox.showerror("오류", f"내장 μ_dry 로드 실패:\n{str(e)}")
+
+    def _add_preset_mu_dry(self):
+        """Save current treeview μ_dry data as a preset."""
+        items = self.meas_mu_tree.get_children()
+        if not items:
+            self._show_status("저장할 실측 μ_dry 데이터가 없습니다.\n먼저 데이터를 입력하세요.", 'warning')
+            return
+
+        from tkinter import simpledialog
+        name = simpledialog.askstring("내장 μ_dry 프리셋 추가", "저장할 이름을 입력하세요:")
+        if not name:
+            return
+
+        if not name.endswith('.txt'):
+            name += '.txt'
+
+        try:
+            preset_dir = self._get_preset_data_dir('mu_dry')
+            filepath = os.path.join(preset_dir, name)
+
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write("# 내장 μ_dry 프리셋 데이터\n")
+                f.write("# log10(v_m/s)\tmu_dry\n")
+                for item in items:
+                    vals = self.meas_mu_tree.item(item)['values']
+                    f.write(f"{vals[0]}\t{vals[1]}\n")
+
+            self._refresh_preset_mu_dry_list()
+            self.preset_mu_dry_var.set(name)
+            self._show_status(f"프리셋 저장 완료: {name} ({len(items)}개)", 'success')
+
+        except Exception as e:
+            messagebox.showerror("오류", f"프리셋 저장 실패:\n{str(e)}")
+
+    def _delete_preset_mu_dry(self):
+        """Delete selected preset μ_dry file."""
+        selected = self.preset_mu_dry_var.get()
+        if not selected or selected.startswith('('):
+            self._show_status("삭제할 내장 μ_dry 프리셋을 선택하세요.", 'warning')
+            return
+
+        if not messagebox.askyesno("확인", f"'{selected}' 프리셋을 삭제하시겠습니까?"):
+            return
+
+        try:
+            preset_dir = self._get_preset_data_dir('mu_dry')
+            filepath = os.path.join(preset_dir, selected)
+            os.remove(filepath)
+            self._refresh_preset_mu_dry_list()
+            self.preset_mu_dry_var.set("(선택...)")
+            self._show_status(f"프리셋 삭제 완료: {selected}", 'success')
+        except Exception as e:
+            messagebox.showerror("오류", f"프리셋 삭제 실패:\n{str(e)}")
+
     def _get_measured_mu_dry_data(self):
         """Get measured μ_dry data as numpy arrays.
 
@@ -20007,7 +20141,7 @@ class PerssonModelGUI_V2:
 
             # ── Prepare master curve interpolation ──
             mc = self.persson_master_curve
-            omega_ref = mc['frequencies']
+            omega_ref = mc['omega']
             E_storage_ref = mc['E_storage']
             E_loss_ref = mc['E_loss']
 
