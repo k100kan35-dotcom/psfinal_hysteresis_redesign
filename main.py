@@ -18563,7 +18563,13 @@ class PerssonModelGUI_V2:
                     self.adh_calc_button.config(state='normal')
                     return
                 v_array = self.mu_visc_results['v']
-                A_ratio = self.mu_visc_results['P_qmax']
+                # When flash is active, use A/A0_hot for consistency with mu_hot
+                if (self.mu_visc_results.get('use_flash', False)
+                        and self.mu_visc_results.get('A_A0_hot') is not None
+                        and len(self.mu_visc_results['A_A0_hot']) == len(v_array)):
+                    A_ratio = self.mu_visc_results['A_A0_hot']
+                else:
+                    A_ratio = self.mu_visc_results['P_qmax']
             else:
                 # Fixed A/A0 value
                 fixed_area = float(self.adh_fixed_area_var.get())
@@ -19376,13 +19382,20 @@ class PerssonModelGUI_V2:
                 mu_visc_model = self.mu_visc_results['mu']
 
             # Need A/A0 data
+            # When flash temperature is active, use A/A0_hot (hot pass contact area)
+            # instead of P_qmax (cold pass) for consistency with mu_hot.
             area_source = self.adh_area_source_var.get()
             if area_source == "from_mu_visc":
-                if 'P_qmax' not in self.mu_visc_results:
+                if (self.mu_visc_results.get('use_flash', False)
+                        and self.mu_visc_results.get('A_A0_hot') is not None
+                        and len(self.mu_visc_results['A_A0_hot']) == len(self.mu_visc_results['v'])):
+                    A_ratio_model = self.mu_visc_results['A_A0_hot']
+                elif 'P_qmax' in self.mu_visc_results:
+                    A_ratio_model = self.mu_visc_results['P_qmax']
+                else:
                     self._show_status("A/A0 데이터 없음. μ_visc 결과에 P_qmax가 필요합니다.", 'warning')
                     self.fit_button.config(state='normal')
                     return
-                A_ratio_model = self.mu_visc_results['P_qmax']
             else:
                 fixed_area = float(self.adh_fixed_area_var.get())
                 A_ratio_model = np.full(len(v_model), np.clip(fixed_area, 0.0, 1.0))
@@ -19641,7 +19654,13 @@ class PerssonModelGUI_V2:
             area_source = self.adh_area_source_var.get()
             if area_source == "from_mu_visc":
                 v_array = self.mu_visc_results['v']
-                A_ratio = self.mu_visc_results['P_qmax']
+                # When flash is active, use A/A0_hot for consistency with mu_hot
+                if (self.mu_visc_results.get('use_flash', False)
+                        and self.mu_visc_results.get('A_A0_hot') is not None
+                        and len(self.mu_visc_results['A_A0_hot']) == len(v_array)):
+                    A_ratio = self.mu_visc_results['A_A0_hot']
+                else:
+                    A_ratio = self.mu_visc_results['P_qmax']
             else:
                 fixed_area = float(self.adh_fixed_area_var.get())
                 fixed_area = np.clip(fixed_area, 0.0, 1.0)
@@ -20793,12 +20812,15 @@ class PerssonModelGUI_V2:
             # Shifted frequency: omega_shifted = omega * aT
             omega_shifted = omega * aT
 
-            # Interpolate from reference master curve
+            # Interpolate from reference master curve (boundary clamped)
+            # extrapolate 사용 시 WLF 시프트된 저주파에서 비물리적 값 생성 →
+            # G(q), P(q) 왜곡 → flash temperature 양의 피드백 발생!
             from scipy.interpolate import interp1d
             log_om_ref = np.log10(mc['omega'])
             log_Epp_ref = np.log10(np.maximum(mc['E_loss'], 1e-3))
             interp_fn = interp1d(log_om_ref, log_Epp_ref, kind='linear',
-                                 bounds_error=False, fill_value='extrapolate')
+                                 bounds_error=False,
+                                 fill_value=(log_Epp_ref[0], log_Epp_ref[-1]))
             return 10**interp_fn(np.log10(max(omega_shifted, 1e-6)))
         else:
             return self.material.get_loss_modulus(omega, temperature=temperature)
@@ -20818,7 +20840,8 @@ class PerssonModelGUI_V2:
             log_om_ref = np.log10(mc['omega'])
             log_Ep_ref = np.log10(np.maximum(mc['E_storage'], 1e-3))
             interp_fn = interp1d(log_om_ref, log_Ep_ref, kind='linear',
-                                 bounds_error=False, fill_value='extrapolate')
+                                 bounds_error=False,
+                                 fill_value=(log_Ep_ref[0], log_Ep_ref[-1]))
             return 10**interp_fn(np.log10(max(omega_shifted, 1e-6)))
         else:
             return self.material.get_storage_modulus(omega, temperature=temperature)
