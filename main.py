@@ -8069,7 +8069,7 @@ class PerssonModelGUI_V2:
         add_text('  \u2461 각 q[i]에서: WLF shift a_T(T_current) → E\'\'(ω·a_T) 조회', font_size=17, fg='#059669')
         add_text('  \u2462 dμ[i] 계산: shifted E\'\'로 마찰 피적분함수 적분', font_size=17, fg='#059669')
         add_text('  \u2463 열유속: q̇(q_i) = dμ[i]·σ₀·v / P(q_i) (파수별 면적 보정)', font_size=17, fg='#059669')
-        add_text('  \u2464 δT(q_i) = Greenwood(q̇, d=2π/q_i, v): (q̇·d)/(2κ)/√(1+(π/16)Jd+Jh²/4)  [원형 접촉]', font_size=17, fg='#059669')
+        add_text('  \u2464 δT(q_i) = Greenwood(q̇, d=π/q_i, v): (q̇·d)/(2κ)/√(1+(π/16)Jd+Jh²/4)  [원형 접촉]', font_size=17, fg='#059669')
         add_text('  \u2465 T_current = T_base + ΔT_accum + δT(q_i) → 다음 q에서 사용', font_size=17, fg='#059669')
         add_text('  \u2466 최종: ΔT_total = Σ δT(q_i), μ_hot = Σ dμ[i]', font_size=17, fg='#059669')
 
@@ -10240,7 +10240,7 @@ class PerssonModelGUI_V2:
 
         # Description label that updates based on selection
         self.flash_model_desc_var = tk.StringVar(
-            value="파수별 d(q)=2π/q 스케일 열확산 적분\n"
+            value="파수별 d(q)=π/q 스케일 열확산 적분\n"
                   "ΔT = Σ δμ_i·σ₀·v·d_i/(2κ√(1+(π/16)Jd_i+Jh²/4))\n"
                   "정밀 계산, 연산 시간 증가")
         self.flash_model_desc_label = ttk.Label(
@@ -10257,7 +10257,7 @@ class PerssonModelGUI_V2:
                     "빠른 연산, 정품과 동일한 결과")
             elif model == "persson_full":
                 self.flash_model_desc_var.set(
-                    "파수별 d(q)=2π/q 스케일 열확산 적분\n"
+                    "파수별 d(q)=π/q 스케일 열확산 적분\n"
                     "ΔT = Σ δμ_i·σ₀·v·d_i/(2κ√(1+(π/16)Jd_i+Jh²/4))\n"
                     "정밀 계산, 연산 시간 증가")
 
@@ -12030,7 +12030,7 @@ class PerssonModelGUI_V2:
                            ΔT = q̇·d/(2κ√(1+(π/16)Jd+Jh²/4))
                         2. "persson_full": Per-scale heat diffusion integral
                            ΔT = Σ δμ_i·σ₀·v·d_i/(2κ√(1+(π/16)Jd_i+Jh²/4))
-                           where d_i = 2π/q_i (scale-dependent contact size)
+                           where d_i = π/q_i (scale-dependent contact size)
 
                         Returns mu_hot, G_hot, P_hot, S_hot, A/A0_hot, delta_T_per_q."""
                         # Use fine q grid from closure
@@ -12124,10 +12124,10 @@ class PerssonModelGUI_V2:
 
                             if flash_model_type == "persson_full":
                                 # --- Persson Full Integral (Per-Scale Diffusion) ---
-                                # Each scale contributes ΔT using its own d(q) = 2π/q
+                                # Each scale contributes ΔT using its own d(q) = π/q
                                 # Greenwood circular interpolation with Jd and Jh
                                 # 실접촉면 열집중: 1/P(q) 포함 (Persson 2006)
-                                d_i = 2.0 * np.pi / q_local[i]
+                                d_i = np.pi / q_local[i]
                                 Jd_i = v_j * d_i / flash_calc.D_th
                                 Jh_i = flash_calc.peclet_number_h(v_j)
                                 dq_dot_i = delta_mu_i * sigma_0 * v_j / max(P_hot[i], 1e-6)

@@ -245,7 +245,7 @@ class FlashTemperatureCalculator:
         Calculate flash temperature rise at a specific length scale.
 
         Uses the Greenwood interpolation formula with a scale-dependent
-        characteristic length d = 2π/q instead of the fixed d_macro.
+        characteristic length d = π/q instead of the fixed d_macro.
 
         ΔT = (q̇·d_local) / (2κ) / √(1 + (π/16)·Jd_local + Jh²/4)
 
@@ -254,14 +254,14 @@ class FlashTemperatureCalculator:
         This enables per-wavenumber flash temperature accumulation:
             ΔT_total = Σ_i δT(q_i)
         where each scale contributes its own temperature rise based on
-        its characteristic contact patch size d(q) = 2π/q.
+        its characteristic contact patch size d(q) = π/q.
 
         Parameters
         ----------
         q_dot_local : float
             Local heat flux at this scale (W/m²)
         d_local : float
-            Characteristic contact diameter at this scale (m), typically 2π/q
+            Characteristic contact diameter at this scale (m), typically π/q
         velocity : float
             Sliding velocity (m/s)
 
@@ -403,7 +403,7 @@ class FlashTemperatureCalculator:
 
         Instead of using a single macroscopic d_macro, this method computes
         the temperature rise at each roughness scale q_i using the
-        scale-dependent characteristic contact size d(q) = 2*pi/q.
+        scale-dependent characteristic contact size d(q) = pi/q.
 
         This mirrors the Fortran RubberFriction code's full heat calculation
         (controlled by 'delnn' parameter in IN.mathematical), where the heat
@@ -411,7 +411,7 @@ class FlashTemperatureCalculator:
         scale's own Peclet number.
 
         At each scale q_i:
-            d_i = 2*pi / q_i             (contact patch size at this scale)
+            d_i = pi / q_i               (contact patch size at this scale)
             Jd_i = v * d_i / D_th        (scale-dependent Peclet number)
             Jh = v * h / D_th            (global surface-layer Peclet number)
             dq_dot_i = delta_mu_i * sigma_0 * v / P(q_i)  (heat flux at real contact)
@@ -452,7 +452,7 @@ class FlashTemperatureCalculator:
 
         for i in range(n_q):
             # Scale-dependent contact diameter
-            d_i = 2.0 * np.pi / q_array[i]
+            d_i = np.pi / q_array[i]
 
             # Scale-dependent Peclet number
             Jd_i = velocity * d_i / self.D_th
