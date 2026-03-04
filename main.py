@@ -20149,10 +20149,9 @@ class PerssonModelGUI_V2:
                 T_hot_arr = np.full(n_v, float(self.ch_T0_var.get()))
 
             # Hot adhesion = A_A0_hot × tau_f_hot / p0
-            # tau_f_hot: Arrhenius aT로 T_hot에서 재계산한 전단응력
-            # aT'(T_hot) = exp[(ε/kB)×(1/T_hot - 1/T_ref)]
-            # v_eff_hot = v × aT'(T_hot)
-            # tau_f_hot = τ_f0 × exp[-c × (log10(v_eff_hot/v₀*))²]
+            # tau_f_hot: cold tau_f와 동일한 Gaussian 모양 유지, 중심만 이동
+            # 대표 T_hot에서 단일 aT'를 사용하여 전체 커브를 균일 시프트
+            # → cold Gaussian 모양이 보존됨 (per-velocity 시프트에 의한 왜곡 방지)
             adh_params = self.mu_adh_results['params']
             tau_f0_val = adh_params['tau_f0']   # Pa
             v0_star_val = adh_params['v0_star']  # m/s
@@ -20161,14 +20160,33 @@ class PerssonModelGUI_V2:
             T_ref_val = adh_params['T_ref']      # K
             k_B = 8.6173e-5                       # eV/K
 
-            tau_f_hot = np.zeros(n_v)
-            aT_prime_hot = np.zeros(n_v)
-            for j in range(n_v):
-                T_hot_K = T_hot_arr[j] + 273.15  # °C → K
-                aT_prime_hot[j] = np.exp((epsilon_val / k_B) * (1.0 / T_hot_K - 1.0 / T_ref_val))
-                v_eff_hot_j = v_array[j] * aT_prime_hot[j]
-                log_ratio_j = np.log10(v_eff_hot_j / v0_star_val)
-                tau_f_hot[j] = tau_f0_val * np.exp(-c_val * log_ratio_j**2)
+            # Cold aT' (single scalar, same as mu_adh tab)
+            T_cold_K = adh_params['T'] if 'T' in adh_params else (float(self.ch_T0_var.get()) + 273.15)
+            aT_prime_cold = np.exp((epsilon_val / k_B) * (1.0 / T_cold_K - 1.0 / T_ref_val))
+
+            # 대표 T_hot 결정: cold tau_f 피크 속도에서의 T_hot 사용
+            # cold tau_f 피크 = v0_star / aT_cold (log-velocity 공간 중심)
+            v_peak_cold = v0_star_val / aT_prime_cold
+            # 가장 가까운 속도 인덱스 찾기
+            j_peak = int(np.argmin(np.abs(np.log10(np.maximum(v_array, 1e-30))
+                                          - np.log10(max(v_peak_cold, 1e-30)))))
+            T_hot_representative = T_hot_arr[j_peak]  # °C
+            T_hot_rep_K = T_hot_representative + 273.15  # K
+
+            # 단일 aT' for hot (전체 커브 균일 시프트)
+            aT_prime_hot_single = np.exp((epsilon_val / k_B) * (1.0 / T_hot_rep_K - 1.0 / T_ref_val))
+
+            # tau_f_hot: cold와 동일한 Gaussian 모양, 중심만 aT_hot으로 이동
+            v_eff_hot = v_array * aT_prime_hot_single
+            log_ratio_hot = np.log10(v_eff_hot / v0_star_val)
+            tau_f_hot = tau_f0_val * np.exp(-c_val * log_ratio_hot**2)
+
+            # per-velocity aT' 저장 (진단/표시용, 대표값으로 균일)
+            aT_prime_hot = np.full(n_v, aT_prime_hot_single)
+
+            print(f"[Cold&Hot] tau_f shift: T_hot_rep={T_hot_representative:.1f}°C "
+                  f"(v_peak={v_peak_cold:.2e} m/s, idx={j_peak}), "
+                  f"aT_cold={aT_prime_cold:.4e}, aT_hot={aT_prime_hot_single:.4e}")
 
             mu_hot_ad = (A_A0_hot * tau_f_hot) / p0
             mu_hot_total = mu_hot_hys + mu_hot_ad
@@ -20205,8 +20223,9 @@ class PerssonModelGUI_V2:
                 'mu_hot_total': mu_hot_total,
                 'A_A0_hot': A_A0_hot,
                 'tau_f_cold': tau_f,          # Cold 전단응력 (Pa)
-                'tau_f_hot': tau_f_hot,       # Hot 전단응력 - Arrhenius shifted (Pa)
-                'aT_prime_hot': aT_prime_hot, # Hot Arrhenius shift factor
+                'tau_f_hot': tau_f_hot,       # Hot 전단응력 - 균일 Arrhenius shifted (Pa)
+                'aT_prime_hot': aT_prime_hot, # Hot Arrhenius shift factor (단일 대표값)
+                'T_hot_representative': T_hot_representative,  # 대표 T_hot (°C)
                 'delta_T': delta_T_arr,
                 'T_hot': T_hot_arr,
                 'hot_converged': np.ones(n_v, dtype=bool),
@@ -20398,7 +20417,12 @@ class PerssonModelGUI_V2:
         txt.insert(tk.END, f"  Cold μ_adh: μ_adh 탭 계산 결과\n")
         txt.insert(tk.END, f"  Hot μ_hys:  μ_visc 탭 mu_hot (Flash)\n")
         txt.insert(tk.END, f"  Hot μ_adh:  A/A0_hot × τ_f_hot(T_hot) / p₀\n")
-        txt.insert(tk.END, f"    (Arrhenius aT' shifted at T_hot)\n\n")
+        txt.insert(tk.END, f"    (Arrhenius aT' 균일 시프트: cold 커브 모양 유지)\n")
+        if 'T_hot_representative' in r:
+            txt.insert(tk.END, f"    대표 T_hot={r['T_hot_representative']:.1f}°C "
+                               f"(τ_f 피크 속도에서)\n\n")
+        else:
+            txt.insert(tk.END, "\n")
 
         txt.insert(tk.END, f"[기본 조건]\n")
         txt.insert(tk.END, f"  T₀={r['T0']:.1f}°C, σ₀={r['sigma_0']/1e6:.3f} MPa\n")
