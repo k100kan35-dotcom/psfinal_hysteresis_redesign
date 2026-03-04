@@ -19722,11 +19722,9 @@ class PerssonModelGUI_V2:
     def _create_cold_hot_branch_tab(self, parent):
         """Create Cold & Hot Branch analysis tab.
 
-        Implements Persson friction theory Cold/Hot branch generation
-        and brush-model blending for tire dynamics:
+        Implements Persson friction theory Cold/Hot branch generation:
           Module 1: Cold Branch (no flash temperature)
           Module 2: Hot Branch (self-consistent flash temperature iteration)
-          Module 3: Brush Model Blending (exponential decay weighting)
         """
         layout = self._create_tab_layout(parent, toolbar_buttons=[
             ("Cold & Hot 계산", self._calculate_cold_hot_branch, 'Accent.TButton'),
@@ -19850,8 +19848,9 @@ class PerssonModelGUI_V2:
                   foreground='#64748B').pack(side=tk.LEFT)
 
         flash_note = ttk.Label(sec3,
-                               text="※ Hot Branch: μ_hys만 발열 (μ_ad 배제, iflag1=1)\n"
-                                    "   자기일관 루프: ΔT ↔ μ_hys 수렴",
+                               text="※ Hot Branch: μ_hys만 발열 (μ_ad 배제)\n"
+                                    "   자기일관 루프: ΔT ↔ μ_hys 수렴\n"
+                                    "   Hot μ_ad: Arrhenius aT'(T_hot)로 τ_f 재계산",
                                font=self.FONTS['small'], foreground='#DC2626')
         flash_note.pack(anchor=tk.W, pady=(2, 0))
 
@@ -19908,44 +19907,8 @@ class PerssonModelGUI_V2:
         ttk.Button(adh_sync_row, text="μ_adh 파라미터 동기화",
                    command=self._sync_cold_hot_adh_params, width=22).pack(side=tk.LEFT, padx=2)
 
-        # ── 5) 브러쉬 모델 (Brush Model) ──
-        sec5 = self._create_section(left_panel, "5) 브러쉬 모델 (Exponential Blending)")
-
-        self.ch_enable_brush_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(sec5, text="브러쉬 모델 블렌딩 활성화",
-                        variable=self.ch_enable_brush_var).pack(anchor=tk.W, pady=1)
-
-        row_v_brush = ttk.Frame(sec5)
-        row_v_brush.pack(fill=tk.X, pady=1)
-        ttk.Label(row_v_brush, text="슬라이딩 속도:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.ch_brush_v_var = tk.StringVar(value="1.0")
-        ttk.Entry(row_v_brush, textvariable=self.ch_brush_v_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row_v_brush, text="m/s", font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT)
-
-        row_smax = ttk.Frame(sec5)
-        row_smax.pack(fill=tk.X, pady=1)
-        ttk.Label(row_smax, text="최대 슬립 거리:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.ch_brush_s_max_var = tk.StringVar(value="10.0")
-        ttk.Entry(row_smax, textvariable=self.ch_brush_s_max_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row_smax, text="mm", font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT)
-
-        row_ns = ttk.Frame(sec5)
-        row_ns.pack(fill=tk.X, pady=1)
-        ttk.Label(row_ns, text="타임 스텝:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.ch_brush_n_steps_var = tk.StringVar(value="200")
-        ttk.Entry(row_ns, textvariable=self.ch_brush_n_steps_var, width=6).pack(side=tk.LEFT, padx=2)
-
-        brush_note = ttk.Label(sec5,
-                               text="s₀ = 0.2D (플래시 온도 발달 기준거리)\n"
-                                    "W_cold = exp(-s/s₀), W_hot = 1 - exp(-s/s₀)\n"
-                                    "μ(s) = μ_cold·W_cold + μ_hot·W_hot",
-                               font=self.FONTS['small'], foreground='#64748B')
-        brush_note.pack(anchor=tk.W, pady=(2, 0))
-
-        # ── 6) 계산 실행 ──
-        sec6 = self._create_section(left_panel, "6) 계산 실행")
+        # ── 5) 계산 실행 ──
+        sec6 = self._create_section(left_panel, "5) 계산 실행")
 
         calc_row = ttk.Frame(sec6)
         calc_row.pack(fill=tk.X, pady=2)
@@ -19959,8 +19922,8 @@ class PerssonModelGUI_V2:
                                                 maximum=100, length=140)
         self.ch_progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
 
-        # ── 7) 결과 텍스트 ──
-        sec7 = self._create_section(left_panel, "7) 결과")
+        # ── 6) 결과 텍스트 ──
+        sec7 = self._create_section(left_panel, "6) 결과")
 
         self.ch_result_text = tk.Text(sec7, height=12, font=self.FONTS['mono_small'], wrap=tk.WORD)
         self.ch_result_text.pack(fill=tk.X)
@@ -19969,8 +19932,6 @@ class PerssonModelGUI_V2:
         export_row.pack(fill=tk.X, pady=2)
         ttk.Button(export_row, text="Branch CSV 내보내기",
                    command=self._export_cold_hot_csv, width=18).pack(side=tk.LEFT, padx=1)
-        ttk.Button(export_row, text="Brush CSV 내보내기",
-                   command=self._export_brush_csv, width=18).pack(side=tk.LEFT, padx=1)
 
         # ============== Right Panel: Plots ==============
         right_panel = layout['right']
@@ -19989,13 +19950,13 @@ class PerssonModelGUI_V2:
         self.ax_ch_hys.set_xscale('log')
         self.ax_ch_hys.grid(True, alpha=0.3)
 
-        # Top-right: Cold vs Hot Branch (μ_total = μ_hys + μ_ad)
-        self.ax_ch_total = self.fig_cold_hot.add_subplot(222)
-        self.ax_ch_total.set_title('μ_total: Cold vs Hot', fontweight='bold', fontsize=10)
-        self.ax_ch_total.set_xlabel('v (m/s)', fontsize=10)
-        self.ax_ch_total.set_ylabel('μ_total', fontsize=10)
-        self.ax_ch_total.set_xscale('log')
-        self.ax_ch_total.grid(True, alpha=0.3)
+        # Top-right: Cold vs Hot Adhesion (μ_ad with Arrhenius aT)
+        self.ax_ch_adh = self.fig_cold_hot.add_subplot(222)
+        self.ax_ch_adh.set_title('μ_ad: Cold vs Hot (Arrhenius aT)', fontweight='bold', fontsize=10)
+        self.ax_ch_adh.set_xlabel('v (m/s)', fontsize=10)
+        self.ax_ch_adh.set_ylabel('μ_ad', fontsize=10)
+        self.ax_ch_adh.set_xscale('log')
+        self.ax_ch_adh.grid(True, alpha=0.3)
 
         # Bottom-left: Flash temperature ΔT + A/A0
         self.ax_ch_flash = self.fig_cold_hot.add_subplot(223)
@@ -20005,12 +19966,13 @@ class PerssonModelGUI_V2:
         self.ax_ch_flash.set_xscale('log')
         self.ax_ch_flash.grid(True, alpha=0.3)
 
-        # Bottom-right: Brush model blending
-        self.ax_ch_brush = self.fig_cold_hot.add_subplot(224)
-        self.ax_ch_brush.set_title('Brush Model μ(s)', fontweight='bold', fontsize=10)
-        self.ax_ch_brush.set_xlabel('슬립 거리 s (mm)', fontsize=10)
-        self.ax_ch_brush.set_ylabel('μ', fontsize=10)
-        self.ax_ch_brush.grid(True, alpha=0.3)
+        # Bottom-right: μ_total Cold vs Hot
+        self.ax_ch_total = self.fig_cold_hot.add_subplot(224)
+        self.ax_ch_total.set_title('μ_total: Cold vs Hot', fontweight='bold', fontsize=10)
+        self.ax_ch_total.set_xlabel('v (m/s)', fontsize=10)
+        self.ax_ch_total.set_ylabel('μ_total', fontsize=10)
+        self.ax_ch_total.set_xscale('log')
+        self.ax_ch_total.grid(True, alpha=0.3)
 
         self.fig_cold_hot.subplots_adjust(left=0.10, right=0.90, top=0.96, bottom=0.08,
                                            hspace=0.50, wspace=0.40)
@@ -20077,12 +20039,12 @@ class PerssonModelGUI_V2:
     # ── Cold & Hot Branch: Main calculation ──
 
     def _calculate_cold_hot_branch(self):
-        """Cold & Hot Branch + Brush Model using pre-computed μ_visc / μ_adh tab data.
+        """Cold & Hot Branch using pre-computed μ_visc / μ_adh tab data.
 
         Cold: mu_visc_results['mu'] (cold hys) + mu_adh_results['mu_adh'] (cold adh)
         Hot hys: mu_visc_results['mu_hot']
-        Hot adh: mu_visc_results['A_A0_hot'] × mu_adh_results['tau_f'] / p0
-        Brush: Exponential blending of Cold/Hot via slip distance.
+        Hot adh: A_A0_hot × tau_f_hot(T_hot) / p0
+                 tau_f_hot recalculated with Arrhenius aT' at T_hot
         """
         try:
             self.ch_calc_button.config(state='disabled')
@@ -20165,7 +20127,8 @@ class PerssonModelGUI_V2:
             self.root.update()
 
             # ══════════════════════════════════════════
-            # Hot Branch: μ_visc 탭의 mu_hot + A_A0_hot × tau_f / p0
+            # Hot Branch: μ_visc 탭의 mu_hot + A_A0_hot × tau_f_hot(T_hot) / p0
+            # tau_f_hot: Arrhenius aT'(T_hot)로 재계산
             # ══════════════════════════════════════════
             self.status_var.set("Hot Branch: μ_visc 탭 Flash 데이터 로드 중...")
             self.root.update()
@@ -20176,12 +20139,7 @@ class PerssonModelGUI_V2:
             # Hot A/A0: μ_visc 탭의 A_A0_hot 그대로
             A_A0_hot = A_A0_hot_from_visc.copy()
 
-            # Hot adhesion = A_A0_hot × tau_f / p0
-            # (A_A0_hot: μ_visc에서, tau_f: μ_adh 가우시안 전단응력, p0: 수직하중)
-            mu_hot_ad = (A_A0_hot * tau_f) / p0
-            mu_hot_total = mu_hot_hys + mu_hot_ad
-
-            # Flash temp data from μ_visc
+            # Flash temp data from μ_visc (needed for Arrhenius aT at T_hot)
             flash_results = self.mu_visc_results.get('flash_results')
             if flash_results is not None:
                 delta_T_arr = np.array(flash_results.get('delta_T', np.zeros(n_v)))
@@ -20190,63 +20148,41 @@ class PerssonModelGUI_V2:
                 delta_T_arr = np.zeros(n_v)
                 T_hot_arr = np.full(n_v, float(self.ch_T0_var.get()))
 
+            # Hot adhesion = A_A0_hot × tau_f_hot / p0
+            # tau_f_hot: Arrhenius aT로 T_hot에서 재계산한 전단응력
+            # aT'(T_hot) = exp[(ε/kB)×(1/T_hot - 1/T_ref)]
+            # v_eff_hot = v × aT'(T_hot)
+            # tau_f_hot = τ_f0 × exp[-c × (log10(v_eff_hot/v₀*))²]
+            adh_params = self.mu_adh_results['params']
+            tau_f0_val = adh_params['tau_f0']   # Pa
+            v0_star_val = adh_params['v0_star']  # m/s
+            c_val = adh_params['c']
+            epsilon_val = adh_params['epsilon']  # eV
+            T_ref_val = adh_params['T_ref']      # K
+            k_B = 8.6173e-5                       # eV/K
+
+            tau_f_hot = np.zeros(n_v)
+            aT_prime_hot = np.zeros(n_v)
+            for j in range(n_v):
+                T_hot_K = T_hot_arr[j] + 273.15  # °C → K
+                aT_prime_hot[j] = np.exp((epsilon_val / k_B) * (1.0 / T_hot_K - 1.0 / T_ref_val))
+                v_eff_hot_j = v_array[j] * aT_prime_hot[j]
+                log_ratio_j = np.log10(v_eff_hot_j / v0_star_val)
+                tau_f_hot[j] = tau_f0_val * np.exp(-c_val * log_ratio_j**2)
+
+            mu_hot_ad = (A_A0_hot * tau_f_hot) / p0
+            mu_hot_total = mu_hot_hys + mu_hot_ad
+
             self.ch_progress_var.set(60)
             self.root.update()
 
-            # ── Read Brush model parameters ──
+            # ── Read base parameters ──
             T0 = float(self.ch_T0_var.get())
             p0_MPa = float(self.ch_p0_var.get())
             sigma_0 = p0_MPa * 1e6
             D_mm = float(self.ch_D_macro_var.get())
             D_m = D_mm * 1e-3
             s0 = 0.2 * D_m
-
-            # ══════════════════════════════════════════
-            # Brush Model Blending (유일한 연산)
-            # ══════════════════════════════════════════
-            brush_results = None
-            if self.ch_enable_brush_var.get():
-                self.status_var.set("Brush Model 블렌딩 중...")
-                self.root.update()
-
-                v_brush = float(self.ch_brush_v_var.get())
-                s_max_mm = float(self.ch_brush_s_max_var.get())
-                s_max = s_max_mm * 1e-3    # mm → m
-                n_steps = int(self.ch_brush_n_steps_var.get())
-
-                # Build lookup table via interpolation
-                log_v = np.log10(v_array)
-                cold_interp = interp1d(log_v, mu_cold_total, kind='cubic',
-                                        fill_value='extrapolate')
-                hot_interp = interp1d(log_v, mu_hot_total, kind='cubic',
-                                       fill_value='extrapolate')
-
-                # Time/distance arrays
-                s_arr = np.linspace(0, s_max, n_steps)  # slip distance (m)
-                t_arr = s_arr / max(v_brush, 1e-10)     # time (s)
-
-                # Lookup Cold/Hot μ at brush velocity
-                log_v_brush = np.log10(max(v_brush, 1e-30))
-                mu_cold_at_v = float(cold_interp(log_v_brush))
-                mu_hot_at_v = float(hot_interp(log_v_brush))
-
-                # Exponential blending weights
-                W_cold = np.exp(-s_arr / s0)
-                W_hot = 1.0 - np.exp(-s_arr / s0)
-
-                mu_brush = mu_cold_at_v * W_cold + mu_hot_at_v * W_hot
-
-                brush_results = {
-                    'v_brush': v_brush,
-                    's': s_arr,
-                    't': t_arr,
-                    's0': s0,
-                    'W_cold': W_cold,
-                    'W_hot': W_hot,
-                    'mu_cold_at_v': mu_cold_at_v,
-                    'mu_hot_at_v': mu_hot_at_v,
-                    'mu_brush': mu_brush,
-                }
 
             self.ch_progress_var.set(90)
             self.root.update()
@@ -20263,17 +20199,18 @@ class PerssonModelGUI_V2:
                 'mu_cold_ad': mu_cold_ad,
                 'mu_cold_total': mu_cold_total,
                 'A_A0_cold': A_A0_cold,
-                # Hot branch (mu_hot from μ_visc, mu_adh = A_A0_hot × τ_f / p0)
+                # Hot branch (mu_hot from μ_visc, mu_adh = A_A0_hot × τ_f_hot / p0)
                 'mu_hot_hys': mu_hot_hys,
                 'mu_hot_ad': mu_hot_ad,
                 'mu_hot_total': mu_hot_total,
                 'A_A0_hot': A_A0_hot,
+                'tau_f_cold': tau_f,          # Cold 전단응력 (Pa)
+                'tau_f_hot': tau_f_hot,       # Hot 전단응력 - Arrhenius shifted (Pa)
+                'aT_prime_hot': aT_prime_hot, # Hot Arrhenius shift factor
                 'delta_T': delta_T_arr,
                 'T_hot': T_hot_arr,
                 'hot_converged': np.ones(n_v, dtype=bool),
                 'hot_iters': np.zeros(n_v, dtype=int),
-                # Brush model
-                'brush': brush_results,
             }
 
             # ── Update plots ──
@@ -20289,7 +20226,7 @@ class PerssonModelGUI_V2:
             self._show_status(
                 f"Cold & Hot Branch 완료 ({n_v}점)\n"
                 f"데이터 출처: μ_visc + μ_adh 탭 계산 결과\n"
-                f"Hot μ_adh = A/A0_hot × τ_f / p0\n"
+                f"Hot μ_adh = A/A0_hot × τ_f_hot(T_hot) / p0 (Arrhenius aT shifted)\n"
                 f"ΔT 범위: {np.min(delta_T_arr):.1f}~{np.max(delta_T_arr):.1f}°C",
                 'success')
 
@@ -20315,13 +20252,13 @@ class PerssonModelGUI_V2:
 
             # Clear all subplots
             self.ax_ch_hys.clear()
-            self.ax_ch_total.clear()
+            self.ax_ch_adh.clear()
             self.ax_ch_flash.clear()
             # Remove old twin axes
             if hasattr(self, '_ax_ch_flash_twin') and self._ax_ch_flash_twin is not None:
                 self._ax_ch_flash_twin.remove()
                 self._ax_ch_flash_twin = None
-            self.ax_ch_brush.clear()
+            self.ax_ch_total.clear()
 
             def smart_fmt(val):
                 if abs(val) < 0.001 and val != 0:
@@ -20348,34 +20285,25 @@ class PerssonModelGUI_V2:
             self.ax_ch_hys.legend(loc='best', fontsize=7)
             self.ax_ch_hys.grid(True, alpha=0.3)
 
-            # ── Plot 2: μ_total Cold vs Hot ──
-            self.ax_ch_total.semilogx(v, r['mu_cold_total'], 'b-', linewidth=2.5,
-                                       label='μ_total (Cold)')
-            self.ax_ch_total.semilogx(v, r['mu_hot_total'], 'r-', linewidth=2.5,
-                                       label='μ_total (Hot)')
-            # Individual components as dashed
-            self.ax_ch_total.semilogx(v, r['mu_cold_hys'], 'b--', linewidth=1, alpha=0.5,
-                                       label='μ_hys (Cold)')
-            self.ax_ch_total.semilogx(v, r['mu_cold_ad'], 'b:', linewidth=1, alpha=0.5,
-                                       label='μ_ad (Cold)')
-            self.ax_ch_total.semilogx(v, r['mu_hot_hys'], 'r--', linewidth=1, alpha=0.5,
-                                       label='μ_hys (Hot)')
-            self.ax_ch_total.semilogx(v, r['mu_hot_ad'], 'r:', linewidth=1, alpha=0.5,
-                                       label='μ_ad (Hot)')
+            # ── Plot 2: μ_ad Cold vs Hot (Arrhenius aT) ──
+            self.ax_ch_adh.semilogx(v, r['mu_cold_ad'], 'b-', linewidth=2,
+                                     label='μ_ad (Cold)')
+            self.ax_ch_adh.semilogx(v, r['mu_hot_ad'], 'r-', linewidth=2,
+                                     label='μ_ad (Hot, aT shifted)')
             # Mark peaks
-            cold_total_peak = np.argmax(r['mu_cold_total'])
-            hot_total_peak = np.argmax(r['mu_hot_total'])
-            self.ax_ch_total.plot(v[cold_total_peak], r['mu_cold_total'][cold_total_peak],
-                                  'b*', markersize=12,
-                                  label=f'Cold max: {smart_fmt(r["mu_cold_total"][cold_total_peak])}')
-            self.ax_ch_total.plot(v[hot_total_peak], r['mu_hot_total'][hot_total_peak],
-                                  'r*', markersize=12,
-                                  label=f'Hot max: {smart_fmt(r["mu_hot_total"][hot_total_peak])}')
-            self.ax_ch_total.set_title('μ_total: Cold vs Hot (hys+ad)', fontweight='bold', fontsize=10)
-            self.ax_ch_total.set_xlabel('v (m/s)', fontsize=10)
-            self.ax_ch_total.set_ylabel('μ_total', fontsize=10)
-            self.ax_ch_total.legend(loc='best', fontsize=6)
-            self.ax_ch_total.grid(True, alpha=0.3)
+            cold_ad_peak = np.argmax(r['mu_cold_ad'])
+            hot_ad_peak = np.argmax(r['mu_hot_ad'])
+            self.ax_ch_adh.plot(v[cold_ad_peak], r['mu_cold_ad'][cold_ad_peak],
+                                'b*', markersize=12,
+                                label=f'Cold max: {smart_fmt(r["mu_cold_ad"][cold_ad_peak])}')
+            self.ax_ch_adh.plot(v[hot_ad_peak], r['mu_hot_ad'][hot_ad_peak],
+                                'r*', markersize=12,
+                                label=f'Hot max: {smart_fmt(r["mu_hot_ad"][hot_ad_peak])}')
+            self.ax_ch_adh.set_title('μ_ad: Cold vs Hot (Arrhenius aT)', fontweight='bold', fontsize=10)
+            self.ax_ch_adh.set_xlabel('v (m/s)', fontsize=10)
+            self.ax_ch_adh.set_ylabel('μ_ad', fontsize=10)
+            self.ax_ch_adh.legend(loc='best', fontsize=7)
+            self.ax_ch_adh.grid(True, alpha=0.3)
 
             # ── Plot 3: ΔT + A/A0 dual y-axis ──
             line_dT = self.ax_ch_flash.semilogx(v, r['delta_T'], 'r-', linewidth=2,
@@ -20403,40 +20331,34 @@ class PerssonModelGUI_V2:
             self.ax_ch_flash.legend(lines, labels, loc='best', fontsize=7)
             self.ax_ch_flash.grid(True, alpha=0.3)
 
-            # ── Plot 4: Brush Model μ(s) ──
-            brush = r.get('brush')
-            if brush is not None:
-                s_mm = brush['s'] * 1e3  # m → mm
-                s0_mm = brush['s0'] * 1e3
-
-                self.ax_ch_brush.plot(s_mm, brush['mu_brush'], 'k-', linewidth=2.5,
-                                       label='μ_final(s)')
-                self.ax_ch_brush.axhline(y=brush['mu_cold_at_v'], color='b', linestyle='--',
-                                          alpha=0.7, linewidth=1,
-                                          label=f'μ_cold={smart_fmt(brush["mu_cold_at_v"])}')
-                self.ax_ch_brush.axhline(y=brush['mu_hot_at_v'], color='r', linestyle='--',
-                                          alpha=0.7, linewidth=1,
-                                          label=f'μ_hot={smart_fmt(brush["mu_hot_at_v"])}')
-                # Mark s0
-                self.ax_ch_brush.axvline(x=s0_mm, color='gray', linestyle=':', alpha=0.8,
-                                          label=f's₀={s0_mm:.3f} mm')
-                # Show weights at characteristic points
-                self.ax_ch_brush.fill_between(s_mm, brush['mu_brush'],
-                                               brush['mu_hot_at_v'],
-                                               alpha=0.1, color='blue',
-                                               label='Cold 기여')
-                self.ax_ch_brush.set_title(
-                    f'Brush Model (v={brush["v_brush"]:.2f} m/s)',
-                    fontweight='bold', fontsize=10)
-                self.ax_ch_brush.set_xlabel('슬립 거리 s (mm)', fontsize=10)
-                self.ax_ch_brush.set_ylabel('μ', fontsize=10)
-                self.ax_ch_brush.legend(loc='best', fontsize=7)
-            else:
-                self.ax_ch_brush.text(0.5, 0.5, 'Brush Model 비활성',
-                                       ha='center', va='center',
-                                       transform=self.ax_ch_brush.transAxes,
-                                       fontsize=12, color='#94A3B8')
-            self.ax_ch_brush.grid(True, alpha=0.3)
+            # ── Plot 4: μ_total Cold vs Hot ──
+            self.ax_ch_total.semilogx(v, r['mu_cold_total'], 'b-', linewidth=2.5,
+                                       label='μ_total (Cold)')
+            self.ax_ch_total.semilogx(v, r['mu_hot_total'], 'r-', linewidth=2.5,
+                                       label='μ_total (Hot)')
+            # Individual components as dashed
+            self.ax_ch_total.semilogx(v, r['mu_cold_hys'], 'b--', linewidth=1, alpha=0.5,
+                                       label='μ_hys (Cold)')
+            self.ax_ch_total.semilogx(v, r['mu_cold_ad'], 'b:', linewidth=1, alpha=0.5,
+                                       label='μ_ad (Cold)')
+            self.ax_ch_total.semilogx(v, r['mu_hot_hys'], 'r--', linewidth=1, alpha=0.5,
+                                       label='μ_hys (Hot)')
+            self.ax_ch_total.semilogx(v, r['mu_hot_ad'], 'r:', linewidth=1, alpha=0.5,
+                                       label='μ_ad (Hot)')
+            # Mark peaks
+            cold_total_peak = np.argmax(r['mu_cold_total'])
+            hot_total_peak = np.argmax(r['mu_hot_total'])
+            self.ax_ch_total.plot(v[cold_total_peak], r['mu_cold_total'][cold_total_peak],
+                                  'b*', markersize=12,
+                                  label=f'Cold max: {smart_fmt(r["mu_cold_total"][cold_total_peak])}')
+            self.ax_ch_total.plot(v[hot_total_peak], r['mu_hot_total'][hot_total_peak],
+                                  'r*', markersize=12,
+                                  label=f'Hot max: {smart_fmt(r["mu_hot_total"][hot_total_peak])}')
+            self.ax_ch_total.set_title('μ_total: Cold vs Hot (hys+ad)', fontweight='bold', fontsize=10)
+            self.ax_ch_total.set_xlabel('v (m/s)', fontsize=10)
+            self.ax_ch_total.set_ylabel('μ_total', fontsize=10)
+            self.ax_ch_total.legend(loc='best', fontsize=6)
+            self.ax_ch_total.grid(True, alpha=0.3)
 
             self.fig_cold_hot.subplots_adjust(left=0.10, right=0.90, top=0.96, bottom=0.08,
                                                hspace=0.50, wspace=0.40)
@@ -20473,7 +20395,8 @@ class PerssonModelGUI_V2:
         txt.insert(tk.END, f"  Cold μ_hys: μ_visc 탭 계산 결과\n")
         txt.insert(tk.END, f"  Cold μ_adh: μ_adh 탭 계산 결과\n")
         txt.insert(tk.END, f"  Hot μ_hys:  μ_visc 탭 mu_hot (Flash)\n")
-        txt.insert(tk.END, f"  Hot μ_adh:  A/A0_hot × τ_f / p₀\n\n")
+        txt.insert(tk.END, f"  Hot μ_adh:  A/A0_hot × τ_f_hot(T_hot) / p₀\n")
+        txt.insert(tk.END, f"    (Arrhenius aT' shifted at T_hot)\n\n")
 
         txt.insert(tk.END, f"[기본 조건]\n")
         txt.insert(tk.END, f"  T₀={r['T0']:.1f}°C, σ₀={r['sigma_0']/1e6:.3f} MPa\n")
@@ -20495,17 +20418,6 @@ class PerssonModelGUI_V2:
         txt.insert(tk.END, f"  ΔT: {np.min(r['delta_T']):.1f} ~ {np.max(r['delta_T']):.1f}°C\n")
         n_conv = np.sum(r['hot_converged'])
         txt.insert(tk.END, f"  수렴: {n_conv}/{n_v}\n\n")
-
-        # Brush model summary
-        brush = r.get('brush')
-        if brush is not None:
-            txt.insert(tk.END, f"[Brush Model]\n")
-            txt.insert(tk.END, f"  v_brush={brush['v_brush']:.2f} m/s\n")
-            txt.insert(tk.END, f"  μ_cold(v)={smart_fmt(brush['mu_cold_at_v'])}\n")
-            txt.insert(tk.END, f"  μ_hot(v) ={smart_fmt(brush['mu_hot_at_v'])}\n")
-            txt.insert(tk.END, f"  s₀={brush['s0']*1e3:.4f} mm\n")
-            txt.insert(tk.END, f"  μ(0)={smart_fmt(brush['mu_brush'][0])}")
-            txt.insert(tk.END, f" → μ(∞)={smart_fmt(brush['mu_brush'][-1])}\n\n")
 
         # Sample velocity table
         txt.insert(tk.END, f"[속도별 요약]\n")
@@ -20571,52 +20483,6 @@ class PerssonModelGUI_V2:
         except Exception as e:
             messagebox.showerror("오류", f"CSV 저장 실패:\n{str(e)}")
 
-    def _export_brush_csv(self):
-        """Export Brush Model blending results to CSV."""
-        if self.cold_hot_results is None or self.cold_hot_results.get('brush') is None:
-            self._show_status("Brush Model 결과가 없습니다.", 'warning')
-            return
-
-        mc_prefix = self._get_mc_prefix() if hasattr(self, '_get_mc_prefix') else ''
-        default_fn = f"{mc_prefix}_brush_model.csv" if mc_prefix else "brush_model.csv"
-
-        filepath = filedialog.asksaveasfilename(
-            title="Brush Model 데이터 내보내기",
-            defaultextension=".csv",
-            filetypes=[("CSV", "*.csv"), ("텍스트", "*.txt")],
-            initialfile=default_fn
-        )
-        if not filepath:
-            return
-
-        try:
-            from datetime import datetime
-            brush = self.cold_hot_results['brush']
-            r = self.cold_hot_results
-
-            lines = [
-                f"# Brush Model Blending Results",
-                f"# 생성일시,{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-                f"# v_brush (m/s),{brush['v_brush']:.4f}",
-                f"# s0 (mm),{brush['s0']*1e3:.4f}",
-                f"# mu_cold_at_v,{brush['mu_cold_at_v']:.6f}",
-                f"# mu_hot_at_v,{brush['mu_hot_at_v']:.6f}",
-                "#",
-                "s [mm],t [s],W_cold,W_hot,mu_final"
-            ]
-            for i in range(len(brush['s'])):
-                lines.append(
-                    f"{brush['s'][i]*1e3:.6f},{brush['t'][i]:.6e},"
-                    f"{brush['W_cold'][i]:.6f},{brush['W_hot'][i]:.6f},"
-                    f"{brush['mu_brush'][i]:.6f}"
-                )
-
-            with open(filepath, 'w', encoding='utf-8-sig') as f:
-                f.write("\n".join(lines))
-
-            self._show_status(f"Brush Model CSV 저장 완료: {filepath}", 'success')
-        except Exception as e:
-            messagebox.showerror("오류", f"CSV 저장 실패:\n{str(e)}")
 
 
     # ================================================================
