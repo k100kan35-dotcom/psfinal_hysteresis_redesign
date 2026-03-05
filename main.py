@@ -18497,6 +18497,7 @@ class PerssonModelGUI_V2:
             # changes only shift the τ_f curve via the Arrhenius factor aT'.
             need_mu_visc_recalc = False
             mu_visc_temp = None
+            mu_visc_p0 = None
             if (hasattr(self, 'persson_aT_interp') and self.persson_aT_interp is not None
                     and hasattr(self, 'persson_master_curve') and self.persson_master_curve is not None):
                 # Check if temperature differs from what was used for mu_visc
@@ -18508,17 +18509,34 @@ class PerssonModelGUI_V2:
                     except (ValueError, AttributeError):
                         pass
 
+                # Check if pressure differs from what was used for mu_visc
+                if hasattr(self, 'mu_sigma0_var'):
+                    try:
+                        mu_visc_p0 = float(self.mu_sigma0_var.get()) * 1e6  # MPa → Pa
+                    except (ValueError, AttributeError):
+                        pass
+
                 if mu_visc_temp is not None and abs(T_calc_C - mu_visc_temp) > 0.01:
                     need_mu_visc_recalc = True
 
+                if mu_visc_p0 is not None and abs(p0 - mu_visc_p0) / max(p0, 1e-10) > 0.001:
+                    need_mu_visc_recalc = True
+
+            reason_parts = []
+            if mu_visc_temp is not None and abs(T_calc_C - mu_visc_temp) > 0.01:
+                reason_parts.append(f"온도 {mu_visc_temp:.1f}→{T_calc_C:.1f}°C")
+            if mu_visc_p0 is not None and abs(p0 - mu_visc_p0) / max(p0, 1e-10) > 0.001:
+                reason_parts.append(f"하중 {mu_visc_p0/1e6:.4g}→{p0/1e6:.4g} MPa")
+
             if need_mu_visc_recalc:
+                reason_str = ", ".join(reason_parts)
                 if self._adh_fitting_completed:
                     self.status_var.set(
-                        f"온도 변경 ({mu_visc_temp:.1f}→{T_calc_C:.1f}°C): "
-                        f"μ_visc/A/A0 재계산 + 전단응력 곡선 이동 중 (피팅 파라미터 고정)...")
+                        f"변경 감지 ({reason_str}): "
+                        f"μ_visc/A/A0 재계산 중 (피팅 파라미터 고정)...")
                 else:
                     self.status_var.set(
-                        f"계산 온도 변경 감지 ({mu_visc_temp:.1f}→{T_calc_C:.1f}°C): μ_visc/A/A0 재계산 중...")
+                        f"변경 감지 ({reason_str}): μ_visc/A/A0 재계산 중...")
                 self.root.update()
 
                 # Clear stale mu_visc results before recalculation
@@ -18527,9 +18545,11 @@ class PerssonModelGUI_V2:
                 # Sync the temperature to mu_visc tab
                 self.mu_calc_temp_var.set(str(T_calc_C))
 
-                # Sync pressure if needed
-                if p0_str:
-                    self.mu_sigma0_var.set(p0_str.strip() if isinstance(p0_str, str) else f"{float(p0_str):.4f}")
+                # Sync pressure to mu_visc tab
+                p0_MPa_str = f"{p0/1e6:.4g}"
+                self.mu_sigma0_var.set(p0_MPa_str)
+                if hasattr(self, 'sigma_0_var'):
+                    self.sigma_0_var.set(p0_MPa_str)
 
                 # Apply temperature shift (recalculates G(q,v) with shifted master curve)
                 try:
