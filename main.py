@@ -7814,7 +7814,7 @@ class PerssonModelGUI_V2:
                  bold=True, fg='#DC2626', pady=(6, 0))
         add_equation(
             r'$\frac{A}{A_0} = \mathrm{erf}\!\left(\frac{1}{2\sqrt{G}}\right)'
-            r' \quad \longleftarrow \text{ 위의 G를 이 수식에 대입}$',
+            r' \quad \longleftarrow$ 위의 G를 이 수식에 대입',
             fig_height=1.1)
         add_text('  G가 커지면 erf의 인자 1/(2√G)가 작아지고 → erf 값이 0에 가까워짐 → 접촉면적 급감',
                  font_size=17, fg='#64748B')
@@ -8163,7 +8163,7 @@ class PerssonModelGUI_V2:
 
         add_equation(
             r"$\Delta T = \frac{\dot{q} \cdot d}{4\kappa \sqrt{1 + \frac{\pi}{32} J_d + \frac{J_h^2}{4}}}$"
-            r"$\quad (d = \text{직경},\ a = d/2 = \text{반경})$",
+            r"  (d = 직경, a = d/2 = 반경)",
             fig_height=1.3)
 
         add_text('  q̇ = μ × σ₀ × v / P(q_m) : 매크로 접촉면에 집중된 열유속(heat flux) [W/m²]', font_size=17, fg='#64748B')
@@ -8248,7 +8248,7 @@ class PerssonModelGUI_V2:
 
         add_equation(
             r"$\dot{q}(q_i) = \frac{d\mu_i \cdot \sigma_0 \cdot v}{P(q_i)}"
-            r"\qquad \leftarrow \text{A/A}_0\text{ 보정: 실접촉 면적에 열 집중}$",
+            r"\qquad \leftarrow$ A/A₀ 보정: 실접촉 면적에 열 집중",
             fig_height=1.0)
 
         add_equation(
@@ -8262,8 +8262,8 @@ class PerssonModelGUI_V2:
         add_text('  → P(q)가 작을수록 (접촉 면적 ↓) 열유속 ↑ → ΔT ↑', font_size=17, fg='#DC2626')
 
         add_equation(
-            r"$\Delta T(q_i) = \sum_{k=1}^{i} \delta T(q_k) \qquad"
-            r"\text{(순차 누적, }q_0 \to q_1\text{)}$",
+            r"$\Delta T(q_i) = \sum_{k=1}^{i} \delta T(q_k)$"
+            r"  (순차 누적, $q_0 \to q_1$)",
             fig_height=0.9)
 
         add_text('\n  Per-q Sequential Accumulation 순서:', font_size=17, bold=True, fg='#1E293B')
