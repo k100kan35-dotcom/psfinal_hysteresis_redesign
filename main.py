@@ -20632,23 +20632,8 @@ class PerssonModelGUI_V2:
         self.fm_v_npts_var = tk.StringVar(value="100")
         ttk.Entry(row_v, textvariable=self.fm_v_npts_var, width=5).pack(side=tk.LEFT, padx=2)
 
-        # ── 2) 플롯 옵션 ──
-        sec2 = self._create_section(left_panel, "2) 시각화 옵션")
-
-        row_psel = ttk.Frame(sec2); row_psel.pack(fill=tk.X, pady=1)
-        ttk.Label(row_psel, text="3D 맵 고정축 (p₀):", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.fm_plot_p0_var = tk.StringVar(value="0.3")
-        ttk.Entry(row_psel, textvariable=self.fm_plot_p0_var, width=6).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row_psel, text="MPa", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
-
-        row_tsel = ttk.Frame(sec2); row_tsel.pack(fill=tk.X, pady=1)
-        ttk.Label(row_tsel, text="2D 슬라이스 온도:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.fm_plot_T0_var = tk.StringVar(value="20")
-        ttk.Entry(row_tsel, textvariable=self.fm_plot_T0_var, width=6).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row_tsel, text="°C", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
-
-        # ── 3) Progress ──
-        sec3 = self._create_section(left_panel, "3) 진행 상태")
+        # ── 2) Progress ──
+        sec3 = self._create_section(left_panel, "2) 진행 상태")
         self.fm_progress_var = tk.IntVar(value=0)
         self.fm_progress_bar = ttk.Progressbar(sec3, variable=self.fm_progress_var,
                                                 maximum=100, mode='determinate')
@@ -20657,8 +20642,8 @@ class PerssonModelGUI_V2:
                                           foreground='#64748B')
         self.fm_status_label.pack(anchor='w')
 
-        # ── 4) 검증용 데이터 내보내기 ──
-        sec_export = self._create_section(left_panel, "4) μ_visc 탭 검증 데이터")
+        # ── 3) 검증용 데이터 내보내기 ──
+        sec_export = self._create_section(left_panel, "3) μ_visc 탭 검증 데이터")
 
         ttk.Label(sec_export, text="특정 (T, p₀) 조건의 μ(v) 곡선을\nμ_visc 참조편집 데이터로 전송합니다.",
                   font=self.FONTS['small'], foreground='#64748B').pack(anchor='w')
@@ -20699,8 +20684,8 @@ class PerssonModelGUI_V2:
                    command=self._send_friction_map_to_ref,
                    style='Accent.TButton').pack(side=tk.LEFT, padx=2)
 
-        # ── 5) 결과 요약 ──
-        sec4 = self._create_section(left_panel, "5) 결과 요약")
+        # ── 4) 결과 요약 ──
+        sec4 = self._create_section(left_panel, "4) 결과 요약")
         self.fm_result_text = tk.Text(sec4, height=12, font=('Consolas', 9),
                                        wrap=tk.WORD, state=tk.DISABLED)
         self.fm_result_text.pack(fill=tk.BOTH, expand=True, pady=2)
@@ -21134,10 +21119,9 @@ class PerssonModelGUI_V2:
             self._show_status(f"Friction Map 생성 실패:\n{str(e)}", 'error')
 
     def _plot_friction_map(self):
-        """Plot 3D friction map with interpolated surfaces and 2D slices."""
+        """Plot 3D friction map surfaces for all pressures (Cold & Hot)."""
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-        from scipy.interpolate import RegularGridInterpolator
         import matplotlib.cm as cm
 
         r = self.friction_map_results
@@ -21148,20 +21132,7 @@ class PerssonModelGUI_V2:
         p0_arr = r['p0_array_MPa']
         v_arr = r['v_array']
         log_v = np.log10(v_arr)
-
-        # Find nearest pressure index for 3D surface
-        try:
-            p0_sel = float(self.fm_plot_p0_var.get())
-        except ValueError:
-            p0_sel = p0_arr[len(p0_arr) // 2]
-        i_p_sel = int(np.argmin(np.abs(p0_arr - p0_sel)))
-
-        # Find nearest temperature for 2D slice
-        try:
-            T0_sel = float(self.fm_plot_T0_var.get())
-        except ValueError:
-            T0_sel = 20.0
-        i_T_sel = int(np.argmin(np.abs(T_arr - T0_sel)))
+        n_p = len(p0_arr)
 
         # Clear previous plot
         right_frame = self.friction_map_right
@@ -21170,88 +21141,99 @@ class PerssonModelGUI_V2:
         for w in right_frame.winfo_children():
             w.destroy()
 
-        fig = Figure(figsize=(14, 10), dpi=100)
+        # Layout: 2 columns (Cold | Hot) × n_p rows (one per pressure)
+        n_rows = max(n_p, 1)
+        fig = Figure(figsize=(14, max(4.5 * n_rows, 6)), dpi=100)
 
-        # ── Subplot 1: Cold μ_total surface (T vs log_v) at selected p0 ──
-        ax1 = fig.add_subplot(2, 2, 1, projection='3d')
         T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
-        Z_cold = r['LUT_cold'][:, i_p_sel, :]
 
-        # Interpolate for smoother surface
-        if len(T_arr) >= 2 and len(v_arr) >= 2:
+        # Prepare fine grid for smooth interpolation
+        use_fine = len(T_arr) >= 2 and len(v_arr) >= 2
+        if use_fine:
             from scipy.interpolate import RectBivariateSpline
-            try:
-                T_fine = np.linspace(T_arr[0], T_arr[-1], 50)
-                log_v_fine = np.linspace(log_v[0], log_v[-1], 100)
-                spline_cold = RectBivariateSpline(T_arr, log_v, Z_cold)
-                Z_cold_fine = spline_cold(T_fine, log_v_fine)
-                T_mesh_f, V_mesh_f = np.meshgrid(T_fine, log_v_fine, indexing='ij')
-                surf1 = ax1.plot_surface(T_mesh_f, V_mesh_f, Z_cold_fine,
-                                         cmap='viridis', alpha=0.85, linewidth=0,
-                                         antialiased=True)
-            except Exception:
-                surf1 = ax1.plot_surface(T_mesh, V_mesh, Z_cold,
-                                         cmap='viridis', alpha=0.85)
-        else:
-            surf1 = ax1.plot_surface(T_mesh, V_mesh, Z_cold,
-                                     cmap='viridis', alpha=0.85)
-        ax1.set_xlabel('T₀ (°C)', fontsize=9)
-        ax1.set_ylabel('log₁₀(v) [m/s]', fontsize=9)
-        ax1.set_zlabel('μ_cold', fontsize=9)
-        ax1.set_title(f'Cold μ_total (p₀={p0_arr[i_p_sel]:.2f} MPa)', fontsize=10)
-        fig.colorbar(surf1, ax=ax1, shrink=0.5, pad=0.08)
+            T_fine = np.linspace(T_arr[0], T_arr[-1], 50)
+            log_v_fine = np.linspace(log_v[0], log_v[-1], 100)
+            T_mesh_f, V_mesh_f = np.meshgrid(T_fine, log_v_fine, indexing='ij')
 
-        # ── Subplot 2: Hot μ_total surface (T vs log_v) at selected p0 ──
-        ax2 = fig.add_subplot(2, 2, 2, projection='3d')
-        Z_hot = r['LUT_hot'][:, i_p_sel, :]
-
-        if len(T_arr) >= 2 and len(v_arr) >= 2:
-            try:
-                spline_hot = RectBivariateSpline(T_arr, log_v, Z_hot)
-                Z_hot_fine = spline_hot(T_fine, log_v_fine)
-                surf2 = ax2.plot_surface(T_mesh_f, V_mesh_f, Z_hot_fine,
-                                         cmap='inferno', alpha=0.85, linewidth=0,
-                                         antialiased=True)
-            except Exception:
-                surf2 = ax2.plot_surface(T_mesh, V_mesh, Z_hot,
-                                         cmap='inferno', alpha=0.85)
-        else:
-            surf2 = ax2.plot_surface(T_mesh, V_mesh, Z_hot,
-                                     cmap='inferno', alpha=0.85)
-        ax2.set_xlabel('T₀ (°C)', fontsize=9)
-        ax2.set_ylabel('log₁₀(v) [m/s]', fontsize=9)
-        ax2.set_zlabel('μ_hot', fontsize=9)
-        ax2.set_title(f'Hot μ_total (p₀={p0_arr[i_p_sel]:.2f} MPa)', fontsize=10)
-        fig.colorbar(surf2, ax=ax2, shrink=0.5, pad=0.08)
-
-        # ── Subplot 3: 2D slice at selected T0 — μ vs v for each p0 (Cold) ──
-        ax3 = fig.add_subplot(2, 2, 3)
-        colors_p = cm.get_cmap('tab10', len(p0_arr))
         for i_p, p0 in enumerate(p0_arr):
-            ax3.semilogx(v_arr, r['LUT_cold'][i_T_sel, i_p, :],
-                         '-', color=colors_p(i_p), label=f'{p0:.2f} MPa', linewidth=1.5)
-        ax3.set_xlabel('v (m/s)')
-        ax3.set_ylabel('μ_cold')
-        ax3.set_title(f'Cold μ_total @ T₀={T_arr[i_T_sel]:.0f}°C (pressure sweep)', fontsize=10)
-        ax3.legend(fontsize=7, ncol=2, loc='upper right')
-        ax3.grid(True, alpha=0.3)
+            # ── Cold surface ──
+            ax_cold = fig.add_subplot(n_rows, 2, i_p * 2 + 1, projection='3d')
+            Z_cold = r['LUT_cold'][:, i_p, :]
 
-        # ── Subplot 4: 2D slice at selected T0 — μ vs v for each p0 (Hot) ──
-        ax4 = fig.add_subplot(2, 2, 4)
-        for i_p, p0 in enumerate(p0_arr):
-            ax4.semilogx(v_arr, r['LUT_hot'][i_T_sel, i_p, :],
-                         '-', color=colors_p(i_p), label=f'{p0:.2f} MPa', linewidth=1.5)
-        ax4.set_xlabel('v (m/s)')
-        ax4.set_ylabel('μ_hot')
-        ax4.set_title(f'Hot μ_total @ T₀={T_arr[i_T_sel]:.0f}°C (pressure sweep)', fontsize=10)
-        ax4.legend(fontsize=7, ncol=2, loc='upper right')
-        ax4.grid(True, alpha=0.3)
+            if use_fine:
+                try:
+                    sp_c = RectBivariateSpline(T_arr, log_v, Z_cold)
+                    Z_c_f = sp_c(T_fine, log_v_fine)
+                    surf_c = ax_cold.plot_surface(T_mesh_f, V_mesh_f, Z_c_f,
+                                                  cmap='viridis', alpha=0.85,
+                                                  linewidth=0, antialiased=True)
+                except Exception:
+                    surf_c = ax_cold.plot_surface(T_mesh, V_mesh, Z_cold,
+                                                  cmap='viridis', alpha=0.85)
+            else:
+                surf_c = ax_cold.plot_surface(T_mesh, V_mesh, Z_cold,
+                                              cmap='viridis', alpha=0.85)
+            ax_cold.set_xlabel('T₀ (°C)', fontsize=8)
+            ax_cold.set_ylabel('log₁₀(v)', fontsize=8)
+            ax_cold.set_zlabel('μ', fontsize=8)
+            ax_cold.set_title(f'Cold μ_total  p₀={p0:.3g} MPa', fontsize=9, fontweight='bold')
+            fig.colorbar(surf_c, ax=ax_cold, shrink=0.45, pad=0.08)
+
+            # ── Hot surface ──
+            ax_hot = fig.add_subplot(n_rows, 2, i_p * 2 + 2, projection='3d')
+            Z_hot = r['LUT_hot'][:, i_p, :]
+
+            if use_fine:
+                try:
+                    sp_h = RectBivariateSpline(T_arr, log_v, Z_hot)
+                    Z_h_f = sp_h(T_fine, log_v_fine)
+                    surf_h = ax_hot.plot_surface(T_mesh_f, V_mesh_f, Z_h_f,
+                                                 cmap='inferno', alpha=0.85,
+                                                 linewidth=0, antialiased=True)
+                except Exception:
+                    surf_h = ax_hot.plot_surface(T_mesh, V_mesh, Z_hot,
+                                                 cmap='inferno', alpha=0.85)
+            else:
+                surf_h = ax_hot.plot_surface(T_mesh, V_mesh, Z_hot,
+                                             cmap='inferno', alpha=0.85)
+            ax_hot.set_xlabel('T₀ (°C)', fontsize=8)
+            ax_hot.set_ylabel('log₁₀(v)', fontsize=8)
+            ax_hot.set_zlabel('μ', fontsize=8)
+            ax_hot.set_title(f'Hot μ_total  p₀={p0:.3g} MPa', fontsize=9, fontweight='bold')
+            fig.colorbar(surf_h, ax=ax_hot, shrink=0.45, pad=0.08)
 
         fig.tight_layout(pad=2.0)
 
-        canvas = FigureCanvasTkAgg(fig, master=right_frame)
+        # Scrollable canvas for many pressures
+        import tkinter as tk_local
+        scroll_canvas = tk_local.Canvas(right_frame, highlightthickness=0)
+        scrollbar = tk_local.Scrollbar(right_frame, orient=tk_local.VERTICAL,
+                                        command=scroll_canvas.yview)
+        scroll_canvas.configure(yscrollcommand=scrollbar.set)
+        scrollbar.pack(side=tk_local.RIGHT, fill=tk_local.Y)
+        scroll_canvas.pack(fill=tk_local.BOTH, expand=True)
+
+        inner_frame = tk_local.Frame(scroll_canvas)
+        scroll_canvas.create_window((0, 0), window=inner_frame, anchor='nw')
+
+        canvas = FigureCanvasTkAgg(fig, master=inner_frame)
         canvas.draw()
-        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        canvas.get_tk_widget().pack(fill=tk_local.BOTH, expand=True)
+
+        def _on_inner_configure(event=None):
+            scroll_canvas.configure(scrollregion=scroll_canvas.bbox("all"))
+        inner_frame.bind('<Configure>', _on_inner_configure)
+
+        # Mouse wheel scroll
+        def _on_mousewheel(event):
+            scroll_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        def _on_button4(event):
+            scroll_canvas.yview_scroll(-3, "units")
+        def _on_button5(event):
+            scroll_canvas.yview_scroll(3, "units")
+        scroll_canvas.bind('<MouseWheel>', _on_mousewheel)
+        scroll_canvas.bind('<Button-4>', _on_button4)
+        scroll_canvas.bind('<Button-5>', _on_button5)
 
         # Store for later use
         self._fm_fig = fig
