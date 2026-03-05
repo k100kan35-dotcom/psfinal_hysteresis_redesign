@@ -11699,6 +11699,16 @@ class PerssonModelGUI_V2:
             self._show_status("먼저 G(q,v) 계산을 실행하세요 (탭 3).", 'warning')
             return
 
+        # ── σ₀ 동기화: mu_sigma0_var → sigma_0_var (G 재계산 전에 수행) ──
+        # G(q) ∝ 1/σ₀² 이므로 σ₀ 변경 시 G 재계산에 반영되어야 함
+        if hasattr(self, 'mu_sigma0_var'):
+            mu_s0_str = self.mu_sigma0_var.get().strip()
+            if mu_s0_str:
+                try:
+                    self.sigma_0_var.set(mu_s0_str)
+                except Exception:
+                    pass
+
         # 자동 온도 시프트 & G 재계산 (aT 데이터가 있을 때)
         if hasattr(self, 'persson_aT_interp') and self.persson_aT_interp is not None:
             if hasattr(self, 'persson_master_curve') and self.persson_master_curve is not None:
@@ -11952,7 +11962,8 @@ class PerssonModelGUI_V2:
                 mu_s0_str = self.mu_sigma0_var.get().strip()
                 if mu_s0_str:
                     try:
-                        self.sigma_0_var.set(mu_s0_str)
+                        # sigma_0_var 동기화는 G 재계산 전에 이미 수행됨
+                        # 여기서는 로컬 sigma_0만 갱신 (FrictionCalculator용)
                         sigma_0 = float(mu_s0_str) * 1e6
                     except Exception:
                         pass
@@ -20740,6 +20751,7 @@ class PerssonModelGUI_V2:
             n_v = len(v_array)
             total_cells = n_T * n_p
             print(f"[FrictionMap] Grid: {n_T} temps × {n_p} pressures × {n_v} velocities = {n_T*n_p*n_v} cells")
+            print(f"[FrictionMap] 속도 최적화: n_q={FM_N_Q}, n_phi={FM_N_PHI} (원본 q={len(q_full)}pts)")
 
             # ── Allocate LUT arrays ──
             LUT_cold = np.zeros((n_T, n_p, n_v))
@@ -20758,14 +20770,22 @@ class PerssonModelGUI_V2:
             from scipy.special import erf as erf_fm
 
             results_2d = self.results['2d_results']
-            q = results_2d['q']
+            q_full = results_2d['q']
+
+            # ── 마찰맵 전용 속도 최적화: 파수/적분 포인트 축소 ──
+            FM_N_Q = 9       # 파수 포인트 수 (원본 대비 축소)
+            FM_N_PHI = 9     # G & μ 파이적분 포인트 수 (원본 대비 축소)
+            FM_DELNN = 0.1   # Flash 적분 스텝 (원본 대비 확대)
+
+            # q 배열을 FM_N_Q 포인트로 리샘플링
+            q = np.logspace(np.log10(q_full[0]), np.log10(q_full[-1]), FM_N_Q)
             n_q = len(q)
             C_q = self.psd_model(q)
 
             # Read mu_visc tab settings
             poisson = float(self.poisson_var.get())
             gamma = float(self.gamma_var.get())
-            n_phi = int(self.n_phi_var.get())
+            n_phi = FM_N_PHI  # 마찰맵 전용 축소 포인트
             use_fg = self.use_fg_correction_var.get()
 
             sq_method = getattr(self, 'sq_method_var', None)
@@ -21172,6 +21192,7 @@ class PerssonModelGUI_V2:
             ax_cold.set_ylabel('log₁₀(v)', fontsize=8)
             ax_cold.set_zlabel('μ', fontsize=8)
             ax_cold.set_title(f'Cold μ_total  p₀={p0:.3g} MPa', fontsize=9, fontweight='bold')
+            ax_cold.view_init(elev=25, azim=225)
             fig.colorbar(surf_c, ax=ax_cold, shrink=0.45, pad=0.08)
 
             # ── Hot surface ──
@@ -21195,6 +21216,7 @@ class PerssonModelGUI_V2:
             ax_hot.set_ylabel('log₁₀(v)', fontsize=8)
             ax_hot.set_zlabel('μ', fontsize=8)
             ax_hot.set_title(f'Hot μ_total  p₀={p0:.3g} MPa', fontsize=9, fontweight='bold')
+            ax_hot.view_init(elev=25, azim=225)
             fig.colorbar(surf_h, ax=ax_hot, shrink=0.45, pad=0.08)
 
         fig.tight_layout(pad=2.0)
