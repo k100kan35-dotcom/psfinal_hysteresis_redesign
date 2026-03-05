@@ -21307,7 +21307,10 @@ class PerssonModelGUI_V2:
 
         # Layout: 2 rows (Cold top | Hot bottom) x n_p columns (one per pressure)
         n_cols = max(n_p, 1)
-        fig = Figure(dpi=80)
+        # Use subplots_adjust (tight_layout breaks with 3D projections)
+        fig = Figure(figsize=(max(4 * n_cols, 10), 8), dpi=80)
+        fig.subplots_adjust(left=0.03, right=0.97, top=0.93, bottom=0.05,
+                            wspace=0.3, hspace=0.28)
 
         T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
 
@@ -21360,7 +21363,6 @@ class PerssonModelGUI_V2:
             ax_cold.invert_yaxis()
             ax_cold.view_init(elev=25, azim=225)
             ax_cold.tick_params(labelsize=7)
-            fig.colorbar(surf_c, ax=ax_cold, shrink=0.45, pad=0.08)
 
             # ── Hot surface (row 2) ──
             ax_hot = fig.add_subplot(2, n_cols, n_cols + i_p + 1, projection='3d')
@@ -21394,9 +21396,6 @@ class PerssonModelGUI_V2:
             ax_hot.invert_yaxis()
             ax_hot.view_init(elev=25, azim=225)
             ax_hot.tick_params(labelsize=7)
-            fig.colorbar(surf_h, ax=ax_hot, shrink=0.45, pad=0.08)
-
-        fig.tight_layout(pad=1.5, h_pad=2.0, w_pad=1.0)
 
         # ── Top toolbar with Reset button ──
         import tkinter as tk_local
@@ -21414,19 +21413,21 @@ class PerssonModelGUI_V2:
                                     command=_reset_fm_view, width=12)
         reset_btn.pack(side=tk_local.LEFT, padx=4, pady=2)
 
-        # No-scroll canvas: figure fills the available space
+        # Canvas fills available space; resize figure to match window
         canvas = FigureCanvasTkAgg(fig, master=right_frame)
         canvas.draw()
         canvas_widget = canvas.get_tk_widget()
         canvas_widget.pack(fill=tk_local.BOTH, expand=True)
 
-        # Dynamically resize figure to fit window
         def _on_resize(event):
             w_px = event.width
             h_px = event.height
+            if w_px < 50 or h_px < 50:
+                return
             dpi = fig.get_dpi()
             fig.set_size_inches(w_px / dpi, h_px / dpi, forward=True)
-            fig.tight_layout(pad=1.5, h_pad=2.0, w_pad=1.0)
+            fig.subplots_adjust(left=0.03, right=0.97, top=0.93, bottom=0.05,
+                                wspace=0.3, hspace=0.28)
             canvas.draw_idle()
         canvas_widget.bind('<Configure>', _on_resize)
 
