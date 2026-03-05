@@ -21909,11 +21909,20 @@ class PerssonModelGUI_V2:
             n_cols_eff = n_cols
             n_grid_rows = n_rows
 
-        fig_w = max(4.5 * n_cols_eff, 10)
-        fig_h = max(4.5 * n_grid_rows, 5)
-        fig = Figure(figsize=(fig_w, fig_h), dpi=80)
-        fig.subplots_adjust(left=0.03, right=0.97, top=0.94, bottom=0.04,
-                            wspace=0.28, hspace=0.32)
+        # Compute figure size to fill available space
+        right_frame.update_idletasks()
+        avail_w = right_frame.winfo_width()
+        avail_h = right_frame.winfo_height() - 40  # subtract toolbar height
+        if avail_w < 200:
+            avail_w = 900
+        if avail_h < 200:
+            avail_h = 700
+        fig_dpi = 100
+        fig_w = avail_w / fig_dpi
+        fig_h = avail_h / fig_dpi
+        fig = Figure(figsize=(fig_w, fig_h), dpi=fig_dpi)
+        fig.subplots_adjust(left=0.02, right=0.98, top=0.94, bottom=0.04,
+                            wspace=0.22, hspace=0.28)
 
         T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
 
@@ -21953,15 +21962,15 @@ class PerssonModelGUI_V2:
                                 cmap=cmap_name, alpha=0.85,
                                 rasterized=True, vmin=z_lo, vmax=z_hi)
             ax.set_zlim(z_lo, z_hi)
-            ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=8)
-            ax.set_ylabel(r'$\log_{10}(v)$', fontsize=8)
-            ax.set_zlabel(z_label, fontsize=8)
+            ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=11, labelpad=6)
+            ax.set_ylabel(r'$\log_{10}(v)$', fontsize=11, labelpad=6)
+            ax.set_zlabel(z_label, fontsize=11, labelpad=6)
             ax.set_title(f'{label}  $p_0$={p0:.3g} MPa\n'
                          f'{z_label}: {Z.min():.4f} ~ {Z.max():.4f}',
-                         fontsize=8, fontweight='bold')
+                         fontsize=11, fontweight='bold')
             ax.invert_yaxis()
             ax.view_init(elev=25, azim=225)
-            ax.tick_params(labelsize=7)
+            ax.tick_params(labelsize=9)
 
         for i_p, p0 in enumerate(p0_arr):
             group_idx = i_p // MAX_COLS
@@ -21982,62 +21991,12 @@ class PerssonModelGUI_V2:
                 Z_hot = all_hot[i_p]
                 _plot_surface(ax_hot, Z_hot, 'inferno', 'Hot', p0, z_min_hot, z_max_hot)
 
-        # Scrollable canvas for the matplotlib figure
-        scroll_frame = tk.Frame(right_frame)
-        scroll_frame.pack(fill=tk.BOTH, expand=True)
-
-        v_scrollbar = ttk.Scrollbar(scroll_frame, orient=tk.VERTICAL)
-        h_scrollbar = ttk.Scrollbar(scroll_frame, orient=tk.HORIZONTAL)
-        plot_canvas = tk.Canvas(scroll_frame,
-                                yscrollcommand=v_scrollbar.set,
-                                xscrollcommand=h_scrollbar.set)
-
-        v_scrollbar.config(command=plot_canvas.yview)
-        h_scrollbar.config(command=plot_canvas.xview)
-        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        h_scrollbar.pack(side=tk.BOTTOM, fill=tk.X)
-        plot_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # Embed matplotlib figure into inner frame
-        inner_frame = tk.Frame(plot_canvas)
-        canvas = FigureCanvasTkAgg(fig, master=inner_frame)
+        # Embed matplotlib figure directly (fills available space)
+        canvas = FigureCanvasTkAgg(fig, master=right_frame)
         canvas.draw()
         canvas_widget = canvas.get_tk_widget()
         canvas_widget.pack(fill=tk.BOTH, expand=True)
-
-        # Set the canvas widget size to match the figure
-        dpi = fig.get_dpi()
-        fig_w_px = int(fig_w * dpi)
-        fig_h_px = int(fig_h * dpi)
-        canvas_widget.config(width=fig_w_px, height=fig_h_px)
-
-        plot_canvas.create_window((0, 0), window=inner_frame, anchor='nw')
-
-        def _update_scrollregion(event=None):
-            plot_canvas.configure(scrollregion=plot_canvas.bbox('all'))
-        inner_frame.bind('<Configure>', _update_scrollregion)
-
-        # Mousewheel scrolling for the plot canvas
-        def _on_mousewheel(event):
-            if event.delta:
-                plot_canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
-            elif event.num == 4:
-                plot_canvas.yview_scroll(-1, 'units')
-            elif event.num == 5:
-                plot_canvas.yview_scroll(1, 'units')
-
-        def _bind_mw(event):
-            plot_canvas.bind_all('<MouseWheel>', _on_mousewheel)
-            plot_canvas.bind_all('<Button-4>', _on_mousewheel)
-            plot_canvas.bind_all('<Button-5>', _on_mousewheel)
-
-        def _unbind_mw(event):
-            plot_canvas.unbind_all('<MouseWheel>')
-            plot_canvas.unbind_all('<Button-4>')
-            plot_canvas.unbind_all('<Button-5>')
-
-        plot_canvas.bind('<Enter>', _bind_mw)
-        plot_canvas.bind('<Leave>', _unbind_mw)
+        self._fm_canvas = canvas
 
         # Store for later use
         self._fm_fig = fig
