@@ -20707,6 +20707,7 @@ class PerssonModelGUI_V2:
         # Tab 1: 3D Map (기존 마찰맵 표면)
         self.friction_map_right = ttk.Frame(self.fm_right_notebook)
         self.fm_right_notebook.add(self.friction_map_right, text='  3D Map  ')
+        self._create_fm_3d_toolbar(self.friction_map_right)
 
         # Tab 2: 2D Graph (선택 가능한 데이터 플롯)
         fm_graph_tab = ttk.Frame(self.fm_right_notebook)
@@ -20821,6 +20822,32 @@ class PerssonModelGUI_V2:
         self.fm_result_text = tk.Text(sec4, height=12, font=('Consolas', 9),
                                        wrap=tk.WORD, state=tk.DISABLED)
         self.fm_result_text.pack(fill=tk.BOTH, expand=True, pady=2)
+
+    def _create_fm_3d_toolbar(self, parent):
+        """Create the data-selection toolbar for the 3D Map tab (at init time)."""
+        toolbar = ttk.Frame(parent)
+        toolbar.pack(side=tk.TOP, fill=tk.X, padx=2, pady=2)
+        self._fm_3d_toolbar = toolbar
+
+        ttk.Label(toolbar, text="데이터:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 4))
+        self._fm_3d_data_var = tk.StringVar(value="mu_total")
+        for label, val in [("mu_total", "mu_total"), ("mu_hys", "mu_visc"),
+                           ("mu_adh", "mu_adh"), ("F_total", "F_total"),
+                           ("F_hys", "F_visc"), ("F_adh", "F_adh"),
+                           ("A/A0", "A_A0"), ("tau_s", "tau_f")]:
+            ttk.Radiobutton(toolbar, text=label,
+                            variable=self._fm_3d_data_var, value=val,
+                            command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+
+        def _reset_fm_view():
+            for ax in getattr(self, '_fm_3d_axes', []):
+                ax.view_init(elev=25, azim=225)
+                ax.invert_yaxis()
+            if hasattr(self, '_fm_canvas'):
+                self._fm_canvas.draw_idle()
+
+        tk.Button(toolbar, text="View Reset",
+                  command=_reset_fm_view, width=10).pack(side=tk.RIGHT, padx=4)
 
     def _create_fm_graph_tab(self, parent):
         """Create the 2D graph tab inside Friction Map right panel."""
@@ -21800,39 +21827,8 @@ class PerssonModelGUI_V2:
         if right_frame is None:
             return
 
-        # Clear previous plot
-        for w in right_frame.winfo_children():
-            w.destroy()
-
-        # ── Top toolbar: data selection radio + View Reset ──
-        import tkinter as tk_local
-        toolbar_frame = tk_local.Frame(right_frame)
-        toolbar_frame.pack(side=tk_local.TOP, fill=tk_local.X, padx=2, pady=2)
-
-        if not hasattr(self, '_fm_3d_data_var'):
-            self._fm_3d_data_var = tk.StringVar(value="mu_total")
-
-        tk_local.Label(toolbar_frame, text="데이터:").pack(side=tk_local.LEFT, padx=(2, 4))
-        for label, val in [("mu_total", "mu_total"), ("mu_hys", "mu_visc"),
-                           ("mu_adh", "mu_adh"), ("F_total", "F_total"),
-                           ("F_hys", "F_visc"), ("F_adh", "F_adh"),
-                           ("A/A0", "A_A0"), ("tau_s", "tau_f")]:
-            ttk.Radiobutton(toolbar_frame, text=label,
-                            variable=self._fm_3d_data_var, value=val,
-                            command=self._replot_friction_map_3d).pack(side=tk_local.LEFT, padx=1)
-
-        def _reset_fm_view():
-            for ax in getattr(self, '_fm_3d_axes', []):
-                ax.view_init(elev=25, azim=225)
-                ax.invert_yaxis()
-            if hasattr(self, '_fm_canvas'):
-                self._fm_canvas.draw_idle()
-
-        tk_local.Button(toolbar_frame, text="View Reset",
-                        command=_reset_fm_view, width=10).pack(side=tk_local.RIGHT, padx=4)
-
-        # Store reference to scroll area for replot
-        self._fm_3d_scroll_parent = right_frame
+        # Reset data var to default
+        self._fm_3d_data_var.set("mu_total")
         self._replot_friction_map_3d()
 
     def _replot_friction_map_3d(self):
@@ -21844,8 +21840,8 @@ class PerssonModelGUI_V2:
         if r is None:
             return
 
-        right_frame = self._fm_3d_scroll_parent
-        # Destroy only the scroll area (preserve toolbar = first child)
+        right_frame = self.friction_map_right
+        # Destroy only the plot area (preserve toolbar = first child)
         children = right_frame.winfo_children()
         for w in children[1:]:
             w.destroy()
