@@ -21535,28 +21535,21 @@ class PerssonModelGUI_V2:
             lines.append(f"    mu_hot:   [{hot_slice.min():.4f}, {hot_slice.max():.4f}]")
             lines.append("")
 
-        # A/A0 linearity check: in Persson's theory A/A0 ∝ p0 at low loads
+        # Per-pressure A/A0 및 mu 성분 상세 비교
         if len(p0_arr) >= 2:
-            lines.append("── A/A0 하중 비례 검증 (Persson 선형 영역 확인) ──")
-            lines.append("  Persson 이론: A/A0 ∝ p0 (저하중 선형 영역)")
-            lines.append("  → mu_adh = τ_f/p0 × A/A0 ≈ 일정 (하중 무관)")
-            lines.append("")
-            # Pick middle T index for comparison
+            lines.append("── 하중별 A/A0, μ_adh, μ_visc 상세 비교 ──")
             i_T_mid = len(T_arr) // 2
-            lines.append(f"  T0={T_arr[i_T_mid]:.0f}°C 기준 (중간 속도):")
             i_v_mid = len(v_arr) // 2
+            lines.append(f"  T0={T_arr[i_T_mid]:.0f}°C, v={v_arr[i_v_mid]:.2e} m/s 기준:")
+            lines.append(f"  {'p0(MPa)':>10} {'A/A0':>12} {'μ_adh':>12} {'μ_visc':>12} {'μ_total':>12}")
             for i_p, p0 in enumerate(p0_arr):
                 aa0_val = r['LUT_A_A0_cold'][i_T_mid, i_p, i_v_mid]
-                ratio = aa0_val / (p0 * 1e6) if p0 > 0 else 0
                 mu_adh_val = r['LUT_mu_adh_cold'][i_T_mid, i_p, i_v_mid]
                 mu_visc_val = r['LUT_mu_visc_cold'][i_T_mid, i_p, i_v_mid]
+                mu_total_val = r['LUT_cold'][i_T_mid, i_p, i_v_mid]
                 lines.append(
-                    f"    p0={p0:.3g} MPa: A/A0={aa0_val:.6f}, "
-                    f"A/A0÷p0={ratio:.6e}, "
-                    f"μ_adh={mu_adh_val:.6f}, μ_visc={mu_visc_val:.6f}")
-            lines.append("")
-            lines.append("  ※ A/A0÷p0 값이 일정하면 → 선형 영역 (Amontons 법칙 성립)")
-            lines.append("  ※ 고하중에서 A/A0÷p0 감소 → 비선형 영역 (포화 시작)")
+                    f"  {p0:>10.3g} {aa0_val:>12.6f} {mu_adh_val:>12.6f} "
+                    f"{mu_visc_val:>12.6f} {mu_total_val:>12.6f}")
             lines.append("")
 
         lines.append(f"계산 시간: {elapsed:.1f}s")
