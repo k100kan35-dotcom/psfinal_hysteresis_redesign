@@ -629,6 +629,8 @@ class PerssonModelGUI_V2:
         menubar.add_cascade(label="  Settings  ", menu=settings_menu)
         settings_menu.add_command(label="  레이아웃 설정...", command=self._open_layout_settings)
         settings_menu.add_command(label="  초기변수 설정...", command=self._open_initial_var_settings)
+        settings_menu.add_separator()
+        settings_menu.add_command(label="  탭 표시/숨기기...", command=self._open_tab_visibility_settings)
 
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0, **menu_cfg)
@@ -700,11 +702,22 @@ class PerssonModelGUI_V2:
             ('tab_friction_factors','영향 인자',           self._create_friction_factors_tab),
         ]
 
+        # 기본 숨김 탭 목록
+        default_hidden = {'tab_ve_advisor', 'tab_integrand', 'tab_debug', 'tab_friction_factors'}
+
+        self._all_tabs = []  # (attr, label, frame) for visibility management
+        self._tab_visible_vars = {}  # attr → BooleanVar
+
         for attr, label, builder in tabs:
             frame = ttk.Frame(self.notebook)
             setattr(self, attr, frame)
             self.notebook.add(frame, text=f'  {label}  ')
             builder(frame)
+            self._all_tabs.append((attr, label, frame))
+            visible = attr not in default_hidden
+            self._tab_visible_vars[attr] = tk.BooleanVar(value=visible)
+            if not visible:
+                self.notebook.hide(frame)
 
         # ── Handle tab switch: prevent graph resize flicker ──
         # pack_propagate(False) → notebook size is driven by the parent
@@ -6913,6 +6926,68 @@ class PerssonModelGUI_V2:
                 self._apply_panel_width_recursive(child, new_width)
         except (tk.TclError, AttributeError):
             pass
+
+    def _open_tab_visibility_settings(self):
+        """Open dialog to show/hide tabs."""
+        dialog = tk.Toplevel(self.root)
+        dialog.title("탭 표시/숨기기")
+        dialog.resizable(False, False)
+        dialog.transient(self.root)
+        dialog.grab_set()
+
+        dlg_w, dlg_h = 350, 500
+        x = self.root.winfo_x() + (self.root.winfo_width() - dlg_w) // 2
+        y = self.root.winfo_y() + max(0, (self.root.winfo_height() - dlg_h) // 2)
+        dialog.geometry(f"{dlg_w}x{dlg_h}+{x}+{y}")
+
+        C = self.COLORS
+
+        title_frame = tk.Frame(dialog, bg=C['sidebar'], padx=12, pady=8)
+        title_frame.pack(fill=tk.X)
+        tk.Label(title_frame, text="탭 표시/숨기기 설정", bg=C['sidebar'], fg='white',
+                 font=self.FONTS['subheading']).pack(anchor=tk.W)
+        tk.Label(title_frame, text="체크 해제한 탭은 숨겨집니다.", bg=C['sidebar'], fg='#94A3B8',
+                 font=self.FONTS['small']).pack(anchor=tk.W)
+
+        content = ttk.Frame(dialog, padding=10)
+        content.pack(fill=tk.BOTH, expand=True)
+
+        for attr, label, _frame in self._all_tabs:
+            var = self._tab_visible_vars[attr]
+            ttk.Checkbutton(content, text=label, variable=var).pack(anchor=tk.W, pady=2)
+
+        btn_frame = ttk.Frame(dialog, padding=10)
+        btn_frame.pack(fill=tk.X)
+
+        def _apply():
+            for attr, label, frame in self._all_tabs:
+                if self._tab_visible_vars[attr].get():
+                    # Show: re-add if currently hidden
+                    try:
+                        self.notebook.index(frame)
+                    except tk.TclError:
+                        # Find correct position
+                        desired_idx = next(i for i, (a, l, f) in enumerate(self._all_tabs) if a == attr)
+                        # Count visible tabs before this one
+                        insert_pos = 0
+                        for a2, l2, f2 in self._all_tabs[:desired_idx]:
+                            if self._tab_visible_vars[a2].get():
+                                try:
+                                    self.notebook.index(f2)
+                                    insert_pos += 1
+                                except tk.TclError:
+                                    pass
+                        self.notebook.insert(insert_pos, frame, text=f'  {label}  ')
+                else:
+                    # Hide
+                    try:
+                        self.notebook.hide(frame)
+                    except tk.TclError:
+                        pass
+            dialog.destroy()
+
+        ttk.Button(btn_frame, text="적용", command=_apply, style='Accent.TButton').pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_frame, text="취소", command=dialog.destroy).pack(side=tk.RIGHT, padx=4)
 
     def _open_layout_settings(self):
         """Open global layout settings control panel."""
@@ -20623,7 +20698,20 @@ class PerssonModelGUI_V2:
 
         # Internal storage
         self.friction_map_results = None
-        self.friction_map_right = layout.get('right')
+
+        # ── Right panel: Notebook with 3D Map + 2D Graph tabs ──
+        right_panel = layout.get('right')
+        self.fm_right_notebook = ttk.Notebook(right_panel)
+        self.fm_right_notebook.pack(fill=tk.BOTH, expand=True)
+
+        # Tab 1: 3D Map (기존 마찰맵 표면)
+        self.friction_map_right = ttk.Frame(self.fm_right_notebook)
+        self.fm_right_notebook.add(self.friction_map_right, text='  3D Map  ')
+
+        # Tab 2: 2D Graph (선택 가능한 데이터 플롯)
+        fm_graph_tab = ttk.Frame(self.fm_right_notebook)
+        self.fm_right_notebook.add(fm_graph_tab, text='  Graph  ')
+        self._create_fm_graph_tab(fm_graph_tab)
 
         # ── 1) Sweep 범위 설정 ──
         sec1 = self._create_section(left_panel, "1) Sweep 범위 설정")
@@ -20646,6 +20734,16 @@ class PerssonModelGUI_V2:
         # Pressure axis
         ttk.Label(sec1, text="── 명목 접촉 압력 p₀ (MPa) ──", font=self.FONTS['body'],
                   foreground='#0369A1').pack(anchor='w', pady=(6, 0))
+        row_p_preset = ttk.Frame(sec1); row_p_preset.pack(fill=tk.X, pady=1)
+        ttk.Label(row_p_preset, text="프리셋:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_p0_preset_var = tk.StringVar(value="세분화")
+        fm_p0_presets = {"Simple": "0.1, 0.3, 0.5",
+                         "세분화": "0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1.2, 1.5"}
+        self._fm_p0_presets = fm_p0_presets
+        for preset_name in ["Simple", "세분화"]:
+            ttk.Radiobutton(row_p_preset, text=preset_name,
+                            variable=self.fm_p0_preset_var, value=preset_name,
+                            command=self._apply_fm_p0_preset).pack(side=tk.LEFT, padx=3)
         row_p = ttk.Frame(sec1); row_p.pack(fill=tk.X, pady=1)
         ttk.Label(row_p, text="배열:", font=self.FONTS['body']).pack(side=tk.LEFT)
         self.fm_p0_array_var = tk.StringVar(value="0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1.2, 1.5")
@@ -20723,6 +20821,166 @@ class PerssonModelGUI_V2:
         self.fm_result_text = tk.Text(sec4, height=12, font=('Consolas', 9),
                                        wrap=tk.WORD, state=tk.DISABLED)
         self.fm_result_text.pack(fill=tk.BOTH, expand=True, pady=2)
+
+    def _create_fm_graph_tab(self, parent):
+        """Create the 2D graph tab inside Friction Map right panel."""
+        from matplotlib.figure import Figure
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
+
+        # ── Control bar at top ──
+        ctrl = ttk.Frame(parent)
+        ctrl.pack(fill=tk.X, padx=4, pady=4)
+
+        # Radio buttons: data selection
+        ttk.Label(ctrl, text="데이터:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
+        self.fm_graph_data_var = tk.StringVar(value="mu_total")
+        data_options = [
+            ("A/A0", "A_A0"),
+            ("tau_s", "tau_f"),
+            ("mu_hys", "mu_visc"),
+            ("mu_adh", "mu_adh"),
+            ("mu_total", "mu_total"),
+        ]
+        for label, val in data_options:
+            ttk.Radiobutton(ctrl, text=label, variable=self.fm_graph_data_var,
+                            value=val, command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
+
+        # Branch selection
+        ttk.Separator(ctrl, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
+        ttk.Label(ctrl, text="Branch:", font=('', 10)).pack(side=tk.LEFT, padx=(0, 4))
+        self.fm_graph_branch_var = tk.StringVar(value="cold")
+        ttk.Radiobutton(ctrl, text="Cold", variable=self.fm_graph_branch_var,
+                        value="cold", command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
+        ttk.Radiobutton(ctrl, text="Hot", variable=self.fm_graph_branch_var,
+                        value="hot", command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
+
+        # mu_visc tab verification overlay
+        ttk.Separator(ctrl, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
+        self.fm_graph_overlay_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(ctrl, text="mu_visc 탭 검증", variable=self.fm_graph_overlay_var,
+                        command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
+
+        # ── Figure ──
+        plot_frame = ttk.Frame(parent)
+        plot_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
+
+        self.fig_fm_graph = Figure(figsize=(9, 6), dpi=100)
+        self.ax_fm_graph = self.fig_fm_graph.add_subplot(111)
+        self.fig_fm_graph.subplots_adjust(left=0.12, right=0.92, top=0.92, bottom=0.12)
+
+        self.canvas_fm_graph = FigureCanvasTkAgg(self.fig_fm_graph, plot_frame)
+        self.canvas_fm_graph.draw_idle()
+        self.canvas_fm_graph.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        toolbar = NavigationToolbar2Tk(self.canvas_fm_graph, plot_frame)
+        toolbar.update()
+
+    def _update_fm_graph(self):
+        """Update the 2D graph based on selected data type and branch."""
+        r = self.friction_map_results
+        if r is None:
+            return
+
+        ax = self.ax_fm_graph
+        ax.clear()
+
+        data_key = self.fm_graph_data_var.get()
+        branch = self.fm_graph_branch_var.get()
+        show_overlay = self.fm_graph_overlay_var.get()
+
+        T_arr = r['T_array']
+        p0_arr = r['p0_array_MPa']
+        v_arr = r['v_array']
+
+        # Select LUT data
+        suffix = '_cold' if branch == 'cold' else '_hot'
+        if data_key == 'mu_total':
+            lut_key = 'LUT_cold' if branch == 'cold' else 'LUT_hot'
+        elif data_key == 'A_A0':
+            lut_key = f'LUT_A_A0{suffix}'
+        elif data_key == 'tau_f':
+            lut_key = f'LUT_tau_f{suffix}'
+        elif data_key == 'mu_visc':
+            lut_key = f'LUT_mu_visc{suffix}'
+        elif data_key == 'mu_adh':
+            lut_key = f'LUT_mu_adh{suffix}'
+        else:
+            return
+
+        LUT = r.get(lut_key)
+        if LUT is None:
+            return
+
+        # Plot: one line per (T, p0) combination
+        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+                  '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+        line_styles = ['-', '--', '-.', ':']
+
+        for i_T, T0 in enumerate(T_arr):
+            ls = line_styles[i_T % len(line_styles)]
+            for i_p, p0 in enumerate(p0_arr):
+                c = colors[i_p % len(colors)]
+                data = LUT[i_T, i_p, :]
+                # tau_f in MPa for display
+                if data_key == 'tau_f':
+                    data = data / 1e6
+                ax.semilogx(v_arr, data, linestyle=ls, color=c, linewidth=1.2,
+                            label=f'T={T0:.0f}°C, p₀={p0:.2g}')
+
+        # Overlay mu_visc tab verification data
+        if show_overlay and hasattr(self, 'mu_visc_results') and self.mu_visc_results is not None:
+            mvr = self.mu_visc_results
+            v_ref = mvr.get('v')
+            if v_ref is not None:
+                overlay_data = None
+                overlay_label = None
+                if data_key == 'mu_visc':
+                    overlay_data = mvr.get('mu') if branch == 'cold' else mvr.get('mu_hot')
+                    overlay_label = 'mu_visc tab (mu_hys)'
+                elif data_key == 'A_A0':
+                    overlay_data = mvr.get('A_A0_cold') if branch == 'cold' else mvr.get('A_A0_hot')
+                    overlay_label = 'mu_visc tab (A/A0)'
+                elif data_key == 'mu_total' and hasattr(self, 'mu_adh_results') and self.mu_adh_results is not None:
+                    mu_v = mvr.get('mu') if branch == 'cold' else mvr.get('mu_hot')
+                    mu_a = self.mu_adh_results.get('mu_adh')
+                    if mu_v is not None and mu_a is not None:
+                        if len(mu_v) == len(mu_a):
+                            overlay_data = mu_v + mu_a
+                            overlay_label = 'mu_visc+mu_adh tabs (total)'
+                elif data_key == 'mu_adh' and hasattr(self, 'mu_adh_results') and self.mu_adh_results is not None:
+                    overlay_data = self.mu_adh_results.get('mu_adh')
+                    overlay_label = 'mu_adh tab'
+                elif data_key == 'tau_f' and hasattr(self, 'mu_adh_results') and self.mu_adh_results is not None:
+                    tau = self.mu_adh_results.get('tau_f')
+                    if tau is not None:
+                        overlay_data = tau / 1e6
+                    overlay_label = 'mu_adh tab (tau_f)'
+
+                if overlay_data is not None and overlay_label is not None:
+                    ax.semilogx(v_ref, overlay_data, 'k-', linewidth=2.5, alpha=0.7,
+                                label=overlay_label, zorder=10)
+
+        # Labels
+        titles = {'mu_total': 'mu_total', 'A_A0': 'A/A0', 'tau_f': 'tau_s (MPa)',
+                  'mu_visc': 'mu_hysteresis', 'mu_adh': 'mu_adhesion'}
+        ax.set_xlabel('Velocity v (m/s)', fontsize=11)
+        ax.set_ylabel(titles.get(data_key, data_key), fontsize=11)
+        ax.set_title(f'{titles.get(data_key, data_key)} — {branch.capitalize()} Branch',
+                     fontweight='bold', fontsize=12)
+        ax.grid(True, alpha=0.3)
+
+        # Legend: show if reasonable number of lines
+        n_lines = len(T_arr) * len(p0_arr)
+        if n_lines <= 12:
+            ax.legend(fontsize=7, loc='best', ncol=max(1, n_lines // 6))
+
+        self.canvas_fm_graph.draw_idle()
+
+    def _apply_fm_p0_preset(self):
+        """Apply selected pressure preset to the array field."""
+        preset = self.fm_p0_preset_var.get()
+        if preset in self._fm_p0_presets:
+            self.fm_p0_array_var.set(self._fm_p0_presets[preset])
 
     def _test_run_pipeline(self):
         """시험 Run: 내장 데이터를 사용하여 전체 파이프라인을 자동 실행.
@@ -20922,6 +21180,8 @@ class PerssonModelGUI_V2:
             LUT_mu_adh_hot = np.zeros((n_T, n_p, n_v))
             LUT_A_A0_cold = np.zeros((n_T, n_p, n_v))
             LUT_A_A0_hot = np.zeros((n_T, n_p, n_v))
+            LUT_tau_f_cold = np.zeros((n_T, n_p, n_v))
+            LUT_tau_f_hot = np.zeros((n_T, n_p, n_v))
 
             # ── Get shared parameters from mu_visc tab ──
             from persson_model.core.friction import FrictionCalculator
@@ -21207,6 +21467,7 @@ class PerssonModelGUI_V2:
                     LUT_mu_visc_cold[i_T, i_p, :] = mu_visc_cold
                     LUT_mu_adh_cold[i_T, i_p, :] = mu_adh_cold
                     LUT_A_A0_cold[i_T, i_p, :] = A_A0_cold
+                    LUT_tau_f_cold[i_T, i_p, :] = tau_f_cold
                     LUT_cold[i_T, i_p, :] = mu_cold_total
 
                     # ── Hot branch: per-q flash temperature (Persson Full) ──
@@ -21372,12 +21633,14 @@ class PerssonModelGUI_V2:
                         LUT_mu_visc_hot[i_T, i_p, :] = mu_visc_hot
                         LUT_mu_adh_hot[i_T, i_p, :] = mu_adh_hot
                         LUT_A_A0_hot[i_T, i_p, :] = A_A0_hot
+                        LUT_tau_f_hot[i_T, i_p, :] = tau_f_hot
                         LUT_hot[i_T, i_p, :] = mu_hot_total
                     else:
                         # No flash: hot = cold
                         LUT_mu_visc_hot[i_T, i_p, :] = mu_visc_cold
                         LUT_mu_adh_hot[i_T, i_p, :] = mu_adh_cold
                         LUT_A_A0_hot[i_T, i_p, :] = A_A0_cold
+                        LUT_tau_f_hot[i_T, i_p, :] = tau_f_cold
                         LUT_hot[i_T, i_p, :] = mu_cold_total
 
                     cell_count += 1
@@ -21401,6 +21664,8 @@ class PerssonModelGUI_V2:
                 'LUT_mu_adh_hot': LUT_mu_adh_hot,
                 'LUT_A_A0_cold': LUT_A_A0_cold,
                 'LUT_A_A0_hot': LUT_A_A0_hot,
+                'LUT_tau_f_cold': LUT_tau_f_cold,
+                'LUT_tau_f_hot': LUT_tau_f_hot,
                 'use_flash': use_flash,
             }
 
@@ -21411,6 +21676,7 @@ class PerssonModelGUI_V2:
 
             # ── Plot ──
             self._plot_friction_map()
+            self._update_fm_graph()
 
             # ── Result text ──
             self._update_friction_map_text(elapsed)
