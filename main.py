@@ -20805,43 +20805,15 @@ class PerssonModelGUI_V2:
                 h_layer=flash_h_layer
             )
 
-            # Master curve data for WLF shifting
-            mc_data = self.persson_master_curve
-            omega_ref = mc_data['omega'].copy()
-            E_storage_ref = mc_data['E_storage'].copy()
-            E_loss_ref = mc_data['E_loss'].copy()
-
-            log_omega_master = np.log10(np.maximum(omega_ref, 1e-30))
-            log_E_loss_master = np.log10(np.maximum(E_loss_ref, 1e-30))
-            log_E_storage_master = np.log10(np.maximum(E_storage_ref, 1e-30))
-            E_loss_interp = interp1d_fm(
-                log_omega_master, log_E_loss_master,
-                kind='linear', bounds_error=False,
-                fill_value=(log_E_loss_master[0], log_E_loss_master[-1])
-            )
-            E_storage_interp = interp1d_fm(
-                log_omega_master, log_E_storage_master,
-                kind='linear', bounds_error=False,
-                fill_value=(log_E_storage_master[0], log_E_storage_master[-1])
-            )
-
-            # Normalization factor & angle grid
+            # Normalization factor
             try:
                 norm_factor = float(self.g_norm_factor_var.get())
             except (ValueError, AttributeError):
                 norm_factor = 1.5625
 
-            phi_arr = np.linspace(0, np.pi / 2, n_phi)
-            cos_phi_arr = np.cos(phi_arr)
-            dphi = phi_arr[1] - phi_arr[0] if n_phi > 1 else np.pi / 2
-
-            # g interpolator for nonlinear correction
-            g_interp = self.g_interpolator if use_fg else None
-            f_interp = self.f_interpolator if use_fg else None
-
-            # Prepare strain array for f,g correction
+            # Prepare RMS strain interpolator for nonlinear correction
             rms_strain_interp_fm = None
-            if use_fg and (f_interp is not None or g_interp is not None):
+            if use_fg:
                 if strain_est_method == 'rms_slope' and self.rms_slope_calculator is not None:
                     from scipy.interpolate import interp1d as interp1d_strain
                     rms_q = self.rms_slope_profiles['q']
@@ -20851,39 +20823,168 @@ class PerssonModelGUI_V2:
                     rms_strain_interp_fm = interp1d_strain(
                         log_q_s, log_strain_s, kind='linear',
                         bounds_error=False, fill_value='extrapolate')
+                print(f"[FrictionMap] 비선형 보정 활성화 (method={strain_est_method})")
 
-                # Pre-compute strain at each q for efficiency
-                strain_at_q = np.full(n_q, fixed_strain)
-                if rms_strain_interp_fm is not None:
+            # ── Helper: create WLF-shifted modulus functions for a given temperature ──
+            from persson_model.core.g_calculator import GCalculator as GCalc_FM
+
+            mc_data = self.persson_master_curve
+            omega_ref = mc_data['omega'].copy()
+            E_storage_ref = mc_data['E_storage'].copy()
+            E_loss_ref = mc_data['E_loss'].copy()
+
+            log_omega_master = np.log10(np.maximum(omega_ref, 1e-30))
+            log_E_storage_master = np.log10(np.maximum(E_storage_ref, 1e-30))
+            log_E_loss_master = np.log10(np.maximum(E_loss_ref, 1e-30))
+
+            E_storage_interp_fm = interp1d_fm(
+                log_omega_master, log_E_storage_master,
+                kind='linear', bounds_error=False,
+                fill_value=(log_E_storage_master[0], log_E_storage_master[-1])
+            )
+            E_loss_interp_fm = interp1d_fm(
+                log_omega_master, log_E_loss_master,
+                kind='linear', bounds_error=False,
+                fill_value=(log_E_loss_master[0], log_E_loss_master[-1])
+            )
+
+            q_min_val = float(self.q_min_var.get())
+
+            def _make_modulus_funcs(aT_shift):
+                """Create complex, storage, and loss modulus functions for a given aT."""
+                def modulus_func(omega):
+                    omega = np.atleast_1d(omega)
+                    omega_shifted = np.maximum(omega * aT_shift, 1e-30)
+                    log_w = np.log10(omega_shifted)
+                    Ep = 10.0 ** E_storage_interp_fm(log_w)
+                    Epp = 10.0 ** E_loss_interp_fm(log_w)
+                    result = Ep + 1j * Epp
+                    return result[0] if result.size == 1 else result
+
+                def storage_func(omega):
+                    omega = np.atleast_1d(omega)
+                    omega_shifted = np.maximum(omega * aT_shift, 1e-30)
+                    log_w = np.log10(omega_shifted)
+                    Ep = 10.0 ** E_storage_interp_fm(log_w)
+                    return Ep[0] if Ep.size == 1 else Ep
+
+                def loss_func(omega):
+                    omega = np.atleast_1d(omega)
+                    omega_shifted = np.maximum(omega * aT_shift, 1e-30)
+                    log_w = np.log10(omega_shifted)
+                    Epp = 10.0 ** E_loss_interp_fm(log_w)
+                    return Epp[0] if Epp.size == 1 else Epp
+
+                return modulus_func, storage_func, loss_func
+
+            def _compute_mu_visc_at_T_p0(aT_val, p0_val, v_arr, apply_fg=False):
+                """Compute G(q,v), P(q), mu_visc using GCalculator + FrictionCalculator.
+
+                Returns (mu_visc_array, A_A0_array).
+                """
+                mod_func, stor_func, loss_func = _make_modulus_funcs(aT_val)
+
+                # Create GCalculator with exact same settings as mu_visc tab
+                g_calc = GCalc_FM(
+                    psd_func=self.psd_model,
+                    modulus_func=mod_func,
+                    sigma_0=p0_val,
+                    velocity=v_arr[0],
+                    poisson_ratio=poisson,
+                    n_angle_points=n_phi,
+                    storage_modulus_func=stor_func,
+                    loss_modulus_func=loss_func,
+                )
+                g_calc.PSD_NORMALIZATION_FACTOR = norm_factor
+
+                # Apply nonlinear correction if enabled
+                if apply_fg and use_fg:
+                    if hasattr(self, 'f_interpolator') and self.f_interpolator is not None \
+                       and hasattr(self, 'g_interpolator') and self.g_interpolator is not None:
+                        g_calc.set_nonlinear_correction(
+                            f_interpolator=self.f_interpolator,
+                            g_interpolator=self.g_interpolator,
+                            strain_array=strain_for_G,
+                            strain_q_array=q
+                        )
+
+                # Calculate G(q,v) for all velocities
+                n_v_local = len(v_arr)
+                G_matrix_local = np.zeros((n_q, n_v_local))
+                P_matrix_local = np.zeros((n_q, n_v_local))
+
+                for j, v_j in enumerate(v_arr):
+                    g_calc.velocity = v_j
+                    res = g_calc.calculate_G_with_details(q, q_min=q_min_val)
+                    G_matrix_local[:, j] = res['G']
+                    P_matrix_local[:, j] = res['contact_area_ratio']
+
+                # Create FrictionCalculator (same as mu_visc tab)
+                # loss_modulus_func for FrictionCalculator: takes (omega, T) but T is
+                # already baked into the WLF shift, so ignore T parameter
+                def loss_mod_for_friction(omega, T):
+                    return loss_func(omega)
+
+                g_interp_local = self.g_interpolator if use_fg else None
+
+                fric_calc = FrictionCalculator(
+                    psd_func=self.psd_model,
+                    loss_modulus_func=loss_mod_for_friction,
+                    sigma_0=p0_val,
+                    velocity=v_arr[0],
+                    temperature=0.0,  # T already in WLF shift
+                    poisson_ratio=poisson,
+                    gamma=gamma,
+                    n_angle_points=n_phi,
+                    g_interpolator=g_interp_local,
+                    strain_estimate=fixed_strain,
+                    p_exponent=p_exponent
+                )
+
+                # Use strain estimator if nonlinear correction is enabled
+                strain_est_func = None
+                if use_fg and g_interp_local is not None:
+                    def strain_est_func(q_arr, G_arr, velocity):
+                        n_s = len(q_arr)
+                        if strain_est_method == 'rms_slope' and rms_strain_interp_fm is not None:
+                            s_arr = np.zeros(n_s)
+                            for i_s, qi_s in enumerate(q_arr):
+                                try:
+                                    s_arr[i_s] = 10 ** rms_strain_interp_fm(np.log10(qi_s))
+                                except:
+                                    s_arr[i_s] = fixed_strain
+                            return np.clip(s_arr, 0.0, 1.0)
+                        else:
+                            return np.full(n_s, fixed_strain)
+
+                mu_array, details = fric_calc.calculate_mu_visc_multi_velocity(
+                    q, G_matrix_local, v_arr, C_q,
+                    strain_estimator=strain_est_func
+                )
+
+                # Extract A/A0 = P(q_max) for each velocity
+                A_A0_arr = np.zeros(n_v_local)
+                for j in range(n_v_local):
+                    P_j = details['details'][j]['P']
+                    A_A0_arr[j] = P_j[-1]
+
+                return mu_array, A_A0_arr
+
+            # Pre-compute strain array for G nonlinear correction
+            strain_for_G = np.full(n_q, fixed_strain)
+            if use_fg and (hasattr(self, 'f_interpolator') and self.f_interpolator is not None):
+                if strain_est_method == 'rms_slope' and rms_strain_interp_fm is not None:
                     for i_q in range(n_q):
                         try:
-                            strain_at_q[i_q] = np.clip(
+                            strain_for_G[i_q] = np.clip(
                                 10 ** rms_strain_interp_fm(np.log10(q[i_q])), 0.0, 1.0)
                         except:
-                            strain_at_q[i_q] = fixed_strain
-
-                # Pre-compute f,g values at each q
-                f_at_q = np.ones(n_q)
-                g_at_q = np.ones(n_q)
-                for i_q in range(n_q):
-                    eps_q = strain_at_q[i_q]
-                    if f_interp is not None:
-                        fv = f_interp(eps_q)
-                        f_at_q[i_q] = np.clip(fv, 0.01, 1.0) if np.isfinite(fv) else 1.0
-                    if g_interp is not None:
-                        gv = g_interp(eps_q)
-                        g_at_q[i_q] = np.clip(gv, 0.01, None) if np.isfinite(gv) else 1.0
-
-                print(f"[FrictionMap] f,g 비선형 보정 적용 (method={strain_est_method}, "
-                      f"strain range={strain_at_q.min()*100:.3f}%~{strain_at_q.max()*100:.1f}%)")
-            else:
-                f_at_q = np.ones(n_q)
-                g_at_q = np.ones(n_q)
+                            strain_for_G[i_q] = fixed_strain
 
             # ── Main triple loop ──
             cell_count = 0
             for i_T, T0 in enumerate(T_array):
-                # Step 4.1: WLF shift at T0
+                # WLF shift at T0
                 log_aT_T0 = float(self.persson_aT_interp(T0))
                 aT_T0 = 10 ** log_aT_T0
 
@@ -20892,72 +20993,9 @@ class PerssonModelGUI_V2:
                 aT_prime_T0 = np.exp((epsilon_adh / k_B) * (1.0 / T0_K - 1.0 / T_ref_adh))
 
                 for i_p, p0_Pa in enumerate(p0_array_Pa):
-                    sigma_0 = p0_Pa
-
-                    # ── Compute G(q), P(q), mu_visc for all velocities at this (T0, p0) ──
-                    # G(q) = (1/8) ∫₀^{2π} |E(qv cosφ)|² / ((1-ν²)σ₀)² dφ × ∫ q'³ C(q') dq'
-                    # Using vectorized computation over velocity
-
-                    mu_visc_cold = np.zeros(n_v)
-                    A_A0_cold = np.zeros(n_v)
-
-                    for j_v, v_j in enumerate(v_array):
-                        # Compute G(q) cumulatively and mu_visc integrand
-                        G_cum = 0.0
-                        mu_cum = 0.0
-                        P_last = 1.0
-
-                        prefactor = 1.0 / ((1 - poisson**2) * sigma_0)
-
-                        for i_q in range(n_q):
-                            qi = q[i_q]
-                            Ci = C_q[i_q]
-
-                            # Angle integral for G: (1/8) ∫ |E(qv cosφ)|² dφ
-                            omega_phys = qi * v_j * cos_phi_arr
-                            omega_eff = np.maximum(omega_phys * aT_T0, 1e-30)
-                            log_omega_eff = np.log10(omega_eff)
-
-                            log_Ep = E_storage_interp(log_omega_eff)
-                            log_Epp = E_loss_interp(log_omega_eff)
-                            Ep_vals = 10.0 ** np.clip(log_Ep, 4.0, None)
-                            Epp_vals = 10.0 ** np.clip(log_Epp, 3.0, None)
-
-                            # Apply f,g nonlinear correction (Payne effect)
-                            Ep_eff = Ep_vals * f_at_q[i_q]
-                            Epp_eff = Epp_vals * g_at_q[i_q]
-
-                            # G integrand: |E_eff|² = (E'·f)² + (E''·g)²
-                            E_abs_sq = Ep_eff**2 + Epp_eff**2
-
-                            # G angle integral: (1/(8π)) × ∫₀^{2π} ... → (1/π) ∫₀^{π/2}
-                            G_angle = np.trapz(E_abs_sq, phi_arr) / np.pi
-                            G_integrand = norm_factor * qi**3 * Ci * G_angle * prefactor**2
-
-                            # Cumulative G
-                            if i_q > 0:
-                                dq = q[i_q] - q[i_q - 1]
-                                G_cum += G_integrand * dq
-
-                            # P(q) = erf(1/(2√G))
-                            if G_cum > 1e-30:
-                                P_q = float(erf_fm(1.0 / (2.0 * np.sqrt(G_cum))))
-                            else:
-                                P_q = 1.0
-                            S_q = gamma + (1 - gamma) * P_q**p_exponent
-
-                            # mu integrand: (1/2) q³ C(q) P(q) S(q) × angle_integral(E''_eff/σ₀)
-                            # ×4 symmetry: ∫₀^{2π} = 4 × ∫₀^{π/2}
-                            mu_angle = 4.0 * np.trapz(cos_phi_arr * Epp_eff, phi_arr)
-                            mu_integrand = 0.5 * qi**3 * Ci * P_q * S_q * mu_angle * prefactor
-
-                            if i_q > 0:
-                                mu_cum += mu_integrand * dq
-
-                            P_last = P_q
-
-                        mu_visc_cold[j_v] = mu_cum
-                        A_A0_cold[j_v] = P_last
+                    # ── Cold branch: use GCalculator + FrictionCalculator ──
+                    mu_visc_cold, A_A0_cold = _compute_mu_visc_at_T_p0(
+                        aT_T0, p0_Pa, v_array, apply_fg=use_fg)
 
                     # ── Cold adhesion: τ_f(v × aT') / p0 × A/A0_cold ──
                     v_eff_cold = v_array * aT_prime_T0
@@ -20980,7 +21018,7 @@ class PerssonModelGUI_V2:
                         for j_v, v_j in enumerate(v_array):
                             # Greenwood flash ΔT from cold mu_visc
                             P_for_flash = np.clip(A_A0_cold[j_v], Amin_flash, Amax_flash)
-                            q_dot = flash_calc.heat_flux(P_for_flash, mu_visc_cold[j_v], sigma_0, v_j)
+                            q_dot = flash_calc.heat_flux(P_for_flash, mu_visc_cold[j_v], p0_Pa, v_j)
                             Jd = flash_calc.peclet_number(v_j)
                             Jh = flash_calc.peclet_number_h(v_j)
                             dT = flash_calc.delta_T(q_dot, Jd, Jh)
@@ -20990,54 +21028,11 @@ class PerssonModelGUI_V2:
                             log_aT_hot = float(self.persson_aT_interp(T_hot))
                             aT_hot = 10 ** log_aT_hot
 
-                            # Recompute G, P, mu_visc at T_hot
-                            G_cum_h = 0.0
-                            mu_cum_h = 0.0
-                            P_last_h = 1.0
-                            prefactor_h = 1.0 / ((1 - poisson**2) * sigma_0)
-
-                            for i_q in range(n_q):
-                                qi = q[i_q]
-                                Ci = C_q[i_q]
-
-                                omega_phys = qi * v_j * cos_phi_arr
-                                omega_eff_h = np.maximum(omega_phys * aT_hot, 1e-30)
-                                log_omega_eff_h = np.log10(omega_eff_h)
-
-                                log_Ep_h = E_storage_interp(log_omega_eff_h)
-                                log_Epp_h = E_loss_interp(log_omega_eff_h)
-                                Ep_h = 10.0 ** np.clip(log_Ep_h, 4.0, None)
-                                Epp_h = 10.0 ** np.clip(log_Epp_h, 3.0, None)
-
-                                # Apply f,g nonlinear correction (Payne effect)
-                                Ep_h_eff = Ep_h * f_at_q[i_q]
-                                Epp_h_eff = Epp_h * g_at_q[i_q]
-
-                                E_abs_sq_h = Ep_h_eff**2 + Epp_h_eff**2
-                                G_angle_h = np.trapz(E_abs_sq_h, phi_arr) / np.pi
-                                G_integrand_h = norm_factor * qi**3 * Ci * G_angle_h * prefactor_h**2
-
-                                if i_q > 0:
-                                    dq = q[i_q] - q[i_q - 1]
-                                    G_cum_h += G_integrand_h * dq
-
-                                if G_cum_h > 1e-30:
-                                    P_q_h = float(erf_fm(1.0 / (2.0 * np.sqrt(G_cum_h))))
-                                else:
-                                    P_q_h = 1.0
-                                S_q_h = gamma + (1 - gamma) * P_q_h**p_exponent
-
-                                # ×4 symmetry: ∫₀^{2π} = 4 × ∫₀^{π/2}
-                                mu_angle_h = 4.0 * np.trapz(cos_phi_arr * Epp_h_eff, phi_arr)
-                                mu_integrand_h = 0.5 * qi**3 * Ci * P_q_h * S_q_h * mu_angle_h * prefactor_h
-
-                                if i_q > 0:
-                                    mu_cum_h += mu_integrand_h * dq
-
-                                P_last_h = P_q_h
-
-                            mu_visc_hot[j_v] = mu_cum_h
-                            A_A0_hot[j_v] = P_last_h
+                            # Recompute mu_visc at T_hot using GCalculator + FrictionCalculator
+                            mu_visc_hot_j, A_A0_hot_j = _compute_mu_visc_at_T_p0(
+                                aT_hot, p0_Pa, np.array([v_j]), apply_fg=use_fg)
+                            mu_visc_hot[j_v] = mu_visc_hot_j[0]
+                            A_A0_hot[j_v] = A_A0_hot_j[0]
 
                         # Hot adhesion with per-velocity Arrhenius shift at T_hot
                         T_hot_arr = T0 + delta_T_arr
