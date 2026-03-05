@@ -10558,12 +10558,12 @@ class PerssonModelGUI_V2:
         delnn_row = ttk.Frame(flash_model_frame)
         delnn_row.pack(fill=tk.X, pady=1)
         ttk.Label(delnn_row, text="delnn (적분 스텝):", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.flash_delnn_var = tk.StringVar(value="0.005")
+        self.flash_delnn_var = tk.StringVar(value="0.05")
         ttk.Entry(delnn_row, textvariable=self.flash_delnn_var, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(delnn_row, text="(log10(q) 간격)", font=self.FONTS['small']).pack(side=tk.LEFT)
         ttk.Label(flash_model_frame,
-                  text="작을수록 고배율 ΔT 스파이크 정밀 포착 (0.005 권장)\n"
-                       "0.03: ~200pts, 0.005: ~1200pts (6 decade 기준)",
+                  text="작을수록 고배율 ΔT 스파이크 정밀 포착 (0.05 기본)\n"
+                       "0.05: ~120pts, 0.005: ~1200pts (6 decade 기준)",
                   font=self.FONTS['small'], foreground='#64748B').pack(anchor=tk.W, pady=1)
 
         # Flash Temperature 적용 체크박스 (Tab 8과 동일 변수 사용)
@@ -12242,7 +12242,7 @@ class PerssonModelGUI_V2:
                     try:
                         delnn = float(self.flash_delnn_var.get())
                     except (ValueError, AttributeError):
-                        delnn = 0.005
+                        delnn = 0.05
                     delnn = max(delnn, 0.001)  # Minimum step size
 
                     log_q_min_hot = np.log10(q[0])
@@ -19586,10 +19586,19 @@ class PerssonModelGUI_V2:
             # Recalculate and update plots with fitted parameters
             self._calculate_mu_adh_with_params(opt_tau_f0, opt_v0_star, opt_c)
 
+            # Auto-sync fitted parameters to Cold & Hot Branch tab
+            try:
+                if hasattr(self, 'ch_tau_f0_var'):
+                    self._sync_cold_hot_adh_params()
+                    print("[AutoFit] 점착 파라미터 → Cold & Hot Branch 탭 자동 동기화 완료")
+            except Exception:
+                pass
+
             self._show_status(
                 f"자동 피팅 완료!\n"
                 f"τ_f0={opt_tau_f0/1e6:.4f} MPa, v₀*={opt_v0_star:.4e} m/s, c={opt_c:.4f}\n"
-                f"R²={r_squared:.6f}, RMSE={rmse:.2e}", 'success')
+                f"R²={r_squared:.6f}, RMSE={rmse:.2e}\n"
+                f"→ Cold & Hot Branch 탭에 자동 반영됨", 'success')
 
         except ValueError as e:
             self._show_status(f"입력값 오류: {str(e)}", 'warning')
@@ -21246,6 +21255,7 @@ class PerssonModelGUI_V2:
                 'LUT_mu_adh_hot': LUT_mu_adh_hot,
                 'LUT_A_A0_cold': LUT_A_A0_cold,
                 'LUT_A_A0_hot': LUT_A_A0_hot,
+                'use_flash': use_flash,
             }
 
             elapsed = _time.time() - t_start
@@ -21297,6 +21307,7 @@ class PerssonModelGUI_V2:
         v_arr = r['v_array']
         log_v = np.log10(v_arr)
         n_p = len(p0_arr)
+        has_hot = r.get('use_flash', False)
 
         # Clear previous plot
         right_frame = self.friction_map_right
@@ -21305,16 +21316,30 @@ class PerssonModelGUI_V2:
         for w in right_frame.winfo_children():
             w.destroy()
 
-        # Layout: 2 rows (Cold top | Hot bottom) x n_p columns (one per pressure)
+        # Adaptive layout: 1 row (Cold only) or 2 rows (Cold + Hot)
+        n_rows = 2 if has_hot else 1
         n_cols = max(n_p, 1)
-        # Use subplots_adjust (tight_layout breaks with 3D projections)
-        fig = Figure(figsize=(max(4 * n_cols, 10), 8), dpi=80)
-        fig.subplots_adjust(left=0.03, right=0.97, top=0.93, bottom=0.05,
-                            wspace=0.3, hspace=0.28)
+        # Limit columns per row; wrap into additional row-groups if too many
+        MAX_COLS = 4
+        if n_cols > MAX_COLS:
+            # Arrange into multiple row-groups: ceil(n_p / MAX_COLS) groups
+            n_groups = int(np.ceil(n_p / MAX_COLS))
+            n_cols_eff = MAX_COLS
+            n_grid_rows = n_rows * n_groups
+        else:
+            n_groups = 1
+            n_cols_eff = n_cols
+            n_grid_rows = n_rows
+
+        fig_w = max(4.5 * n_cols_eff, 10)
+        fig_h = max(4.5 * n_grid_rows, 5)
+        fig = Figure(figsize=(fig_w, fig_h), dpi=80)
+        fig.subplots_adjust(left=0.03, right=0.97, top=0.94, bottom=0.04,
+                            wspace=0.28, hspace=0.32)
 
         T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
 
-        # Prepare fine grid for smooth interpolation (reduced for performance)
+        # Prepare fine grid for smooth interpolation
         use_fine = len(T_arr) >= 2 and len(v_arr) >= 2
         if use_fine:
             from scipy.interpolate import RectBivariateSpline
@@ -21325,77 +21350,62 @@ class PerssonModelGUI_V2:
         # Store axes for reset button
         self._fm_3d_axes = []
 
-        # Compute shared z-limits across all pressures for meaningful comparison
-        z_max_cold = r['LUT_cold'].max()
-        z_max_hot = r['LUT_hot'].max()
+        def _plot_surface(ax, Z, T_arr, log_v, cmap_name, label, p0):
+            """Helper to plot a single 3D surface."""
+            if use_fine:
+                try:
+                    sp = RectBivariateSpline(T_arr, log_v, Z)
+                    Z_f = sp(T_fine, log_v_fine)
+                    ax.plot_surface(T_mesh_f, V_mesh_f, Z_f,
+                                    cmap=cmap_name, alpha=0.85,
+                                    rstride=1, cstride=1,
+                                    linewidth=0, antialiased=False,
+                                    rasterized=True)
+                except Exception:
+                    ax.plot_surface(T_mesh, V_mesh, Z,
+                                    cmap=cmap_name, alpha=0.85,
+                                    rasterized=True)
+            else:
+                ax.plot_surface(T_mesh, V_mesh, Z,
+                                cmap=cmap_name, alpha=0.85,
+                                rasterized=True)
+            ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=8)
+            ax.set_ylabel(r'$\log_{10}(v)$', fontsize=8)
+            ax.set_zlabel(r'$\mu$', fontsize=8)
+
+            # Title with A/A0 range for adhesion diagnostics
+            A_key = 'LUT_A_A0_cold' if label == 'Cold' else 'LUT_A_A0_hot'
+            A_slice = r[A_key][:, i_p, :] if A_key in r else None
+            title_lines = (
+                f'{label}  $p_0$={p0:.3g} MPa\n'
+                f'$\\mu$: {Z.min():.4f} ~ {Z.max():.4f}')
+            if A_slice is not None:
+                title_lines += f'\nA/A₀: {A_slice.min():.4f} ~ {A_slice.max():.4f}'
+            ax.set_title(title_lines, fontsize=8, fontweight='bold')
+            ax.invert_yaxis()
+            ax.view_init(elev=25, azim=225)
+            ax.tick_params(labelsize=7)
 
         for i_p, p0 in enumerate(p0_arr):
-            # ── Cold surface (row 1) ──
-            ax_cold = fig.add_subplot(2, n_cols, i_p + 1, projection='3d')
+            group_idx = i_p // MAX_COLS
+            col_idx = i_p % MAX_COLS
+
+            # ── Cold surface ──
+            cold_row = group_idx * n_rows  # 0-based row in grid
+            subplot_idx = cold_row * n_cols_eff + col_idx + 1
+            ax_cold = fig.add_subplot(n_grid_rows, n_cols_eff, subplot_idx, projection='3d')
             self._fm_3d_axes.append(ax_cold)
             Z_cold = r['LUT_cold'][:, i_p, :]
-            z_range_c = Z_cold.max() - Z_cold.min()
+            _plot_surface(ax_cold, Z_cold, T_arr, log_v, 'viridis', 'Cold', p0)
 
-            if use_fine:
-                try:
-                    sp_c = RectBivariateSpline(T_arr, log_v, Z_cold)
-                    Z_c_f = sp_c(T_fine, log_v_fine)
-                    surf_c = ax_cold.plot_surface(T_mesh_f, V_mesh_f, Z_c_f,
-                                                  cmap='viridis', alpha=0.85,
-                                                  rstride=1, cstride=1,
-                                                  linewidth=0, antialiased=False,
-                                                  rasterized=True)
-                except Exception:
-                    surf_c = ax_cold.plot_surface(T_mesh, V_mesh, Z_cold,
-                                                  cmap='viridis', alpha=0.85,
-                                                  rasterized=True)
-            else:
-                surf_c = ax_cold.plot_surface(T_mesh, V_mesh, Z_cold,
-                                              cmap='viridis', alpha=0.85,
-                                              rasterized=True)
-            ax_cold.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=8)
-            ax_cold.set_ylabel(r'$\log_{10}(v)$', fontsize=8)
-            ax_cold.set_zlabel(r'$\mu$', fontsize=8)
-            ax_cold.set_title(
-                f'Cold  $p_0$={p0:.3g} MPa\n'
-                f'$\\mu$: {Z_cold.min():.4f} ~ {Z_cold.max():.4f}',
-                fontsize=9, fontweight='bold')
-            ax_cold.invert_yaxis()
-            ax_cold.view_init(elev=25, azim=225)
-            ax_cold.tick_params(labelsize=7)
-
-            # ── Hot surface (row 2) ──
-            ax_hot = fig.add_subplot(2, n_cols, n_cols + i_p + 1, projection='3d')
-            self._fm_3d_axes.append(ax_hot)
-            Z_hot = r['LUT_hot'][:, i_p, :]
-
-            if use_fine:
-                try:
-                    sp_h = RectBivariateSpline(T_arr, log_v, Z_hot)
-                    Z_h_f = sp_h(T_fine, log_v_fine)
-                    surf_h = ax_hot.plot_surface(T_mesh_f, V_mesh_f, Z_h_f,
-                                                 cmap='inferno', alpha=0.85,
-                                                 rstride=1, cstride=1,
-                                                 linewidth=0, antialiased=False,
-                                                 rasterized=True)
-                except Exception:
-                    surf_h = ax_hot.plot_surface(T_mesh, V_mesh, Z_hot,
-                                                 cmap='inferno', alpha=0.85,
-                                                 rasterized=True)
-            else:
-                surf_h = ax_hot.plot_surface(T_mesh, V_mesh, Z_hot,
-                                             cmap='inferno', alpha=0.85,
-                                             rasterized=True)
-            ax_hot.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=8)
-            ax_hot.set_ylabel(r'$\log_{10}(v)$', fontsize=8)
-            ax_hot.set_zlabel(r'$\mu$', fontsize=8)
-            ax_hot.set_title(
-                f'Hot  $p_0$={p0:.3g} MPa\n'
-                f'$\\mu$: {Z_hot.min():.4f} ~ {Z_hot.max():.4f}',
-                fontsize=9, fontweight='bold')
-            ax_hot.invert_yaxis()
-            ax_hot.view_init(elev=25, azim=225)
-            ax_hot.tick_params(labelsize=7)
+            # ── Hot surface (only if flash enabled) ──
+            if has_hot:
+                hot_row = cold_row + 1
+                subplot_idx_h = hot_row * n_cols_eff + col_idx + 1
+                ax_hot = fig.add_subplot(n_grid_rows, n_cols_eff, subplot_idx_h, projection='3d')
+                self._fm_3d_axes.append(ax_hot)
+                Z_hot = r['LUT_hot'][:, i_p, :]
+                _plot_surface(ax_hot, Z_hot, T_arr, log_v, 'inferno', 'Hot', p0)
 
         # ── Top toolbar with Reset button ──
         import tkinter as tk_local
@@ -21413,23 +21423,62 @@ class PerssonModelGUI_V2:
                                     command=_reset_fm_view, width=12)
         reset_btn.pack(side=tk_local.LEFT, padx=4, pady=2)
 
-        # Canvas fills available space; resize figure to match window
-        canvas = FigureCanvasTkAgg(fig, master=right_frame)
+        # Scrollable canvas for the matplotlib figure
+        scroll_frame = tk_local.Frame(right_frame)
+        scroll_frame.pack(fill=tk_local.BOTH, expand=True)
+
+        v_scrollbar = ttk.Scrollbar(scroll_frame, orient=tk_local.VERTICAL)
+        h_scrollbar = ttk.Scrollbar(scroll_frame, orient=tk_local.HORIZONTAL)
+        plot_canvas = tk_local.Canvas(scroll_frame,
+                                       yscrollcommand=v_scrollbar.set,
+                                       xscrollcommand=h_scrollbar.set)
+
+        v_scrollbar.config(command=plot_canvas.yview)
+        h_scrollbar.config(command=plot_canvas.xview)
+        v_scrollbar.pack(side=tk_local.RIGHT, fill=tk_local.Y)
+        h_scrollbar.pack(side=tk_local.BOTTOM, fill=tk_local.X)
+        plot_canvas.pack(side=tk_local.LEFT, fill=tk_local.BOTH, expand=True)
+
+        # Embed matplotlib figure into inner frame
+        inner_frame = tk_local.Frame(plot_canvas)
+        canvas = FigureCanvasTkAgg(fig, master=inner_frame)
         canvas.draw()
         canvas_widget = canvas.get_tk_widget()
         canvas_widget.pack(fill=tk_local.BOTH, expand=True)
 
-        def _on_resize(event):
-            w_px = event.width
-            h_px = event.height
-            if w_px < 50 or h_px < 50:
-                return
-            dpi = fig.get_dpi()
-            fig.set_size_inches(w_px / dpi, h_px / dpi, forward=True)
-            fig.subplots_adjust(left=0.03, right=0.97, top=0.93, bottom=0.05,
-                                wspace=0.3, hspace=0.28)
-            canvas.draw_idle()
-        canvas_widget.bind('<Configure>', _on_resize)
+        # Set the canvas widget size to match the figure
+        dpi = fig.get_dpi()
+        fig_w_px = int(fig_w * dpi)
+        fig_h_px = int(fig_h * dpi)
+        canvas_widget.config(width=fig_w_px, height=fig_h_px)
+
+        plot_canvas.create_window((0, 0), window=inner_frame, anchor='nw')
+
+        def _update_scrollregion(event=None):
+            plot_canvas.configure(scrollregion=plot_canvas.bbox('all'))
+        inner_frame.bind('<Configure>', _update_scrollregion)
+
+        # Mousewheel scrolling for the plot canvas
+        def _on_mousewheel(event):
+            if event.delta:
+                plot_canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+            elif event.num == 4:
+                plot_canvas.yview_scroll(-1, 'units')
+            elif event.num == 5:
+                plot_canvas.yview_scroll(1, 'units')
+
+        def _bind_mw(event):
+            plot_canvas.bind_all('<MouseWheel>', _on_mousewheel)
+            plot_canvas.bind_all('<Button-4>', _on_mousewheel)
+            plot_canvas.bind_all('<Button-5>', _on_mousewheel)
+
+        def _unbind_mw(event):
+            plot_canvas.unbind_all('<MouseWheel>')
+            plot_canvas.unbind_all('<Button-4>')
+            plot_canvas.unbind_all('<Button-5>')
+
+        plot_canvas.bind('<Enter>', _bind_mw)
+        plot_canvas.bind('<Leave>', _unbind_mw)
 
         # Store for later use
         self._fm_fig = fig
@@ -21484,6 +21533,30 @@ class PerssonModelGUI_V2:
             lines.append(f"    mu_adh:   [{adh_slice.min():.4f}, {adh_slice.max():.4f}]")
             lines.append(f"    A/A0:     [{aa0_slice.min():.6f}, {aa0_slice.max():.6f}]")
             lines.append(f"    mu_hot:   [{hot_slice.min():.4f}, {hot_slice.max():.4f}]")
+            lines.append("")
+
+        # A/A0 linearity check: in Persson's theory A/A0 ∝ p0 at low loads
+        if len(p0_arr) >= 2:
+            lines.append("── A/A0 하중 비례 검증 (Persson 선형 영역 확인) ──")
+            lines.append("  Persson 이론: A/A0 ∝ p0 (저하중 선형 영역)")
+            lines.append("  → mu_adh = τ_f/p0 × A/A0 ≈ 일정 (하중 무관)")
+            lines.append("")
+            # Pick middle T index for comparison
+            i_T_mid = len(T_arr) // 2
+            lines.append(f"  T0={T_arr[i_T_mid]:.0f}°C 기준 (중간 속도):")
+            i_v_mid = len(v_arr) // 2
+            for i_p, p0 in enumerate(p0_arr):
+                aa0_val = r['LUT_A_A0_cold'][i_T_mid, i_p, i_v_mid]
+                ratio = aa0_val / (p0 * 1e6) if p0 > 0 else 0
+                mu_adh_val = r['LUT_mu_adh_cold'][i_T_mid, i_p, i_v_mid]
+                mu_visc_val = r['LUT_mu_visc_cold'][i_T_mid, i_p, i_v_mid]
+                lines.append(
+                    f"    p0={p0:.3g} MPa: A/A0={aa0_val:.6f}, "
+                    f"A/A0÷p0={ratio:.6e}, "
+                    f"μ_adh={mu_adh_val:.6f}, μ_visc={mu_visc_val:.6f}")
+            lines.append("")
+            lines.append("  ※ A/A0÷p0 값이 일정하면 → 선형 영역 (Amontons 법칙 성립)")
+            lines.append("  ※ 고하중에서 A/A0÷p0 감소 → 비선형 영역 (포화 시작)")
             lines.append("")
 
         lines.append(f"계산 시간: {elapsed:.1f}s")
