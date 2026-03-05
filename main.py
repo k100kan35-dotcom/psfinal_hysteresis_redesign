@@ -11860,7 +11860,13 @@ class PerssonModelGUI_V2:
             except (ValueError, AttributeError):
                 self.g_calculator.PSD_NORMALIZATION_FACTOR = 1.5625
 
-            # ALWAYS recalculate G(q) with current normalization factor
+            # σ₀ 동기화: g_calculator의 sigma_0 & prefactor를 현재 GUI 값으로 갱신
+            # (aT 시프트 실패 시에도 반드시 반영되도록)
+            self.g_calculator.update_parameters(sigma_0=sigma_0, poisson_ratio=poisson)
+            print(f"[mu_visc] g_calculator sigma_0 updated: {sigma_0:.2e} Pa, "
+                  f"prefactor={self.g_calculator.prefactor:.6e}")
+
+            # ALWAYS recalculate G(q) with current normalization factor and sigma_0
             # This ensures Tab 2's G(q) graph and Tab 5's A/A0 use consistent values
             self.status_var.set("G(q) 재계산 중 (정규화 적용)...")
             self.root.update()
@@ -11882,6 +11888,10 @@ class PerssonModelGUI_V2:
                     progress = int((j + 1) / len(v) * 25)
                     self.mu_progress_var.set(progress)
                     self.root.update()
+
+            # Diagnostic: verify G depends on sigma_0
+            print(f"[mu_visc] G recalculated: G_max={G_matrix_corrected.max():.4e}, "
+                  f"P_min={P_matrix_corrected.min():.4f}, sigma_0={sigma_0/1e6:.4f} MPa")
 
             # Update self.results['2d_results'] so Tab 2's G(q) graph shows correct values
             self.results['2d_results']['G_matrix'] = G_matrix_corrected
@@ -12002,6 +12012,9 @@ class PerssonModelGUI_V2:
             mu_array_raw, details = friction_calc.calculate_mu_visc_multi_velocity(
                 q, G_matrix_corrected, v, C_q, progress_callback, strain_estimator=strain_est
             )
+            print(f"[mu_visc] Cold result: sigma_0={sigma_0/1e6:.4f} MPa, "
+                  f"prefactor={friction_calc.prefactor:.6e}, "
+                  f"mu_visc: {mu_array_raw.min():.6f}~{mu_array_raw.max():.6f}")
 
             # ===== Flash Temperature (Hot Pass) with Self-Consistent Iteration =====
             use_flash = self.use_flash_temp_var.get()
@@ -20916,6 +20929,9 @@ class PerssonModelGUI_V2:
                     loss_modulus_func=loss_func,
                 )
                 g_calc.PSD_NORMALIZATION_FACTOR = norm_factor
+                print(f"    [_compute] p0={p0_val/1e6:.4f} MPa, "
+                      f"g_calc.prefactor={g_calc.prefactor:.6e}, "
+                      f"g_calc.sigma_0={g_calc.sigma_0:.2e}")
 
                 # Apply nonlinear correction if enabled
                 if apply_fg and use_fg:
@@ -20987,6 +21003,12 @@ class PerssonModelGUI_V2:
                 for j in range(n_v_local):
                     P_j = details['details'][j]['P']
                     A_A0_arr[j] = P_j[-1]
+
+                # Diagnostic: verify G and mu depend on sigma_0
+                print(f"    [_compute] p0={p0_val/1e6:.4f} MPa → "
+                      f"G_max={G_matrix_local.max():.4e}, "
+                      f"P_min={A_A0_arr.min():.4f}, "
+                      f"mu_visc: {mu_array.min():.6f}~{mu_array.max():.6f}")
 
                 return mu_array, A_A0_arr
 
