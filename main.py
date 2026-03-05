@@ -20834,7 +20834,8 @@ class PerssonModelGUI_V2:
         ttk.Label(ctrl1, text="데이터:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
         self.fm_graph_data_var = tk.StringVar(value="mu_total")
         for label, val in [("A/A0", "A_A0"), ("tau_s", "tau_f"),
-                           ("mu_hys", "mu_visc"), ("mu_adh", "mu_adh"), ("mu_total", "mu_total")]:
+                           ("mu_hys", "mu_visc"), ("mu_adh", "mu_adh"), ("mu_total", "mu_total"),
+                           ("F_hys", "F_visc"), ("F_adh", "F_adh"), ("F_total", "F_total")]:
             ttk.Radiobutton(ctrl1, text=label, variable=self.fm_graph_data_var,
                             value=val, command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
 
@@ -20923,19 +20924,28 @@ class PerssonModelGUI_V2:
         if not self.fm_graph_p0_var.get() and p0_vals:
             self.fm_graph_p0_var.set(p0_vals[len(p0_vals) // 2])
 
-        # Select LUT
-        suffix = '_cold' if branch == 'cold' else '_hot'
-        if data_key == 'mu_total':
-            lut_key = 'LUT_cold' if branch == 'cold' else 'LUT_hot'
+        # Select LUT — handle F_ (force) keys by mapping to mu LUT × p0
+        is_force = data_key.startswith('F_')
+        if is_force:
+            mu_key = data_key.replace('F_', '', 1)  # F_visc→visc, F_adh→adh, F_total→total
         else:
-            lut_key = f'LUT_{data_key}{suffix}'
+            mu_key = data_key
+
+        suffix = '_cold' if branch == 'cold' else '_hot'
+        if mu_key in ('mu_total', 'total'):
+            lut_key = 'LUT_cold' if branch == 'cold' else 'LUT_hot'
+        elif mu_key == 'visc':
+            lut_key = f'LUT_mu_visc{suffix}'
+        elif mu_key == 'adh':
+            lut_key = f'LUT_mu_adh{suffix}'
+        else:
+            lut_key = f'LUT_{mu_key}{suffix}'
         LUT = r.get(lut_key)
         if LUT is None:
             return
 
         # Determine which T, p0 indices to plot
         if mode == 'fix_T':
-            # T fixed → show all p0 lines
             try:
                 sel_T = float(self.fm_graph_T_var.get())
                 i_T = int(np.argmin(np.abs(T_arr - sel_T)))
@@ -20944,7 +20954,6 @@ class PerssonModelGUI_V2:
             T_indices = [i_T]
             p0_indices = list(range(len(p0_arr)))
         elif mode == 'fix_p0':
-            # p0 fixed → show all T lines
             try:
                 sel_p0 = float(self.fm_graph_p0_var.get())
                 i_p = int(np.argmin(np.abs(p0_arr - sel_p0)))
@@ -20953,7 +20962,6 @@ class PerssonModelGUI_V2:
             T_indices = list(range(len(T_arr)))
             p0_indices = [i_p]
         else:
-            # All combinations
             T_indices = list(range(len(T_arr)))
             p0_indices = list(range(len(p0_arr)))
 
@@ -20967,11 +20975,13 @@ class PerssonModelGUI_V2:
             T0 = T_arr[i_T]
             for i_p in p0_indices:
                 p0 = p0_arr[i_p]
-                data = LUT[i_T, i_p, :]
+                data = LUT[i_T, i_p, :].copy()
                 if data_key == 'tau_f':
                     data = data / 1e6
+                elif is_force:
+                    # F = μ × p₀ (MPa)
+                    data = data * p0
 
-                # Color/style: distinguish by varying axis
                 if mode == 'fix_T':
                     c = colors_p[i_p % len(colors_p)]
                     ls = '-'
@@ -20994,24 +21004,36 @@ class PerssonModelGUI_V2:
             if v_ref is not None:
                 overlay_data = None
                 overlay_label = None
-                if data_key == 'mu_visc':
+                # Tab σ₀ for force overlay (MPa)
+                try:
+                    tab_sigma0_MPa = float(self.sigma_0_var.get())
+                except (ValueError, AttributeError):
+                    tab_sigma0_MPa = 0.3
+
+                if data_key in ('mu_visc', 'F_visc'):
                     overlay_data = mvr.get('mu') if branch == 'cold' else mvr.get('mu_hot')
-                    overlay_label = 'mu_visc 탭 (mu_hys)'
+                    if overlay_data is not None and data_key == 'F_visc':
+                        overlay_data = overlay_data * tab_sigma0_MPa
+                    overlay_label = f'탭 검증 (F_hys, σ₀={tab_sigma0_MPa}MPa)' if is_force else 'mu_visc 탭 (mu_hys)'
                 elif data_key == 'A_A0':
                     overlay_data = mvr.get('A_A0_cold') if branch == 'cold' else mvr.get('A_A0_hot')
                     overlay_label = 'mu_visc 탭 (A/A0)'
-                elif data_key == 'mu_total':
+                elif data_key in ('mu_total', 'F_total'):
                     mu_v = mvr.get('mu') if branch == 'cold' else mvr.get('mu_hot')
                     mar = getattr(self, 'mu_adh_results', None)
                     mu_a = mar.get('mu_adh') if mar else None
                     if mu_v is not None and mu_a is not None and len(mu_v) == len(mu_a):
                         overlay_data = mu_v + mu_a
-                        overlay_label = 'mu_visc+mu_adh 탭 (total)'
-                elif data_key == 'mu_adh':
+                        if is_force:
+                            overlay_data = overlay_data * tab_sigma0_MPa
+                        overlay_label = f'탭 검증 (F_total, σ₀={tab_sigma0_MPa}MPa)' if is_force else 'mu_visc+mu_adh 탭 (total)'
+                elif data_key in ('mu_adh', 'F_adh'):
                     mar = getattr(self, 'mu_adh_results', None)
                     if mar:
                         overlay_data = mar.get('mu_adh')
-                        overlay_label = 'mu_adh 탭'
+                        if overlay_data is not None and is_force:
+                            overlay_data = overlay_data * tab_sigma0_MPa
+                        overlay_label = f'탭 검증 (F_adh, σ₀={tab_sigma0_MPa}MPa)' if is_force else 'mu_adh 탭'
                 elif data_key == 'tau_f':
                     mar = getattr(self, 'mu_adh_results', None)
                     if mar and mar.get('tau_f') is not None:
@@ -21024,7 +21046,9 @@ class PerssonModelGUI_V2:
 
         # Axis labels and title
         y_labels = {'mu_total': r'$\mu_{total}$', 'A_A0': 'A/A₀', 'tau_f': r'$\tau_s$ (MPa)',
-                    'mu_visc': r'$\mu_{hysteresis}$', 'mu_adh': r'$\mu_{adhesion}$'}
+                    'mu_visc': r'$\mu_{hysteresis}$', 'mu_adh': r'$\mu_{adhesion}$',
+                    'F_visc': r'$F_{hys}$ (MPa)', 'F_adh': r'$F_{adh}$ (MPa)',
+                    'F_total': r'$F_{total}$ (MPa)'}
         mode_desc = {'fix_T': f'T={T_arr[T_indices[0]]:.0f}°C 고정',
                      'fix_p0': f'p₀={p0_arr[p0_indices[0]]:.3g} MPa 고정',
                      'all': '전체'}
