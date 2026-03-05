@@ -21029,30 +21029,150 @@ class PerssonModelGUI_V2:
                     LUT_A_A0_cold[i_T, i_p, :] = A_A0_cold
                     LUT_cold[i_T, i_p, :] = mu_cold_total
 
-                    # ── Hot branch: flash temperature iteration ──
+                    # ── Hot branch: per-q flash temperature (Persson Full) ──
                     if use_flash:
+                        from scipy.integrate import simpson as simpson_fm
+                        from scipy.interpolate import interp1d as interp1d_fm_hot
+
                         mu_visc_hot = np.zeros(n_v)
                         A_A0_hot = np.zeros(n_v)
                         delta_T_arr = np.zeros(n_v)
 
+                        # Fine q grid for per-q flash integration
+                        log_q_min_fm = np.log10(q[0])
+                        log_q_max_fm = np.log10(q[-1])
+                        n_q_hot_fm = max(int(np.ceil((log_q_max_fm - log_q_min_fm) / FM_DELNN)) + 1, n_q)
+                        q_hot_fm = np.logspace(log_q_min_fm, log_q_max_fm, n_q_hot_fm)
+                        C_q_hot_fm = self.psd_model(q_hot_fm)
+
+                        # Angle arrays for integration
+                        phi_fm = np.linspace(0, np.pi / 2, n_phi)
+                        cos_phi_fm = np.cos(phi_fm)
+                        prefactor_fm = 1.0 / ((1 - poisson**2) * p0_Pa)
+
+                        # Strain array on fine grid for nonlinear correction
+                        strain_arr_hot_fm = None
+                        if use_fg and rms_strain_interp_fm is not None:
+                            strain_arr_hot_fm = np.zeros(n_q_hot_fm)
+                            for i_s in range(n_q_hot_fm):
+                                try:
+                                    strain_arr_hot_fm[i_s] = np.clip(
+                                        10 ** rms_strain_interp_fm(np.log10(q_hot_fm[i_s])), 0.0, 1.0)
+                                except Exception:
+                                    strain_arr_hot_fm[i_s] = fixed_strain
+                        elif use_fg:
+                            strain_arr_hot_fm = np.full(n_q_hot_fm, fixed_strain)
+
+                        g_interp_fm = self.g_interpolator if use_fg else None
+
                         for j_v, v_j in enumerate(v_array):
-                            # Greenwood flash ΔT from cold mu_visc
-                            P_for_flash = np.clip(A_A0_cold[j_v], Amin_flash, Amax_flash)
-                            q_dot = flash_calc.heat_flux(P_for_flash, mu_visc_cold[j_v], p0_Pa, v_j)
-                            Jd = flash_calc.peclet_number(v_j)
-                            Jh = flash_calc.peclet_number_h(v_j)
-                            dT = flash_calc.delta_T(q_dot, Jd, Jh)
-                            delta_T_arr[j_v] = dT
+                            # Per-q forward pass with temperature accumulation
+                            G_hot_arr = np.zeros(n_q_hot_fm)
+                            P_hot_arr = np.ones(n_q_hot_fm)
+                            S_hot_arr = np.ones(n_q_hot_fm)
+                            integrand_hot = np.zeros(n_q_hot_fm)
+                            delta_T_per_q = np.zeros(n_q_hot_fm)
+                            T_acc = T0
+                            prev_G_int = 0.0
+                            prev_mu_int = 0.0
+                            mu_cumul = 0.0
 
-                            T_hot = T0 + dT
-                            log_aT_hot = float(self.persson_aT_interp(T_hot))
-                            aT_hot = 10 ** log_aT_hot
+                            for i in range(n_q_hot_fm):
+                                # WLF shift at accumulated temperature
+                                log_aT_i = float(self.persson_aT_interp(T_acc))
+                                aT_i = 10 ** log_aT_i
 
-                            # Recompute mu_visc at T_hot using GCalculator + FrictionCalculator
-                            mu_visc_hot_j, A_A0_hot_j = _compute_mu_visc_at_T_p0(
-                                aT_hot, p0_Pa, np.array([v_j]), apply_fg=use_fg)
-                            mu_visc_hot[j_v] = mu_visc_hot_j[0]
-                            A_A0_hot[j_v] = A_A0_hot_j[0]
+                                omega_phys = q_hot_fm[i] * v_j * cos_phi_fm
+                                omega_eff = np.maximum(omega_phys * aT_i, 1e-30)
+                                log_omega_eff = np.log10(omega_eff)
+
+                                log_Ep = E_storage_interp_fm(log_omega_eff)
+                                log_Epp = E_loss_interp_fm(log_omega_eff)
+                                Ep_vals = 10.0 ** np.clip(log_Ep, 4.0, None)
+                                Epp_vals = 10.0 ** np.clip(log_Epp, 3.0, None)
+
+                                # Nonlinear correction
+                                if use_fg and strain_arr_hot_fm is not None:
+                                    s_i = float(strain_arr_hot_fm[i]) if i < len(strain_arr_hot_fm) else fixed_strain
+                                    s_i = np.clip(s_i, 0.0, 1.0)
+                                    if self.f_interpolator is not None:
+                                        f_val = float(self.f_interpolator(s_i))
+                                        if np.isfinite(f_val):
+                                            Ep_vals = Ep_vals * np.clip(f_val, 0.01, 1.0)
+                                    if g_interp_fm is not None:
+                                        g_val = float(g_interp_fm(s_i))
+                                        if np.isfinite(g_val):
+                                            Epp_vals = Epp_vals * max(g_val, 0.01)
+
+                                # G integrand: |E*|²
+                                E_star_sq = Ep_vals**2 + Epp_vals**2
+                                G_int_phi = E_star_sq * prefactor_fm**2
+                                if n_phi >= 3:
+                                    G_angle_i = 4.0 * simpson_fm(G_int_phi, x=phi_fm)
+                                else:
+                                    G_angle_i = 4.0 * np.trapezoid(G_int_phi, phi_fm)
+
+                                G_full_i = q_hot_fm[i]**3 * C_q_hot_fm[i] * G_angle_i
+
+                                # Cumulative G (trapezoidal)
+                                if i > 0:
+                                    dq = q_hot_fm[i] - q_hot_fm[i - 1]
+                                    delta_G = 0.5 * (prev_G_int + G_full_i) * dq
+                                    G_hot_arr[i] = G_hot_arr[i - 1] + delta_G / (8.0 * norm_factor)
+                                prev_G_int = G_full_i
+
+                                # P(q) = erf(1/(2√G))
+                                if G_hot_arr[i] > 1e-10:
+                                    arg = min(1.0 / (2.0 * np.sqrt(G_hot_arr[i])), 10.0)
+                                    P_hot_arr[i] = float(erf_fm(arg))
+                                else:
+                                    P_hot_arr[i] = 1.0
+
+                                # S(q)
+                                S_hot_arr[i] = gamma + (1 - gamma) * P_hot_arr[i] ** p_exponent
+
+                                # μ integrand
+                                mu_phi_int = cos_phi_fm * Epp_vals * prefactor_fm
+                                if n_phi >= 3:
+                                    mu_angle_i = 4.0 * simpson_fm(mu_phi_int, x=phi_fm)
+                                else:
+                                    mu_angle_i = 4.0 * np.trapezoid(mu_phi_int, phi_fm)
+
+                                integrand_hot[i] = q_hot_fm[i]**3 * C_q_hot_fm[i] * P_hot_arr[i] * S_hot_arr[i] * mu_angle_i
+
+                                # Per-q ΔT (Persson Full per-scale diffusion)
+                                delta_mu_i = 0.0
+                                if i > 0:
+                                    dq = q_hot_fm[i] - q_hot_fm[i - 1]
+                                    delta_mu_i = 0.5 * 0.5 * (prev_mu_int + integrand_hot[i]) * dq
+                                    mu_cumul += delta_mu_i
+
+                                d_i = np.pi / q_hot_fm[i]
+                                Jd_i = v_j * d_i / flash_calc.D_th
+                                Jh_i = flash_calc.peclet_number_h(v_j)
+                                dq_dot_i = delta_mu_i * p0_Pa * v_j / max(P_hot_arr[i], 1e-6)
+                                if dq_dot_i > 0 and np.isfinite(dq_dot_i):
+                                    dT_i = (dq_dot_i * d_i) / (4.0 * flash_calc.kappa_th) / np.sqrt(
+                                        1.0 + (np.pi / 32.0) * Jd_i + (Jh_i**2) / 4.0)
+                                else:
+                                    dT_i = 0.0
+
+                                if i == 0:
+                                    delta_T_per_q[i] = 0.0
+                                else:
+                                    delta_T_per_q[i] = delta_T_per_q[i - 1] + dT_i
+                                T_acc = T0 + delta_T_per_q[i]
+
+                                prev_mu_int = integrand_hot[i]
+
+                            # Integrate μ over q (fine grid)
+                            if n_q_hot_fm >= 3:
+                                mu_visc_hot[j_v] = 0.5 * simpson_fm(integrand_hot, x=q_hot_fm)
+                            else:
+                                mu_visc_hot[j_v] = 0.5 * np.trapezoid(integrand_hot, q_hot_fm)
+
+                            A_A0_hot[j_v] = P_hot_arr[-1]
+                            delta_T_arr[j_v] = delta_T_per_q[-1]
 
                         # Hot adhesion with per-velocity Arrhenius shift at T_hot
                         T_hot_arr = T0 + delta_T_arr
