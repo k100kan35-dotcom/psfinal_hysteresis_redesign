@@ -20793,21 +20793,16 @@ class PerssonModelGUI_V2:
             results_2d = self.results['2d_results']
             q_full = results_2d['q']
 
-            # ── 마찰맵 전용 속도 최적화: 파수/적분 포인트 축소 ──
-            FM_N_Q = 9       # 파수 포인트 수 (원본 대비 축소)
-            FM_N_PHI = 9     # G & μ 파이적분 포인트 수 (원본 대비 축소)
-            FM_DELNN = 0.1   # Flash 적분 스텝 (원본 대비 확대)
-            print(f"[FrictionMap] 속도 최적화: n_q={FM_N_Q}, n_phi={FM_N_PHI} (원본 q={len(q_full)}pts)")
-
-            # q 배열을 FM_N_Q 포인트로 리샘플링
-            q = np.logspace(np.log10(q_full[0]), np.log10(q_full[-1]), FM_N_Q)
+            # ── mu_visc 탭과 동일한 q 그리드 & 적분 해상도 사용 ──
+            q = q_full.copy()
             n_q = len(q)
             C_q = self.psd_model(q)
+            print(f"[FrictionMap] mu_visc 탭과 동일 해상도: n_q={n_q}")
 
-            # Read mu_visc tab settings
+            # Read mu_visc tab settings (동일 파라미터)
             poisson = float(self.poisson_var.get())
             gamma = float(self.gamma_var.get())
-            n_phi = FM_N_PHI  # 마찰맵 전용 축소 포인트
+            n_phi = int(self.n_phi_var.get())  # mu_visc 탭과 동일
             use_fg = self.use_fg_correction_var.get()
 
             sq_method = getattr(self, 'sq_method_var', None)
@@ -21013,11 +21008,18 @@ class PerssonModelGUI_V2:
                     P_j = details['details'][j]['P']
                     A_A0_arr[j] = P_j[-1]
 
-                # Diagnostic: verify G and mu depend on sigma_0
+                # Diagnostic: G, erf argument, P, mu at each pressure
+                G_max = G_matrix_local.max()
+                G_at_qmax_mid = G_matrix_local[-1, n_v_local // 2]  # G(q_max) at mid velocity
+                erf_arg = 1.0 / (2.0 * np.sqrt(G_at_qmax_mid)) if G_at_qmax_mid > 0 else float('inf')
                 print(f"    [_compute] p0={p0_val/1e6:.4f} MPa → "
-                      f"G_max={G_matrix_local.max():.4e}, "
-                      f"P_min={A_A0_arr.min():.4f}, "
+                      f"G(q_max,v_mid)={G_at_qmax_mid:.4e}, "
+                      f"erf_arg={erf_arg:.6f}, "
+                      f"A/A0: {A_A0_arr.min():.6f}~{A_A0_arr.max():.6f}, "
                       f"mu_visc: {mu_array.min():.6f}~{mu_array.max():.6f}")
+                if erf_arg < 0.5:
+                    print(f"    ⚠ erf_arg={erf_arg:.6f} < 0.5 → erf 선형 근사 영역 "
+                          f"(A/A0 ∝ p0, μ_adh 하중 무관해짐)")
 
                 return mu_array, A_A0_arr
 
@@ -21077,10 +21079,15 @@ class PerssonModelGUI_V2:
                         A_A0_hot = np.zeros(n_v)
                         delta_T_arr = np.zeros(n_v)
 
-                        # Fine q grid for per-q flash integration
+                        # Fine q grid for per-q flash integration (delnn from GUI)
+                        try:
+                            delnn_fm = float(self.flash_delnn_var.get())
+                        except (ValueError, AttributeError):
+                            delnn_fm = 0.05
+                        delnn_fm = max(delnn_fm, 0.001)
                         log_q_min_fm = np.log10(q[0])
                         log_q_max_fm = np.log10(q[-1])
-                        n_q_hot_fm = max(int(np.ceil((log_q_max_fm - log_q_min_fm) / FM_DELNN)) + 1, n_q)
+                        n_q_hot_fm = max(int(np.ceil((log_q_max_fm - log_q_min_fm) / delnn_fm)) + 1, n_q)
                         q_hot_fm = np.logspace(log_q_min_fm, log_q_max_fm, n_q_hot_fm)
                         C_q_hot_fm = self.psd_model(q_hot_fm)
 
