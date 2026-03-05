@@ -20942,7 +20942,8 @@ class PerssonModelGUI_V2:
                             S_q = gamma + (1 - gamma) * P_q**p_exponent
 
                             # mu integrand: (1/2) q³ C(q) P(q) S(q) × angle_integral(E''_eff/σ₀)
-                            mu_angle = np.trapz(cos_phi_arr * Epp_eff, phi_arr)
+                            # ×4 symmetry: ∫₀^{2π} = 4 × ∫₀^{π/2}
+                            mu_angle = 4.0 * np.trapz(cos_phi_arr * Epp_eff, phi_arr)
                             mu_integrand = 0.5 * qi**3 * Ci * P_q * S_q * mu_angle * prefactor
 
                             if i_q > 0:
@@ -21021,7 +21022,8 @@ class PerssonModelGUI_V2:
                                     P_q_h = 1.0
                                 S_q_h = gamma + (1 - gamma) * P_q_h**p_exponent
 
-                                mu_angle_h = np.trapz(cos_phi_arr * Epp_h_eff, phi_arr)
+                                # ×4 symmetry: ∫₀^{2π} = 4 × ∫₀^{π/2}
+                                mu_angle_h = 4.0 * np.trapz(cos_phi_arr * Epp_h_eff, phi_arr)
                                 mu_integrand_h = 0.5 * qi**3 * Ci * P_q_h * S_q_h * mu_angle_h * prefactor_h
 
                                 if i_q > 0:
