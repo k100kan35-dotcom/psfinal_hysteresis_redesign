@@ -20615,6 +20615,7 @@ class PerssonModelGUI_V2:
         that can be used as LUTs for the 2D Brush tire dynamics model.
         """
         layout = self._create_tab_layout(parent, toolbar_buttons=[
+            ("시험 Run", self._test_run_pipeline, 'TButton'),
             ("Friction Map 생성", self._calculate_friction_map, 'Accent.TButton'),
             ("LUT 내보내기 (CSV)", self._export_friction_map_csv, 'TButton'),
         ])
@@ -20723,6 +20724,144 @@ class PerssonModelGUI_V2:
                                        wrap=tk.WORD, state=tk.DISABLED)
         self.fm_result_text.pack(fill=tk.BOTH, expand=True, pady=2)
 
+    def _test_run_pipeline(self):
+        """시험 Run: 내장 데이터를 사용하여 전체 파이프라인을 자동 실행.
+
+        1) PSD 로드 → 확정
+        2) 마스터 커브 로드 → aT 로드 → 스무딩 → 확정
+        3) IDIADA 프리셋 로드 → G(q,v) 계산
+        4) Strain Sweep 로드 → f,g 계산 → 외삽 → Persson avg f,g
+        5) 비선형 f,g 보정 ON, Flash Temperature ON
+        6) mu_visc 계산
+        7) mu_dry 로드 → 자동 피팅 → 피팅 완료
+        8) Cold & Hot Branch 계산
+        """
+        import time
+
+        steps = [
+            "1/8  PSD 로드 (IDIADA_PSD.txt)",
+            "2/8  마스터 커브 & aT 로드",
+            "3/8  G(q,v) 계산",
+            "4/8  Strain Sweep → f,g 계산",
+            "5/8  mu_visc 계산",
+            "6/8  mu_adh 자동 피팅",
+            "7/8  mu_adh 피팅 완료",
+            "8/8  Cold & Hot Branch 계산",
+        ]
+
+        try:
+            # ── Step 1: PSD 로드 & 확정 ──
+            self.status_var.set(steps[0])
+            self.root.update()
+
+            self.preset_psd_var.set("IDIADA_PSD.txt")
+            self._load_preset_psd()
+            self.root.update()
+
+            self._apply_profile_psd_to_tab3()
+            self.root.update()
+            print("[TestRun] Step 1 완료: PSD 로드 & 확정")
+
+            # ── Step 2: 마스터 커브 & aT 로드 → 스무딩 → 확정 ──
+            self.status_var.set(steps[1])
+            self.root.update()
+
+            self.preset_mc_var.set("S100_master_final.txt")
+            self._load_preset_mastercurve()
+            self.root.update()
+
+            self.preset_aT_var.set("S100_at_final.txt")
+            self._load_preset_aT()
+            self.root.update()
+
+            self._apply_smoothing_to_persson()
+            self.root.update()
+
+            self._use_persson_master_curve_for_calc()
+            self.root.update()
+            print("[TestRun] Step 2 완료: 마스터 커브 & aT 확정")
+
+            # ── Step 3: IDIADA 프리셋 로드 → G(q,v) 계산 ──
+            self.status_var.set(steps[2])
+            self.root.update()
+
+            self.surface_q1_var.set("IDIADA")
+            self._load_preset_surface_q1()
+            self.root.update()
+
+            self._run_calculation()
+            self.root.update()
+            print("[TestRun] Step 3 완료: G(q,v) 계산")
+
+            # ── Step 4: Strain Sweep → f,g 계산 → 외삽 → Persson avg ──
+            self.status_var.set(steps[3])
+            self.root.update()
+
+            self.preset_ss_var.set("S100_Y1_final.txt")
+            self._load_preset_strain_sweep()
+            self.root.update()
+
+            self._compute_fg_curves()
+            self.root.update()
+
+            self._extrapolate_fg_curves()
+            self.root.update()
+
+            self._persson_average_fg()
+            self.root.update()
+            print("[TestRun] Step 4 완료: f,g 계산 & Persson 평균")
+
+            # ── Step 5: 비선형 보정 ON, Flash ON → mu_visc 계산 ──
+            self.status_var.set(steps[4])
+            self.root.update()
+
+            self.use_fg_correction_var.set(True)
+            self.use_flash_temp_var.set(True)
+
+            self._calculate_mu_visc()
+            self.root.update()
+            print("[TestRun] Step 5 완료: mu_visc 계산")
+
+            # ── Step 6: mu_dry 프리셋 로드 → 자동 피팅 ──
+            self.status_var.set(steps[5])
+            self.root.update()
+
+            self.preset_mu_dry_var.set("S100_total_mu_exp.txt")
+            self._load_preset_mu_dry()
+            self.root.update()
+
+            self._run_auto_fit_mu_dry()
+            self.root.update()
+            print("[TestRun] Step 6 완료: mu_adh 자동 피팅")
+
+            # ── Step 7: mu_adh 피팅 완료 ──
+            self.status_var.set(steps[6])
+            self.root.update()
+
+            self._complete_adh_fitting()
+            self.root.update()
+            print("[TestRun] Step 7 완료: mu_adh 피팅 확정")
+
+            # ── Step 8: Cold & Hot Branch 계산 ──
+            self.status_var.set(steps[7])
+            self.root.update()
+
+            self._calculate_cold_hot_branch()
+            self.root.update()
+            print("[TestRun] Step 8 완료: Cold & Hot Branch")
+
+            self.status_var.set("시험 Run 완료 — Friction Map 생성 가능")
+            self._show_status(
+                "시험 Run 파이프라인 완료!\n\n"
+                "모든 전처리가 완료되었습니다.\n"
+                "'Friction Map 생성' 버튼을 눌러 마찰맵을 생성하세요.", 'success')
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.status_var.set(f"시험 Run 실패: {e}")
+            self._show_status(f"시험 Run 중 오류 발생:\n{str(e)}", 'error')
+
     def _calculate_friction_map(self):
         """Generate 3D friction map LUT (T0 × p0 × v) for Cold and Hot branches."""
         try:
@@ -20793,21 +20932,16 @@ class PerssonModelGUI_V2:
             results_2d = self.results['2d_results']
             q_full = results_2d['q']
 
-            # ── 마찰맵 전용 속도 최적화: 파수/적분 포인트 축소 ──
-            FM_N_Q = 9       # 파수 포인트 수 (원본 대비 축소)
-            FM_N_PHI = 9     # G & μ 파이적분 포인트 수 (원본 대비 축소)
-            FM_DELNN = 0.1   # Flash 적분 스텝 (원본 대비 확대)
-            print(f"[FrictionMap] 속도 최적화: n_q={FM_N_Q}, n_phi={FM_N_PHI} (원본 q={len(q_full)}pts)")
-
-            # q 배열을 FM_N_Q 포인트로 리샘플링
-            q = np.logspace(np.log10(q_full[0]), np.log10(q_full[-1]), FM_N_Q)
+            # ── mu_visc 탭과 동일한 q 그리드 & 적분 해상도 사용 ──
+            q = q_full.copy()
             n_q = len(q)
             C_q = self.psd_model(q)
+            print(f"[FrictionMap] mu_visc 탭과 동일 해상도: n_q={n_q}")
 
-            # Read mu_visc tab settings
+            # Read mu_visc tab settings (동일 파라미터)
             poisson = float(self.poisson_var.get())
             gamma = float(self.gamma_var.get())
-            n_phi = FM_N_PHI  # 마찰맵 전용 축소 포인트
+            n_phi = int(self.n_phi_var.get())  # mu_visc 탭과 동일
             use_fg = self.use_fg_correction_var.get()
 
             sq_method = getattr(self, 'sq_method_var', None)
@@ -21013,11 +21147,18 @@ class PerssonModelGUI_V2:
                     P_j = details['details'][j]['P']
                     A_A0_arr[j] = P_j[-1]
 
-                # Diagnostic: verify G and mu depend on sigma_0
+                # Diagnostic: G, erf argument, P, mu at each pressure
+                G_max = G_matrix_local.max()
+                G_at_qmax_mid = G_matrix_local[-1, n_v_local // 2]  # G(q_max) at mid velocity
+                erf_arg = 1.0 / (2.0 * np.sqrt(G_at_qmax_mid)) if G_at_qmax_mid > 0 else float('inf')
                 print(f"    [_compute] p0={p0_val/1e6:.4f} MPa → "
-                      f"G_max={G_matrix_local.max():.4e}, "
-                      f"P_min={A_A0_arr.min():.4f}, "
+                      f"G(q_max,v_mid)={G_at_qmax_mid:.4e}, "
+                      f"erf_arg={erf_arg:.6f}, "
+                      f"A/A0: {A_A0_arr.min():.6f}~{A_A0_arr.max():.6f}, "
                       f"mu_visc: {mu_array.min():.6f}~{mu_array.max():.6f}")
+                if erf_arg < 0.5:
+                    print(f"    ⚠ erf_arg={erf_arg:.6f} < 0.5 → erf 선형 근사 영역 "
+                          f"(A/A0 ∝ p0, μ_adh 하중 무관해짐)")
 
                 return mu_array, A_A0_arr
 
@@ -21077,10 +21218,15 @@ class PerssonModelGUI_V2:
                         A_A0_hot = np.zeros(n_v)
                         delta_T_arr = np.zeros(n_v)
 
-                        # Fine q grid for per-q flash integration
+                        # Fine q grid for per-q flash integration (delnn from GUI)
+                        try:
+                            delnn_fm = float(self.flash_delnn_var.get())
+                        except (ValueError, AttributeError):
+                            delnn_fm = 0.05
+                        delnn_fm = max(delnn_fm, 0.001)
                         log_q_min_fm = np.log10(q[0])
                         log_q_max_fm = np.log10(q[-1])
-                        n_q_hot_fm = max(int(np.ceil((log_q_max_fm - log_q_min_fm) / FM_DELNN)) + 1, n_q)
+                        n_q_hot_fm = max(int(np.ceil((log_q_max_fm - log_q_min_fm) / delnn_fm)) + 1, n_q)
                         q_hot_fm = np.logspace(log_q_min_fm, log_q_max_fm, n_q_hot_fm)
                         C_q_hot_fm = self.psd_model(q_hot_fm)
 
@@ -21535,28 +21681,21 @@ class PerssonModelGUI_V2:
             lines.append(f"    mu_hot:   [{hot_slice.min():.4f}, {hot_slice.max():.4f}]")
             lines.append("")
 
-        # A/A0 linearity check: in Persson's theory A/A0 ∝ p0 at low loads
+        # Per-pressure A/A0 및 mu 성분 상세 비교
         if len(p0_arr) >= 2:
-            lines.append("── A/A0 하중 비례 검증 (Persson 선형 영역 확인) ──")
-            lines.append("  Persson 이론: A/A0 ∝ p0 (저하중 선형 영역)")
-            lines.append("  → mu_adh = τ_f/p0 × A/A0 ≈ 일정 (하중 무관)")
-            lines.append("")
-            # Pick middle T index for comparison
+            lines.append("── 하중별 A/A0, μ_adh, μ_visc 상세 비교 ──")
             i_T_mid = len(T_arr) // 2
-            lines.append(f"  T0={T_arr[i_T_mid]:.0f}°C 기준 (중간 속도):")
             i_v_mid = len(v_arr) // 2
+            lines.append(f"  T0={T_arr[i_T_mid]:.0f}°C, v={v_arr[i_v_mid]:.2e} m/s 기준:")
+            lines.append(f"  {'p0(MPa)':>10} {'A/A0':>12} {'μ_adh':>12} {'μ_visc':>12} {'μ_total':>12}")
             for i_p, p0 in enumerate(p0_arr):
                 aa0_val = r['LUT_A_A0_cold'][i_T_mid, i_p, i_v_mid]
-                ratio = aa0_val / (p0 * 1e6) if p0 > 0 else 0
                 mu_adh_val = r['LUT_mu_adh_cold'][i_T_mid, i_p, i_v_mid]
                 mu_visc_val = r['LUT_mu_visc_cold'][i_T_mid, i_p, i_v_mid]
+                mu_total_val = r['LUT_cold'][i_T_mid, i_p, i_v_mid]
                 lines.append(
-                    f"    p0={p0:.3g} MPa: A/A0={aa0_val:.6f}, "
-                    f"A/A0÷p0={ratio:.6e}, "
-                    f"μ_adh={mu_adh_val:.6f}, μ_visc={mu_visc_val:.6f}")
-            lines.append("")
-            lines.append("  ※ A/A0÷p0 값이 일정하면 → 선형 영역 (Amontons 법칙 성립)")
-            lines.append("  ※ 고하중에서 A/A0÷p0 감소 → 비선형 영역 (포화 시작)")
+                    f"  {p0:>10.3g} {aa0_val:>12.6f} {mu_adh_val:>12.6f} "
+                    f"{mu_visc_val:>12.6f} {mu_total_val:>12.6f}")
             lines.append("")
 
         lines.append(f"계산 시간: {elapsed:.1f}s")
