@@ -21861,20 +21861,20 @@ class PerssonModelGUI_V2:
         # Determine which LUT to use
         is_force = data_type.startswith('F_')
         if is_force:
-            mu_key = data_type.replace('F_', '', 1)
+            base_key = data_type.replace('F_', '', 1)  # 'total', 'visc', 'adh'
         else:
-            mu_key = data_type
+            base_key = data_type  # 'mu_total', 'mu_visc', 'mu_adh', 'A_A0', 'tau_f'
 
         def _get_Z(branch, i_p):
             suffix = '_cold' if branch == 'cold' else '_hot'
-            if mu_key in ('mu_total', 'total'):
+            if base_key in ('mu_total', 'total'):
                 lut_key = 'LUT_cold' if branch == 'cold' else 'LUT_hot'
-            elif mu_key == 'visc':
+            elif base_key in ('mu_visc', 'visc'):
                 lut_key = f'LUT_mu_visc{suffix}'
-            elif mu_key == 'adh':
+            elif base_key in ('mu_adh', 'adh'):
                 lut_key = f'LUT_mu_adh{suffix}'
             else:
-                lut_key = f'LUT_{mu_key}{suffix}'
+                lut_key = f'LUT_{base_key}{suffix}'
             Z = r.get(lut_key)
             if Z is None:
                 return None
