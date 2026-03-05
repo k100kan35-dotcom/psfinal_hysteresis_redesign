@@ -21335,6 +21335,7 @@ class PerssonModelGUI_V2:
                 f'Cold  $p_0$={p0:.3g} MPa\n'
                 f'$\\mu$: {Z_cold.min():.4f} ~ {Z_cold.max():.4f}',
                 fontsize=9, fontweight='bold')
+            ax_cold.invert_yaxis()
             ax_cold.view_init(elev=25, azim=225)
             ax_cold.tick_params(labelsize=7)
             fig.colorbar(surf_c, ax=ax_cold, shrink=0.45, pad=0.08)
@@ -21368,6 +21369,7 @@ class PerssonModelGUI_V2:
                 f'Hot  $p_0$={p0:.3g} MPa\n'
                 f'$\\mu$: {Z_hot.min():.4f} ~ {Z_hot.max():.4f}',
                 fontsize=9, fontweight='bold')
+            ax_hot.invert_yaxis()
             ax_hot.view_init(elev=25, azim=225)
             ax_hot.tick_params(labelsize=7)
             fig.colorbar(surf_h, ax=ax_hot, shrink=0.45, pad=0.08)
@@ -21383,6 +21385,7 @@ class PerssonModelGUI_V2:
             """Reset all 3D axes to original view orientation."""
             for ax in self._fm_3d_axes:
                 ax.view_init(elev=25, azim=225)
+                ax.invert_yaxis()
             self._fm_canvas.draw_idle()
 
         reset_btn = tk_local.Button(toolbar_frame, text="View Reset",
