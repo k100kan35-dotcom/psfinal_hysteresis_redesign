@@ -21024,6 +21024,14 @@ class PerssonModelGUI_V2:
                     mu_adh_cold = (tau_f_cold / p0_Pa) * A_A0_cold
                     mu_cold_total = mu_visc_cold + mu_adh_cold
 
+                    # ── Diagnostic output for per-pressure verification ──
+                    print(f"  [T={T0:.0f}°C, p0={p0_Pa/1e6:.3f}MPa] "
+                          f"mu_visc: {mu_visc_cold.min():.6f}~{mu_visc_cold.max():.6f}, "
+                          f"mu_adh: {mu_adh_cold.min():.6f}~{mu_adh_cold.max():.6f}, "
+                          f"mu_total: {mu_cold_total.min():.6f}~{mu_cold_total.max():.6f}, "
+                          f"A/A0: {A_A0_cold.min():.6f}~{A_A0_cold.max():.6f}, "
+                          f"prefactor=1/((1-v^2)*s0)={1.0/((1-poisson**2)*p0_Pa):.6e}")
+
                     LUT_mu_visc_cold[i_T, i_p, :] = mu_visc_cold
                     LUT_mu_adh_cold[i_T, i_p, :] = mu_adh_cold
                     LUT_A_A0_cold[i_T, i_p, :] = A_A0_cold
@@ -21257,7 +21265,6 @@ class PerssonModelGUI_V2:
         """Plot 3D friction map surfaces for all pressures (Cold & Hot)."""
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
-        import matplotlib.cm as cm
 
         r = self.friction_map_results
         if r is None:
@@ -21276,24 +21283,33 @@ class PerssonModelGUI_V2:
         for w in right_frame.winfo_children():
             w.destroy()
 
-        # Layout: 2 columns (Cold | Hot) × n_p rows (one per pressure)
+        # Layout: 2 columns (Cold | Hot) x n_p rows (one per pressure)
         n_rows = max(n_p, 1)
-        fig = Figure(figsize=(14, max(4.5 * n_rows, 6)), dpi=100)
+        fig = Figure(figsize=(14, max(4.5 * n_rows, 6)), dpi=80)
 
         T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
 
-        # Prepare fine grid for smooth interpolation
+        # Prepare fine grid for smooth interpolation (reduced for performance)
         use_fine = len(T_arr) >= 2 and len(v_arr) >= 2
         if use_fine:
             from scipy.interpolate import RectBivariateSpline
-            T_fine = np.linspace(T_arr[0], T_arr[-1], 50)
-            log_v_fine = np.linspace(log_v[0], log_v[-1], 100)
+            T_fine = np.linspace(T_arr[0], T_arr[-1], 25)
+            log_v_fine = np.linspace(log_v[0], log_v[-1], 40)
             T_mesh_f, V_mesh_f = np.meshgrid(T_fine, log_v_fine, indexing='ij')
+
+        # Store axes for reset button
+        self._fm_3d_axes = []
+
+        # Compute shared z-limits across all pressures for meaningful comparison
+        z_max_cold = r['LUT_cold'].max()
+        z_max_hot = r['LUT_hot'].max()
 
         for i_p, p0 in enumerate(p0_arr):
             # ── Cold surface ──
             ax_cold = fig.add_subplot(n_rows, 2, i_p * 2 + 1, projection='3d')
+            self._fm_3d_axes.append(ax_cold)
             Z_cold = r['LUT_cold'][:, i_p, :]
+            z_range_c = Z_cold.max() - Z_cold.min()
 
             if use_fine:
                 try:
@@ -21301,22 +21317,31 @@ class PerssonModelGUI_V2:
                     Z_c_f = sp_c(T_fine, log_v_fine)
                     surf_c = ax_cold.plot_surface(T_mesh_f, V_mesh_f, Z_c_f,
                                                   cmap='viridis', alpha=0.85,
-                                                  linewidth=0, antialiased=True)
+                                                  rstride=1, cstride=1,
+                                                  linewidth=0, antialiased=False,
+                                                  rasterized=True)
                 except Exception:
                     surf_c = ax_cold.plot_surface(T_mesh, V_mesh, Z_cold,
-                                                  cmap='viridis', alpha=0.85)
+                                                  cmap='viridis', alpha=0.85,
+                                                  rasterized=True)
             else:
                 surf_c = ax_cold.plot_surface(T_mesh, V_mesh, Z_cold,
-                                              cmap='viridis', alpha=0.85)
-            ax_cold.set_xlabel('T₀ (°C)', fontsize=8)
-            ax_cold.set_ylabel('log₁₀(v)', fontsize=8)
-            ax_cold.set_zlabel('μ', fontsize=8)
-            ax_cold.set_title(f'Cold μ_total  p₀={p0:.3g} MPa', fontsize=9, fontweight='bold')
+                                              cmap='viridis', alpha=0.85,
+                                              rasterized=True)
+            ax_cold.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=8)
+            ax_cold.set_ylabel(r'$\log_{10}(v)$', fontsize=8)
+            ax_cold.set_zlabel(r'$\mu$', fontsize=8)
+            ax_cold.set_title(
+                f'Cold  $p_0$={p0:.3g} MPa\n'
+                f'$\\mu$: {Z_cold.min():.4f} ~ {Z_cold.max():.4f}',
+                fontsize=9, fontweight='bold')
             ax_cold.view_init(elev=25, azim=225)
+            ax_cold.tick_params(labelsize=7)
             fig.colorbar(surf_c, ax=ax_cold, shrink=0.45, pad=0.08)
 
             # ── Hot surface ──
             ax_hot = fig.add_subplot(n_rows, 2, i_p * 2 + 2, projection='3d')
+            self._fm_3d_axes.append(ax_hot)
             Z_hot = r['LUT_hot'][:, i_p, :]
 
             if use_fine:
@@ -21325,24 +21350,46 @@ class PerssonModelGUI_V2:
                     Z_h_f = sp_h(T_fine, log_v_fine)
                     surf_h = ax_hot.plot_surface(T_mesh_f, V_mesh_f, Z_h_f,
                                                  cmap='inferno', alpha=0.85,
-                                                 linewidth=0, antialiased=True)
+                                                 rstride=1, cstride=1,
+                                                 linewidth=0, antialiased=False,
+                                                 rasterized=True)
                 except Exception:
                     surf_h = ax_hot.plot_surface(T_mesh, V_mesh, Z_hot,
-                                                 cmap='inferno', alpha=0.85)
+                                                 cmap='inferno', alpha=0.85,
+                                                 rasterized=True)
             else:
                 surf_h = ax_hot.plot_surface(T_mesh, V_mesh, Z_hot,
-                                             cmap='inferno', alpha=0.85)
-            ax_hot.set_xlabel('T₀ (°C)', fontsize=8)
-            ax_hot.set_ylabel('log₁₀(v)', fontsize=8)
-            ax_hot.set_zlabel('μ', fontsize=8)
-            ax_hot.set_title(f'Hot μ_total  p₀={p0:.3g} MPa', fontsize=9, fontweight='bold')
+                                             cmap='inferno', alpha=0.85,
+                                             rasterized=True)
+            ax_hot.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=8)
+            ax_hot.set_ylabel(r'$\log_{10}(v)$', fontsize=8)
+            ax_hot.set_zlabel(r'$\mu$', fontsize=8)
+            ax_hot.set_title(
+                f'Hot  $p_0$={p0:.3g} MPa\n'
+                f'$\\mu$: {Z_hot.min():.4f} ~ {Z_hot.max():.4f}',
+                fontsize=9, fontweight='bold')
             ax_hot.view_init(elev=25, azim=225)
+            ax_hot.tick_params(labelsize=7)
             fig.colorbar(surf_h, ax=ax_hot, shrink=0.45, pad=0.08)
 
         fig.tight_layout(pad=2.0)
 
-        # Scrollable canvas for many pressures
+        # ── Top toolbar with Reset button ──
         import tkinter as tk_local
+        toolbar_frame = tk_local.Frame(right_frame)
+        toolbar_frame.pack(side=tk_local.TOP, fill=tk_local.X)
+
+        def _reset_fm_view():
+            """Reset all 3D axes to original view orientation."""
+            for ax in self._fm_3d_axes:
+                ax.view_init(elev=25, azim=225)
+            self._fm_canvas.draw_idle()
+
+        reset_btn = tk_local.Button(toolbar_frame, text="View Reset",
+                                    command=_reset_fm_view, width=12)
+        reset_btn.pack(side=tk_local.LEFT, padx=4, pady=2)
+
+        # Scrollable canvas for many pressures
         scroll_canvas = tk_local.Canvas(right_frame, highlightthickness=0)
         scrollbar = tk_local.Scrollbar(right_frame, orient=tk_local.VERTICAL,
                                         command=scroll_canvas.yview)
@@ -21391,25 +21438,43 @@ class PerssonModelGUI_V2:
             "   Friction Map (3D LUT) 결과 요약",
             "══════════════════════════════════════",
             "",
-            f"Grid: {len(T_arr)} temps × {len(p0_arr)} pressures × {len(v_arr)} velocities",
-            f"  T₀: {T_arr[0]:.0f} ~ {T_arr[-1]:.0f} °C ({len(T_arr)} pts)",
-            f"  p₀: {p0_arr[0]:.2f} ~ {p0_arr[-1]:.2f} MPa ({len(p0_arr)} pts)",
+            f"Grid: {len(T_arr)} temps x {len(p0_arr)} pressures x {len(v_arr)} velocities",
+            f"  T0: {T_arr[0]:.0f} ~ {T_arr[-1]:.0f} C ({len(T_arr)} pts)",
+            f"  p0: {p0_arr[0]:.2f} ~ {p0_arr[-1]:.2f} MPa ({len(p0_arr)} pts)",
             f"  v:  {v_arr[0]:.1e} ~ {v_arr[-1]:.1e} m/s ({len(v_arr)} pts)",
             "",
-            "── Cold Branch ──",
-            f"  μ_total range: [{r['LUT_cold'].min():.4f}, {r['LUT_cold'].max():.4f}]",
-            f"  μ_visc range:  [{r['LUT_mu_visc_cold'].min():.4f}, {r['LUT_mu_visc_cold'].max():.4f}]",
-            f"  μ_adh range:   [{r['LUT_mu_adh_cold'].min():.4f}, {r['LUT_mu_adh_cold'].max():.4f}]",
+            "── Cold Branch (전체) ──",
+            f"  mu_total range: [{r['LUT_cold'].min():.4f}, {r['LUT_cold'].max():.4f}]",
+            f"  mu_visc range:  [{r['LUT_mu_visc_cold'].min():.4f}, {r['LUT_mu_visc_cold'].max():.4f}]",
+            f"  mu_adh range:   [{r['LUT_mu_adh_cold'].min():.4f}, {r['LUT_mu_adh_cold'].max():.4f}]",
             f"  A/A0 range:    [{r['LUT_A_A0_cold'].min():.6f}, {r['LUT_A_A0_cold'].max():.6f}]",
             "",
-            "── Hot Branch ──",
-            f"  μ_total range: [{r['LUT_hot'].min():.4f}, {r['LUT_hot'].max():.4f}]",
-            f"  μ_visc range:  [{r['LUT_mu_visc_hot'].min():.4f}, {r['LUT_mu_visc_hot'].max():.4f}]",
-            f"  μ_adh range:   [{r['LUT_mu_adh_hot'].min():.4f}, {r['LUT_mu_adh_hot'].max():.4f}]",
+            "── Hot Branch (전체) ──",
+            f"  mu_total range: [{r['LUT_hot'].min():.4f}, {r['LUT_hot'].max():.4f}]",
+            f"  mu_visc range:  [{r['LUT_mu_visc_hot'].min():.4f}, {r['LUT_mu_visc_hot'].max():.4f}]",
+            f"  mu_adh range:   [{r['LUT_mu_adh_hot'].min():.4f}, {r['LUT_mu_adh_hot'].max():.4f}]",
             f"  A/A0 range:    [{r['LUT_A_A0_hot'].min():.6f}, {r['LUT_A_A0_hot'].max():.6f}]",
             "",
-            f"계산 시간: {elapsed:.1f}s",
+            "── 하중별 검증 (Cold Branch) ──",
         ]
+
+        # Per-pressure breakdown for verification
+        for i_p, p0 in enumerate(p0_arr):
+            cold_slice = r['LUT_cold'][:, i_p, :]
+            visc_slice = r['LUT_mu_visc_cold'][:, i_p, :]
+            adh_slice = r['LUT_mu_adh_cold'][:, i_p, :]
+            aa0_slice = r['LUT_A_A0_cold'][:, i_p, :]
+            hot_slice = r['LUT_hot'][:, i_p, :]
+            lines.append(f"  p0={p0:.3g} MPa:")
+            lines.append(f"    mu_total: [{cold_slice.min():.4f}, {cold_slice.max():.4f}]  "
+                         f"(peak={cold_slice.max():.4f})")
+            lines.append(f"    mu_visc:  [{visc_slice.min():.4f}, {visc_slice.max():.4f}]")
+            lines.append(f"    mu_adh:   [{adh_slice.min():.4f}, {adh_slice.max():.4f}]")
+            lines.append(f"    A/A0:     [{aa0_slice.min():.6f}, {aa0_slice.max():.6f}]")
+            lines.append(f"    mu_hot:   [{hot_slice.min():.4f}, {hot_slice.max():.4f}]")
+            lines.append("")
+
+        lines.append(f"계산 시간: {elapsed:.1f}s")
 
         self.fm_result_text.config(state=tk.NORMAL)
         self.fm_result_text.delete('1.0', tk.END)
