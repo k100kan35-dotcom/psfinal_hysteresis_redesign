@@ -20615,6 +20615,7 @@ class PerssonModelGUI_V2:
         that can be used as LUTs for the 2D Brush tire dynamics model.
         """
         layout = self._create_tab_layout(parent, toolbar_buttons=[
+            ("시험 Run", self._test_run_pipeline, 'TButton'),
             ("Friction Map 생성", self._calculate_friction_map, 'Accent.TButton'),
             ("LUT 내보내기 (CSV)", self._export_friction_map_csv, 'TButton'),
         ])
@@ -20722,6 +20723,144 @@ class PerssonModelGUI_V2:
         self.fm_result_text = tk.Text(sec4, height=12, font=('Consolas', 9),
                                        wrap=tk.WORD, state=tk.DISABLED)
         self.fm_result_text.pack(fill=tk.BOTH, expand=True, pady=2)
+
+    def _test_run_pipeline(self):
+        """시험 Run: 내장 데이터를 사용하여 전체 파이프라인을 자동 실행.
+
+        1) PSD 로드 → 확정
+        2) 마스터 커브 로드 → aT 로드 → 스무딩 → 확정
+        3) IDIADA 프리셋 로드 → G(q,v) 계산
+        4) Strain Sweep 로드 → f,g 계산 → 외삽 → Persson avg f,g
+        5) 비선형 f,g 보정 ON, Flash Temperature ON
+        6) mu_visc 계산
+        7) mu_dry 로드 → 자동 피팅 → 피팅 완료
+        8) Cold & Hot Branch 계산
+        """
+        import time
+
+        steps = [
+            "1/8  PSD 로드 (IDIADA_PSD.txt)",
+            "2/8  마스터 커브 & aT 로드",
+            "3/8  G(q,v) 계산",
+            "4/8  Strain Sweep → f,g 계산",
+            "5/8  mu_visc 계산",
+            "6/8  mu_adh 자동 피팅",
+            "7/8  mu_adh 피팅 완료",
+            "8/8  Cold & Hot Branch 계산",
+        ]
+
+        try:
+            # ── Step 1: PSD 로드 & 확정 ──
+            self.status_var.set(steps[0])
+            self.root.update()
+
+            self.preset_psd_var.set("IDIADA_PSD.txt")
+            self._load_preset_psd()
+            self.root.update()
+
+            self._apply_profile_psd_to_tab3()
+            self.root.update()
+            print("[TestRun] Step 1 완료: PSD 로드 & 확정")
+
+            # ── Step 2: 마스터 커브 & aT 로드 → 스무딩 → 확정 ──
+            self.status_var.set(steps[1])
+            self.root.update()
+
+            self.preset_mc_var.set("S100_master_final.txt")
+            self._load_preset_mastercurve()
+            self.root.update()
+
+            self.preset_aT_var.set("S100_at_final.txt")
+            self._load_preset_aT()
+            self.root.update()
+
+            self._apply_smoothing_to_persson()
+            self.root.update()
+
+            self._use_persson_master_curve_for_calc()
+            self.root.update()
+            print("[TestRun] Step 2 완료: 마스터 커브 & aT 확정")
+
+            # ── Step 3: IDIADA 프리셋 로드 → G(q,v) 계산 ──
+            self.status_var.set(steps[2])
+            self.root.update()
+
+            self.surface_q1_var.set("IDIADA")
+            self._load_preset_surface_q1()
+            self.root.update()
+
+            self._run_calculation()
+            self.root.update()
+            print("[TestRun] Step 3 완료: G(q,v) 계산")
+
+            # ── Step 4: Strain Sweep → f,g 계산 → 외삽 → Persson avg ──
+            self.status_var.set(steps[3])
+            self.root.update()
+
+            self.preset_ss_var.set("S100_Y1_final.txt")
+            self._load_preset_strain_sweep()
+            self.root.update()
+
+            self._compute_fg_curves()
+            self.root.update()
+
+            self._extrapolate_fg_curves()
+            self.root.update()
+
+            self._persson_average_fg()
+            self.root.update()
+            print("[TestRun] Step 4 완료: f,g 계산 & Persson 평균")
+
+            # ── Step 5: 비선형 보정 ON, Flash ON → mu_visc 계산 ──
+            self.status_var.set(steps[4])
+            self.root.update()
+
+            self.use_fg_correction_var.set(True)
+            self.use_flash_temp_var.set(True)
+
+            self._calculate_mu_visc()
+            self.root.update()
+            print("[TestRun] Step 5 완료: mu_visc 계산")
+
+            # ── Step 6: mu_dry 프리셋 로드 → 자동 피팅 ──
+            self.status_var.set(steps[5])
+            self.root.update()
+
+            self.preset_mu_dry_var.set("S100_total_mu_exp.txt")
+            self._load_preset_mu_dry()
+            self.root.update()
+
+            self._run_auto_fit_mu_dry()
+            self.root.update()
+            print("[TestRun] Step 6 완료: mu_adh 자동 피팅")
+
+            # ── Step 7: mu_adh 피팅 완료 ──
+            self.status_var.set(steps[6])
+            self.root.update()
+
+            self._complete_adh_fitting()
+            self.root.update()
+            print("[TestRun] Step 7 완료: mu_adh 피팅 확정")
+
+            # ── Step 8: Cold & Hot Branch 계산 ──
+            self.status_var.set(steps[7])
+            self.root.update()
+
+            self._calculate_cold_hot_branch()
+            self.root.update()
+            print("[TestRun] Step 8 완료: Cold & Hot Branch")
+
+            self.status_var.set("시험 Run 완료 — Friction Map 생성 가능")
+            self._show_status(
+                "시험 Run 파이프라인 완료!\n\n"
+                "모든 전처리가 완료되었습니다.\n"
+                "'Friction Map 생성' 버튼을 눌러 마찰맵을 생성하세요.", 'success')
+
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            self.status_var.set(f"시험 Run 실패: {e}")
+            self._show_status(f"시험 Run 중 오류 발생:\n{str(e)}", 'error')
 
     def _calculate_friction_map(self):
         """Generate 3D friction map LUT (T0 × p0 × v) for Cold and Hot branches."""
