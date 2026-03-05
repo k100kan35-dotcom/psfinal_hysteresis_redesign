@@ -10558,12 +10558,12 @@ class PerssonModelGUI_V2:
         delnn_row = ttk.Frame(flash_model_frame)
         delnn_row.pack(fill=tk.X, pady=1)
         ttk.Label(delnn_row, text="delnn (적분 스텝):", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.flash_delnn_var = tk.StringVar(value="0.005")
+        self.flash_delnn_var = tk.StringVar(value="0.05")
         ttk.Entry(delnn_row, textvariable=self.flash_delnn_var, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(delnn_row, text="(log10(q) 간격)", font=self.FONTS['small']).pack(side=tk.LEFT)
         ttk.Label(flash_model_frame,
-                  text="작을수록 고배율 ΔT 스파이크 정밀 포착 (0.005 권장)\n"
-                       "0.03: ~200pts, 0.005: ~1200pts (6 decade 기준)",
+                  text="작을수록 고배율 ΔT 스파이크 정밀 포착 (0.05 기본)\n"
+                       "0.05: ~120pts, 0.005: ~1200pts (6 decade 기준)",
                   font=self.FONTS['small'], foreground='#64748B').pack(anchor=tk.W, pady=1)
 
         # Flash Temperature 적용 체크박스 (Tab 8과 동일 변수 사용)
@@ -12242,7 +12242,7 @@ class PerssonModelGUI_V2:
                     try:
                         delnn = float(self.flash_delnn_var.get())
                     except (ValueError, AttributeError):
-                        delnn = 0.005
+                        delnn = 0.05
                     delnn = max(delnn, 0.001)  # Minimum step size
 
                     log_q_min_hot = np.log10(q[0])
