@@ -21305,9 +21305,9 @@ class PerssonModelGUI_V2:
         for w in right_frame.winfo_children():
             w.destroy()
 
-        # Layout: 2 columns (Cold | Hot) x n_p rows (one per pressure)
-        n_rows = max(n_p, 1)
-        fig = Figure(figsize=(14, max(4.5 * n_rows, 6)), dpi=80)
+        # Layout: 2 rows (Cold top | Hot bottom) x n_p columns (one per pressure)
+        n_cols = max(n_p, 1)
+        fig = Figure(dpi=80)
 
         T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
 
@@ -21327,8 +21327,8 @@ class PerssonModelGUI_V2:
         z_max_hot = r['LUT_hot'].max()
 
         for i_p, p0 in enumerate(p0_arr):
-            # ── Cold surface ──
-            ax_cold = fig.add_subplot(n_rows, 2, i_p * 2 + 1, projection='3d')
+            # ── Cold surface (row 1) ──
+            ax_cold = fig.add_subplot(2, n_cols, i_p + 1, projection='3d')
             self._fm_3d_axes.append(ax_cold)
             Z_cold = r['LUT_cold'][:, i_p, :]
             z_range_c = Z_cold.max() - Z_cold.min()
@@ -21362,8 +21362,8 @@ class PerssonModelGUI_V2:
             ax_cold.tick_params(labelsize=7)
             fig.colorbar(surf_c, ax=ax_cold, shrink=0.45, pad=0.08)
 
-            # ── Hot surface ──
-            ax_hot = fig.add_subplot(n_rows, 2, i_p * 2 + 2, projection='3d')
+            # ── Hot surface (row 2) ──
+            ax_hot = fig.add_subplot(2, n_cols, n_cols + i_p + 1, projection='3d')
             self._fm_3d_axes.append(ax_hot)
             Z_hot = r['LUT_hot'][:, i_p, :]
 
@@ -21396,7 +21396,7 @@ class PerssonModelGUI_V2:
             ax_hot.tick_params(labelsize=7)
             fig.colorbar(surf_h, ax=ax_hot, shrink=0.45, pad=0.08)
 
-        fig.tight_layout(pad=2.0)
+        fig.tight_layout(pad=1.5, h_pad=2.0, w_pad=1.0)
 
         # ── Top toolbar with Reset button ──
         import tkinter as tk_local
@@ -21414,35 +21414,21 @@ class PerssonModelGUI_V2:
                                     command=_reset_fm_view, width=12)
         reset_btn.pack(side=tk_local.LEFT, padx=4, pady=2)
 
-        # Scrollable canvas for many pressures
-        scroll_canvas = tk_local.Canvas(right_frame, highlightthickness=0)
-        scrollbar = tk_local.Scrollbar(right_frame, orient=tk_local.VERTICAL,
-                                        command=scroll_canvas.yview)
-        scroll_canvas.configure(yscrollcommand=scrollbar.set)
-        scrollbar.pack(side=tk_local.RIGHT, fill=tk_local.Y)
-        scroll_canvas.pack(fill=tk_local.BOTH, expand=True)
-
-        inner_frame = tk_local.Frame(scroll_canvas)
-        scroll_canvas.create_window((0, 0), window=inner_frame, anchor='nw')
-
-        canvas = FigureCanvasTkAgg(fig, master=inner_frame)
+        # No-scroll canvas: figure fills the available space
+        canvas = FigureCanvasTkAgg(fig, master=right_frame)
         canvas.draw()
-        canvas.get_tk_widget().pack(fill=tk_local.BOTH, expand=True)
+        canvas_widget = canvas.get_tk_widget()
+        canvas_widget.pack(fill=tk_local.BOTH, expand=True)
 
-        def _on_inner_configure(event=None):
-            scroll_canvas.configure(scrollregion=scroll_canvas.bbox("all"))
-        inner_frame.bind('<Configure>', _on_inner_configure)
-
-        # Mouse wheel scroll
-        def _on_mousewheel(event):
-            scroll_canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        def _on_button4(event):
-            scroll_canvas.yview_scroll(-3, "units")
-        def _on_button5(event):
-            scroll_canvas.yview_scroll(3, "units")
-        scroll_canvas.bind('<MouseWheel>', _on_mousewheel)
-        scroll_canvas.bind('<Button-4>', _on_button4)
-        scroll_canvas.bind('<Button-5>', _on_button5)
+        # Dynamically resize figure to fit window
+        def _on_resize(event):
+            w_px = event.width
+            h_px = event.height
+            dpi = fig.get_dpi()
+            fig.set_size_inches(w_px / dpi, h_px / dpi, forward=True)
+            fig.tight_layout(pad=1.5, h_pad=2.0, w_pad=1.0)
+            canvas.draw_idle()
+        canvas_widget.bind('<Configure>', _on_resize)
 
         # Store for later use
         self._fm_fig = fig
