@@ -20637,8 +20637,50 @@ class PerssonModelGUI_V2:
                                           foreground='#64748B')
         self.fm_status_label.pack(anchor='w')
 
-        # ── 4) 결과 요약 ──
-        sec4 = self._create_section(left_panel, "4) 결과 요약")
+        # ── 4) 검증용 데이터 내보내기 ──
+        sec_export = self._create_section(left_panel, "4) μ_visc 탭 검증 데이터")
+
+        ttk.Label(sec_export, text="특정 (T, p₀) 조건의 μ(v) 곡선을\nμ_visc 참조편집 데이터로 전송합니다.",
+                  font=self.FONTS['small'], foreground='#64748B').pack(anchor='w')
+
+        row_exp_t = ttk.Frame(sec_export); row_exp_t.pack(fill=tk.X, pady=1)
+        ttk.Label(row_exp_t, text="온도 T₀:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_export_T_var = tk.StringVar(value="20")
+        self.fm_export_T_combo = ttk.Combobox(row_exp_t, textvariable=self.fm_export_T_var,
+                                               width=8, state='readonly')
+        self.fm_export_T_combo.pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_exp_t, text="°C", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row_exp_p = ttk.Frame(sec_export); row_exp_p.pack(fill=tk.X, pady=1)
+        ttk.Label(row_exp_p, text="압력 p₀:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_export_p0_var = tk.StringVar(value="0.3")
+        self.fm_export_p0_combo = ttk.Combobox(row_exp_p, textvariable=self.fm_export_p0_var,
+                                                width=8, state='readonly')
+        self.fm_export_p0_combo.pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_exp_p, text="MPa", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row_exp_branch = ttk.Frame(sec_export); row_exp_branch.pack(fill=tk.X, pady=1)
+        ttk.Label(row_exp_branch, text="Branch:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_export_branch_var = tk.StringVar(value="cold")
+        ttk.Radiobutton(row_exp_branch, text="Cold", variable=self.fm_export_branch_var,
+                        value="cold").pack(side=tk.LEFT, padx=4)
+        ttk.Radiobutton(row_exp_branch, text="Hot", variable=self.fm_export_branch_var,
+                        value="hot").pack(side=tk.LEFT, padx=4)
+        ttk.Radiobutton(row_exp_branch, text="Both", variable=self.fm_export_branch_var,
+                        value="both").pack(side=tk.LEFT, padx=4)
+
+        row_exp_what = ttk.Frame(sec_export); row_exp_what.pack(fill=tk.X, pady=1)
+        self.fm_export_visc_only_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(row_exp_what, text="μ_visc만 (μ_adh 제외)",
+                        variable=self.fm_export_visc_only_var).pack(side=tk.LEFT)
+
+        row_exp_btn = ttk.Frame(sec_export); row_exp_btn.pack(fill=tk.X, pady=3)
+        ttk.Button(row_exp_btn, text="→ μ_visc 참조편집에 전송",
+                   command=self._send_friction_map_to_ref,
+                   style='Accent.TButton').pack(side=tk.LEFT, padx=2)
+
+        # ── 5) 결과 요약 ──
+        sec4 = self._create_section(left_panel, "5) 결과 요약")
         self.fm_result_text = tk.Text(sec4, height=12, font=('Consolas', 9),
                                        wrap=tk.WORD, state=tk.DISABLED)
         self.fm_result_text.pack(fill=tk.BOTH, expand=True, pady=2)
@@ -20792,6 +20834,47 @@ class PerssonModelGUI_V2:
             g_interp = self.g_interpolator if use_fg else None
             f_interp = self.f_interpolator if use_fg else None
 
+            # Prepare strain array for f,g correction
+            rms_strain_interp_fm = None
+            if use_fg and (f_interp is not None or g_interp is not None):
+                if strain_est_method == 'rms_slope' and self.rms_slope_calculator is not None:
+                    from scipy.interpolate import interp1d as interp1d_strain
+                    rms_q = self.rms_slope_profiles['q']
+                    rms_strain = self.rms_slope_profiles['strain']
+                    log_q_s = np.log10(rms_q)
+                    log_strain_s = np.log10(np.maximum(rms_strain, 1e-10))
+                    rms_strain_interp_fm = interp1d_strain(
+                        log_q_s, log_strain_s, kind='linear',
+                        bounds_error=False, fill_value='extrapolate')
+
+                # Pre-compute strain at each q for efficiency
+                strain_at_q = np.full(n_q, fixed_strain)
+                if rms_strain_interp_fm is not None:
+                    for i_q in range(n_q):
+                        try:
+                            strain_at_q[i_q] = np.clip(
+                                10 ** rms_strain_interp_fm(np.log10(q[i_q])), 0.0, 1.0)
+                        except:
+                            strain_at_q[i_q] = fixed_strain
+
+                # Pre-compute f,g values at each q
+                f_at_q = np.ones(n_q)
+                g_at_q = np.ones(n_q)
+                for i_q in range(n_q):
+                    eps_q = strain_at_q[i_q]
+                    if f_interp is not None:
+                        fv = f_interp(eps_q)
+                        f_at_q[i_q] = np.clip(fv, 0.01, 1.0) if np.isfinite(fv) else 1.0
+                    if g_interp is not None:
+                        gv = g_interp(eps_q)
+                        g_at_q[i_q] = np.clip(gv, 0.01, None) if np.isfinite(gv) else 1.0
+
+                print(f"[FrictionMap] f,g 비선형 보정 적용 (method={strain_est_method}, "
+                      f"strain range={strain_at_q.min()*100:.3f}%~{strain_at_q.max()*100:.1f}%)")
+            else:
+                f_at_q = np.ones(n_q)
+                g_at_q = np.ones(n_q)
+
             # ── Main triple loop ──
             cell_count = 0
             for i_T, T0 in enumerate(T_array):
@@ -20835,8 +20918,12 @@ class PerssonModelGUI_V2:
                             Ep_vals = 10.0 ** np.clip(log_Ep, 4.0, None)
                             Epp_vals = 10.0 ** np.clip(log_Epp, 3.0, None)
 
-                            # G integrand: |E|² = E'² + E''²
-                            E_abs_sq = Ep_vals**2 + Epp_vals**2
+                            # Apply f,g nonlinear correction (Payne effect)
+                            Ep_eff = Ep_vals * f_at_q[i_q]
+                            Epp_eff = Epp_vals * g_at_q[i_q]
+
+                            # G integrand: |E_eff|² = (E'·f)² + (E''·g)²
+                            E_abs_sq = Ep_eff**2 + Epp_eff**2
 
                             # G angle integral: (1/(8π)) × ∫₀^{2π} ... → (1/π) ∫₀^{π/2}
                             G_angle = np.trapz(E_abs_sq, phi_arr) / np.pi
@@ -20854,8 +20941,8 @@ class PerssonModelGUI_V2:
                                 P_q = 1.0
                             S_q = gamma + (1 - gamma) * P_q**p_exponent
 
-                            # mu integrand: (1/2) q³ C(q) P(q) S(q) × angle_integral(E''/σ₀)
-                            mu_angle = np.trapz(cos_phi_arr * Epp_vals, phi_arr)
+                            # mu integrand: (1/2) q³ C(q) P(q) S(q) × angle_integral(E''_eff/σ₀)
+                            mu_angle = np.trapz(cos_phi_arr * Epp_eff, phi_arr)
                             mu_integrand = 0.5 * qi**3 * Ci * P_q * S_q * mu_angle * prefactor
 
                             if i_q > 0:
@@ -20916,7 +21003,11 @@ class PerssonModelGUI_V2:
                                 Ep_h = 10.0 ** np.clip(log_Ep_h, 4.0, None)
                                 Epp_h = 10.0 ** np.clip(log_Epp_h, 3.0, None)
 
-                                E_abs_sq_h = Ep_h**2 + Epp_h**2
+                                # Apply f,g nonlinear correction (Payne effect)
+                                Ep_h_eff = Ep_h * f_at_q[i_q]
+                                Epp_h_eff = Epp_h * g_at_q[i_q]
+
+                                E_abs_sq_h = Ep_h_eff**2 + Epp_h_eff**2
                                 G_angle_h = np.trapz(E_abs_sq_h, phi_arr) / np.pi
                                 G_integrand_h = norm_factor * qi**3 * Ci * G_angle_h * prefactor_h**2
 
@@ -20930,7 +21021,7 @@ class PerssonModelGUI_V2:
                                     P_q_h = 1.0
                                 S_q_h = gamma + (1 - gamma) * P_q_h**p_exponent
 
-                                mu_angle_h = np.trapz(cos_phi_arr * Epp_h, phi_arr)
+                                mu_angle_h = np.trapz(cos_phi_arr * Epp_h_eff, phi_arr)
                                 mu_integrand_h = 0.5 * qi**3 * Ci * P_q_h * S_q_h * mu_angle_h * prefactor_h
 
                                 if i_q > 0:
@@ -20995,6 +21086,17 @@ class PerssonModelGUI_V2:
 
             # ── Result text ──
             self._update_friction_map_text(elapsed)
+
+            # ── Update export combo boxes ──
+            try:
+                self.fm_export_T_combo['values'] = [f"{t:.0f}" for t in T_array]
+                self.fm_export_p0_combo['values'] = [f"{p:.4g}" for p in p0_array_MPa]
+                if len(T_array) > 0:
+                    self.fm_export_T_var.set(f"{T_array[len(T_array)//2]:.0f}")
+                if len(p0_array_MPa) > 0:
+                    self.fm_export_p0_var.set(f"{p0_array_MPa[len(p0_array_MPa)//2]:.4g}")
+            except Exception:
+                pass
 
             self.fm_progress_var.set(100)
             self.fm_status_label.config(text=f"완료 ({elapsed:.1f}s)")
@@ -21223,6 +21325,97 @@ class PerssonModelGUI_V2:
         except Exception as e:
             from tkinter import messagebox
             messagebox.showerror("오류", f"CSV 저장 실패:\n{str(e)}")
+
+    def _send_friction_map_to_ref(self):
+        """Send selected (T, p0) friction map slice to mu_visc reference editor."""
+        r = self.friction_map_results
+        if r is None:
+            self._show_status("Friction Map 결과가 없습니다. 먼저 생성하세요.", 'warning')
+            return
+
+        try:
+            T_sel = float(self.fm_export_T_var.get())
+            p0_sel = float(self.fm_export_p0_var.get())
+        except ValueError:
+            self._show_status("온도와 압력을 선택하세요.", 'warning')
+            return
+
+        T_arr = r['T_array']
+        p0_arr_MPa = r['p0_array_MPa']
+        v_arr = r['v_array']
+
+        i_T = int(np.argmin(np.abs(T_arr - T_sel)))
+        i_p = int(np.argmin(np.abs(p0_arr_MPa - p0_sel)))
+
+        T_actual = T_arr[i_T]
+        p0_actual = p0_arr_MPa[i_p]
+
+        branch = self.fm_export_branch_var.get()
+        visc_only = self.fm_export_visc_only_var.get()
+        log_v = np.log10(np.maximum(v_arr, 1e-20)).tolist()
+
+        from datetime import datetime
+        saved_datasets = self._load_saved_datasets()
+
+        branches_to_export = []
+        if branch in ('cold', 'both'):
+            branches_to_export.append('cold')
+        if branch in ('hot', 'both'):
+            branches_to_export.append('hot')
+
+        names_added = []
+        for br in branches_to_export:
+            if visc_only:
+                mu_data = r[f'LUT_mu_visc_{br}'][i_T, i_p, :]
+            else:
+                mu_data = r[f'LUT_{br}'][i_T, i_p, :]
+            area_data = r[f'LUT_A_A0_{br}'][i_T, i_p, :]
+
+            suffix = "visc" if visc_only else "total"
+            ds_name = f"FM_{br}_{T_actual:.0f}C_{p0_actual:.3g}MPa_{suffix}"
+
+            ds_entry = {
+                'mu_log_v': log_v,
+                'mu_vals': mu_data.tolist(),
+                'area_log_v': log_v,
+                'area_vals': area_data.tolist(),
+                'saved_date': datetime.now().strftime('%Y-%m-%d %H:%M'),
+                'source': f'FrictionMap T={T_actual:.0f}°C p0={p0_actual:.3g}MPa {br}'
+            }
+
+            saved_datasets[ds_name] = ds_entry
+
+            # Also add to plotted_ref_datasets for immediate display
+            if not hasattr(self, 'plotted_ref_datasets'):
+                self.plotted_ref_datasets = []
+            self.plotted_ref_datasets.append({
+                'name': ds_name,
+                'mu_log_v': log_v,
+                'mu_vals': mu_data.tolist(),
+                'area_log_v': log_v,
+                'area_vals': area_data.tolist(),
+            })
+            names_added.append(ds_name)
+
+        self._save_datasets_to_file(saved_datasets)
+
+        # Refresh mu_visc plots if they exist
+        try:
+            if hasattr(self, 'mu_visc_results') and self.mu_visc_results is not None:
+                v = self.mu_visc_results.get('v')
+                mu = self.mu_visc_results.get('mu')
+                details = self.mu_visc_results.get('details')
+                if v is not None and mu is not None and details is not None:
+                    use_nl = self.mu_use_fg_var.get() if hasattr(self, 'mu_use_fg_var') else False
+                    self._update_mu_visc_plots(v, mu, details, use_nonlinear=use_nl)
+        except Exception:
+            pass
+
+        names_str = "\n".join(f"  - {n}" for n in names_added)
+        self._show_status(
+            f"μ_visc 참조편집에 전송 완료:\n{names_str}\n\n"
+            f"μ_visc 탭의 '참조 편집'에서 확인 가능합니다.", 'success')
+        print(f"[FrictionMap→Ref] {len(names_added)} datasets saved: {names_added}")
 
     def get_friction_map_interpolator(self, branch='cold'):
         """Return a 3D interpolator for the friction map LUT.
