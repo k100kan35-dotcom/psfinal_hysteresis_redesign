@@ -20751,7 +20751,6 @@ class PerssonModelGUI_V2:
             n_v = len(v_array)
             total_cells = n_T * n_p
             print(f"[FrictionMap] Grid: {n_T} temps × {n_p} pressures × {n_v} velocities = {n_T*n_p*n_v} cells")
-            print(f"[FrictionMap] 속도 최적화: n_q={FM_N_Q}, n_phi={FM_N_PHI} (원본 q={len(q_full)}pts)")
 
             # ── Allocate LUT arrays ──
             LUT_cold = np.zeros((n_T, n_p, n_v))
@@ -20776,6 +20775,7 @@ class PerssonModelGUI_V2:
             FM_N_Q = 9       # 파수 포인트 수 (원본 대비 축소)
             FM_N_PHI = 9     # G & μ 파이적분 포인트 수 (원본 대비 축소)
             FM_DELNN = 0.1   # Flash 적분 스텝 (원본 대비 확대)
+            print(f"[FrictionMap] 속도 최적화: n_q={FM_N_Q}, n_phi={FM_N_PHI} (원본 q={len(q_full)}pts)")
 
             # q 배열을 FM_N_Q 포인트로 리샘플링
             q = np.logspace(np.log10(q_full[0]), np.log10(q_full[-1]), FM_N_Q)
