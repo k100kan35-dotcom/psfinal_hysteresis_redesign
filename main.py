@@ -20827,46 +20827,66 @@ class PerssonModelGUI_V2:
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
-        # ── Control bar at top ──
-        ctrl = ttk.Frame(parent)
-        ctrl.pack(fill=tk.X, padx=4, pady=4)
+        # ── Row 1: Data selection radio buttons ──
+        ctrl1 = ttk.Frame(parent)
+        ctrl1.pack(fill=tk.X, padx=4, pady=(4, 0))
 
-        # Radio buttons: data selection
-        ttk.Label(ctrl, text="데이터:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Label(ctrl1, text="데이터:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
         self.fm_graph_data_var = tk.StringVar(value="mu_total")
-        data_options = [
-            ("A/A0", "A_A0"),
-            ("tau_s", "tau_f"),
-            ("mu_hys", "mu_visc"),
-            ("mu_adh", "mu_adh"),
-            ("mu_total", "mu_total"),
-        ]
-        for label, val in data_options:
-            ttk.Radiobutton(ctrl, text=label, variable=self.fm_graph_data_var,
+        for label, val in [("A/A0", "A_A0"), ("tau_s", "tau_f"),
+                           ("mu_hys", "mu_visc"), ("mu_adh", "mu_adh"), ("mu_total", "mu_total")]:
+            ttk.Radiobutton(ctrl1, text=label, variable=self.fm_graph_data_var,
                             value=val, command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
 
-        # Branch selection
-        ttk.Separator(ctrl, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
-        ttk.Label(ctrl, text="Branch:", font=('', 10)).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Separator(ctrl1, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
         self.fm_graph_branch_var = tk.StringVar(value="cold")
-        ttk.Radiobutton(ctrl, text="Cold", variable=self.fm_graph_branch_var,
+        ttk.Radiobutton(ctrl1, text="Cold", variable=self.fm_graph_branch_var,
                         value="cold", command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
-        ttk.Radiobutton(ctrl, text="Hot", variable=self.fm_graph_branch_var,
+        ttk.Radiobutton(ctrl1, text="Hot", variable=self.fm_graph_branch_var,
                         value="hot", command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
 
-        # mu_visc tab verification overlay
-        ttk.Separator(ctrl, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
+        ttk.Separator(ctrl1, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
         self.fm_graph_overlay_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(ctrl, text="mu_visc 탭 검증", variable=self.fm_graph_overlay_var,
+        ttk.Checkbutton(ctrl1, text="탭 검증 오버레이", variable=self.fm_graph_overlay_var,
                         command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
+
+        # ── Row 2: Condition selection (T, p0 filter) ──
+        ctrl2 = ttk.Frame(parent)
+        ctrl2.pack(fill=tk.X, padx=4, pady=(2, 0))
+
+        ttk.Label(ctrl2, text="플롯 모드:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
+        self.fm_graph_mode_var = tk.StringVar(value="fix_T")
+        ttk.Radiobutton(ctrl2, text="T 고정 (p0별 비교)", variable=self.fm_graph_mode_var,
+                        value="fix_T", command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
+        ttk.Radiobutton(ctrl2, text="p0 고정 (T별 비교)", variable=self.fm_graph_mode_var,
+                        value="fix_p0", command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
+        ttk.Radiobutton(ctrl2, text="전체", variable=self.fm_graph_mode_var,
+                        value="all", command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
+
+        ttk.Separator(ctrl2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
+        ttk.Label(ctrl2, text="T:", font=('', 10)).pack(side=tk.LEFT, padx=(0, 2))
+        self.fm_graph_T_var = tk.StringVar()
+        self.fm_graph_T_combo = ttk.Combobox(ctrl2, textvariable=self.fm_graph_T_var,
+                                              width=6, state='readonly')
+        self.fm_graph_T_combo.pack(side=tk.LEFT, padx=2)
+        self.fm_graph_T_combo.bind('<<ComboboxSelected>>', lambda e: self._update_fm_graph())
+        ttk.Label(ctrl2, text="°C", font=('', 9)).pack(side=tk.LEFT)
+
+        ttk.Label(ctrl2, text="p0:", font=('', 10)).pack(side=tk.LEFT, padx=(8, 2))
+        self.fm_graph_p0_var = tk.StringVar()
+        self.fm_graph_p0_combo = ttk.Combobox(ctrl2, textvariable=self.fm_graph_p0_var,
+                                               width=6, state='readonly')
+        self.fm_graph_p0_combo.pack(side=tk.LEFT, padx=2)
+        self.fm_graph_p0_combo.bind('<<ComboboxSelected>>', lambda e: self._update_fm_graph())
+        ttk.Label(ctrl2, text="MPa", font=('', 9)).pack(side=tk.LEFT)
 
         # ── Figure ──
         plot_frame = ttk.Frame(parent)
-        plot_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=(0, 4))
+        plot_frame.pack(fill=tk.BOTH, expand=True, padx=4, pady=(2, 4))
 
         self.fig_fm_graph = Figure(figsize=(9, 6), dpi=100)
         self.ax_fm_graph = self.fig_fm_graph.add_subplot(111)
-        self.fig_fm_graph.subplots_adjust(left=0.12, right=0.92, top=0.92, bottom=0.12)
+        self.fig_fm_graph.subplots_adjust(left=0.10, right=0.95, top=0.92, bottom=0.12)
 
         self.canvas_fm_graph = FigureCanvasTkAgg(self.fig_fm_graph, plot_frame)
         self.canvas_fm_graph.draw_idle()
@@ -20876,7 +20896,7 @@ class PerssonModelGUI_V2:
         toolbar.update()
 
     def _update_fm_graph(self):
-        """Update the 2D graph based on selected data type and branch."""
+        """Update the 2D graph based on selected data type, branch, and filter."""
         r = self.friction_map_results
         if r is None:
             return
@@ -20887,47 +20907,87 @@ class PerssonModelGUI_V2:
         data_key = self.fm_graph_data_var.get()
         branch = self.fm_graph_branch_var.get()
         show_overlay = self.fm_graph_overlay_var.get()
+        mode = self.fm_graph_mode_var.get()
 
         T_arr = r['T_array']
         p0_arr = r['p0_array_MPa']
         v_arr = r['v_array']
 
-        # Select LUT data
+        # Update combo values if not set
+        T_vals = [f"{t:.0f}" for t in T_arr]
+        p0_vals = [f"{p:.4g}" for p in p0_arr]
+        self.fm_graph_T_combo['values'] = T_vals
+        self.fm_graph_p0_combo['values'] = p0_vals
+        if not self.fm_graph_T_var.get() and T_vals:
+            self.fm_graph_T_var.set(T_vals[len(T_vals) // 2])
+        if not self.fm_graph_p0_var.get() and p0_vals:
+            self.fm_graph_p0_var.set(p0_vals[len(p0_vals) // 2])
+
+        # Select LUT
         suffix = '_cold' if branch == 'cold' else '_hot'
         if data_key == 'mu_total':
             lut_key = 'LUT_cold' if branch == 'cold' else 'LUT_hot'
-        elif data_key == 'A_A0':
-            lut_key = f'LUT_A_A0{suffix}'
-        elif data_key == 'tau_f':
-            lut_key = f'LUT_tau_f{suffix}'
-        elif data_key == 'mu_visc':
-            lut_key = f'LUT_mu_visc{suffix}'
-        elif data_key == 'mu_adh':
-            lut_key = f'LUT_mu_adh{suffix}'
         else:
-            return
-
+            lut_key = f'LUT_{data_key}{suffix}'
         LUT = r.get(lut_key)
         if LUT is None:
             return
 
-        # Plot: one line per (T, p0) combination
-        colors = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
-                  '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
-        line_styles = ['-', '--', '-.', ':']
+        # Determine which T, p0 indices to plot
+        if mode == 'fix_T':
+            # T fixed → show all p0 lines
+            try:
+                sel_T = float(self.fm_graph_T_var.get())
+                i_T = int(np.argmin(np.abs(T_arr - sel_T)))
+            except (ValueError, TypeError):
+                i_T = len(T_arr) // 2
+            T_indices = [i_T]
+            p0_indices = list(range(len(p0_arr)))
+        elif mode == 'fix_p0':
+            # p0 fixed → show all T lines
+            try:
+                sel_p0 = float(self.fm_graph_p0_var.get())
+                i_p = int(np.argmin(np.abs(p0_arr - sel_p0)))
+            except (ValueError, TypeError):
+                i_p = len(p0_arr) // 2
+            T_indices = list(range(len(T_arr)))
+            p0_indices = [i_p]
+        else:
+            # All combinations
+            T_indices = list(range(len(T_arr)))
+            p0_indices = list(range(len(p0_arr)))
 
-        for i_T, T0 in enumerate(T_arr):
-            ls = line_styles[i_T % len(line_styles)]
-            for i_p, p0 in enumerate(p0_arr):
-                c = colors[i_p % len(colors)]
+        colors_T = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+                     '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+        colors_p = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+                     '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
+        line_styles = ['-', '--', '-.', ':', (0, (3, 1, 1, 1)), (0, (5, 2))]
+
+        for i_T in T_indices:
+            T0 = T_arr[i_T]
+            for i_p in p0_indices:
+                p0 = p0_arr[i_p]
                 data = LUT[i_T, i_p, :]
-                # tau_f in MPa for display
                 if data_key == 'tau_f':
                     data = data / 1e6
-                ax.semilogx(v_arr, data, linestyle=ls, color=c, linewidth=1.2,
-                            label=f'T={T0:.0f}°C, p₀={p0:.2g}')
 
-        # Overlay mu_visc tab verification data
+                # Color/style: distinguish by varying axis
+                if mode == 'fix_T':
+                    c = colors_p[i_p % len(colors_p)]
+                    ls = '-'
+                    lbl = f'p₀={p0:.3g} MPa'
+                elif mode == 'fix_p0':
+                    c = colors_T[i_T % len(colors_T)]
+                    ls = '-'
+                    lbl = f'T={T0:.0f}°C'
+                else:
+                    c = colors_p[i_p % len(colors_p)]
+                    ls = line_styles[i_T % len(line_styles)]
+                    lbl = f'T={T0:.0f}°C, p₀={p0:.3g}'
+
+                ax.semilogx(v_arr, data, linestyle=ls, color=c, linewidth=1.5, label=lbl)
+
+        # Overlay tab verification data
         if show_overlay and hasattr(self, 'mu_visc_results') and self.mu_visc_results is not None:
             mvr = self.mu_visc_results
             v_ref = mvr.get('v')
@@ -20936,43 +20996,44 @@ class PerssonModelGUI_V2:
                 overlay_label = None
                 if data_key == 'mu_visc':
                     overlay_data = mvr.get('mu') if branch == 'cold' else mvr.get('mu_hot')
-                    overlay_label = 'mu_visc tab (mu_hys)'
+                    overlay_label = 'mu_visc 탭 (mu_hys)'
                 elif data_key == 'A_A0':
                     overlay_data = mvr.get('A_A0_cold') if branch == 'cold' else mvr.get('A_A0_hot')
-                    overlay_label = 'mu_visc tab (A/A0)'
-                elif data_key == 'mu_total' and hasattr(self, 'mu_adh_results') and self.mu_adh_results is not None:
+                    overlay_label = 'mu_visc 탭 (A/A0)'
+                elif data_key == 'mu_total':
                     mu_v = mvr.get('mu') if branch == 'cold' else mvr.get('mu_hot')
-                    mu_a = self.mu_adh_results.get('mu_adh')
-                    if mu_v is not None and mu_a is not None:
-                        if len(mu_v) == len(mu_a):
-                            overlay_data = mu_v + mu_a
-                            overlay_label = 'mu_visc+mu_adh tabs (total)'
-                elif data_key == 'mu_adh' and hasattr(self, 'mu_adh_results') and self.mu_adh_results is not None:
-                    overlay_data = self.mu_adh_results.get('mu_adh')
-                    overlay_label = 'mu_adh tab'
-                elif data_key == 'tau_f' and hasattr(self, 'mu_adh_results') and self.mu_adh_results is not None:
-                    tau = self.mu_adh_results.get('tau_f')
-                    if tau is not None:
-                        overlay_data = tau / 1e6
-                    overlay_label = 'mu_adh tab (tau_f)'
+                    mar = getattr(self, 'mu_adh_results', None)
+                    mu_a = mar.get('mu_adh') if mar else None
+                    if mu_v is not None and mu_a is not None and len(mu_v) == len(mu_a):
+                        overlay_data = mu_v + mu_a
+                        overlay_label = 'mu_visc+mu_adh 탭 (total)'
+                elif data_key == 'mu_adh':
+                    mar = getattr(self, 'mu_adh_results', None)
+                    if mar:
+                        overlay_data = mar.get('mu_adh')
+                        overlay_label = 'mu_adh 탭'
+                elif data_key == 'tau_f':
+                    mar = getattr(self, 'mu_adh_results', None)
+                    if mar and mar.get('tau_f') is not None:
+                        overlay_data = mar['tau_f'] / 1e6
+                        overlay_label = 'mu_adh 탭 (tau_f)'
 
                 if overlay_data is not None and overlay_label is not None:
-                    ax.semilogx(v_ref, overlay_data, 'k-', linewidth=2.5, alpha=0.7,
-                                label=overlay_label, zorder=10)
+                    ax.semilogx(v_ref, overlay_data, 'ko-', linewidth=2.5, alpha=0.6,
+                                markersize=3, label=overlay_label, zorder=10)
 
-        # Labels
-        titles = {'mu_total': 'mu_total', 'A_A0': 'A/A0', 'tau_f': 'tau_s (MPa)',
-                  'mu_visc': 'mu_hysteresis', 'mu_adh': 'mu_adhesion'}
+        # Axis labels and title
+        y_labels = {'mu_total': r'$\mu_{total}$', 'A_A0': 'A/A₀', 'tau_f': r'$\tau_s$ (MPa)',
+                    'mu_visc': r'$\mu_{hysteresis}$', 'mu_adh': r'$\mu_{adhesion}$'}
+        mode_desc = {'fix_T': f'T={T_arr[T_indices[0]]:.0f}°C 고정',
+                     'fix_p0': f'p₀={p0_arr[p0_indices[0]]:.3g} MPa 고정',
+                     'all': '전체'}
         ax.set_xlabel('Velocity v (m/s)', fontsize=11)
-        ax.set_ylabel(titles.get(data_key, data_key), fontsize=11)
-        ax.set_title(f'{titles.get(data_key, data_key)} — {branch.capitalize()} Branch',
+        ax.set_ylabel(y_labels.get(data_key, data_key), fontsize=11)
+        ax.set_title(f'{y_labels.get(data_key, data_key)}  [{branch.upper()}]  —  {mode_desc.get(mode, "")}',
                      fontweight='bold', fontsize=12)
         ax.grid(True, alpha=0.3)
-
-        # Legend: show if reasonable number of lines
-        n_lines = len(T_arr) * len(p0_arr)
-        if n_lines <= 12:
-            ax.legend(fontsize=7, loc='best', ncol=max(1, n_lines // 6))
+        ax.legend(fontsize=8, loc='best')
 
         self.canvas_fm_graph.draw_idle()
 
@@ -21751,6 +21812,15 @@ class PerssonModelGUI_V2:
 
         T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
 
+        # Compute global z-limits for consistent coloring across pressures
+        z_min_cold = np.min(r['LUT_cold'])
+        z_max_cold = np.max(r['LUT_cold'])
+        if has_hot:
+            z_min_hot = np.min(r['LUT_hot'])
+            z_max_hot = np.max(r['LUT_hot'])
+        else:
+            z_min_hot, z_max_hot = z_min_cold, z_max_cold
+
         # Prepare fine grid for smooth interpolation
         use_fine = len(T_arr) >= 2 and len(v_arr) >= 2
         if use_fine:
@@ -21762,8 +21832,8 @@ class PerssonModelGUI_V2:
         # Store axes for reset button
         self._fm_3d_axes = []
 
-        def _plot_surface(ax, Z, T_arr, log_v, cmap_name, label, p0):
-            """Helper to plot a single 3D surface."""
+        def _plot_surface(ax, Z, T_arr, log_v, cmap_name, label, p0, z_lo, z_hi):
+            """Helper to plot a single 3D surface with unified z-limits."""
             if use_fine:
                 try:
                     sp = RectBivariateSpline(T_arr, log_v, Z)
@@ -21772,15 +21842,19 @@ class PerssonModelGUI_V2:
                                     cmap=cmap_name, alpha=0.85,
                                     rstride=1, cstride=1,
                                     linewidth=0, antialiased=False,
-                                    rasterized=True)
+                                    rasterized=True,
+                                    vmin=z_lo, vmax=z_hi)
                 except Exception:
                     ax.plot_surface(T_mesh, V_mesh, Z,
                                     cmap=cmap_name, alpha=0.85,
-                                    rasterized=True)
+                                    rasterized=True,
+                                    vmin=z_lo, vmax=z_hi)
             else:
                 ax.plot_surface(T_mesh, V_mesh, Z,
                                 cmap=cmap_name, alpha=0.85,
-                                rasterized=True)
+                                rasterized=True,
+                                vmin=z_lo, vmax=z_hi)
+            ax.set_zlim(z_lo, z_hi)
             ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=8)
             ax.set_ylabel(r'$\log_{10}(v)$', fontsize=8)
             ax.set_zlabel(r'$\mu$', fontsize=8)
@@ -21808,7 +21882,8 @@ class PerssonModelGUI_V2:
             ax_cold = fig.add_subplot(n_grid_rows, n_cols_eff, subplot_idx, projection='3d')
             self._fm_3d_axes.append(ax_cold)
             Z_cold = r['LUT_cold'][:, i_p, :]
-            _plot_surface(ax_cold, Z_cold, T_arr, log_v, 'viridis', 'Cold', p0)
+            _plot_surface(ax_cold, Z_cold, T_arr, log_v, 'viridis', 'Cold', p0,
+                          z_min_cold, z_max_cold)
 
             # ── Hot surface (only if flash enabled) ──
             if has_hot:
@@ -21817,7 +21892,8 @@ class PerssonModelGUI_V2:
                 ax_hot = fig.add_subplot(n_grid_rows, n_cols_eff, subplot_idx_h, projection='3d')
                 self._fm_3d_axes.append(ax_hot)
                 Z_hot = r['LUT_hot'][:, i_p, :]
-                _plot_surface(ax_hot, Z_hot, T_arr, log_v, 'inferno', 'Hot', p0)
+                _plot_surface(ax_hot, Z_hot, T_arr, log_v, 'inferno', 'Hot', p0,
+                              z_min_hot, z_max_hot)
 
         # ── Top toolbar with Reset button ──
         import tkinter as tk_local
