@@ -289,6 +289,7 @@ class PerssonModelGUI_V2:
         self.g_interpolator = None  # g(strain) function
         self.mu_visc_results = None  # mu_visc calculation results
         self.mu_adh_results = None   # mu_adh (adhesion friction) calculation results
+        self.friction_map_results = None  # 3D friction map LUT results
         self._fit_results = None     # Auto-fitting results for adhesion parameters
         self._ax_adh_tau_twin = None # Twin y-axis for A/A0 on τ_f plot
         self.G_matrix_linear = None  # Linear G(q,v) before nonlinear correction (for strain map)
@@ -686,6 +687,7 @@ class PerssonModelGUI_V2:
             ('tab_rms_slope',       "h'rms / strain 계산", self._create_rms_slope_tab),
             ('tab_mu_visc',         'μ_visc 계산',        self._create_mu_visc_tab),
             ('tab_mu_adh',          'μ_adh 계산',         self._create_mu_adh_tab),
+            ('tab_friction_map',    'Friction Map',       self._create_friction_map_tab),
             ('tab_ve_advisor',      '점탄성 설계',        self._create_ve_advisor_tab),
             ('tab_strain_map',      'Strain Map',         self._create_strain_map_tab),
             ('tab_results',         '계산 과정',           self._create_results_tab),
@@ -723,7 +725,7 @@ class PerssonModelGUI_V2:
                 for canvas_attr in ('canvas_psd_profile', 'canvas_mc',
                                     'canvas_calc_progress', 'canvas_results',
                                     'canvas_rms', 'canvas_mu_visc',
-                                    'canvas_mu_adh',
+                                    'canvas_mu_adh', 'canvas_friction_map',
                                     'canvas_integrand', 'canvas_strain_map',
                                     'canvas_ve_advisor'):
                     canvas = getattr(self, canvas_attr, None)
@@ -746,13 +748,15 @@ class PerssonModelGUI_V2:
 
         self.notebook.bind('<<NotebookTabChanged>>', _on_tab_changed)
 
-        # Ctrl+Enter shortcut: trigger calculation on mu_visc or mu_adh tab
+        # Ctrl+Enter shortcut: trigger calculation on mu_visc, mu_adh, or friction_map tab
         def _on_ctrl_enter(event):
             current_tab = self.notebook.index(self.notebook.select())
-            if current_tab == 5:  # tab_mu_visc (μ_visc 계산)
+            if current_tab == 4:  # tab_mu_visc (μ_visc 계산)
                 self._calculate_mu_visc()
-            elif current_tab == 6:  # tab_mu_adh (μ_adh 계산)
+            elif current_tab == 5:  # tab_mu_adh (μ_adh 계산)
                 self._calculate_mu_adh()
+            elif current_tab == 6:  # tab_friction_map (Friction Map)
+                self._calculate_friction_map()
         self.root.bind('<Control-Return>', _on_ctrl_enter)
 
         # Initialize debug log storage
@@ -858,6 +862,8 @@ class PerssonModelGUI_V2:
                                 hspace=0.50, wspace=0.38),
         'fig_mu_adh':      dict(left=0.10, right=0.90, top=0.96, bottom=0.08,
                                 hspace=0.50, wspace=0.45),
+        'fig_friction_map': dict(left=0.08, right=0.95, top=0.96, bottom=0.08,
+                                hspace=0.35, wspace=0.30),
         'fig_strain_map':  dict(left=0.08, right=0.95, top=0.96, bottom=0.06,
                                 hspace=0.45, wspace=0.30),
         'fig_integrand':   dict(left=0.12, right=0.95, top=0.96, bottom=0.08,
@@ -874,6 +880,7 @@ class PerssonModelGUI_V2:
         ('fig_rms', 'canvas_rms'),
         ('fig_mu_visc', 'canvas_mu_visc'),
         ('fig_mu_adh', 'canvas_mu_adh'),
+        ('fig_friction_map', 'canvas_friction_map'),
         ('fig_strain_map', 'canvas_strain_map'),
         ('fig_integrand', 'canvas_integrand'),
         ('fig_ve_advisor', 'canvas_ve_advisor'),
@@ -17095,6 +17102,860 @@ class PerssonModelGUI_V2:
             "μ_adh 피팅이 초기화되었습니다.\n"
             "기존 μ_visc / A/A0 데이터도 함께 초기화되었습니다.\n"
             "μ_visc를 재계산한 후 피팅을 다시 시작하세요.", 'success')
+
+
+    # ================================================================
+    # ====  Friction Map (3D 마찰 맵) Tab  ====
+    # ================================================================
+
+    def _create_friction_map_tab(self, parent):
+        """Create Friction Map tab for generating 3D LUT (Look-Up Table).
+
+        Generates Cold and Hot friction maps over (Temperature, Pressure, Velocity)
+        grid space. Each grid point computes:
+          Cold: mu_total_cold = mu_visc_cold + mu_adh_cold
+          Hot:  mu_total_hot  = mu_visc_hot  + mu_adh_hot
+        """
+        layout = self._create_tab_layout(parent, toolbar_buttons=[
+            ("Friction Map 계산", self._calculate_friction_map, 'Accent.TButton'),
+        ])
+        left_panel = layout['content']
+        fm_toolbar = layout['toolbar']
+
+        # Progress bar
+        self.fm_progress_var = tk.IntVar()
+        self.fm_toolbar_progress = ttk.Progressbar(
+            fm_toolbar, variable=self.fm_progress_var, maximum=100, length=150
+        )
+        self.fm_toolbar_progress.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4, pady=1)
+
+        # ============== Left Panel: Controls ==============
+
+        # 1. Temperature (Reference / Background) Sweep
+        temp_frame = self._create_section(left_panel, "1) 바탕 온도 T0 범위 (Reference)")
+        row_t = ttk.Frame(temp_frame)
+        row_t.pack(fill=tk.X, pady=1)
+        ttk.Label(row_t, text="최소:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_T_min_var = tk.StringVar(value="-20")
+        ttk.Entry(row_t, textvariable=self.fm_T_min_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_t, text="최대:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_T_max_var = tk.StringVar(value="100")
+        ttk.Entry(row_t, textvariable=self.fm_T_max_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_t, text="°C", font=self.FONTS['body']).pack(side=tk.LEFT)
+
+        row_t2 = ttk.Frame(temp_frame)
+        row_t2.pack(fill=tk.X, pady=1)
+        ttk.Label(row_t2, text="간격:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_T_step_var = tk.StringVar(value="20")
+        ttk.Entry(row_t2, textvariable=self.fm_T_step_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_t2, text="°C", font=self.FONTS['body']).pack(side=tk.LEFT)
+
+        # Custom temperature array option
+        row_t3 = ttk.Frame(temp_frame)
+        row_t3.pack(fill=tk.X, pady=1)
+        ttk.Label(row_t3, text="사용자 지정:", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+        self.fm_T_custom_var = tk.StringVar(value="")
+        ttk.Entry(row_t3, textvariable=self.fm_T_custom_var, width=24).pack(side=tk.LEFT, padx=2)
+        ttk.Label(temp_frame, text="(쉼표 구분, 비우면 범위/간격 사용)",
+                  font=self.FONTS['small'], foreground='#64748B').pack(anchor=tk.W)
+
+        # 2. Pressure Sweep
+        p_frame = self._create_section(left_panel, "2) 명목 접촉 압력 p0 범위")
+        row_p = ttk.Frame(p_frame)
+        row_p.pack(fill=tk.X, pady=1)
+        ttk.Label(row_p, text="배열:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_p0_array_var = tk.StringVar(value="0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1.2, 1.5")
+        ttk.Entry(row_p, textvariable=self.fm_p0_array_var, width=30).pack(side=tk.LEFT, padx=2)
+        ttk.Label(p_frame, text="MPa (쉼표 구분)",
+                  font=self.FONTS['small'], foreground='#64748B').pack(anchor=tk.W)
+
+        # 3. Velocity Sweep
+        v_frame = self._create_section(left_panel, "3) 슬립 속도 v 범위")
+        row_v = ttk.Frame(v_frame)
+        row_v.pack(fill=tk.X, pady=1)
+        ttk.Label(row_v, text="최소:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_v_min_var = tk.StringVar(value="1e-5")
+        ttk.Entry(row_v, textvariable=self.fm_v_min_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_v, text="최대:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_v_max_var = tk.StringVar(value="100")
+        ttk.Entry(row_v, textvariable=self.fm_v_max_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_v, text="m/s", font=self.FONTS['body']).pack(side=tk.LEFT)
+
+        row_v2 = ttk.Frame(v_frame)
+        row_v2.pack(fill=tk.X, pady=1)
+        ttk.Label(row_v2, text="포인트:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_v_npts_var = tk.StringVar(value="50")
+        ttk.Entry(row_v2, textvariable=self.fm_v_npts_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_v2, text="(로그 스케일)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # 4. Calculation Settings (sync from mu_visc / mu_adh)
+        calc_frame = self._create_section(left_panel, "4) 계산 설정")
+
+        ttk.Label(calc_frame,
+                  text="※ μ_visc, μ_adh 탭의 설정을 그대로 사용합니다.\n"
+                       "   (f,g 보정, γ, ν, φ점수, Flash 파라미터 등)",
+                  font=self.FONTS['small'], foreground='#2563EB').pack(anchor=tk.W, pady=2)
+
+        # Flash temperature toggle for map
+        self.fm_use_flash_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(calc_frame, text="Flash Temperature 적용 (Hot Branch)",
+                        variable=self.fm_use_flash_var).pack(anchor=tk.W, pady=1)
+
+        # Adhesion toggle
+        self.fm_include_adh_var = tk.BooleanVar(value=True)
+        adh_row = ttk.Frame(calc_frame)
+        adh_row.pack(fill=tk.X, pady=1)
+        ttk.Checkbutton(adh_row, text="μ_adh 포함",
+                        variable=self.fm_include_adh_var).pack(side=tk.LEFT)
+        ttk.Label(adh_row, text="(피팅 완료 필요)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT, padx=4)
+
+        # 5. Visualization Settings
+        vis_frame = self._create_section(left_panel, "5) 시각화 설정")
+
+        row_vis = ttk.Frame(vis_frame)
+        row_vis.pack(fill=tk.X, pady=1)
+        ttk.Label(row_vis, text="고정 축:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_fixed_axis_var = tk.StringVar(value="temperature")
+        ttk.Radiobutton(row_vis, text="온도 고정", variable=self.fm_fixed_axis_var,
+                        value="temperature").pack(side=tk.LEFT, padx=2)
+        ttk.Radiobutton(row_vis, text="하중 고정", variable=self.fm_fixed_axis_var,
+                        value="pressure").pack(side=tk.LEFT, padx=2)
+
+        row_vis2 = ttk.Frame(vis_frame)
+        row_vis2.pack(fill=tk.X, pady=1)
+        ttk.Label(row_vis2, text="고정 값:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_fixed_value_var = tk.StringVar(value="20")
+        ttk.Entry(row_vis2, textvariable=self.fm_fixed_value_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_vis2, text="(°C 또는 MPa)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # Replot button
+        ttk.Button(vis_frame, text="그래프 재플롯",
+                   command=self._replot_friction_map, width=15).pack(anchor=tk.W, pady=2)
+
+        # 6. Export
+        export_frame = self._create_section(left_panel, "6) 내보내기")
+        export_row = ttk.Frame(export_frame)
+        export_row.pack(fill=tk.X, pady=2)
+        ttk.Button(export_row, text="Cold LUT CSV",
+                   command=lambda: self._export_friction_map_csv('cold'), width=14).pack(side=tk.LEFT, padx=1)
+        ttk.Button(export_row, text="Hot LUT CSV",
+                   command=lambda: self._export_friction_map_csv('hot'), width=14).pack(side=tk.LEFT, padx=1)
+
+        # Result text
+        result_frame = self._create_section(left_panel, "7) 계산 결과")
+        self.fm_result_text = tk.Text(result_frame, height=12, font=self.FONTS['mono_small'], wrap=tk.WORD)
+        self.fm_result_text.pack(fill=tk.X)
+
+        # ============== Right Panel: Plots ==============
+        plot_frame = layout['right']
+
+        self.fig_friction_map = Figure(figsize=(12, 9), dpi=100)
+
+        # 2x2 layout: Cold 3D surface, Hot 3D surface, Cold 2D slices, Hot 2D slices
+        from mpl_toolkits.mplot3d import Axes3D
+
+        self.ax_fm_cold_3d = self.fig_friction_map.add_subplot(221, projection='3d')
+        self.ax_fm_cold_3d.set_title('Cold Branch: $\\mu_{total,cold}$', fontweight='bold', fontsize=10)
+
+        self.ax_fm_hot_3d = self.fig_friction_map.add_subplot(222, projection='3d')
+        self.ax_fm_hot_3d.set_title('Hot Branch: $\\mu_{total,hot}$', fontweight='bold', fontsize=10)
+
+        self.ax_fm_cold_2d = self.fig_friction_map.add_subplot(223)
+        self.ax_fm_cold_2d.set_title('Cold: $\\mu(v)$ at fixed condition', fontweight='bold', fontsize=10)
+
+        self.ax_fm_hot_2d = self.fig_friction_map.add_subplot(224)
+        self.ax_fm_hot_2d.set_title('Hot: $\\mu(v)$ at fixed condition', fontweight='bold', fontsize=10)
+
+        self.fig_friction_map.subplots_adjust(left=0.08, right=0.95, top=0.96, bottom=0.08,
+                                               hspace=0.35, wspace=0.30)
+
+        self.canvas_friction_map = FigureCanvasTkAgg(self.fig_friction_map, plot_frame)
+        self.canvas_friction_map.draw_idle()
+        self.canvas_friction_map.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        toolbar = NavigationToolbar2Tk(self.canvas_friction_map, plot_frame)
+        toolbar.update()
+
+        # Internal storage
+        self.friction_map_results = None
+
+    def _calculate_friction_map(self):
+        """Calculate 3D friction map (Cold & Hot) over (T0, p0, v) grid.
+
+        For each (T0, p0, v) grid point:
+        Cold Branch:
+          1. WLF shift at T0 → shifted modulus
+          2. G(q,v) at T0 → P(q), A/A0_cold
+          3. mu_visc_cold from Persson integral
+          4. Arrhenius shift for adhesion → mu_adh_cold
+          5. mu_total_cold = mu_visc_cold + mu_adh_cold
+
+        Hot Branch:
+          1. Flash temperature: ΔT from mu_visc_cold × p0 × v (adhesion heat excluded)
+          2. T_hot = T0 + ΔT
+          3. WLF shift at T_hot → shifted modulus
+          4. G(q,v) at T_hot → P(q), A/A0_hot
+          5. mu_visc_hot from Persson integral
+          6. Arrhenius shift at T_hot for adhesion → mu_adh_hot
+          7. mu_total_hot = mu_visc_hot + mu_adh_hot
+        """
+        # ── Prerequisite checks ──
+        if not getattr(self, 'tab0_finalized', False) or self.psd_model is None:
+            self._show_status("PSD 데이터가 설정되지 않았습니다! Tab 0에서 PSD를 확정하세요.", 'warning')
+            return
+        if self.material is None:
+            self._show_status("마스터 커브 데이터가 없습니다! Tab 1에서 마스터 커브를 확정하세요.", 'warning')
+            return
+        if not self.results or '2d_results' not in self.results:
+            self._show_status("먼저 G(q,v) 계산을 실행하세요 (계산 설정 탭).", 'warning')
+            return
+
+        include_adh = self.fm_include_adh_var.get()
+        if include_adh:
+            if not getattr(self, '_adh_fitting_completed', False):
+                self._show_status(
+                    "μ_adh 피팅이 완료되지 않았습니다.\n"
+                    "μ_adh 탭에서 피팅을 완료하거나 'μ_adh 포함' 체크를 해제하세요.", 'warning')
+                return
+
+        try:
+            self.status_var.set("Friction Map 계산 중...")
+            self.fm_progress_var.set(0)
+            self.root.update()
+
+            # ── Parse grid arrays ──
+            # Temperature
+            T_custom = self.fm_T_custom_var.get().strip()
+            if T_custom:
+                T0_array = np.array([float(x.strip()) for x in T_custom.split(',')])
+            else:
+                T_min = float(self.fm_T_min_var.get())
+                T_max = float(self.fm_T_max_var.get())
+                T_step = float(self.fm_T_step_var.get())
+                T0_array = np.arange(T_min, T_max + T_step * 0.5, T_step)
+
+            # Pressure
+            p0_array = np.array([float(x.strip()) for x in self.fm_p0_array_var.get().split(',')])
+
+            # Velocity
+            v_min = float(self.fm_v_min_var.get())
+            v_max = float(self.fm_v_max_var.get())
+            n_v = int(self.fm_v_npts_var.get())
+            v_array = np.logspace(np.log10(v_min), np.log10(v_max), n_v)
+
+            n_T = len(T0_array)
+            n_p = len(p0_array)
+
+            # ── Read shared parameters from mu_visc tab ──
+            poisson = float(self.poisson_var.get())
+            gamma = float(self.gamma_var.get())
+            n_phi = int(self.n_phi_var.get())
+            use_fg = self.use_fg_correction_var.get()
+            strain_est_method = self.strain_est_method_var.get()
+            fixed_strain = float(self.fixed_strain_var.get()) / 100.0
+
+            sq_method = getattr(self, 'sq_method_var', None)
+            p_exponent = 1 if (sq_method and sq_method.get() == "P1") else 2
+
+            try:
+                norm_factor = float(self.g_norm_factor_var.get())
+            except (ValueError, AttributeError):
+                norm_factor = 1.5625
+
+            use_flash = self.fm_use_flash_var.get()
+
+            # Flash temperature parameters
+            if use_flash:
+                from persson_model.core.flash_temperature import FlashTemperatureCalculator
+                flash_rho = float(self.flash_rho_var.get())
+                flash_Cv = float(self.flash_Cv_var.get())
+                flash_kappa = float(self.flash_kappa_var.get())
+                flash_d = float(self.flash_d_macro_var.get()) / 1000.0
+
+            # Adhesion parameters (from finalized fitting)
+            if include_adh:
+                tau_f0 = float(self.adh_tau_f0_var.get()) * 1e6  # MPa → Pa
+                v0_star = float(self.adh_v0_star_var.get())
+                c_adh = float(self.adh_c_var.get())
+                epsilon_adh = float(self.adh_epsilon_var.get())  # eV
+                T_ref_adh = float(self.adh_T_ref_var.get())       # K
+                k_B = 8.6173e-5  # eV/K
+
+            # PSD data
+            results_2d = self.results['2d_results']
+            q = results_2d['q']
+            q_min = float(self.q_min_var.get())
+            C_q = self.psd_model(q)
+
+            # f,g interpolators
+            g_interp = self.g_interpolator if use_fg else None
+            f_interp = self.f_interpolator if use_fg else None
+
+            # Strain interpolator for rms_slope method
+            rms_strain_interp = None
+            if strain_est_method == 'rms_slope' and self.rms_slope_calculator is not None and self.rms_slope_profiles is not None:
+                from scipy.interpolate import interp1d
+                rms_q = self.rms_slope_profiles['q']
+                rms_strain = self.rms_slope_profiles['strain']
+                log_q = np.log10(rms_q)
+                log_strain = np.log10(np.maximum(rms_strain, 1e-10))
+                rms_strain_interp = interp1d(log_q, log_strain, kind='linear',
+                                             bounds_error=False, fill_value='extrapolate')
+
+            def get_strain_array(q_arr, G_arr, vel):
+                """Get strain array based on configured method."""
+                n = len(q_arr)
+                if strain_est_method == 'rms_slope' and rms_strain_interp is not None:
+                    strain_arr = np.zeros(n)
+                    for i, qi in enumerate(q_arr):
+                        try:
+                            strain_arr[i] = 10 ** rms_strain_interp(np.log10(qi))
+                        except Exception:
+                            strain_arr[i] = fixed_strain
+                    return np.clip(strain_arr, 0.0, 1.0)
+                elif strain_est_method == 'fixed':
+                    return np.full(n, fixed_strain)
+                else:
+                    return np.full(n, fixed_strain)
+
+            # ── Allocate result arrays ──
+            LUT_cold = np.zeros((n_T, n_p, n_v))
+            LUT_hot = np.zeros((n_T, n_p, n_v))
+            LUT_mu_visc_cold = np.zeros((n_T, n_p, n_v))
+            LUT_mu_adh_cold = np.zeros((n_T, n_p, n_v))
+            LUT_mu_visc_hot = np.zeros((n_T, n_p, n_v))
+            LUT_mu_adh_hot = np.zeros((n_T, n_p, n_v))
+            LUT_A_A0_cold = np.zeros((n_T, n_p, n_v))
+            LUT_A_A0_hot = np.zeros((n_T, n_p, n_v))
+            LUT_delta_T = np.zeros((n_T, n_p, n_v))
+
+            total_steps = n_T * n_p
+            step_count = 0
+
+            from persson_model.core.g_calculator import GCalculator as GCalc_Map
+
+            # ── Main 3D sweep loop ──
+            for i_T, T0 in enumerate(T0_array):
+                for i_p, p0_MPa in enumerate(p0_array):
+                    p0 = p0_MPa * 1e6  # MPa → Pa
+
+                    step_count += 1
+                    progress = int(step_count / total_steps * 100)
+                    self.fm_progress_var.set(progress)
+                    self.status_var.set(
+                        f"Friction Map: T0={T0:.0f}°C, p0={p0_MPa:.2f}MPa "
+                        f"({step_count}/{total_steps})")
+                    self.root.update()
+
+                    # ── Step 1: Compute G(q,v) at T0 for this pressure ──
+                    modulus_func_T0 = lambda w, _T=T0: self.material.get_modulus(w, temperature=_T)
+                    loss_func_T0 = lambda w, T, _T=T0: self.material.get_loss_modulus(w, temperature=_T)
+
+                    g_calc_cold = GCalc_Map(
+                        psd_func=self.psd_model,
+                        modulus_func=modulus_func_T0,
+                        sigma_0=p0,
+                        velocity=v_array[0],
+                        poisson_ratio=poisson,
+                        n_angle_points=int(self.n_phi_var.get())
+                    )
+                    g_calc_cold.PSD_NORMALIZATION_FACTOR = norm_factor
+
+                    # Apply nonlinear correction if enabled
+                    if use_fg and f_interp is not None and g_interp is not None:
+                        storage_func = lambda w, _T=T0: self.material.get_storage_modulus(w, temperature=_T)
+                        loss_func_raw = lambda w, _T=T0: self.material.get_loss_modulus(w, temperature=_T)
+                        g_calc_cold.storage_modulus_func = storage_func
+                        g_calc_cold.loss_modulus_func = loss_func_raw
+
+                    # Compute G(q) for each velocity
+                    G_matrix_cold = np.zeros((len(q), n_v))
+                    P_matrix_cold = np.zeros((len(q), n_v))
+
+                    for j_v in range(n_v):
+                        g_calc_cold.velocity = v_array[j_v]
+                        g_calc_cold.sigma_0 = p0
+
+                        if use_fg and f_interp is not None and g_interp is not None:
+                            strain_for_G = get_strain_array(q, np.full(len(q), 0.1), v_array[j_v])
+                            g_calc_cold.set_nonlinear_correction(f_interp, g_interp, strain_for_G, q)
+
+                        res_cold = g_calc_cold.calculate_G_with_details(q, q_min=q_min)
+                        G_matrix_cold[:, j_v] = res_cold['G']
+                        P_matrix_cold[:, j_v] = res_cold['contact_area_ratio']
+
+                        if use_fg and f_interp is not None and g_interp is not None:
+                            g_calc_cold.clear_nonlinear_correction()
+
+                    # A/A0_cold = P(q_max) for each velocity
+                    A_A0_cold_v = P_matrix_cold[-1, :]
+                    LUT_A_A0_cold[i_T, i_p, :] = A_A0_cold_v
+
+                    # ── Step 2: mu_visc_cold using FrictionCalculator ──
+                    friction_cold = FrictionCalculator(
+                        psd_func=self.psd_model,
+                        loss_modulus_func=loss_func_T0,
+                        sigma_0=p0,
+                        velocity=v_array[0],
+                        temperature=T0,
+                        poisson_ratio=poisson,
+                        gamma=gamma,
+                        n_angle_points=n_phi,
+                        g_interpolator=g_interp,
+                        strain_estimate=fixed_strain,
+                        p_exponent=p_exponent
+                    )
+
+                    strain_est_func = get_strain_array if use_fg else None
+                    mu_visc_cold_v, details_cold = friction_cold.calculate_mu_visc_multi_velocity(
+                        q, G_matrix_cold, v_array, C_q, strain_estimator=strain_est_func
+                    )
+                    LUT_mu_visc_cold[i_T, i_p, :] = mu_visc_cold_v
+
+                    # ── Step 3: mu_adh_cold (Arrhenius shift at T0) ──
+                    mu_adh_cold_v = np.zeros(n_v)
+                    if include_adh:
+                        T_K = T0 + 273.15
+                        aT_prime_cold = np.exp((epsilon_adh / k_B) * (1.0 / T_K - 1.0 / T_ref_adh))
+                        v_eff_cold = v_array * aT_prime_cold
+                        log_ratio_cold = np.log10(v_eff_cold / v0_star)
+                        tau_f_cold = tau_f0 * np.exp(-c_adh * log_ratio_cold**2)
+                        mu_adh_cold_v = (tau_f_cold / p0) * A_A0_cold_v
+
+                    LUT_mu_adh_cold[i_T, i_p, :] = mu_adh_cold_v
+
+                    # ── Step 4: Cold total ──
+                    LUT_cold[i_T, i_p, :] = mu_visc_cold_v + mu_adh_cold_v
+
+                    # ── Step 5: Hot Branch (Flash Temperature) ──
+                    if use_flash:
+                        flash_calc = FlashTemperatureCalculator(
+                            rho=flash_rho, C_v=flash_Cv,
+                            kappa_th=flash_kappa, d_macro=flash_d
+                        )
+
+                        # Flash temp based on mu_visc_cold only (adhesion heat excluded)
+                        flash_res = flash_calc.calculate_multi_velocity(
+                            A_A0_cold_v, mu_visc_cold_v, p0, v_array, T0
+                        )
+                        delta_T_v = flash_res['delta_T']
+                        T_hot_v = flash_res['T_hot']
+                        LUT_delta_T[i_T, i_p, :] = delta_T_v
+
+                        mu_visc_hot_v = np.zeros(n_v)
+                        A_A0_hot_v = np.zeros(n_v)
+                        mu_adh_hot_v = np.zeros(n_v)
+
+                        for j_v in range(n_v):
+                            T_hot_j = T_hot_v[j_v]
+                            dT_j = delta_T_v[j_v]
+
+                            if dT_j < 0.1:
+                                # Negligible flash temp
+                                mu_visc_hot_v[j_v] = mu_visc_cold_v[j_v]
+                                A_A0_hot_v[j_v] = A_A0_cold_v[j_v]
+                            else:
+                                # Recalculate at T_hot
+                                modulus_func_hot = lambda w, _T=T_hot_j: self.material.get_modulus(w, temperature=_T)
+                                loss_func_hot = lambda w, T, _T=T_hot_j: self.material.get_loss_modulus(w, temperature=_T)
+
+                                g_calc_hot = GCalc_Map(
+                                    psd_func=self.psd_model,
+                                    modulus_func=modulus_func_hot,
+                                    sigma_0=p0,
+                                    velocity=v_array[j_v],
+                                    poisson_ratio=poisson,
+                                    n_angle_points=int(self.n_phi_var.get())
+                                )
+                                g_calc_hot.PSD_NORMALIZATION_FACTOR = norm_factor
+
+                                if use_fg and f_interp is not None and g_interp is not None:
+                                    storage_hot = lambda w, _T=T_hot_j: self.material.get_storage_modulus(w, temperature=_T)
+                                    loss_hot_raw = lambda w, _T=T_hot_j: self.material.get_loss_modulus(w, temperature=_T)
+                                    g_calc_hot.storage_modulus_func = storage_hot
+                                    g_calc_hot.loss_modulus_func = loss_hot_raw
+                                    strain_for_hot = get_strain_array(q, G_matrix_cold[:, j_v], v_array[j_v])
+                                    g_calc_hot.set_nonlinear_correction(f_interp, g_interp, strain_for_hot, q)
+
+                                res_hot_j = g_calc_hot.calculate_G_with_details(q, q_min=q_min)
+                                G_hot_j = res_hot_j['G']
+                                P_hot_j = res_hot_j['contact_area_ratio']
+                                A_A0_hot_v[j_v] = P_hot_j[-1]
+
+                                friction_hot = FrictionCalculator(
+                                    psd_func=self.psd_model,
+                                    loss_modulus_func=loss_func_hot,
+                                    sigma_0=p0,
+                                    velocity=v_array[j_v],
+                                    temperature=T_hot_j,
+                                    poisson_ratio=poisson,
+                                    gamma=gamma,
+                                    n_angle_points=n_phi,
+                                    g_interpolator=g_interp,
+                                    strain_estimate=fixed_strain,
+                                    p_exponent=p_exponent
+                                )
+
+                                strain_arr_hot = get_strain_array(q, G_hot_j, v_array[j_v]) if use_fg else None
+                                mu_hot_val, _ = friction_hot.calculate_mu_visc(
+                                    q, G_hot_j, C_q, strain_array=strain_arr_hot
+                                )
+                                mu_visc_hot_v[j_v] = mu_hot_val
+
+                            # Adhesion at T_hot
+                            if include_adh:
+                                T_hot_K = T_hot_j + 273.15
+                                aT_prime_hot = np.exp((epsilon_adh / k_B) * (1.0 / T_hot_K - 1.0 / T_ref_adh))
+                                v_eff_hot = v_array[j_v] * aT_prime_hot
+                                log_ratio_hot = np.log10(v_eff_hot / v0_star)
+                                tau_f_hot = tau_f0 * np.exp(-c_adh * log_ratio_hot**2)
+                                mu_adh_hot_v[j_v] = (tau_f_hot / p0) * A_A0_hot_v[j_v]
+
+                        LUT_mu_visc_hot[i_T, i_p, :] = mu_visc_hot_v
+                        LUT_mu_adh_hot[i_T, i_p, :] = mu_adh_hot_v
+                        LUT_A_A0_hot[i_T, i_p, :] = A_A0_hot_v
+                        LUT_hot[i_T, i_p, :] = mu_visc_hot_v + mu_adh_hot_v
+                    else:
+                        # No flash: hot = cold
+                        LUT_hot[i_T, i_p, :] = LUT_cold[i_T, i_p, :]
+                        LUT_mu_visc_hot[i_T, i_p, :] = mu_visc_cold_v
+                        LUT_mu_adh_hot[i_T, i_p, :] = mu_adh_cold_v
+                        LUT_A_A0_hot[i_T, i_p, :] = A_A0_cold_v
+
+            # ── Store results ──
+            self.friction_map_results = {
+                'T0_array': T0_array,
+                'p0_array': p0_array,
+                'v_array': v_array,
+                'LUT_cold': LUT_cold,
+                'LUT_hot': LUT_hot,
+                'LUT_mu_visc_cold': LUT_mu_visc_cold,
+                'LUT_mu_adh_cold': LUT_mu_adh_cold,
+                'LUT_mu_visc_hot': LUT_mu_visc_hot,
+                'LUT_mu_adh_hot': LUT_mu_adh_hot,
+                'LUT_A_A0_cold': LUT_A_A0_cold,
+                'LUT_A_A0_hot': LUT_A_A0_hot,
+                'LUT_delta_T': LUT_delta_T,
+                'include_adh': include_adh,
+                'use_flash': use_flash,
+            }
+
+            # ── Update plots ──
+            self._update_friction_map_plots()
+
+            # ── Update result text ──
+            self._update_friction_map_text()
+
+            self.fm_progress_var.set(100)
+            self.status_var.set("Friction Map 계산 완료")
+            self._show_status(
+                f"Friction Map 계산 완료\n"
+                f"격자: {n_T} 온도 x {n_p} 하중 x {n_v} 속도 = {n_T*n_p*n_v} 포인트\n"
+                f"Cold μ 범위: {np.min(LUT_cold):.4f} ~ {np.max(LUT_cold):.4f}\n"
+                f"Hot μ 범위: {np.min(LUT_hot):.4f} ~ {np.max(LUT_hot):.4f}", 'success')
+
+        except Exception as e:
+            self.fm_progress_var.set(0)
+            self._show_status(f"Friction Map 계산 실패: {str(e)}", 'warning')
+            import traceback
+            traceback.print_exc()
+
+    def _update_friction_map_plots(self):
+        """Update 3D friction map plots with current results and visualization settings."""
+        if self.friction_map_results is None:
+            return
+
+        try:
+            res = self.friction_map_results
+            T0_arr = res['T0_array']
+            p0_arr = res['p0_array']
+            v_arr = res['v_array']
+            LUT_cold = res['LUT_cold']
+            LUT_hot = res['LUT_hot']
+
+            fixed_axis = self.fm_fixed_axis_var.get()
+            fixed_val = float(self.fm_fixed_value_var.get())
+
+            from scipy.interpolate import RegularGridInterpolator
+
+            # Clear all axes
+            self.ax_fm_cold_3d.clear()
+            self.ax_fm_hot_3d.clear()
+            self.ax_fm_cold_2d.clear()
+            self.ax_fm_hot_2d.clear()
+
+            log_v = np.log10(v_arr)
+
+            if fixed_axis == "temperature":
+                # Fix temperature, show (pressure, velocity) surface
+                # Find nearest temperature index
+                i_T = np.argmin(np.abs(T0_arr - fixed_val))
+                T_fixed = T0_arr[i_T]
+
+                # 3D surface: X=log10(v), Y=p0, Z=mu
+                V_grid, P_grid = np.meshgrid(log_v, p0_arr)
+                Z_cold = LUT_cold[i_T, :, :]  # shape (n_p, n_v)
+                Z_hot = LUT_hot[i_T, :, :]
+
+                # Interpolate for smooth surface
+                from scipy.interpolate import RectBivariateSpline
+                try:
+                    # Create fine grid for smooth surface
+                    log_v_fine = np.linspace(log_v[0], log_v[-1], 100)
+                    p0_fine = np.linspace(p0_arr[0], p0_arr[-1], 50)
+                    V_fine, P_fine = np.meshgrid(log_v_fine, p0_fine)
+
+                    spl_cold = RectBivariateSpline(p0_arr, log_v, Z_cold, kx=min(3, len(p0_arr)-1), ky=min(3, len(log_v)-1))
+                    spl_hot = RectBivariateSpline(p0_arr, log_v, Z_hot, kx=min(3, len(p0_arr)-1), ky=min(3, len(log_v)-1))
+                    Z_cold_fine = spl_cold(p0_fine, log_v_fine)
+                    Z_hot_fine = spl_hot(p0_fine, log_v_fine)
+
+                    # 3D Cold
+                    surf_cold = self.ax_fm_cold_3d.plot_surface(
+                        V_fine, P_fine, Z_cold_fine,
+                        cmap='viridis', alpha=0.85, edgecolor='none')
+                    self.ax_fm_cold_3d.set_xlabel('$\\log_{10}(v)$ [m/s]', fontsize=8)
+                    self.ax_fm_cold_3d.set_ylabel('$p_0$ [MPa]', fontsize=8)
+                    self.ax_fm_cold_3d.set_zlabel('$\\mu_{cold}$', fontsize=8)
+                    self.ax_fm_cold_3d.set_title(
+                        f'Cold: $\\mu_{{total,cold}}$ @ T={T_fixed:.0f}°C',
+                        fontweight='bold', fontsize=10)
+
+                    # 3D Hot
+                    surf_hot = self.ax_fm_hot_3d.plot_surface(
+                        V_fine, P_fine, Z_hot_fine,
+                        cmap='inferno', alpha=0.85, edgecolor='none')
+                    self.ax_fm_hot_3d.set_xlabel('$\\log_{10}(v)$ [m/s]', fontsize=8)
+                    self.ax_fm_hot_3d.set_ylabel('$p_0$ [MPa]', fontsize=8)
+                    self.ax_fm_hot_3d.set_zlabel('$\\mu_{hot}$', fontsize=8)
+                    self.ax_fm_hot_3d.set_title(
+                        f'Hot: $\\mu_{{total,hot}}$ @ T={T_fixed:.0f}°C',
+                        fontweight='bold', fontsize=10)
+                except Exception:
+                    # Fallback: wireframe with original data
+                    self.ax_fm_cold_3d.plot_wireframe(V_grid, P_grid, Z_cold, color='blue', alpha=0.7)
+                    self.ax_fm_hot_3d.plot_wireframe(V_grid, P_grid, Z_hot, color='red', alpha=0.7)
+                    self.ax_fm_cold_3d.set_xlabel('$\\log_{10}(v)$', fontsize=8)
+                    self.ax_fm_cold_3d.set_ylabel('$p_0$ [MPa]', fontsize=8)
+                    self.ax_fm_cold_3d.set_zlabel('$\\mu_{cold}$', fontsize=8)
+                    self.ax_fm_hot_3d.set_xlabel('$\\log_{10}(v)$', fontsize=8)
+                    self.ax_fm_hot_3d.set_ylabel('$p_0$ [MPa]', fontsize=8)
+                    self.ax_fm_hot_3d.set_zlabel('$\\mu_{hot}$', fontsize=8)
+
+                # 2D slices: mu(v) for each pressure at fixed T
+                colors_p = plt.cm.tab10(np.linspace(0, 1, len(p0_arr)))
+                for i_p, p0_val in enumerate(p0_arr):
+                    self.ax_fm_cold_2d.semilogx(v_arr, LUT_cold[i_T, i_p, :],
+                                                 color=colors_p[i_p], linewidth=1.5,
+                                                 label=f'p0={p0_val:.2f}')
+                    self.ax_fm_hot_2d.semilogx(v_arr, LUT_hot[i_T, i_p, :],
+                                                color=colors_p[i_p], linewidth=1.5,
+                                                label=f'p0={p0_val:.2f}')
+
+                self.ax_fm_cold_2d.set_title(f'Cold $\\mu(v)$ @ T={T_fixed:.0f}°C', fontweight='bold', fontsize=10)
+                self.ax_fm_hot_2d.set_title(f'Hot $\\mu(v)$ @ T={T_fixed:.0f}°C', fontweight='bold', fontsize=10)
+
+            else:
+                # Fix pressure, show (temperature, velocity) surface
+                i_p = np.argmin(np.abs(p0_arr - fixed_val))
+                p_fixed = p0_arr[i_p]
+
+                V_grid, T_grid = np.meshgrid(log_v, T0_arr)
+                Z_cold = LUT_cold[:, i_p, :]  # shape (n_T, n_v)
+                Z_hot = LUT_hot[:, i_p, :]
+
+                from scipy.interpolate import RectBivariateSpline
+                try:
+                    log_v_fine = np.linspace(log_v[0], log_v[-1], 100)
+                    T_fine = np.linspace(T0_arr[0], T0_arr[-1], 50)
+                    V_fine, T_fine_g = np.meshgrid(log_v_fine, T_fine)
+
+                    spl_cold = RectBivariateSpline(T0_arr, log_v, Z_cold, kx=min(3, len(T0_arr)-1), ky=min(3, len(log_v)-1))
+                    spl_hot = RectBivariateSpline(T0_arr, log_v, Z_hot, kx=min(3, len(T0_arr)-1), ky=min(3, len(log_v)-1))
+                    Z_cold_fine = spl_cold(T_fine, log_v_fine)
+                    Z_hot_fine = spl_hot(T_fine, log_v_fine)
+
+                    surf_cold = self.ax_fm_cold_3d.plot_surface(
+                        V_fine, T_fine_g, Z_cold_fine,
+                        cmap='viridis', alpha=0.85, edgecolor='none')
+                    self.ax_fm_cold_3d.set_xlabel('$\\log_{10}(v)$ [m/s]', fontsize=8)
+                    self.ax_fm_cold_3d.set_ylabel('T [°C]', fontsize=8)
+                    self.ax_fm_cold_3d.set_zlabel('$\\mu_{cold}$', fontsize=8)
+                    self.ax_fm_cold_3d.set_title(
+                        f'Cold: $\\mu_{{total,cold}}$ @ p0={p_fixed:.2f}MPa',
+                        fontweight='bold', fontsize=10)
+
+                    surf_hot = self.ax_fm_hot_3d.plot_surface(
+                        V_fine, T_fine_g, Z_hot_fine,
+                        cmap='inferno', alpha=0.85, edgecolor='none')
+                    self.ax_fm_hot_3d.set_xlabel('$\\log_{10}(v)$ [m/s]', fontsize=8)
+                    self.ax_fm_hot_3d.set_ylabel('T [°C]', fontsize=8)
+                    self.ax_fm_hot_3d.set_zlabel('$\\mu_{hot}$', fontsize=8)
+                    self.ax_fm_hot_3d.set_title(
+                        f'Hot: $\\mu_{{total,hot}}$ @ p0={p_fixed:.2f}MPa',
+                        fontweight='bold', fontsize=10)
+                except Exception:
+                    self.ax_fm_cold_3d.plot_wireframe(V_grid, T_grid, Z_cold, color='blue', alpha=0.7)
+                    self.ax_fm_hot_3d.plot_wireframe(V_grid, T_grid, Z_hot, color='red', alpha=0.7)
+                    self.ax_fm_cold_3d.set_xlabel('$\\log_{10}(v)$', fontsize=8)
+                    self.ax_fm_cold_3d.set_ylabel('T [°C]', fontsize=8)
+                    self.ax_fm_cold_3d.set_zlabel('$\\mu_{cold}$', fontsize=8)
+                    self.ax_fm_hot_3d.set_xlabel('$\\log_{10}(v)$', fontsize=8)
+                    self.ax_fm_hot_3d.set_ylabel('T [°C]', fontsize=8)
+                    self.ax_fm_hot_3d.set_zlabel('$\\mu_{hot}$', fontsize=8)
+
+                # 2D slices: mu(v) for each temperature at fixed p
+                colors_T = plt.cm.coolwarm(np.linspace(0, 1, len(T0_arr)))
+                for i_T, T_val in enumerate(T0_arr):
+                    self.ax_fm_cold_2d.semilogx(v_arr, LUT_cold[i_T, i_p, :],
+                                                 color=colors_T[i_T], linewidth=1.5,
+                                                 label=f'T={T_val:.0f}°C')
+                    self.ax_fm_hot_2d.semilogx(v_arr, LUT_hot[i_T, i_p, :],
+                                                color=colors_T[i_T], linewidth=1.5,
+                                                label=f'T={T_val:.0f}°C')
+
+                self.ax_fm_cold_2d.set_title(f'Cold $\\mu(v)$ @ p0={p_fixed:.2f}MPa', fontweight='bold', fontsize=10)
+                self.ax_fm_hot_2d.set_title(f'Hot $\\mu(v)$ @ p0={p_fixed:.2f}MPa', fontweight='bold', fontsize=10)
+
+            # Common 2D formatting
+            for ax in [self.ax_fm_cold_2d, self.ax_fm_hot_2d]:
+                ax.set_xlabel('Sliding Velocity v [m/s]', fontsize=9)
+                ax.set_ylabel('$\\mu_{total}$', fontsize=9)
+                ax.legend(fontsize=6, loc='best', ncol=2)
+                ax.grid(True, alpha=0.3)
+
+            self.fig_friction_map.subplots_adjust(left=0.08, right=0.95, top=0.96, bottom=0.08,
+                                                   hspace=0.35, wspace=0.30)
+            self.canvas_friction_map.draw()
+
+        except Exception as e:
+            print(f"Friction Map plot error: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def _replot_friction_map(self):
+        """Replot friction map with updated visualization settings."""
+        if self.friction_map_results is None:
+            self._show_status("Friction Map 결과가 없습니다. 먼저 계산하세요.", 'warning')
+            return
+        self._update_friction_map_plots()
+        self._show_status("Friction Map 그래프 갱신 완료.", 'success')
+
+    def _update_friction_map_text(self):
+        """Update friction map result text display."""
+        if self.friction_map_results is None:
+            return
+
+        res = self.friction_map_results
+        T0_arr = res['T0_array']
+        p0_arr = res['p0_array']
+        v_arr = res['v_array']
+        LUT_cold = res['LUT_cold']
+        LUT_hot = res['LUT_hot']
+
+        self.fm_result_text.delete(1.0, tk.END)
+        self.fm_result_text.insert(tk.END, "=" * 40 + "\n")
+        self.fm_result_text.insert(tk.END, "Friction Map 계산 결과\n")
+        self.fm_result_text.insert(tk.END, "=" * 40 + "\n\n")
+
+        self.fm_result_text.insert(tk.END, "[격자 정보]\n")
+        self.fm_result_text.insert(tk.END, f"  온도: {T0_arr[0]:.0f} ~ {T0_arr[-1]:.0f}°C ({len(T0_arr)}점)\n")
+        self.fm_result_text.insert(tk.END, f"  하중: {p0_arr[0]:.3f} ~ {p0_arr[-1]:.3f} MPa ({len(p0_arr)}점)\n")
+        self.fm_result_text.insert(tk.END, f"  속도: {v_arr[0]:.2e} ~ {v_arr[-1]:.2e} m/s ({len(v_arr)}점)\n")
+        self.fm_result_text.insert(tk.END, f"  총 격자: {len(T0_arr)*len(p0_arr)*len(v_arr)} 포인트\n\n")
+
+        self.fm_result_text.insert(tk.END, "[Cold Branch]\n")
+        self.fm_result_text.insert(tk.END, f"  μ_total_cold 범위: {np.min(LUT_cold):.4f} ~ {np.max(LUT_cold):.4f}\n")
+        self.fm_result_text.insert(tk.END, f"  μ_visc_cold 범위: {np.min(res['LUT_mu_visc_cold']):.4f} ~ {np.max(res['LUT_mu_visc_cold']):.4f}\n")
+        if res['include_adh']:
+            self.fm_result_text.insert(tk.END, f"  μ_adh_cold 범위: {np.min(res['LUT_mu_adh_cold']):.4f} ~ {np.max(res['LUT_mu_adh_cold']):.4f}\n")
+        self.fm_result_text.insert(tk.END, f"  A/A0_cold 범위: {np.min(res['LUT_A_A0_cold']):.4e} ~ {np.max(res['LUT_A_A0_cold']):.4e}\n\n")
+
+        self.fm_result_text.insert(tk.END, "[Hot Branch]\n")
+        self.fm_result_text.insert(tk.END, f"  μ_total_hot 범위: {np.min(LUT_hot):.4f} ~ {np.max(LUT_hot):.4f}\n")
+        self.fm_result_text.insert(tk.END, f"  μ_visc_hot 범위: {np.min(res['LUT_mu_visc_hot']):.4f} ~ {np.max(res['LUT_mu_visc_hot']):.4f}\n")
+        if res['include_adh']:
+            self.fm_result_text.insert(tk.END, f"  μ_adh_hot 범위: {np.min(res['LUT_mu_adh_hot']):.4f} ~ {np.max(res['LUT_mu_adh_hot']):.4f}\n")
+        self.fm_result_text.insert(tk.END, f"  A/A0_hot 범위: {np.min(res['LUT_A_A0_hot']):.4e} ~ {np.max(res['LUT_A_A0_hot']):.4e}\n")
+
+        if res['use_flash']:
+            self.fm_result_text.insert(tk.END, f"  ΔT 범위: {np.min(res['LUT_delta_T']):.1f} ~ {np.max(res['LUT_delta_T']):.1f}°C\n")
+
+        # Show per-temperature summary
+        self.fm_result_text.insert(tk.END, f"\n[온도별 요약 (평균 μ)]\n")
+        self.fm_result_text.insert(tk.END, f"  {'T(°C)':>6} {'μ_cold(avg)':>12} {'μ_hot(avg)':>12} {'감소율':>8}\n")
+        self.fm_result_text.insert(tk.END, "  " + "-" * 42 + "\n")
+        for i_T, T_val in enumerate(T0_arr):
+            avg_cold = np.mean(LUT_cold[i_T, :, :])
+            avg_hot = np.mean(LUT_hot[i_T, :, :])
+            reduction = ((avg_cold - avg_hot) / avg_cold * 100) if avg_cold > 0 else 0
+            self.fm_result_text.insert(tk.END,
+                f"  {T_val:6.0f} {avg_cold:12.4f} {avg_hot:12.4f} {reduction:+7.1f}%\n")
+
+    def _export_friction_map_csv(self, branch='cold'):
+        """Export friction map LUT to CSV file.
+
+        Format: rows = (T0, p0, v, mu_total, mu_visc, mu_adh, A_A0, delta_T)
+        This flat format can be loaded as a 3D lookup table.
+        """
+        if self.friction_map_results is None:
+            self._show_status("Friction Map 결과가 없습니다. 먼저 계산하세요.", 'warning')
+            return
+
+        filepath = filedialog.asksaveasfilename(
+            title=f"Friction Map ({branch.upper()}) 내보내기",
+            defaultextension=".csv",
+            filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
+            initialfile=f"friction_map_{branch}.csv"
+        )
+        if not filepath:
+            return
+
+        res = self.friction_map_results
+        T0_arr = res['T0_array']
+        p0_arr = res['p0_array']
+        v_arr = res['v_array']
+
+        if branch == 'cold':
+            LUT = res['LUT_cold']
+            LUT_visc = res['LUT_mu_visc_cold']
+            LUT_adh = res['LUT_mu_adh_cold']
+            LUT_area = res['LUT_A_A0_cold']
+        else:
+            LUT = res['LUT_hot']
+            LUT_visc = res['LUT_mu_visc_hot']
+            LUT_adh = res['LUT_mu_adh_hot']
+            LUT_area = res['LUT_A_A0_hot']
+
+        try:
+            with open(filepath, 'w') as f:
+                f.write(f"# Friction Map LUT ({branch.upper()} Branch)\n")
+                f.write(f"# T0_array: {','.join(f'{t:.1f}' for t in T0_arr)}\n")
+                f.write(f"# p0_array: {','.join(f'{p:.4f}' for p in p0_arr)}\n")
+                f.write(f"# v_points: {len(v_arr)}\n")
+                f.write("# T0(C)\tp0(MPa)\tv(m/s)\tmu_total\tmu_visc\tmu_adh\tA_A0")
+                if branch == 'hot' and res['use_flash']:
+                    f.write("\tdelta_T(C)")
+                f.write("\n")
+
+                for i_T, T_val in enumerate(T0_arr):
+                    for i_p, p_val in enumerate(p0_arr):
+                        for i_v, v_val in enumerate(v_arr):
+                            f.write(f"{T_val:.1f}\t{p_val:.4f}\t{v_val:.6e}\t"
+                                    f"{LUT[i_T, i_p, i_v]:.6f}\t"
+                                    f"{LUT_visc[i_T, i_p, i_v]:.6f}\t"
+                                    f"{LUT_adh[i_T, i_p, i_v]:.6f}\t"
+                                    f"{LUT_area[i_T, i_p, i_v]:.6e}")
+                            if branch == 'hot' and res['use_flash']:
+                                f.write(f"\t{res['LUT_delta_T'][i_T, i_p, i_v]:.2f}")
+                            f.write("\n")
+
+            self._show_status(f"Friction Map ({branch.upper()}) 저장 완료: {filepath}", 'success')
+        except Exception as e:
+            self._show_status(f"저장 실패: {str(e)}", 'warning')
 
 
     # ================================================================
