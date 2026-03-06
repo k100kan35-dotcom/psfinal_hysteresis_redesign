@@ -22607,7 +22607,7 @@ class PerssonModelGUI_V2:
         ttk.Label(play_row, text="속도:", font=self.FONTS['small']).pack(side=tk.LEFT, padx=(8, 2))
         self.br_play_speed_var = tk.StringVar(value="1x")
         speed_combo = ttk.Combobox(play_row, textvariable=self.br_play_speed_var, width=4,
-                                    values=['0.25x', '0.5x', '1x', '2x', '4x'],
+                                    values=['0.25x', '0.5x', '1x', '2x', '4x', '8x', '16x'],
                                     state='readonly')
         speed_combo.pack(side=tk.LEFT, padx=1)
 
@@ -22660,7 +22660,7 @@ class PerssonModelGUI_V2:
 
         from matplotlib.gridspec import GridSpec
         self.fig_brush = Figure(figsize=(14, 10), dpi=100)
-        gs = GridSpec(2, 10, figure=self.fig_brush, height_ratios=[1, 2.5],
+        gs = GridSpec(2, 10, figure=self.fig_brush, height_ratios=[1.5, 2.5],
                       hspace=0.35, wspace=0.8,
                       left=0.05, right=0.97, top=0.96, bottom=0.05)
 
@@ -23853,6 +23853,25 @@ class PerssonModelGUI_V2:
         from matplotlib.colors import ListedColormap, BoundaryNorm
         import matplotlib.cm as mcm
 
+        # ── Clean up old colorbars to prevent accumulation / width shrinkage ──
+        for cb_attr in ('_cb_br_speed', '_cb_br_pres', '_cb_br_temp', '_cb_br_fric', '_cb_dummy_stick'):
+            cb = getattr(self, cb_attr, None)
+            if cb is not None:
+                try:
+                    cb.remove()
+                except Exception:
+                    pass
+                setattr(self, cb_attr, None)
+
+        # ── Clean up old steering wheel artists ──
+        for art in getattr(self, '_br_steering_artists', []):
+            try:
+                art.remove()
+            except Exception:
+                pass
+        self._br_steering_artists = []
+        self._br_spoke_lines = []
+
         x_mm = self._brush_x_mm
         y_mm = self._brush_y_mm
         L_mm = self._brush_L_mm
@@ -23911,8 +23930,8 @@ class PerssonModelGUI_V2:
         # Invisible spacer colorbar to match width of other plots
         _sm = mcm.ScalarMappable(cmap='jet', norm=plt.Normalize(0, 1))
         _sm.set_array([])
-        _cb_dummy = self.fig_brush.colorbar(_sm, ax=ax1, **_cb_kw)
-        _cb_dummy.ax.set_visible(False)
+        self._cb_dummy_stick = self.fig_brush.colorbar(_sm, ax=ax1, **_cb_kw)
+        self._cb_dummy_stick.ax.set_visible(False)
 
         # ── (2) sliding speed — quiver arrows ONLY (no color fill) ──
         ax2 = self.ax_br_speed
@@ -23937,7 +23956,7 @@ class PerssonModelGUI_V2:
             xx_q[mask_q], yy_q[mask_q], u_init[mask_q], v_init[mask_q],
             mag_init[mask_q],
             cmap='jet', clim=(sp_lo, max(sp_hi, 0.01)),
-            scale=1.0, headwidth=4, headlength=5, headaxislength=4,
+            scale=max(sp_hi * 8.0, 0.1), headwidth=4, headlength=5, headaxislength=4,
             linewidth=0.6, alpha=0.9, zorder=3)
         self._cb_br_speed = self.fig_brush.colorbar(self._br_quiver_speed, ax=ax2, **_cb_kw)
         self._cb_br_speed.set_label('speed [m/s]', fontsize=7)
@@ -24103,7 +24122,7 @@ class PerssonModelGUI_V2:
         else:
             self._br_stick_arrow.set_visible(False)
 
-        # ── (2) sliding speed — update quiver arrows only ──
+        # ── (2) sliding speed — update quiver arrows (length + color by magnitude) ──
         step_x, step_y = self._br_speed_step
         mask_q = self._br_speed_mask_q
         u_q = f['v_slip_x'][::step_x, ::step_y]
@@ -24112,17 +24131,11 @@ class PerssonModelGUI_V2:
         u_f = u_q[mask_q]
         v_f = v_q[mask_q]
         mag_f = mag_q[mask_q]
-        max_mag = np.max(mag_f) if len(mag_f) > 0 else 0.01
-        # Normalize for display — uniform arrow size, direction-only
-        if max_mag > 1e-15:
-            norm_u = u_f / (mag_f + 1e-15)
-            norm_v = v_f / (mag_f + 1e-15)
-        else:
-            norm_u = np.zeros_like(u_f)
-            norm_v = np.zeros_like(v_f)
-        self._br_quiver_speed.set_UVC(norm_u, norm_v, mag_f)
         sp_hi = self._br_global_ranges['speed'][1]
-        self._br_quiver_speed.scale = max(12.0, 1.0)
+        # Scale arrows proportionally to magnitude (both length AND color)
+        self._br_quiver_speed.set_UVC(u_f, v_f, mag_f)
+        # Set scale so arrows are readable: larger scale = smaller arrows
+        self._br_quiver_speed.scale = max(sp_hi * 8.0, 0.1)
 
         # ── (3) contact pressure — update pcolormesh ──
         p_bar = f['p_map'].copy() * 1e-5
@@ -24219,7 +24232,7 @@ class PerssonModelGUI_V2:
 
         # Speed control
         speed_str = self.br_play_speed_var.get()
-        speed_map = {'0.25x': 80, '0.5x': 40, '1x': 16, '2x': 8, '4x': 4}
+        speed_map = {'0.25x': 80, '0.5x': 40, '1x': 16, '2x': 8, '4x': 4, '8x': 2, '16x': 1}
         delay_ms = speed_map.get(speed_str, 16)
 
         self._brush_play_after_id = self.root.after(delay_ms, self._brush_animate)
