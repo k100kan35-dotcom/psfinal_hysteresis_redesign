@@ -20825,8 +20825,9 @@ class PerssonModelGUI_V2:
 
     def _create_fm_3d_toolbar(self, parent):
         """Create the data-selection toolbar for the 3D Map tab (at init time)."""
+        # Row 1: data selection
         toolbar = ttk.Frame(parent)
-        toolbar.pack(side=tk.TOP, fill=tk.X, padx=2, pady=2)
+        toolbar.pack(side=tk.TOP, fill=tk.X, padx=2, pady=(2, 0))
         self._fm_3d_toolbar = toolbar
 
         ttk.Label(toolbar, text="데이터:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 4))
@@ -20839,14 +20840,41 @@ class PerssonModelGUI_V2:
                             variable=self._fm_3d_data_var, value=val,
                             command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
 
+        # Row 2: view options (axis direction + View Reset)
+        toolbar2 = ttk.Frame(parent)
+        toolbar2.pack(side=tk.TOP, fill=tk.X, padx=2, pady=(0, 2))
+        self._fm_3d_toolbar2 = toolbar2
+
+        ttk.Label(toolbar2, text="속도축:", font=('', 9, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        self._fm_3d_v_dir = tk.StringVar(value="asc")
+        ttk.Radiobutton(toolbar2, text="오름차순",
+                        variable=self._fm_3d_v_dir, value="asc",
+                        command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+        ttk.Radiobutton(toolbar2, text="내림차순",
+                        variable=self._fm_3d_v_dir, value="desc",
+                        command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+
+        ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
+
+        ttk.Label(toolbar2, text="온도축:", font=('', 9, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        self._fm_3d_T_dir = tk.StringVar(value="asc")
+        ttk.Radiobutton(toolbar2, text="오름차순",
+                        variable=self._fm_3d_T_dir, value="asc",
+                        command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+        ttk.Radiobutton(toolbar2, text="내림차순",
+                        variable=self._fm_3d_T_dir, value="desc",
+                        command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+
         def _reset_fm_view():
+            v_asc = self._fm_3d_v_dir.get() == "asc"
+            T_asc = self._fm_3d_T_dir.get() == "asc"
+            azim = 225 if (T_asc and v_asc) else 225
             for ax in getattr(self, '_fm_3d_axes', []):
-                ax.view_init(elev=25, azim=225)
-                ax.invert_yaxis()
+                ax.view_init(elev=25, azim=azim)
             if hasattr(self, '_fm_canvas'):
                 self._fm_canvas.draw_idle()
 
-        tk.Button(toolbar, text="View Reset",
+        tk.Button(toolbar2, text="View Reset",
                   command=_reset_fm_view, width=10).pack(side=tk.RIGHT, padx=4)
 
     def _create_fm_graph_tab(self, parent):
@@ -21832,7 +21860,7 @@ class PerssonModelGUI_V2:
         self._replot_friction_map_3d()
 
     def _replot_friction_map_3d(self):
-        """Replot 3D surfaces based on selected data type."""
+        """Replot 3D surfaces based on selected data type with scroll support."""
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
@@ -21841,9 +21869,9 @@ class PerssonModelGUI_V2:
             return
 
         right_frame = self.friction_map_right
-        # Destroy only the plot area (preserve toolbar = first child)
+        # Destroy only the plot area (preserve toolbar rows = first 2 children)
         children = right_frame.winfo_children()
-        for w in children[1:]:
+        for w in children[2:]:
             w.destroy()
 
         data_type = self._fm_3d_data_var.get()
@@ -21854,12 +21882,16 @@ class PerssonModelGUI_V2:
         n_p = len(p0_arr)
         has_hot = r.get('use_flash', False)
 
+        # Axis direction settings
+        v_asc = self._fm_3d_v_dir.get() == "asc"
+        T_asc = self._fm_3d_T_dir.get() == "asc"
+
         # Determine which LUT to use
         is_force = data_type.startswith('F_')
         if is_force:
-            base_key = data_type.replace('F_', '', 1)  # 'total', 'visc', 'adh'
+            base_key = data_type.replace('F_', '', 1)
         else:
-            base_key = data_type  # 'mu_total', 'mu_visc', 'mu_adh', 'A_A0', 'tau_f'
+            base_key = data_type
 
         def _get_Z(branch, i_p):
             suffix = '_cold' if branch == 'cold' else '_hot'
@@ -21909,19 +21941,18 @@ class PerssonModelGUI_V2:
             n_cols_eff = n_cols
             n_grid_rows = n_rows
 
-        # Compute figure size to fill available space
+        # Figure size: width fills panel, height grows with rows for scrolling
         right_frame.update_idletasks()
         avail_w = right_frame.winfo_width()
-        avail_h = right_frame.winfo_height() - 40  # subtract toolbar height
+        toolbar_h = 60  # two toolbar rows
         if avail_w < 200:
             avail_w = 900
-        if avail_h < 200:
-            avail_h = 700
         fig_dpi = 100
-        fig_w = avail_w / fig_dpi
-        fig_h = avail_h / fig_dpi
+        fig_w = max(avail_w - 20, 600) / fig_dpi  # -20 for scrollbar
+        row_h = 4.5  # inches per subplot row
+        fig_h = max(row_h * n_grid_rows, 5)
         fig = Figure(figsize=(fig_w, fig_h), dpi=fig_dpi)
-        fig.subplots_adjust(left=0.02, right=0.98, top=0.94, bottom=0.04,
+        fig.subplots_adjust(left=0.04, right=0.97, top=0.96, bottom=0.04,
                             wspace=0.22, hspace=0.28)
 
         T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
@@ -21940,6 +21971,17 @@ class PerssonModelGUI_V2:
                      'F_total': r'$F_{total}$ (MPa)', 'F_visc': r'$F_{hys}$ (MPa)',
                      'F_adh': r'$F_{adh}$ (MPa)'}
         z_label = z_labels.get(data_type, data_type)
+
+        # Compute azimuth based on axis directions
+        # Default azim=225: T increases left→right, v increases front→back
+        if T_asc and v_asc:
+            azim = 225
+        elif T_asc and not v_asc:
+            azim = 315
+        elif not T_asc and v_asc:
+            azim = 135
+        else:
+            azim = 45
 
         self._fm_3d_axes = []
 
@@ -21968,8 +22010,7 @@ class PerssonModelGUI_V2:
             ax.set_title(f'{label}  $p_0$={p0:.3g} MPa\n'
                          f'{z_label}: {Z.min():.4f} ~ {Z.max():.4f}',
                          fontsize=11, fontweight='bold')
-            ax.invert_yaxis()
-            ax.view_init(elev=25, azim=225)
+            ax.view_init(elev=25, azim=azim)
             ax.tick_params(labelsize=9)
 
         for i_p, p0 in enumerate(p0_arr):
@@ -21991,14 +22032,58 @@ class PerssonModelGUI_V2:
                 Z_hot = all_hot[i_p]
                 _plot_surface(ax_hot, Z_hot, 'inferno', 'Hot', p0, z_min_hot, z_max_hot)
 
-        # Embed matplotlib figure directly (fills available space)
-        canvas = FigureCanvasTkAgg(fig, master=right_frame)
+        # Scrollable canvas for the matplotlib figure
+        scroll_frame = tk.Frame(right_frame)
+        scroll_frame.pack(fill=tk.BOTH, expand=True)
+
+        v_scrollbar = ttk.Scrollbar(scroll_frame, orient=tk.VERTICAL)
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        plot_canvas = tk.Canvas(scroll_frame, yscrollcommand=v_scrollbar.set)
+        v_scrollbar.config(command=plot_canvas.yview)
+        plot_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        inner_frame = tk.Frame(plot_canvas)
+        canvas = FigureCanvasTkAgg(fig, master=inner_frame)
         canvas.draw()
         canvas_widget = canvas.get_tk_widget()
-        canvas_widget.pack(fill=tk.BOTH, expand=True)
-        self._fm_canvas = canvas
+        fig_w_px = int(fig_w * fig_dpi)
+        fig_h_px = int(fig_h * fig_dpi)
+        canvas_widget.config(width=fig_w_px, height=fig_h_px)
+        canvas_widget.pack(fill=tk.X)
 
-        # Store for later use
+        win_id = plot_canvas.create_window((0, 0), window=inner_frame, anchor='nw',
+                                           width=fig_w_px)
+
+        def _on_configure(event):
+            plot_canvas.configure(scrollregion=plot_canvas.bbox('all'))
+            # Keep figure width matched to canvas width
+            new_w = event.width
+            if new_w > 100:
+                plot_canvas.itemconfig(win_id, width=new_w)
+        plot_canvas.bind('<Configure>', _on_configure)
+
+        # Mousewheel scrolling
+        def _on_mousewheel(event):
+            if event.delta:
+                plot_canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+            elif event.num == 4:
+                plot_canvas.yview_scroll(-3, 'units')
+            elif event.num == 5:
+                plot_canvas.yview_scroll(3, 'units')
+
+        def _bind_mw(event):
+            plot_canvas.bind_all('<MouseWheel>', _on_mousewheel)
+            plot_canvas.bind_all('<Button-4>', _on_mousewheel)
+            plot_canvas.bind_all('<Button-5>', _on_mousewheel)
+
+        def _unbind_mw(event):
+            plot_canvas.unbind_all('<MouseWheel>')
+            plot_canvas.unbind_all('<Button-4>')
+            plot_canvas.unbind_all('<Button-5>')
+
+        plot_canvas.bind('<Enter>', _bind_mw)
+        plot_canvas.bind('<Leave>', _unbind_mw)
+
         self._fm_fig = fig
         self._fm_canvas = canvas
 
