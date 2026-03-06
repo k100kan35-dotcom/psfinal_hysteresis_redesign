@@ -22605,7 +22605,7 @@ class PerssonModelGUI_V2:
         self.ax_br_velocity.set_xlabel('x (종방향, m)')
         self.ax_br_velocity.set_ylabel('y (횡방향, m)')
         self.ax_br_velocity.set_aspect('equal')
-        self.ax_br_velocity.text(0.5, 0.5, '운동방정식 풀이 후\n데이터 생성',
+        self.ax_br_velocity.text(0.5, 0.5, '해석 실행 후 표시',
                                   transform=self.ax_br_velocity.transAxes,
                                   ha='center', va='center', fontsize=9,
                                   color='#999999', style='italic')
@@ -22616,7 +22616,7 @@ class PerssonModelGUI_V2:
         self.ax_br_temperature.set_xlabel('x (종방향, m)')
         self.ax_br_temperature.set_ylabel('y (횡방향, m)')
         self.ax_br_temperature.set_aspect('equal')
-        self.ax_br_temperature.text(0.5, 0.5, '운동방정식 풀이 후\n데이터 생성',
+        self.ax_br_temperature.text(0.5, 0.5, 'Cold & Hot 결과 필요',
                                      transform=self.ax_br_temperature.transAxes,
                                      ha='center', va='center', fontsize=9,
                                      color='#999999', style='italic')
@@ -22816,6 +22816,7 @@ class PerssonModelGUI_V2:
         mid_mu_eff = None
         mid_v_slip_x = None
         mid_v_slip_y = None
+        mid_v_slip_mag = None
 
         for si, sweep_val in enumerate(sweep_vals):
             # ── Determine rim velocity components ──
@@ -22952,6 +22953,7 @@ class PerssonModelGUI_V2:
                 mid_mu_eff = mu_eff.copy()
                 mid_v_slip_x = v_slip_x.copy()
                 mid_v_slip_y = v_slip_y.copy()
+                mid_v_slip_mag = v_slip_mag.copy()
             if si == n_sweep - 1:
                 last_slip_dist = s_dist.copy()
                 last_mu_eff = mu_eff.copy()
@@ -22985,6 +22987,7 @@ class PerssonModelGUI_V2:
             'mid_mu_eff': mid_mu_eff,
             'mid_v_slip_x': mid_v_slip_x,
             'mid_v_slip_y': mid_v_slip_y,
+            'mid_v_slip_mag': mid_v_slip_mag,
             'p_map': p_map,
             'vc': vc,
             's0': s0,
@@ -23061,7 +23064,7 @@ class PerssonModelGUI_V2:
             y_arr = r['y_arr']
 
             # Remove old colorbars if they exist
-            for attr in ('_cb_br_load', '_cb_br_patch'):
+            for attr in ('_cb_br_load', '_cb_br_patch', '_cb_br_vel', '_cb_br_temp'):
                 if hasattr(self, attr) and getattr(self, attr) is not None:
                     try:
                         getattr(self, attr).remove()
@@ -23107,43 +23110,70 @@ class PerssonModelGUI_V2:
             self.ax_br_load.set_ylabel('y (m)', fontsize=8)
             self.ax_br_load.set_aspect('equal')
 
-            # ── (2) Velocity contour (placeholder) ──
+            # ── (2) Velocity contour — from simulation v_slip_mag ──
             self.ax_br_velocity.clear()
-            self.ax_br_velocity.set_title('속도 컨투어 (Velocity)',
-                                           fontweight='bold', fontsize=10, color='#6A6A6A')
-            self.ax_br_velocity.text(0.5, 0.5, '운동방정식 풀이 후\n데이터 생성',
-                                      transform=self.ax_br_velocity.transAxes,
-                                      ha='center', va='center', fontsize=9,
-                                      color='#999999', style='italic')
+            vs_mag = r.get('mid_v_slip_mag')
+            if vs_mag is not None:
+                im_vel = self.ax_br_velocity.contourf(
+                    x_arr, y_arr, vs_mag.T, levels=20, cmap='cool')
+                self.ax_br_velocity.contour(
+                    x_arr, y_arr, vs_mag.T, levels=10,
+                    colors='k', linewidths=0.3, alpha=0.4)
+                self._cb_br_vel = self.fig_brush.colorbar(
+                    im_vel, ax=self.ax_br_velocity, shrink=0.8, pad=0.02)
+                self._cb_br_vel.set_label('m/s', fontsize=8)
+                self.ax_br_velocity.set_title(
+                    f'속도 컨투어 ({slip_label})',
+                    fontweight='bold', fontsize=10, color='#0D47A1')
+            else:
+                self.ax_br_velocity.set_title('속도 컨투어 (No data)',
+                                               fontweight='bold', fontsize=10, color='#6A6A6A')
+                self.ax_br_velocity.text(0.5, 0.5, '해석 실행 후 표시',
+                                          transform=self.ax_br_velocity.transAxes,
+                                          ha='center', va='center', fontsize=9,
+                                          color='#999999', style='italic')
             self.ax_br_velocity.set_xlabel('x (m)', fontsize=8)
             self.ax_br_velocity.set_ylabel('y (m)', fontsize=8)
-            self.ax_br_velocity.set_xlim(x_arr[0], x_arr[-1])
-            self.ax_br_velocity.set_ylim(y_arr[0], y_arr[-1])
             self.ax_br_velocity.set_aspect('equal')
-            # Draw patch boundary as dashed rectangle
-            from matplotlib.patches import Rectangle as MplRect
-            rect_v = MplRect((x_arr[0], y_arr[0]), x_arr[-1]-x_arr[0], y_arr[-1]-y_arr[0],
-                              linewidth=1.5, edgecolor='#BBBBBB', facecolor='#F5F5F5',
-                              linestyle='--')
-            self.ax_br_velocity.add_patch(rect_v)
 
-            # ── (3) Temperature contour (placeholder) ──
+            # ── (3) Temperature contour — from Cold&Hot ΔT(v) interpolation ──
             self.ax_br_temperature.clear()
-            self.ax_br_temperature.set_title('온도 컨투어 (Temperature)',
-                                              fontweight='bold', fontsize=10, color='#6A6A6A')
-            self.ax_br_temperature.text(0.5, 0.5, '운동방정식 풀이 후\n데이터 생성',
-                                         transform=self.ax_br_temperature.transAxes,
-                                         ha='center', va='center', fontsize=9,
-                                         color='#999999', style='italic')
+            if vs_mag is not None and self.cold_hot_results is not None:
+                chr_ = self.cold_hot_results
+                v_ref = chr_['v']
+                dT_ref = chr_['delta_T']
+                T0_base = chr_.get('T0', 25.0)
+
+                # Interpolate ΔT at each node's slip velocity
+                from scipy.interpolate import interp1d
+                dT_interp = interp1d(v_ref, dT_ref, kind='linear',
+                                     bounds_error=False,
+                                     fill_value=(dT_ref[0], dT_ref[-1]))
+                T_contact = T0_base + dT_interp(vs_mag)
+
+                im_temp = self.ax_br_temperature.contourf(
+                    x_arr, y_arr, T_contact.T, levels=20, cmap='hot')
+                self.ax_br_temperature.contour(
+                    x_arr, y_arr, T_contact.T, levels=10,
+                    colors='k', linewidths=0.3, alpha=0.4)
+                self._cb_br_temp = self.fig_brush.colorbar(
+                    im_temp, ax=self.ax_br_temperature, shrink=0.8, pad=0.02)
+                self._cb_br_temp.set_label('°C', fontsize=8)
+                T_min = np.min(T_contact)
+                T_max = np.max(T_contact)
+                self.ax_br_temperature.set_title(
+                    f'온도 컨투어 ({T_min:.0f}~{T_max:.0f}°C)',
+                    fontweight='bold', fontsize=10, color='#B71C1C')
+            else:
+                self.ax_br_temperature.set_title('온도 컨투어 (No data)',
+                                                  fontweight='bold', fontsize=10, color='#6A6A6A')
+                self.ax_br_temperature.text(0.5, 0.5, 'Cold & Hot 결과 필요',
+                                             transform=self.ax_br_temperature.transAxes,
+                                             ha='center', va='center', fontsize=9,
+                                             color='#999999', style='italic')
             self.ax_br_temperature.set_xlabel('x (m)', fontsize=8)
             self.ax_br_temperature.set_ylabel('y (m)', fontsize=8)
-            self.ax_br_temperature.set_xlim(x_arr[0], x_arr[-1])
-            self.ax_br_temperature.set_ylim(y_arr[0], y_arr[-1])
             self.ax_br_temperature.set_aspect('equal')
-            rect_t = MplRect((x_arr[0], y_arr[0]), x_arr[-1]-x_arr[0], y_arr[-1]-y_arr[0],
-                              linewidth=1.5, edgecolor='#BBBBBB', facecolor='#F5F5F5',
-                              linestyle='--')
-            self.ax_br_temperature.add_patch(rect_t)
 
             # ── (4) Contact patch + sliding direction arrows ──
             self.ax_br_patch.clear()
