@@ -22721,7 +22721,7 @@ class PerssonModelGUI_V2:
         self.ax_br_temperature.set_ylabel('width [mm]', fontsize=8)
 
         self.ax_br_friction = self.fig_brush.add_subplot(gs[1, 16:20])
-        self.ax_br_friction.set_title('friction', fontsize=9, fontweight='bold')
+        self.ax_br_friction.set_title('friction force', fontsize=9, fontweight='bold')
         self.ax_br_friction.set_xlabel('length [mm]', fontsize=8)
         self.ax_br_friction.set_ylabel('width [mm]', fontsize=8)
 
@@ -23645,8 +23645,8 @@ class PerssonModelGUI_V2:
         def _build_dynamic_pressure(sa_deg, sr_pct):
             """Build pressure map that shifts with SA and SR direction.
 
-            SA > 0: lateral load transfer to +y (outside of turn)
-            SA < 0: lateral load transfer to -y
+            SA > 0 (right turn): lateral load transfer to +y (outside of turn)
+            SA < 0 (left turn): lateral load transfer to -y
             SR < 0 (braking): longitudinal load to +x (front)
             SR > 0 (accel): longitudinal load to -x (rear)
             """
@@ -23798,6 +23798,11 @@ class PerssonModelGUI_V2:
             # friction coefficient of the rubber at the local slip speed.
             mu_available = mu_eff.copy() * ellipse_mask
 
+            # Friction force per node: actual shear force magnitude at each cell
+            # Stick zones: spring force; Slip zones: friction capacity = mu * Fz
+            F_node_mag = np.sqrt(Fnode_x**2 + Fnode_y**2)
+            F_node_mag *= ellipse_mask
+
             # Total forces (reaction force on tire from road)
             Fx_total = -np.sum(Fnode_x)
             Fy_total = -np.sum(Fnode_y)
@@ -23817,6 +23822,7 @@ class PerssonModelGUI_V2:
                 'p_map': p_map.copy(),
                 'T_contact': T_contact.copy(),
                 'mu_eff': mu_available.copy(),
+                'F_friction': F_node_mag.copy(),
             })
 
             # Progress
@@ -23841,12 +23847,12 @@ class PerssonModelGUI_V2:
         all_speed = np.array([f['v_slip_mag'][ellipse_mask] for f in frames])
         all_pres = np.array([f['p_map'][ellipse_mask] * 1e-5 for f in frames])  # bar
         all_temp = np.array([f['T_contact'][ellipse_mask] for f in frames])  # °C
-        all_mu = np.array([f['mu_eff'][ellipse_mask] for f in frames])
+        all_fric_force = np.array([f['F_friction'][ellipse_mask] for f in frames])
         self._br_global_ranges = {
             'speed': (max(np.min(all_speed), 0), max(np.max(all_speed), 0.1)),
             'pressure': (max(np.min(all_pres), 0), max(np.max(all_pres), 0.01)),
             'temperature': (np.min(all_temp), max(np.max(all_temp), np.min(all_temp) + 1)),
-            'friction': (max(np.min(all_mu), 0), max(np.max(all_mu), 0.01)),
+            'friction': (max(np.min(all_fric_force), 0), max(np.max(all_fric_force), 0.001)),
         }
 
         # Draw the static time-history plots
@@ -23954,28 +23960,29 @@ class PerssonModelGUI_V2:
     def _update_left_steering_wheel(self, sa_deg):
         """Update the left-panel steering wheel rotation.
 
-        SA > 0 → left turn → wheel rotates counter-clockwise → L highlighted
-        SA < 0 → right turn → wheel rotates clockwise → R highlighted
+        SA > 0 → right turn → wheel rotates clockwise → R highlighted
+        SA < 0 → left turn → wheel rotates counter-clockwise → L highlighted
+        (SAE convention: positive slip angle = right turn)
         """
-        # Positive SA = left turn = counter-clockwise rotation (positive angle)
-        steer_rad = np.radians(sa_deg)
+        # Positive SA = right turn = clockwise rotation (negative angle)
+        steer_rad = -np.radians(sa_deg)
         for i, base_angle in enumerate([np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]):
             a = base_angle + steer_rad
             self._steer_spoke_lines[i].set_data([0, 0.85 * np.cos(a)],
                                                  [0, 0.85 * np.sin(a)])
         self._steer_sa_label.set_text(f'SA={sa_deg:+.1f}°')
         if sa_deg > 0.5:
-            # Left turn: highlight L
-            self._steer_left_label.set_color('#2196F3')
-            self._steer_left_label.set_fontsize(16)
-            self._steer_right_label.set_color('#CCCCCC')
-            self._steer_right_label.set_fontsize(14)
-        elif sa_deg < -0.5:
             # Right turn: highlight R
             self._steer_right_label.set_color('#F44336')
             self._steer_right_label.set_fontsize(16)
             self._steer_left_label.set_color('#CCCCCC')
             self._steer_left_label.set_fontsize(14)
+        elif sa_deg < -0.5:
+            # Left turn: highlight L
+            self._steer_left_label.set_color('#2196F3')
+            self._steer_left_label.set_fontsize(16)
+            self._steer_right_label.set_color('#CCCCCC')
+            self._steer_right_label.set_fontsize(14)
         else:
             self._steer_left_label.set_color('#BBBBBB')
             self._steer_left_label.set_fontsize(14)
@@ -24032,7 +24039,7 @@ class PerssonModelGUI_V2:
             ax.set_xlabel('length [mm]', fontsize=7)
             ax.set_ylabel('width [mm]', fontsize=7)
             ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
-            ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
+            ax.set_ylim(-W_mm * 0.78, W_mm * 0.7)
             ax.tick_params(labelsize=7)
 
         def _add_contact_outline(ax):
@@ -24087,6 +24094,17 @@ class PerssonModelGUI_V2:
             '', xy=(0, 0), xytext=(0, 0),
             arrowprops=dict(arrowstyle='->', color='white', lw=3, mutation_scale=18),
             zorder=6)
+        # Rolling direction arrow (green, longitudinal, permanent)
+        # Tire rolls in +x direction (right). Arrow placed at bottom of patch.
+        _roll_arrow_y = -W_mm * 0.55
+        ax1.annotate('', xy=(L_mm * 0.35, _roll_arrow_y),
+                     xytext=(-L_mm * 0.35, _roll_arrow_y),
+                     arrowprops=dict(arrowstyle='->', color='#00C853', lw=2.5,
+                                     mutation_scale=16),
+                     zorder=7)
+        ax1.text(0, _roll_arrow_y - W_mm * 0.08, 'Rolling Dir. →',
+                 fontsize=7, ha='center', va='top', color='#00C853',
+                 fontweight='bold', zorder=7)
         # Legend
         legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Adhesion (Stick)'),
                           Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Sliding (Slip)')]
@@ -24140,6 +24158,21 @@ class PerssonModelGUI_V2:
         self._cb_br_pres = _make_cb(self._br_pm_pres, ax3, 'pressure')
         self._cb_br_pres.set_label('pressure [bar]', fontsize=7)
         self._cb_br_pres.ax.tick_params(labelsize=6)
+        # Rolling direction arrow on pressure plot
+        _roll_y3 = -W_mm * 0.55
+        ax3.annotate('', xy=(L_mm * 0.35, _roll_y3),
+                     xytext=(-L_mm * 0.35, _roll_y3),
+                     arrowprops=dict(arrowstyle='->', color='#00C853', lw=2,
+                                     mutation_scale=14),
+                     zorder=7)
+        ax3.text(0, _roll_y3 - W_mm * 0.08, 'Rolling Dir. →',
+                 fontsize=6, ha='center', va='top', color='#00C853',
+                 fontweight='bold', zorder=7)
+        # Leading/trailing edge labels
+        ax3.text(L_mm * 0.42, 0, 'LE', fontsize=7, ha='left', va='center',
+                 color='#333', fontweight='bold', fontstyle='italic', zorder=7)
+        ax3.text(-L_mm * 0.42, 0, 'TE', fontsize=7, ha='right', va='center',
+                 color='#333', fontweight='bold', fontstyle='italic', zorder=7)
         _setup_ax(ax3, 'contact pressure')
 
         # ── (4) temperature — pcolormesh ──
@@ -24156,7 +24189,7 @@ class PerssonModelGUI_V2:
         self._cb_br_temp.ax.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{x:.0f}'))
         _setup_ax(ax4, 'temperature')
 
-        # ── (5) friction — pcolormesh with indexed discrete levels ──
+        # ── (5) friction force — pcolormesh with indexed discrete levels ──
         ax5 = self.ax_br_friction
         ax5.clear()
         f_lo, f_hi = gr['friction']
@@ -24167,17 +24200,17 @@ class PerssonModelGUI_V2:
         fric_cmap = plt.cm.get_cmap('jet', n_levels)
         fric_norm = _BN(fric_boundaries, fric_cmap.N)
         self._br_pm_fric = ax5.pcolormesh(
-            x_edges, y_edges, np.where(mask, 1.0, np.nan).T,
+            x_edges, y_edges, np.where(mask, 0.0, np.nan).T,
             cmap=fric_cmap, norm=fric_norm, shading='flat', zorder=1)
         self._br_outline_patches.append(_add_contact_outline(ax5))
         self._cb_br_fric = _make_cb(self._br_pm_fric, ax5, 'friction')
-        self._cb_br_fric.set_label('friction [-]', fontsize=7)
+        self._cb_br_fric.set_label('friction force [N]', fontsize=7)
         # Set indexed tick labels: show level index + value
         fric_centers = 0.5 * (fric_boundaries[:-1] + fric_boundaries[1:])
         self._cb_br_fric.set_ticks(fric_centers)
         self._cb_br_fric.set_ticklabels([f'L{i+1}: {v:.3f}' for i, v in enumerate(fric_centers)])
         self._cb_br_fric.ax.tick_params(labelsize=5.5)
-        _setup_ax(ax5, 'friction')
+        _setup_ax(ax5, 'friction force')
 
         # ── Save colorbar axes for reuse on subsequent runs ──
         if not _reuse_cax:
@@ -24299,32 +24332,36 @@ class PerssonModelGUI_V2:
         T_C[~mask] = np.nan
         self._br_pm_temp.set_array(T_C.T.ravel())
 
-        # ── (5) friction — update pcolormesh ──
-        mu = f['mu_eff'].copy()
-        mu[~mask] = np.nan
-        self._br_pm_fric.set_array(mu.T.ravel())
+        # ── (5) friction force — update pcolormesh ──
+        f_fric = f['F_friction'].copy()
+        f_fric[~mask] = np.nan
+        self._br_pm_fric.set_array(f_fric.T.ravel())
 
         # ── Update contact patch outline based on SA ──
-        # SA > 0 (left turn): lateral load transfer to +y → outline wider at +y
-        # SA < 0 (right turn): lateral load transfer to -y → outline wider at -y
+        # Shape deforms to rounded isosceles triangle at high SA.
+        # The outline does NOT shift — centroid stays at (0,0).
+        # SA > 0 (right turn, SAE): trailing edge leans toward +y (outside)
+        # SA < 0 (left turn): trailing edge leans toward -y (outside)
         if hasattr(self, '_br_outline_patches') and self._br_outline_patches:
             sa_deg = f['SA']
             sa_factor = np.clip(sa_deg / 6.0, -1, 1)  # normalize to ±1
+            sa_abs = abs(sa_factor)
             theta = np.linspace(0, 2 * np.pi, 120)
             cos_t = np.cos(theta)
             sin_t = np.sin(theta)
             # Base ellipse
             x_base = L_mm / 2 * cos_t
             y_base = W_mm / 2 * sin_t
-            # Lateral asymmetry: widen on high-pressure side (outside of turn)
-            # Width modulation depends on longitudinal position:
-            # trailing edge (x < 0) deforms more than leading edge
-            trailing_factor = 1.0 - 0.4 * cos_t  # 0.6 at leading, 1.4 at trailing
-            y_asym = y_base * (1.0 + 0.15 * sa_factor * trailing_factor * sin_t)
-            # Lateral center shift
-            y_shift = sa_factor * W_mm * 0.08
-            y_asym += y_shift
-            new_verts = np.column_stack([x_base, y_asym])
+            # Triangular deformation: wide at leading edge, narrow at trailing edge
+            # cos_t = +1 at leading edge (+x), -1 at trailing edge (-x)
+            width_mod = 1.0 + sa_abs * 0.5 * cos_t
+            y_deformed = y_base * np.clip(width_mod, 0.15, None)
+            # Lateral lean at trailing edge: trailing half shifts toward slip direction
+            trailing_lean = sa_factor * 0.18 * W_mm * np.clip(-cos_t, 0, 1)
+            y_final = y_deformed + trailing_lean
+            # Correct centroid to stay at (0,0) — no drifting
+            y_final -= np.mean(y_final)
+            new_verts = np.column_stack([x_base, y_final])
             for poly in self._br_outline_patches:
                 poly.set_xy(new_verts)
 
