@@ -23776,28 +23776,27 @@ class PerssonModelGUI_V2:
             v_slip_y = v_slip_local * v_dir_y
 
             # Temperature from local frictional energy dissipation
-            # q_friction = mu * p * v_slip (frictional heat flux, W/m²)
-            # E_friction = q_friction * t_contact (energy density, J/m²)
-            # This properly reflects both pressure distribution (y-variation)
-            # and contact time (x-variation), so temperature follows sliding direction
-            E_friction = mu_eff * p_map * v_slip_local * t_contact  # [J/m²]
-            E_max = np.max(E_friction[ellipse_mask]) if np.any(ellipse_mask) else 1.0
-            # Scale to match flash temperature model's overall magnitude
-            v_slip_mean = np.mean(v_slip_local[ellipse_mask & is_sliding]) if np.any(is_sliding & ellipse_mask) else 0.0
-            dT_ref = float(dT_interp(max(v_slip_mean, 0.0)))
-            if E_max > 1e-30:
-                T_contact = T0_base + dT_ref * (E_friction / E_max)
-            else:
-                T_contact = np.full_like(E_friction, T0_base)
+            # Per-node flash temperature from the Cold&Hot model, evaluated at
+            # each node's local slip speed. This captures:
+            #   - Longitudinal variation: v_slip grows toward trailing edge
+            #   - Lateral variation: v_slip differs across width because
+            #     F_fric_max depends on p_map which shifts with SA
+            # Pressure modulation: higher local pressure → more heat flux
+            # Contact time modulation: longer contact → more accumulated heat
+            dT_local = dT_interp(np.clip(v_slip_local.ravel(), 0, None)).reshape(Nx, Ny)
+            # Pressure effect: local pressure relative to mean contact pressure
+            p_mean_contact = np.mean(p_map[ellipse_mask]) if np.any(ellipse_mask) else 1.0
+            p_ratio = p_map / max(p_mean_contact, 1e-10)
+            # Contact time effect: heat accumulates over contact duration
+            t_max = np.max(t_contact) if np.max(t_contact) > 0 else 1.0
+            t_ratio = np.sqrt(t_contact / t_max)  # sqrt for flash temperature law
+            T_contact = T0_base + dT_local * p_ratio * t_ratio
             T_contact = T_contact * ellipse_mask + T0_base * (~ellipse_mask)
 
-            # Actual local friction coefficient = |F_node| / Fz
-            # Stick zone: partially utilized friction (< mu_max)
-            # Slip zone: fully utilized friction (= mu_eff)
-            # This properly reflects the pressure distribution
-            Fnode_mag = np.sqrt(Fnode_x**2 + Fnode_y**2)
-            mu_local = np.where(Fz_ij > 1e-10, Fnode_mag / Fz_ij, 0.0)
-            mu_local *= ellipse_mask
+            # Available friction coefficient at each node (from Cold/Hot LUT)
+            # This is the mu_eff that the friction map generates — the actual
+            # friction coefficient of the rubber at the local slip speed.
+            mu_available = mu_eff.copy() * ellipse_mask
 
             # Total forces (reaction force on tire from road)
             Fx_total = -np.sum(Fnode_x)
@@ -23817,7 +23816,7 @@ class PerssonModelGUI_V2:
                 'v_slip_mag': v_slip_local.copy(),
                 'p_map': p_map.copy(),
                 'T_contact': T_contact.copy(),
-                'mu_eff': mu_local.copy(),
+                'mu_eff': mu_available.copy(),
             })
 
             # Progress
@@ -23953,19 +23952,26 @@ class PerssonModelGUI_V2:
         self._steer_canvas.draw_idle()
 
     def _update_left_steering_wheel(self, sa_deg):
-        """Update the left-panel steering wheel rotation."""
-        steer_rad = np.radians(-sa_deg)
+        """Update the left-panel steering wheel rotation.
+
+        SA > 0 → left turn → wheel rotates counter-clockwise → L highlighted
+        SA < 0 → right turn → wheel rotates clockwise → R highlighted
+        """
+        # Positive SA = left turn = counter-clockwise rotation (positive angle)
+        steer_rad = np.radians(sa_deg)
         for i, base_angle in enumerate([np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]):
             a = base_angle + steer_rad
             self._steer_spoke_lines[i].set_data([0, 0.85 * np.cos(a)],
                                                  [0, 0.85 * np.sin(a)])
         self._steer_sa_label.set_text(f'SA={sa_deg:+.1f}°')
         if sa_deg > 0.5:
+            # Left turn: highlight L
             self._steer_left_label.set_color('#2196F3')
             self._steer_left_label.set_fontsize(16)
             self._steer_right_label.set_color('#CCCCCC')
             self._steer_right_label.set_fontsize(14)
         elif sa_deg < -0.5:
+            # Right turn: highlight R
             self._steer_right_label.set_color('#F44336')
             self._steer_right_label.set_fontsize(16)
             self._steer_left_label.set_color('#CCCCCC')
@@ -23984,29 +23990,32 @@ class PerssonModelGUI_V2:
 
         Called once after simulation, before first frame display.
         Subsequent frames only update data arrays — no ax.clear().
+
+        Colorbar axes are created once on the first run, then reused via cax=
+        on subsequent runs to prevent cumulative width shrinkage.
         """
         from matplotlib.patches import Ellipse as MplEllipse, Patch, FancyArrowPatch
         from matplotlib.colors import ListedColormap, BoundaryNorm
         import matplotlib.cm as mcm
+        from matplotlib.ticker import FuncFormatter
 
-        # ── Clean up old colorbars to prevent accumulation / width shrinkage ──
-        for cb_attr in ('_cb_br_speed', '_cb_br_pres', '_cb_br_temp', '_cb_br_fric', '_cb_dummy_stick'):
-            cb = getattr(self, cb_attr, None)
-            if cb is not None:
-                try:
-                    cb.remove()
-                except Exception:
-                    pass
-                setattr(self, cb_attr, None)
+        # Detect whether colorbar axes already exist from a previous run
+        _reuse_cax = hasattr(self, '_br_cbar_axes') and self._br_cbar_axes is not None
 
-        # Restore original axis positions from GridSpec to prevent cumulative shrinkage
+        # Restore original axis positions from GridSpec
         if hasattr(self, '_br_original_ax_positions'):
             for ax_name, pos in self._br_original_ax_positions.items():
                 ax = getattr(self, ax_name, None)
                 if ax is not None:
                     ax.set_position(pos)
 
-        # (Steering wheel is now in left panel — no cleanup needed here)
+        # If reusing, also restore saved colorbar axes positions
+        if _reuse_cax and hasattr(self, '_br_cbar_ax_positions'):
+            for key, pos in self._br_cbar_ax_positions.items():
+                cax = self._br_cbar_axes.get(key)
+                if cax is not None:
+                    cax.clear()
+                    cax.set_position(pos)
 
         x_mm = self._brush_x_mm
         y_mm = self._brush_y_mm
@@ -24026,11 +24035,31 @@ class PerssonModelGUI_V2:
             ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
             ax.tick_params(labelsize=7)
 
-        def _add_ellipse(ax):
-            e = MplEllipse((0, 0), L_mm, W_mm, fill=False,
-                           edgecolor='k', linewidth=1.5, zorder=5)
-            ax.add_patch(e)
-            return e
+        def _add_contact_outline(ax):
+            """Add a contact patch outline that can be updated per-frame.
+
+            Returns a Polygon patch whose vertices will be updated in
+            _brush_show_frame() based on current SA to show asymmetric shape.
+            """
+            from matplotlib.patches import Polygon as MplPolygon
+            theta = np.linspace(0, 2 * np.pi, 120)
+            verts = np.column_stack([L_mm / 2 * np.cos(theta),
+                                     W_mm / 2 * np.sin(theta)])
+            poly = MplPolygon(verts, closed=True, fill=False,
+                              edgecolor='k', linewidth=1.5, zorder=5)
+            ax.add_patch(poly)
+            return poly
+
+        def _make_cb(mappable, ax, cax_key, **extra_kw):
+            """Create colorbar, reusing existing cax if available."""
+            if _reuse_cax and cax_key in self._br_cbar_axes:
+                cb = self.fig_brush.colorbar(mappable,
+                                             cax=self._br_cbar_axes[cax_key],
+                                             **extra_kw)
+            else:
+                cb = self.fig_brush.colorbar(mappable, ax=ax, **_cb_kw,
+                                             **extra_kw)
+            return cb
 
         # Build mesh edges for pcolormesh (needs N+1 edges for N centers)
         dx = x_mm[1] - x_mm[0] if len(x_mm) > 1 else 1.0
@@ -24051,7 +24080,8 @@ class PerssonModelGUI_V2:
         self._br_pm_stick = ax1.pcolormesh(
             x_edges, y_edges, init_data.T, cmap=cmap_sa, norm=norm_sa,
             shading='flat', zorder=1)
-        _add_ellipse(ax1)
+        self._br_outline_patches = []  # collect all 5 outline patches
+        self._br_outline_patches.append(_add_contact_outline(ax1))
         # Direction arrow (single large arrow in center)
         self._br_stick_arrow = ax1.annotate(
             '', xy=(0, 0), xytext=(0, 0),
@@ -24066,14 +24096,14 @@ class PerssonModelGUI_V2:
         # Invisible spacer colorbar to match width of other plots
         _sm = mcm.ScalarMappable(cmap='jet', norm=plt.Normalize(0, 1))
         _sm.set_array([])
-        self._cb_dummy_stick = self.fig_brush.colorbar(_sm, ax=ax1, **_cb_kw)
+        self._cb_dummy_stick = _make_cb(_sm, ax1, 'dummy_stick')
         self._cb_dummy_stick.ax.set_visible(False)
 
         # ── (2) sliding speed — quiver arrows ONLY (no color fill) ──
         ax2 = self.ax_br_speed
         ax2.clear()
         ax2.set_facecolor('#FFFFFF')
-        _add_ellipse(ax2)
+        self._br_outline_patches.append(_add_contact_outline(ax2))
         # Quiver grid
         step_x = max(1, len(x_mm) // 18)
         step_y = max(1, len(y_mm) // 9)
@@ -24094,7 +24124,7 @@ class PerssonModelGUI_V2:
             cmap='jet', clim=(sp_lo, max(sp_hi, 0.01)),
             scale=max(sp_hi * 8.0, 0.1), headwidth=4, headlength=5, headaxislength=4,
             linewidth=0.6, alpha=0.9, zorder=3)
-        self._cb_br_speed = self.fig_brush.colorbar(self._br_quiver_speed, ax=ax2, **_cb_kw)
+        self._cb_br_speed = _make_cb(self._br_quiver_speed, ax2, 'speed')
         self._cb_br_speed.set_label('speed [m/s]', fontsize=7)
         self._cb_br_speed.ax.tick_params(labelsize=6)
         _setup_ax(ax2, 'sliding speed')
@@ -24106,8 +24136,8 @@ class PerssonModelGUI_V2:
         self._br_pm_pres = ax3.pcolormesh(
             x_edges, y_edges, np.where(mask, 0.0, np.nan).T,
             cmap='jet', vmin=pr_lo, vmax=pr_hi, shading='flat', zorder=1)
-        _add_ellipse(ax3)
-        self._cb_br_pres = self.fig_brush.colorbar(self._br_pm_pres, ax=ax3, **_cb_kw)
+        self._br_outline_patches.append(_add_contact_outline(ax3))
+        self._cb_br_pres = _make_cb(self._br_pm_pres, ax3, 'pressure')
         self._cb_br_pres.set_label('pressure [bar]', fontsize=7)
         self._cb_br_pres.ax.tick_params(labelsize=6)
         _setup_ax(ax3, 'contact pressure')
@@ -24119,12 +24149,10 @@ class PerssonModelGUI_V2:
         self._br_pm_temp = ax4.pcolormesh(
             x_edges, y_edges, np.where(mask, 25.0, np.nan).T,
             cmap='jet', vmin=t_lo, vmax=t_hi, shading='flat', zorder=1)
-        _add_ellipse(ax4)
-        self._cb_br_temp = self.fig_brush.colorbar(self._br_pm_temp, ax=ax4, **_cb_kw)
+        self._br_outline_patches.append(_add_contact_outline(ax4))
+        self._cb_br_temp = _make_cb(self._br_pm_temp, ax4, 'temperature')
         self._cb_br_temp.set_label('temperature [°C]', fontsize=7)
         self._cb_br_temp.ax.tick_params(labelsize=6)
-        # Format temperature ticks as integers (no decimals)
-        from matplotlib.ticker import FuncFormatter
         self._cb_br_temp.ax.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{x:.0f}'))
         _setup_ax(ax4, 'temperature')
 
@@ -24141,8 +24169,8 @@ class PerssonModelGUI_V2:
         self._br_pm_fric = ax5.pcolormesh(
             x_edges, y_edges, np.where(mask, 1.0, np.nan).T,
             cmap=fric_cmap, norm=fric_norm, shading='flat', zorder=1)
-        _add_ellipse(ax5)
-        self._cb_br_fric = self.fig_brush.colorbar(self._br_pm_fric, ax=ax5, **_cb_kw)
+        self._br_outline_patches.append(_add_contact_outline(ax5))
+        self._cb_br_fric = _make_cb(self._br_pm_fric, ax5, 'friction')
         self._cb_br_fric.set_label('friction [-]', fontsize=7)
         # Set indexed tick labels: show level index + value
         fric_centers = 0.5 * (fric_boundaries[:-1] + fric_boundaries[1:])
@@ -24151,11 +24179,27 @@ class PerssonModelGUI_V2:
         self._cb_br_fric.ax.tick_params(labelsize=5.5)
         _setup_ax(ax5, 'friction')
 
-        # Steering wheel is now in the left panel (sec6)
-
-        # Positions are restored from _br_original_ax_positions at the top
-        # of this method (saved at figure creation time, before any colorbars).
-        # No need to re-save here.
+        # ── Save colorbar axes for reuse on subsequent runs ──
+        if not _reuse_cax:
+            self._br_cbar_axes = {
+                'dummy_stick': self._cb_dummy_stick.ax,
+                'speed': self._cb_br_speed.ax,
+                'pressure': self._cb_br_pres.ax,
+                'temperature': self._cb_br_temp.ax,
+                'friction': self._cb_br_fric.ax,
+            }
+            # Save colorbar axes positions after first layout
+            self._br_cbar_ax_positions = {
+                key: cax.get_position().frozen()
+                for key, cax in self._br_cbar_axes.items()
+            }
+            # Save main axes positions AFTER colorbar creation (final layout)
+            self._br_final_ax_positions = {}
+            for ax_name in ('ax_br_stick', 'ax_br_speed', 'ax_br_pressure',
+                            'ax_br_temperature', 'ax_br_friction'):
+                ax = getattr(self, ax_name, None)
+                if ax is not None:
+                    self._br_final_ax_positions[ax_name] = ax.get_position().frozen()
 
         self._br_artists_ready = True
         self.canvas_brush.draw_idle()
@@ -24258,6 +24302,30 @@ class PerssonModelGUI_V2:
         mu = f['mu_eff'].copy()
         mu[~mask] = np.nan
         self._br_pm_fric.set_array(mu.T.ravel())
+
+        # ── Update contact patch outline based on SA ──
+        # SA > 0 (left turn): lateral load transfer to +y → outline wider at +y
+        # SA < 0 (right turn): lateral load transfer to -y → outline wider at -y
+        if hasattr(self, '_br_outline_patches') and self._br_outline_patches:
+            sa_deg = f['SA']
+            sa_factor = np.clip(sa_deg / 6.0, -1, 1)  # normalize to ±1
+            theta = np.linspace(0, 2 * np.pi, 120)
+            cos_t = np.cos(theta)
+            sin_t = np.sin(theta)
+            # Base ellipse
+            x_base = L_mm / 2 * cos_t
+            y_base = W_mm / 2 * sin_t
+            # Lateral asymmetry: widen on high-pressure side (outside of turn)
+            # Width modulation depends on longitudinal position:
+            # trailing edge (x < 0) deforms more than leading edge
+            trailing_factor = 1.0 - 0.4 * cos_t  # 0.6 at leading, 1.4 at trailing
+            y_asym = y_base * (1.0 + 0.15 * sa_factor * trailing_factor * sin_t)
+            # Lateral center shift
+            y_shift = sa_factor * W_mm * 0.08
+            y_asym += y_shift
+            new_verts = np.column_stack([x_base, y_asym])
+            for poly in self._br_outline_patches:
+                poly.set_xy(new_verts)
 
         # ── Steering wheel update (left panel) ──
         self._update_left_steering_wheel(f['SA'])
