@@ -22055,9 +22055,10 @@ class PerssonModelGUI_V2:
             ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=11, labelpad=6)
             ax.set_ylabel(r'$\log_{10}(v)$', fontsize=11, labelpad=6)
             ax.set_zlabel(z_label, fontsize=11, labelpad=6)
+            title_color = '#1565C0' if label == 'Cold' else '#C62828'
             ax.set_title(f'{label}  $p_0$={p0:.3g} MPa\n'
                          f'{z_label}: {Z.min():.4f} ~ {Z.max():.4f}',
-                         fontsize=11, fontweight='bold')
+                         fontsize=11, fontweight='bold', color=title_color)
             ax.view_init(elev=25, azim=azim)
             ax.tick_params(labelsize=9)
             # Axis direction: invert if descending
