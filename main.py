@@ -23680,16 +23680,16 @@ class PerssonModelGUI_V2:
             """Build pressure map that shifts with SA and SR direction.
 
             For dual_peak: SA makes one peak grow and the other shrink.
-            SA > 0 (right turn): lateral load transfer to +y
-            SA < 0 (left turn): lateral load transfer to -y
+            SA > 0 (right turn): lateral load transfer to -y (아래)
+            SA < 0 (left turn): lateral load transfer to +y (위)
             """
-            sa_factor = np.clip(sa_deg / 6.0, -1, 1)
+            sa_factor = -np.clip(sa_deg / 6.0, -1, 1)
             sa_abs = abs(sa_factor)
 
             if _is_dual_peak:
                 # Dual-peak with SA-dependent asymmetry (width direction):
-                # SA > 0 (right turn): load transfers to +y (high width side)
-                # SA < 0 (left turn): load transfers to -y (low width side)
+                # SA > 0 (right turn): load transfers to -y (low width side, 아래)
+                # SA < 0 (left turn): load transfers to +y (high width side, 위)
                 high_scale = 1.0 + 0.5 * sa_factor   # +y peak grows with positive SA
                 low_scale = 1.0 - 0.5 * sa_factor    # -y peak shrinks with positive SA
                 p = max(high_scale, 0.1) * _peak_high + max(low_scale, 0.1) * _peak_low
