@@ -22634,6 +22634,7 @@ class PerssonModelGUI_V2:
         self._brush_frame_idx = 0
         self._brush_playing = False
         self._brush_play_after_id = None
+        self._br_artists_ready = False
 
         # Result text
         sec6 = self._create_section(left_panel, "6) 결과 요약")
@@ -23529,6 +23530,7 @@ class PerssonModelGUI_V2:
             self.root.update()
 
             self._br_cbs_created = False
+            self._br_artists_ready = False
             self._run_brush_transient()
 
             self.br_progress_var.set(100)
@@ -23839,31 +23841,218 @@ class PerssonModelGUI_V2:
 
         self.canvas_brush.draw_idle()
 
-    # ── 2D Brush: Frame display ──
+    # ── 2D Brush: Persistent artist initialization ──
 
-    def _brush_show_frame(self, idx):
-        """Display a single frame of the transient simulation."""
-        if not self._brush_frames or idx >= len(self._brush_frames):
-            return
+    def _brush_init_artists(self):
+        """Create persistent pcolormesh / quiver artists for fast frame updates.
 
-        f = self._brush_frames[idx]
+        Called once after simulation, before first frame display.
+        Subsequent frames only update data arrays — no ax.clear().
+        """
+        from matplotlib.patches import Ellipse as MplEllipse, Patch, FancyArrowPatch
+        from matplotlib.colors import ListedColormap, BoundaryNorm
+        import matplotlib.cm as mcm
+
         x_mm = self._brush_x_mm
         y_mm = self._brush_y_mm
         L_mm = self._brush_L_mm
         W_mm = self._brush_W_mm
         mask = self._brush_ellipse_mask
-        gr = getattr(self, '_br_global_ranges', None)
+        gr = self._br_global_ranges
 
-        # Remove old colorbars only on first frame (we reuse them)
-        if not hasattr(self, '_br_cbs_created') or not self._br_cbs_created:
-            for attr in ('_cb_br_speed', '_cb_br_pres', '_cb_br_temp', '_cb_br_fric'):
-                if hasattr(self, attr) and getattr(self, attr) is not None:
-                    try:
-                        getattr(self, attr).remove()
-                    except Exception:
-                        pass
-                    setattr(self, attr, None)
-            self._br_cbs_created = False
+        # ── Common helpers ──
+        _cb_kw = dict(fraction=0.046, pad=0.04)
+
+        def _setup_ax(ax, title, has_colorbar_space=False):
+            ax.set_title(title, fontsize=9, fontweight='bold')
+            ax.set_xlabel('length [mm]', fontsize=7)
+            ax.set_ylabel('width [mm]', fontsize=7)
+            ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
+            ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
+            ax.tick_params(labelsize=7)
+
+        def _add_ellipse(ax):
+            e = MplEllipse((0, 0), L_mm, W_mm, fill=False,
+                           edgecolor='k', linewidth=1.5, zorder=5)
+            ax.add_patch(e)
+            return e
+
+        # Build mesh edges for pcolormesh (needs N+1 edges for N centers)
+        dx = x_mm[1] - x_mm[0] if len(x_mm) > 1 else 1.0
+        dy = y_mm[1] - y_mm[0] if len(y_mm) > 1 else 1.0
+        x_edges = np.concatenate([x_mm - dx / 2, [x_mm[-1] + dx / 2]])
+        y_edges = np.concatenate([y_mm - dy / 2, [y_mm[-1] + dy / 2]])
+
+        # NaN-masked base for outside-ellipse (transparent)
+        nan_base = np.where(mask, 0.0, np.nan)
+
+        # ── (1) sliding vs adhesion — pcolormesh with 2-color map ──
+        ax1 = self.ax_br_stick
+        ax1.clear()
+        cmap_sa = ListedColormap(['#2196F3', '#F44336'])
+        bounds_sa = [0, 0.5, 1.0]
+        norm_sa = BoundaryNorm(bounds_sa, cmap_sa.N)
+        init_data = np.where(mask, 0.0, np.nan)
+        self._br_pm_stick = ax1.pcolormesh(
+            x_edges, y_edges, init_data.T, cmap=cmap_sa, norm=norm_sa,
+            shading='flat', zorder=1)
+        _add_ellipse(ax1)
+        # Direction arrow (single large arrow in center)
+        self._br_stick_arrow = ax1.annotate(
+            '', xy=(0, 0), xytext=(0, 0),
+            arrowprops=dict(arrowstyle='->', color='white', lw=3, mutation_scale=18),
+            zorder=6)
+        # Legend
+        legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Adhesion (Stick)'),
+                          Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Sliding (Slip)')]
+        ax1.legend(handles=legend_patches, loc='upper right', fontsize=6,
+                   framealpha=0.8, edgecolor='#999')
+        _setup_ax(ax1, 'sliding vs adhesion')
+        # Invisible spacer colorbar to match width of other plots
+        _sm = mcm.ScalarMappable(cmap='jet', norm=plt.Normalize(0, 1))
+        _sm.set_array([])
+        _cb_dummy = self.fig_brush.colorbar(_sm, ax=ax1, **_cb_kw)
+        _cb_dummy.ax.set_visible(False)
+
+        # ── (2) sliding speed — quiver arrows ONLY (no color fill) ──
+        ax2 = self.ax_br_speed
+        ax2.clear()
+        ax2.set_facecolor('#F5F5F5')
+        _add_ellipse(ax2)
+        # Quiver grid
+        step_x = max(1, len(x_mm) // 18)
+        step_y = max(1, len(y_mm) // 9)
+        self._br_speed_step = (step_x, step_y)
+        xx_q, yy_q = np.meshgrid(x_mm[::step_x], y_mm[::step_y], indexing='ij')
+        mask_q = mask[::step_x, ::step_y]
+        self._br_speed_mask_q = mask_q
+        self._br_speed_xx_q = xx_q
+        self._br_speed_yy_q = yy_q
+        sp_lo, sp_hi = gr['speed']
+        # Flatten for masked quiver
+        u_init = np.zeros_like(xx_q)
+        v_init = np.zeros_like(xx_q)
+        mag_init = np.zeros_like(xx_q)
+        self._br_quiver_speed = ax2.quiver(
+            xx_q[mask_q], yy_q[mask_q], u_init[mask_q], v_init[mask_q],
+            mag_init[mask_q],
+            cmap='jet', clim=(sp_lo, max(sp_hi, 0.01)),
+            scale=1.0, headwidth=4, headlength=5, headaxislength=4,
+            linewidth=0.6, alpha=0.9, zorder=3)
+        self._cb_br_speed = self.fig_brush.colorbar(self._br_quiver_speed, ax=ax2, **_cb_kw)
+        self._cb_br_speed.set_label('speed [m/s]', fontsize=7)
+        self._cb_br_speed.ax.tick_params(labelsize=6)
+        _setup_ax(ax2, 'sliding speed')
+
+        # ── (3) contact pressure — pcolormesh ──
+        ax3 = self.ax_br_pressure
+        ax3.clear()
+        pr_lo, pr_hi = gr['pressure']
+        self._br_pm_pres = ax3.pcolormesh(
+            x_edges, y_edges, np.where(mask, 0.0, np.nan).T,
+            cmap='jet', vmin=pr_lo, vmax=pr_hi, shading='flat', zorder=1)
+        _add_ellipse(ax3)
+        self._cb_br_pres = self.fig_brush.colorbar(self._br_pm_pres, ax=ax3, **_cb_kw)
+        self._cb_br_pres.set_label('pressure [bar]', fontsize=7)
+        self._cb_br_pres.ax.tick_params(labelsize=6)
+        _setup_ax(ax3, 'contact pressure')
+
+        # ── (4) temperature — pcolormesh ──
+        ax4 = self.ax_br_temperature
+        ax4.clear()
+        t_lo, t_hi = gr['temperature']
+        self._br_pm_temp = ax4.pcolormesh(
+            x_edges, y_edges, np.where(mask, 300.0, np.nan).T,
+            cmap='jet', vmin=t_lo, vmax=t_hi, shading='flat', zorder=1)
+        _add_ellipse(ax4)
+        self._cb_br_temp = self.fig_brush.colorbar(self._br_pm_temp, ax=ax4, **_cb_kw)
+        self._cb_br_temp.set_label('temperature [K]', fontsize=7)
+        self._cb_br_temp.ax.tick_params(labelsize=6)
+        _setup_ax(ax4, 'temperature')
+
+        # ── (5) friction — pcolormesh ──
+        ax5 = self.ax_br_friction
+        ax5.clear()
+        f_lo, f_hi = gr['friction']
+        self._br_pm_fric = ax5.pcolormesh(
+            x_edges, y_edges, np.where(mask, 1.0, np.nan).T,
+            cmap='jet', vmin=f_lo, vmax=f_hi, shading='flat', zorder=1)
+        _add_ellipse(ax5)
+        self._cb_br_fric = self.fig_brush.colorbar(self._br_pm_fric, ax=ax5, **_cb_kw)
+        self._cb_br_fric.set_label('friction [-]', fontsize=7)
+        self._cb_br_fric.ax.tick_params(labelsize=6)
+        _setup_ax(ax5, 'friction')
+
+        # ── Steering wheel indicator — positioned to left of SA/SR legend area ──
+        self._br_steering_artists = []
+        fig_trans = self.fig_brush.transFigure
+        # Place steering wheel in the gap between the two top plots
+        ins_cx, ins_cy = 0.50, 0.92
+        ins_r = 0.028
+        # Outer ring (thicker)
+        theta_w = np.linspace(0, 2 * np.pi, 60)
+        wx = ins_cx + ins_r * np.cos(theta_w)
+        wy = ins_cy + ins_r * np.sin(theta_w)
+        line_w, = self.fig_brush.axes[0].plot(
+            wx, wy, '-', color='#333333', lw=3, transform=fig_trans, clip_on=False)
+        self._br_steering_artists.append(line_w)
+        # Inner ring (decorative)
+        inner_r = ins_r * 0.35
+        iwx = ins_cx + inner_r * np.cos(theta_w)
+        iwy = ins_cy + inner_r * np.sin(theta_w)
+        line_inner, = self.fig_brush.axes[0].plot(
+            iwx, iwy, '-', color='#666', lw=1.2, transform=fig_trans, clip_on=False)
+        self._br_steering_artists.append(line_inner)
+        # 3 spokes (placeholder — will be updated per frame)
+        self._br_spoke_lines = []
+        for _ in range(3):
+            sp, = self.fig_brush.axes[0].plot(
+                [], [], '-', color='#333333', lw=2, transform=fig_trans, clip_on=False)
+            self._br_steering_artists.append(sp)
+            self._br_spoke_lines.append(sp)
+        # Center dot
+        cd, = self.fig_brush.axes[0].plot(
+            ins_cx, ins_cy, 'o', color='#333', markersize=4,
+            transform=fig_trans, clip_on=False)
+        self._br_steering_artists.append(cd)
+        # SA label below wheel
+        self._br_steer_label = self.fig_brush.axes[0].text(
+            ins_cx, ins_cy - ins_r * 1.8, 'SA=0.0°',
+            fontsize=8, ha='center', va='top', fontweight='bold',
+            transform=fig_trans, clip_on=False)
+        self._br_steering_artists.append(self._br_steer_label)
+        # L/R rotation direction indicators
+        self._br_steer_left = self.fig_brush.axes[0].text(
+            ins_cx - ins_r * 1.8, ins_cy, 'L',
+            fontsize=10, ha='center', va='center', fontweight='bold',
+            color='#BBBBBB', transform=fig_trans, clip_on=False)
+        self._br_steering_artists.append(self._br_steer_left)
+        self._br_steer_right = self.fig_brush.axes[0].text(
+            ins_cx + ins_r * 1.8, ins_cy, 'R',
+            fontsize=10, ha='center', va='center', fontweight='bold',
+            color='#BBBBBB', transform=fig_trans, clip_on=False)
+        self._br_steering_artists.append(self._br_steer_right)
+        # Store geometry
+        self._br_steer_cx = ins_cx
+        self._br_steer_cy = ins_cy
+        self._br_steer_r = ins_r
+
+        self._br_artists_ready = True
+        self.canvas_brush.draw_idle()
+
+    # ── 2D Brush: Frame display ──
+
+    def _brush_show_frame(self, idx):
+        """Display a single frame — fast update using set_array / set_UVC."""
+        if not self._brush_frames or idx >= len(self._brush_frames):
+            return
+
+        # Initialize persistent artists on first call
+        if not getattr(self, '_br_artists_ready', False):
+            self._brush_init_artists()
+
+        f = self._brush_frames[idx]
+        mask = self._brush_ellipse_mask
 
         # Update frame label
         t_val = f['t']
@@ -23876,7 +24065,6 @@ class PerssonModelGUI_V2:
             self._br_cursor_in.set_xdata([t_val, t_val])
         if hasattr(self, '_br_cursor_ft'):
             self._br_cursor_ft.set_xdata([t_val, t_val])
-        # Move circle markers to current position
         if hasattr(self, '_br_marker_sa'):
             self._br_marker_sa.set_data([t_val], [f['SA']])
         if hasattr(self, '_br_marker_sr'):
@@ -23886,230 +24074,102 @@ class PerssonModelGUI_V2:
         if hasattr(self, '_br_marker_fx'):
             self._br_marker_fx.set_data([t_val], [f['Fx']])
 
-        # Ellipse clip path for matplotlib
-        from matplotlib.patches import Ellipse as MplEllipse
-
-        def make_clip_ellipse(ax):
-            """Create an ellipse patch for clipping contourf to contact patch."""
-            e = MplEllipse((0, 0), L_mm, W_mm, fill=False,
-                            edgecolor='k', linewidth=1.5)
-            ax.add_patch(e)
-            return e
-
-        def clip_contourf(cf, clip_patch):
-            """Clip all contourf collections to an ellipse."""
-            for col in cf.collections:
-                col.set_clip_path(clip_patch)
-
-        # Use full data (no NaN masking) — clip visually with ellipse instead
-        # This ensures contour fills right up to the ellipse boundary
-
-        # ── (1) sliding vs adhesion ──
-        ax = self.ax_br_stick
-        ax.clear()
+        # ── (1) sliding vs adhesion — update pcolormesh ──
         is_sl = f['is_sliding'].astype(float).copy()
-        is_sl[~mask] = -0.1  # outside ellipse
-        # 0 = stick (blue), 1 = sliding (red)
-        cf1 = ax.contourf(x_mm, y_mm, is_sl.T, levels=[-0.05, 0.5, 1.05],
-                           colors=['#2196F3', '#F44336'], alpha=0.9)
-        clip_e1 = make_clip_ellipse(ax)
-        clip_contourf(cf1, clip_e1)
-        # Add direction arrow showing sliding direction
+        is_sl[~mask] = np.nan
+        self._br_pm_stick.set_array(is_sl.T.ravel())
+        # Update direction arrow
         v_rx = f.get('v_slip_x', None)
         v_ry = f.get('v_slip_y', None)
+        L_mm = self._brush_L_mm
         if v_rx is not None and v_ry is not None:
-            mean_vx = np.mean(v_rx[mask]) if np.any(mask) else 0
-            mean_vy = np.mean(v_ry[mask]) if np.any(mask) else 0
+            # Use mean slip velocity of SLIDING nodes only for arrow direction
+            sliding_mask = f['is_sliding'] & mask
+            if np.any(sliding_mask):
+                mean_vx = np.mean(v_rx[sliding_mask])
+                mean_vy = np.mean(v_ry[sliding_mask])
+            else:
+                mean_vx = np.mean(v_rx[mask]) if np.any(mask) else 0
+                mean_vy = np.mean(v_ry[mask]) if np.any(mask) else 0
             arrow_mag = np.sqrt(mean_vx**2 + mean_vy**2)
             if arrow_mag > 1e-10:
                 arrow_scale = L_mm * 0.3
-                ax.annotate('', xy=(arrow_scale * mean_vx / arrow_mag,
-                                     arrow_scale * mean_vy / arrow_mag),
-                            xytext=(0, 0),
-                            arrowprops=dict(arrowstyle='->', color='white',
-                                            lw=2.5, mutation_scale=15))
-        # Legend patches
-        from matplotlib.patches import Patch
-        legend_patches = [Patch(facecolor='#2196F3', label='Stick'),
-                          Patch(facecolor='#F44336', label='Slip')]
-        ax.legend(handles=legend_patches, loc='upper right', fontsize=6,
-                  framealpha=0.7)
-        ax.set_title('sliding vs adhesion', fontsize=9, fontweight='bold')
-        ax.set_xlabel('length [mm]', fontsize=7)
-        ax.set_ylabel('width [mm]', fontsize=7)
-        ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
-        ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
-        ax.tick_params(labelsize=7)
+                dx_a = arrow_scale * mean_vx / arrow_mag
+                dy_a = arrow_scale * mean_vy / arrow_mag
+                self._br_stick_arrow.xy = (dx_a, dy_a)
+                self._br_stick_arrow.set_visible(True)
+            else:
+                self._br_stick_arrow.set_visible(False)
+        else:
+            self._br_stick_arrow.set_visible(False)
 
-        # Common colorbar parameters for uniform plot sizing
-        _cb_kw = dict(fraction=0.046, pad=0.04)
-        # Invisible spacer colorbar for plot 1 to match width of plots 2-5
-        if not self._br_cbs_created:
-            import matplotlib.cm as mcm
-            _sm = mcm.ScalarMappable(cmap='jet', norm=plt.Normalize(0, 1))
-            _sm.set_array([])
-            _cb_dummy = self.fig_brush.colorbar(_sm, ax=self.ax_br_stick, **_cb_kw)
-            _cb_dummy.ax.set_visible(False)
-        _n_levels = 64  # dense contour levels for smooth fill
-
-        # ── (2) sliding speed — contourf background + quiver arrows ──
-        ax = self.ax_br_speed
-        ax.clear()
-        vs_data = f['v_slip_mag'].copy()
-        vs_data[~mask] = 0.0
-        sp_lo, sp_hi = (gr['speed'] if gr else (0, max(np.max(vs_data), 0.1)))
-        # Contourf background for complete color fill
-        levels_s = np.linspace(sp_lo, sp_hi, _n_levels)
-        if levels_s[-1] <= levels_s[0]:
-            levels_s = np.linspace(0, 0.1, _n_levels)
-        cf2 = ax.contourf(x_mm, y_mm, vs_data.T, levels=levels_s, cmap='jet',
-                           extend='both')
-        clip_e2 = make_clip_ellipse(ax)
-        clip_contourf(cf2, clip_e2)
-
-        # Quiver overlay: denser arrows
-        step_x = max(1, len(x_mm) // 20)
-        step_y = max(1, len(y_mm) // 10)
-        xx_q, yy_q = np.meshgrid(x_mm[::step_x], y_mm[::step_y], indexing='ij')
+        # ── (2) sliding speed — update quiver arrows only ──
+        step_x, step_y = self._br_speed_step
+        mask_q = self._br_speed_mask_q
         u_q = f['v_slip_x'][::step_x, ::step_y]
         v_q = f['v_slip_y'][::step_x, ::step_y]
         mag_q = np.sqrt(u_q**2 + v_q**2)
-        mask_q = self._brush_ellipse_mask[::step_x, ::step_y]
-        xx_q_f = xx_q[mask_q]
-        yy_q_f = yy_q[mask_q]
-        u_q_f = u_q[mask_q]
-        v_q_f = v_q[mask_q]
-        mag_q_f = mag_q[mask_q]
-        if len(mag_q_f) > 0 and np.max(mag_q_f) > 1e-15:
-            ax.quiver(xx_q_f, yy_q_f, u_q_f, v_q_f, mag_q_f,
-                      cmap='jet', clim=(sp_lo, sp_hi),
-                      scale=max(np.max(mag_q_f) * 15, 1),
-                      headwidth=3, headlength=4, linewidth=0.5, alpha=0.85)
-        if not self._br_cbs_created:
-            self._cb_br_speed = self.fig_brush.colorbar(cf2, ax=ax, **_cb_kw)
-            self._cb_br_speed.set_label('speed [m/s]', fontsize=7)
-            self._cb_br_speed.ax.tick_params(labelsize=6)
-        ax.set_title('sliding speed', fontsize=9, fontweight='bold')
-        ax.set_xlabel('length [mm]', fontsize=7)
-        ax.set_ylabel('width [mm]', fontsize=7)
-        ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
-        ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
-        ax.tick_params(labelsize=7)
+        u_f = u_q[mask_q]
+        v_f = v_q[mask_q]
+        mag_f = mag_q[mask_q]
+        max_mag = np.max(mag_f) if len(mag_f) > 0 else 0.01
+        # Normalize for display — uniform arrow size, direction-only
+        if max_mag > 1e-15:
+            norm_u = u_f / (mag_f + 1e-15)
+            norm_v = v_f / (mag_f + 1e-15)
+        else:
+            norm_u = np.zeros_like(u_f)
+            norm_v = np.zeros_like(v_f)
+        self._br_quiver_speed.set_UVC(norm_u, norm_v, mag_f)
+        sp_hi = self._br_global_ranges['speed'][1]
+        self._br_quiver_speed.scale = max(12.0, 1.0)
 
-        # ── (3) contact pressure ──
-        ax = self.ax_br_pressure
-        ax.clear()
-        p_bar = f['p_map'].copy() * 1e-5  # Pa → bar
-        p_bar[~mask] = 0.0
-        pr_lo, pr_hi = (gr['pressure'] if gr else (0, max(np.max(p_bar), 0.01)))
-        levels_p = np.linspace(pr_lo, pr_hi, _n_levels)
-        if levels_p[-1] <= levels_p[0]:
-            levels_p = np.linspace(0, 1, _n_levels)
-        cf3 = ax.contourf(x_mm, y_mm, p_bar.T, levels=levels_p, cmap='jet',
-                           extend='both')
-        clip_e3 = make_clip_ellipse(ax)
-        clip_contourf(cf3, clip_e3)
-        if not self._br_cbs_created:
-            self._cb_br_pres = self.fig_brush.colorbar(cf3, ax=ax, **_cb_kw)
-            self._cb_br_pres.set_label('pressure [bar]', fontsize=7)
-            self._cb_br_pres.ax.tick_params(labelsize=6)
-        ax.set_title('contact pressure', fontsize=9, fontweight='bold')
-        ax.set_xlabel('length [mm]', fontsize=7)
-        ax.set_ylabel('width [mm]', fontsize=7)
-        ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
-        ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
-        ax.tick_params(labelsize=7)
+        # ── (3) contact pressure — update pcolormesh ──
+        p_bar = f['p_map'].copy() * 1e-5
+        p_bar[~mask] = np.nan
+        self._br_pm_pres.set_array(p_bar.T.ravel())
 
-        # ── (4) temperature ──
-        ax = self.ax_br_temperature
-        ax.clear()
+        # ── (4) temperature — update pcolormesh ──
         T_K = f['T_contact'].copy() + 273.15
-        T_K[~mask] = np.mean(T_K[mask]) if np.any(mask) else 300.0
-        t_lo, t_hi = (gr['temperature'] if gr else (np.min(T_K), np.max(T_K)))
-        levels_t = np.linspace(t_lo, t_hi, _n_levels)
-        if levels_t[-1] <= levels_t[0]:
-            levels_t = np.linspace(290, 330, _n_levels)
-        cf4 = ax.contourf(x_mm, y_mm, T_K.T, levels=levels_t, cmap='jet',
-                           extend='both')
-        clip_e4 = make_clip_ellipse(ax)
-        clip_contourf(cf4, clip_e4)
-        if not self._br_cbs_created:
-            self._cb_br_temp = self.fig_brush.colorbar(cf4, ax=ax, **_cb_kw)
-            self._cb_br_temp.set_label('temperature [K]', fontsize=7)
-            self._cb_br_temp.ax.tick_params(labelsize=6)
-        ax.set_title('temperature', fontsize=9, fontweight='bold')
-        ax.set_xlabel('length [mm]', fontsize=7)
-        ax.set_ylabel('width [mm]', fontsize=7)
-        ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
-        ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
-        ax.tick_params(labelsize=7)
+        T_K[~mask] = np.nan
+        self._br_pm_temp.set_array(T_K.T.ravel())
 
-        # ── (5) friction ──
-        ax = self.ax_br_friction
-        ax.clear()
+        # ── (5) friction — update pcolormesh ──
         mu = f['mu_eff'].copy()
-        mu[~mask] = np.mean(mu[mask]) if np.any(mask) else 1.0
-        f_lo, f_hi = (gr['friction'] if gr else (np.min(mu), np.max(mu)))
-        levels_f = np.linspace(f_lo, f_hi, _n_levels)
-        if levels_f[-1] <= levels_f[0]:
-            levels_f = np.linspace(0.5, 2.0, _n_levels)
-        cf5 = ax.contourf(x_mm, y_mm, mu.T, levels=levels_f, cmap='jet',
-                           extend='both')
-        clip_e5 = make_clip_ellipse(ax)
-        clip_contourf(cf5, clip_e5)
-        if not self._br_cbs_created:
-            self._cb_br_fric = self.fig_brush.colorbar(cf5, ax=ax, **_cb_kw)
-            self._cb_br_fric.set_label('friction [-]', fontsize=7)
-            self._cb_br_fric.ax.tick_params(labelsize=6)
-        ax.set_title('friction', fontsize=9, fontweight='bold')
-        ax.set_xlabel('length [mm]', fontsize=7)
-        ax.set_ylabel('width [mm]', fontsize=7)
-        ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
-        ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
-        ax.tick_params(labelsize=7)
+        mu[~mask] = np.nan
+        self._br_pm_fric.set_array(mu.T.ravel())
 
-        # ── Steering wheel indicator (in gap between two top plots) ──
+        # ── Steering wheel update ──
         sa_deg = f['SA']
-        # Remove old steering indicator if any
-        if hasattr(self, '_br_steering_artists'):
-            for a in self._br_steering_artists:
-                try:
-                    a.remove()
-                except Exception:
-                    pass
-        self._br_steering_artists = []
-        # Draw using figure coordinates (gap between the two top plots)
-        fig_trans = self.fig_brush.transFigure
-        ins_cx, ins_cy = 0.50, 0.88  # center of gap between top plots
-        ins_r = 0.025  # small radius in figure coords
         steer_rad = np.radians(-sa_deg)
-        # Wheel circle
-        theta_w = np.linspace(0, 2 * np.pi, 40)
-        wx = ins_cx + ins_r * np.cos(theta_w)
-        wy = ins_cy + ins_r * np.sin(theta_w)
-        line_w, = self.fig_brush.axes[0].plot(
-            wx, wy, 'k-', lw=2, transform=fig_trans, clip_on=False)
-        self._br_steering_artists.append(line_w)
-        # 3 spokes rotated by SA
-        for spoke_angle_base in [np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]:
-            sa = spoke_angle_base + steer_rad
-            sx = [ins_cx, ins_cx + ins_r * 0.85 * np.cos(sa)]
-            sy = [ins_cy, ins_cy + ins_r * 0.85 * np.sin(sa)]
-            sp, = self.fig_brush.axes[0].plot(
-                sx, sy, 'k-', lw=1.5, transform=fig_trans, clip_on=False)
-            self._br_steering_artists.append(sp)
-        # Center dot
-        cd, = self.fig_brush.axes[0].plot(
-            ins_cx, ins_cy, 'ko', markersize=3, transform=fig_trans, clip_on=False)
-        self._br_steering_artists.append(cd)
-        # Label below
-        steer_txt = self.fig_brush.axes[0].text(
-            ins_cx, ins_cy - ins_r * 1.6, f'SA={sa_deg:.1f}°',
-            fontsize=8, ha='center', va='top', fontweight='bold',
-            transform=fig_trans, clip_on=False)
-        self._br_steering_artists.append(steer_txt)
+        cx = self._br_steer_cx
+        cy = self._br_steer_cy
+        r = self._br_steer_r
+        # Update 3 spokes
+        for i, spoke_base in enumerate([np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]):
+            sa = spoke_base + steer_rad
+            self._br_spoke_lines[i].set_data(
+                [cx, cx + r * 0.85 * np.cos(sa)],
+                [cy, cy + r * 0.85 * np.sin(sa)])
+        # Update SA label
+        self._br_steer_label.set_text(f'SA={sa_deg:+.1f}°')
+        # Highlight L/R direction
+        if sa_deg > 0.5:
+            self._br_steer_left.set_color('#2196F3')
+            self._br_steer_left.set_fontsize(12)
+            self._br_steer_right.set_color('#CCCCCC')
+            self._br_steer_right.set_fontsize(10)
+        elif sa_deg < -0.5:
+            self._br_steer_right.set_color('#F44336')
+            self._br_steer_right.set_fontsize(12)
+            self._br_steer_left.set_color('#CCCCCC')
+            self._br_steer_left.set_fontsize(10)
+        else:
+            self._br_steer_left.set_color('#BBBBBB')
+            self._br_steer_left.set_fontsize(10)
+            self._br_steer_right.set_color('#BBBBBB')
+            self._br_steer_right.set_fontsize(10)
 
-        self._br_cbs_created = True
         self.canvas_brush.draw_idle()
 
     # ── 2D Brush: Playback controls ──
@@ -24159,8 +24219,8 @@ class PerssonModelGUI_V2:
 
         # Speed control
         speed_str = self.br_play_speed_var.get()
-        speed_map = {'0.25x': 200, '0.5x': 100, '1x': 50, '2x': 25, '4x': 12}
-        delay_ms = speed_map.get(speed_str, 50)
+        speed_map = {'0.25x': 80, '0.5x': 40, '1x': 16, '2x': 8, '4x': 4}
+        delay_ms = speed_map.get(speed_str, 16)
 
         self._brush_play_after_id = self.root.after(delay_ms, self._brush_animate)
 
