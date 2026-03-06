@@ -22486,6 +22486,13 @@ class PerssonModelGUI_V2:
                      values=['uniform', 'parabolic', 'elliptic'],
                      state='readonly').pack(side=tk.LEFT, padx=2)
 
+        row_drive = ttk.Frame(sec2); row_drive.pack(fill=tk.X, pady=1)
+        ttk.Label(row_drive, text="주행 모드:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_driving_mode_var = tk.StringVar(value="Braking")
+        for dm in ["Braking", "Handling", "Acceleration"]:
+            ttk.Radiobutton(row_drive, text=dm, variable=self.br_driving_mode_var,
+                            value=dm).pack(side=tk.LEFT, padx=3)
+
         # ── 3) 스윕 설정 ──
         sec3 = self._create_section(left_panel, "3) 스윕 설정")
 
@@ -22582,38 +22589,60 @@ class PerssonModelGUI_V2:
         plot_frame = ttk.LabelFrame(right_panel, text="2D Brush Model 시뮬레이션", padding=5)
         plot_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.fig_brush = Figure(figsize=(10, 8), dpi=100)
+        self.fig_brush = Figure(figsize=(12, 9), dpi=100)
 
-        # (1) 컨택 패치 2D 시각화 - top left
-        self.ax_br_patch = self.fig_brush.add_subplot(221)
-        self.ax_br_patch.set_title('Contact Patch (Slip Distance)', fontweight='bold', fontsize=10)
+        # Row 1: Contour plots (Load / Velocity / Temperature)
+        self.ax_br_load = self.fig_brush.add_subplot(231)
+        self.ax_br_load.set_title('하중 컨투어 (Load)', fontweight='bold', fontsize=10,
+                                   color='#1565C0')
+        self.ax_br_load.set_xlabel('x (종방향, m)')
+        self.ax_br_load.set_ylabel('y (횡방향, m)')
+        self.ax_br_load.set_aspect('equal')
+
+        self.ax_br_velocity = self.fig_brush.add_subplot(232)
+        self.ax_br_velocity.set_title('속도 컨투어 (Velocity)', fontweight='bold', fontsize=10,
+                                       color='#6A6A6A')
+        self.ax_br_velocity.set_xlabel('x (종방향, m)')
+        self.ax_br_velocity.set_ylabel('y (횡방향, m)')
+        self.ax_br_velocity.set_aspect('equal')
+        self.ax_br_velocity.text(0.5, 0.5, '운동방정식 풀이 후\n데이터 생성',
+                                  transform=self.ax_br_velocity.transAxes,
+                                  ha='center', va='center', fontsize=9,
+                                  color='#999999', style='italic')
+
+        self.ax_br_temperature = self.fig_brush.add_subplot(233)
+        self.ax_br_temperature.set_title('온도 컨투어 (Temperature)', fontweight='bold', fontsize=10,
+                                          color='#6A6A6A')
+        self.ax_br_temperature.set_xlabel('x (종방향, m)')
+        self.ax_br_temperature.set_ylabel('y (횡방향, m)')
+        self.ax_br_temperature.set_aspect('equal')
+        self.ax_br_temperature.text(0.5, 0.5, '운동방정식 풀이 후\n데이터 생성',
+                                     transform=self.ax_br_temperature.transAxes,
+                                     ha='center', va='center', fontsize=9,
+                                     color='#999999', style='italic')
+
+        # Row 2: Contact patch + sliding dir | μ-slip curve | Force envelope
+        self.ax_br_patch = self.fig_brush.add_subplot(234)
+        self.ax_br_patch.set_title('Contact Patch + Sliding Direction',
+                                    fontweight='bold', fontsize=10)
         self.ax_br_patch.set_xlabel('x (종방향, m)')
         self.ax_br_patch.set_ylabel('y (횡방향, m)')
         self.ax_br_patch.set_aspect('equal')
 
-        # (2) μ_eff 분포 - top right
-        self.ax_br_mu_map = self.fig_brush.add_subplot(222)
-        self.ax_br_mu_map.set_title('μ_eff Distribution', fontweight='bold', fontsize=10)
-        self.ax_br_mu_map.set_xlabel('x (종방향, m)')
-        self.ax_br_mu_map.set_ylabel('y (횡방향, m)')
-        self.ax_br_mu_map.set_aspect('equal')
-
-        # (3) μ-slip 커브 - bottom left
-        self.ax_br_mu_slip = self.fig_brush.add_subplot(223)
-        self.ax_br_mu_slip.set_title('μ vs Slip (Braking / Cornering)', fontweight='bold', fontsize=10)
+        self.ax_br_mu_slip = self.fig_brush.add_subplot(235)
+        self.ax_br_mu_slip.set_title('μ vs Slip', fontweight='bold', fontsize=10)
         self.ax_br_mu_slip.set_xlabel('Slip ratio s  or  Slip angle α (°)')
         self.ax_br_mu_slip.set_ylabel('μ = F / Fz')
         self.ax_br_mu_slip.grid(True, alpha=0.3)
 
-        # (4) Fx, Fy, Mz - bottom right
-        self.ax_br_forces = self.fig_brush.add_subplot(224)
-        self.ax_br_forces.set_title('Fx, Fy, Mz vs Slip', fontweight='bold', fontsize=10)
+        self.ax_br_forces = self.fig_brush.add_subplot(236)
+        self.ax_br_forces.set_title('Force Envelope (Fx, Fy)', fontweight='bold', fontsize=10)
         self.ax_br_forces.set_xlabel('Slip ratio s  or  Slip angle α (°)')
-        self.ax_br_forces.set_ylabel('Force (N) / Torque (N·m)')
+        self.ax_br_forces.set_ylabel('Force (N)')
         self.ax_br_forces.grid(True, alpha=0.3)
 
-        self.fig_brush.subplots_adjust(left=0.10, right=0.92, top=0.95, bottom=0.08,
-                                        hspace=0.45, wspace=0.35)
+        self.fig_brush.subplots_adjust(left=0.08, right=0.94, top=0.95, bottom=0.07,
+                                        hspace=0.50, wspace=0.40)
 
         self.canvas_brush = FigureCanvasTkAgg(self.fig_brush, plot_frame)
         self.canvas_brush.draw_idle()
@@ -22668,8 +22697,14 @@ class PerssonModelGUI_V2:
 
         return mu_cold_fn, mu_hot_fn
 
-    def _build_pressure_map(self, Nx, Ny, L, W, Fz, ptype='parabolic'):
+    def _build_pressure_map(self, Nx, Ny, L, W, Fz, ptype='parabolic',
+                            driving_mode='Braking'):
         """Build 2D pressure distribution over the contact patch.
+
+        driving_mode controls asymmetric weighting:
+          - Braking:      front-loaded (weight transfer to leading edge)
+          - Handling:      laterally shifted (cornering load transfer)
+          - Acceleration:  rear-loaded (weight transfer to trailing edge)
 
         Returns:
             p_map: (Nx, Ny) array of local pressure (Pa)
@@ -22688,18 +22723,29 @@ class PerssonModelGUI_V2:
         if ptype == 'uniform':
             p_map = np.ones((Nx, Ny))
         elif ptype == 'elliptic':
-            # Elliptic (Hertzian-like): p = p0 * sqrt(1 - (2x/L)^2 - (2y/W)^2)
             r2 = (2 * xx / L) ** 2 + (2 * yy / W) ** 2
             p_map = np.sqrt(np.clip(1 - r2, 0, None))
         else:  # parabolic (default)
-            # Parabolic: p = p0 * (1 - (2x/L)^2) * (1 - (2y/W)^2)
             p_map = np.clip(1 - (2 * xx / L) ** 2, 0, None) * \
                     np.clip(1 - (2 * yy / W) ** 2, 0, None)
+
+        # Apply asymmetric weighting based on driving mode
+        if driving_mode == 'Braking':
+            # Front-loaded: pressure peaks toward leading edge (+x direction)
+            weight = 1.0 + 0.5 * (2 * xx / L)
+        elif driving_mode == 'Acceleration':
+            # Rear-loaded: pressure peaks toward trailing edge (-x direction)
+            weight = 1.0 - 0.5 * (2 * xx / L)
+        else:  # Handling
+            # Laterally shifted: pressure peaks toward outside (+y direction)
+            weight = 1.0 + 0.4 * (2 * yy / W)
+
+        p_map *= np.clip(weight, 0.1, None)
 
         # Normalise so total force = Fz
         total_raw = np.sum(p_map) * dA
         if total_raw > 0:
-            p_map *= Fz / total_raw  # now Pa * m^2 / m^2 → N/m^2
+            p_map *= Fz / total_raw
 
         return p_map, x_arr, y_arr, dx, dy
 
@@ -22732,6 +22778,7 @@ class PerssonModelGUI_V2:
         max_steps = int(self.br_max_steps_var.get())
         ss_tol = float(self.br_ss_tol_var.get())
         ptype = self.br_pressure_type_var.get()
+        driving_mode = self.br_driving_mode_var.get()
         slip_min = float(self.br_slip_min_var.get())
         slip_max = float(self.br_slip_max_var.get())
         n_sweep = int(self.br_n_sweep_var.get())
@@ -22741,7 +22788,7 @@ class PerssonModelGUI_V2:
 
         # ── Build pressure map & grid ──
         p_map, x_arr, y_arr, dx, dy = self._build_pressure_map(
-            Nx, Ny, L, W, Fz, ptype)
+            Nx, Ny, L, W, Fz, ptype, driving_mode)
         dA = dx * dy
 
         # Element normal force
@@ -22767,6 +22814,8 @@ class PerssonModelGUI_V2:
         last_mu_eff = None
         mid_slip_dist = None
         mid_mu_eff = None
+        mid_v_slip_x = None
+        mid_v_slip_y = None
 
         for si, sweep_val in enumerate(sweep_vals):
             # ── Determine rim velocity components ──
@@ -22901,6 +22950,8 @@ class PerssonModelGUI_V2:
             if si == n_sweep // 2:
                 mid_slip_dist = s_dist.copy()
                 mid_mu_eff = mu_eff.copy()
+                mid_v_slip_x = v_slip_x.copy()
+                mid_v_slip_y = v_slip_y.copy()
             if si == n_sweep - 1:
                 last_slip_dist = s_dist.copy()
                 last_mu_eff = mu_eff.copy()
@@ -22918,6 +22969,7 @@ class PerssonModelGUI_V2:
 
         result = {
             'mode': mode,
+            'driving_mode': driving_mode,
             'sweep': sweep_display,
             'Fx': Fx_arr,
             'Fy': Fy_arr,
@@ -22931,6 +22983,8 @@ class PerssonModelGUI_V2:
             'last_mu_eff': last_mu_eff,
             'mid_slip_dist': mid_slip_dist,
             'mid_mu_eff': mid_mu_eff,
+            'mid_v_slip_x': mid_v_slip_x,
+            'mid_v_slip_y': mid_v_slip_y,
             'p_map': p_map,
             'vc': vc,
             's0': s0,
@@ -22994,19 +23048,20 @@ class PerssonModelGUI_V2:
     # ── 2D Brush: Plot update ──
 
     def _update_brush_plots(self):
-        """Update all 4 subplots for the 2D Brush Model results."""
+        """Update all 6 subplots for the 2D Brush Model results."""
         if self.brush_results is None:
             return
 
         try:
             r = self.brush_results
             mode = r['mode']
+            driving_mode = r.get('driving_mode', 'Braking')
             sweep = r['sweep']
             x_arr = r['x_arr']
             y_arr = r['y_arr']
 
             # Remove old colorbars if they exist
-            for attr in ('_cb_br_patch', '_cb_br_mu_map'):
+            for attr in ('_cb_br_load', '_cb_br_patch'):
                 if hasattr(self, attr) and getattr(self, attr) is not None:
                     try:
                         getattr(self, attr).remove()
@@ -23027,74 +23082,142 @@ class PerssonModelGUI_V2:
             else:
                 slip_label = f"α={sweep[len(sweep)//2]:.1f}°"
 
-            # ── (1) Contact patch: cumulative slip distance (coloured) ──
+            # ── (1) Load contour ──
+            self.ax_br_load.clear()
+            p_map = r['p_map']
+            if p_map is not None:
+                # Convert Pa to MPa for display
+                p_show = p_map * 1e-6
+                im_load = self.ax_br_load.contourf(
+                    x_arr, y_arr, p_show.T, levels=20,
+                    cmap='YlOrRd')
+                self.ax_br_load.contour(
+                    x_arr, y_arr, p_show.T, levels=10,
+                    colors='k', linewidths=0.3, alpha=0.5)
+                self._cb_br_load = self.fig_brush.colorbar(
+                    im_load, ax=self.ax_br_load, shrink=0.8, pad=0.02)
+                self._cb_br_load.set_label('MPa', fontsize=8)
+            mode_colors = {'Braking': '#1565C0', 'Handling': '#E65100',
+                           'Acceleration': '#2E7D32'}
+            self.ax_br_load.set_title(
+                f'하중 컨투어 ({driving_mode})',
+                fontweight='bold', fontsize=10,
+                color=mode_colors.get(driving_mode, '#1565C0'))
+            self.ax_br_load.set_xlabel('x (m)', fontsize=8)
+            self.ax_br_load.set_ylabel('y (m)', fontsize=8)
+            self.ax_br_load.set_aspect('equal')
+
+            # ── (2) Velocity contour (placeholder) ──
+            self.ax_br_velocity.clear()
+            self.ax_br_velocity.set_title('속도 컨투어 (Velocity)',
+                                           fontweight='bold', fontsize=10, color='#6A6A6A')
+            self.ax_br_velocity.text(0.5, 0.5, '운동방정식 풀이 후\n데이터 생성',
+                                      transform=self.ax_br_velocity.transAxes,
+                                      ha='center', va='center', fontsize=9,
+                                      color='#999999', style='italic')
+            self.ax_br_velocity.set_xlabel('x (m)', fontsize=8)
+            self.ax_br_velocity.set_ylabel('y (m)', fontsize=8)
+            self.ax_br_velocity.set_xlim(x_arr[0], x_arr[-1])
+            self.ax_br_velocity.set_ylim(y_arr[0], y_arr[-1])
+            self.ax_br_velocity.set_aspect('equal')
+            # Draw patch boundary as dashed rectangle
+            from matplotlib.patches import Rectangle as MplRect
+            rect_v = MplRect((x_arr[0], y_arr[0]), x_arr[-1]-x_arr[0], y_arr[-1]-y_arr[0],
+                              linewidth=1.5, edgecolor='#BBBBBB', facecolor='#F5F5F5',
+                              linestyle='--')
+            self.ax_br_velocity.add_patch(rect_v)
+
+            # ── (3) Temperature contour (placeholder) ──
+            self.ax_br_temperature.clear()
+            self.ax_br_temperature.set_title('온도 컨투어 (Temperature)',
+                                              fontweight='bold', fontsize=10, color='#6A6A6A')
+            self.ax_br_temperature.text(0.5, 0.5, '운동방정식 풀이 후\n데이터 생성',
+                                         transform=self.ax_br_temperature.transAxes,
+                                         ha='center', va='center', fontsize=9,
+                                         color='#999999', style='italic')
+            self.ax_br_temperature.set_xlabel('x (m)', fontsize=8)
+            self.ax_br_temperature.set_ylabel('y (m)', fontsize=8)
+            self.ax_br_temperature.set_xlim(x_arr[0], x_arr[-1])
+            self.ax_br_temperature.set_ylim(y_arr[0], y_arr[-1])
+            self.ax_br_temperature.set_aspect('equal')
+            rect_t = MplRect((x_arr[0], y_arr[0]), x_arr[-1]-x_arr[0], y_arr[-1]-y_arr[0],
+                              linewidth=1.5, edgecolor='#BBBBBB', facecolor='#F5F5F5',
+                              linestyle='--')
+            self.ax_br_temperature.add_patch(rect_t)
+
+            # ── (4) Contact patch + sliding direction arrows ──
             self.ax_br_patch.clear()
             if r['mid_slip_dist'] is not None:
                 s_dist_show = r['mid_slip_dist']
-                im1 = self.ax_br_patch.pcolormesh(
+                im_patch = self.ax_br_patch.pcolormesh(
                     x_arr, y_arr, s_dist_show.T,
                     shading='auto', cmap='YlOrRd')
                 self._cb_br_patch = self.fig_brush.colorbar(
-                    im1, ax=self.ax_br_patch, shrink=0.8, pad=0.02)
-                self._cb_br_patch.set_label('Slip distance (m)', fontsize=8)
-                self.ax_br_patch.set_title(
-                    f'Contact Patch - Slip Dist ({slip_label})',
-                    fontweight='bold', fontsize=10)
+                    im_patch, ax=self.ax_br_patch, shrink=0.8, pad=0.02)
+                self._cb_br_patch.set_label('Slip dist (m)', fontsize=7)
+
+                # Sliding direction arrows (quiver)
+                vsx = r.get('mid_v_slip_x')
+                vsy = r.get('mid_v_slip_y')
+                if vsx is not None and vsy is not None:
+                    # Subsample for clarity
+                    step_x = max(1, len(x_arr) // 8)
+                    step_y = max(1, len(y_arr) // 4)
+                    xx_q, yy_q = np.meshgrid(x_arr[::step_x], y_arr[::step_y], indexing='ij')
+                    u_q = vsx[::step_x, ::step_y]
+                    v_q = vsy[::step_x, ::step_y]
+                    mag_q = np.sqrt(u_q**2 + v_q**2) + 1e-15
+                    self.ax_br_patch.quiver(
+                        xx_q, yy_q, u_q / mag_q, v_q / mag_q,
+                        color='white', alpha=0.85, scale=25,
+                        headwidth=4, headlength=5, linewidth=0.8)
+
+                    # Direction label
+                    avg_vx = np.mean(vsx)
+                    avg_vy = np.mean(vsy)
+                    if abs(avg_vx) > abs(avg_vy):
+                        dir_str = '→ 종방향 슬립' if avg_vx > 0 else '← 종방향 슬립'
+                    else:
+                        dir_str = '↑ 횡방향 슬립' if avg_vy > 0 else '↓ 횡방향 슬립'
+                    self.ax_br_patch.set_title(
+                        f'Sliding Direction ({slip_label})\n{dir_str}',
+                        fontweight='bold', fontsize=9)
+                else:
+                    self.ax_br_patch.set_title(
+                        f'Contact Patch ({slip_label})',
+                        fontweight='bold', fontsize=10)
             else:
                 self.ax_br_patch.set_title('Contact Patch (No data)', fontsize=10)
-            self.ax_br_patch.set_xlabel('x (m)')
-            self.ax_br_patch.set_ylabel('y (m)')
+            self.ax_br_patch.set_xlabel('x (m)', fontsize=8)
+            self.ax_br_patch.set_ylabel('y (m)', fontsize=8)
             self.ax_br_patch.set_aspect('equal')
 
-            # ── (2) μ_eff distribution at mid-sweep ──
-            self.ax_br_mu_map.clear()
-            if r['mid_mu_eff'] is not None:
-                mu_show = r['mid_mu_eff']
-                im2 = self.ax_br_mu_map.pcolormesh(
-                    x_arr, y_arr, mu_show.T,
-                    shading='auto', cmap='viridis')
-                self._cb_br_mu_map = self.fig_brush.colorbar(
-                    im2, ax=self.ax_br_mu_map, shrink=0.8, pad=0.02)
-                self._cb_br_mu_map.set_label('μ_eff', fontsize=8)
-                self.ax_br_mu_map.set_title(
-                    f'μ_eff Distribution ({slip_label})',
-                    fontweight='bold', fontsize=10)
-            else:
-                self.ax_br_mu_map.set_title('μ_eff (No data)', fontsize=10)
-            self.ax_br_mu_map.set_xlabel('x (m)')
-            self.ax_br_mu_map.set_ylabel('y (m)')
-            self.ax_br_mu_map.set_aspect('equal')
-
-            # ── (3) μ-slip or μ-slip angle curve ──
+            # ── (5) μ-slip or μ-slip angle curve ──
             self.ax_br_mu_slip.clear()
             if mode == 'braking':
                 self.ax_br_mu_slip.plot(sweep, r['mu_x'], 'b-o', linewidth=2,
-                                         markersize=4, label='μ_x (제동력)')
+                                         markersize=3, label='μ_x (제동력)')
                 if np.any(r['mu_y'] > 1e-6):
                     self.ax_br_mu_slip.plot(sweep, r['mu_y'], 'r--', linewidth=1.5,
                                              label='μ_y (횡력)')
-                self.ax_br_mu_slip.set_xlabel('Slip ratio s')
-                self.ax_br_mu_slip.set_title('μ vs Slip Ratio (Braking)',
+                self.ax_br_mu_slip.set_xlabel('Slip ratio s', fontsize=8)
+                self.ax_br_mu_slip.set_title('μ vs Slip Ratio',
                                               fontweight='bold', fontsize=10)
             else:
                 self.ax_br_mu_slip.plot(sweep, r['mu_y'], 'r-o', linewidth=2,
-                                         markersize=4, label='μ_y (코너링 포스)')
+                                         markersize=3, label='μ_y (코너링)')
                 if np.any(r['mu_x'] > 1e-6):
                     self.ax_br_mu_slip.plot(sweep, r['mu_x'], 'b--', linewidth=1.5,
                                              label='μ_x (종방향)')
-                self.ax_br_mu_slip.set_xlabel('Slip angle α (°)')
-                self.ax_br_mu_slip.set_title('μ vs Slip Angle (Cornering)',
+                self.ax_br_mu_slip.set_xlabel('Slip angle α (°)', fontsize=8)
+                self.ax_br_mu_slip.set_title('μ vs Slip Angle',
                                               fontweight='bold', fontsize=10)
-            self.ax_br_mu_slip.set_ylabel('μ = |F| / Fz')
-            self.ax_br_mu_slip.legend(fontsize=8)
+            self.ax_br_mu_slip.set_ylabel('μ = |F| / Fz', fontsize=8)
+            self.ax_br_mu_slip.legend(fontsize=7)
             self.ax_br_mu_slip.grid(True, alpha=0.3)
 
             # Peak marker
-            if mode == 'braking':
-                mu_main = r['mu_x']
-            else:
-                mu_main = r['mu_y']
-
+            mu_main = r['mu_x'] if mode == 'braking' else r['mu_y']
             if len(mu_main) > 0 and np.max(mu_main) > 0:
                 idx_peak = np.argmax(mu_main)
                 self.ax_br_mu_slip.annotate(
@@ -23102,31 +23225,50 @@ class PerssonModelGUI_V2:
                     xy=(sweep[idx_peak], mu_main[idx_peak]),
                     xytext=(sweep[idx_peak] + (sweep[-1] - sweep[0]) * 0.1,
                             mu_main[idx_peak] * 0.9),
-                    fontsize=8, color='#DC2626',
+                    fontsize=7, color='#DC2626',
                     arrowprops=dict(arrowstyle='->', color='#DC2626', lw=1.2))
 
-            # ── (4) Forces Fx, Fy, Mz ──
+            # ── (6) Force envelope (Fx, Fy) with mirrored negative values ──
             self.ax_br_forces.clear()
             ax_f = self.ax_br_forces
-            ax_f.plot(sweep, r['Fx'], 'b-', linewidth=2, label='Fx (종방향)')
-            ax_f.plot(sweep, r['Fy'], 'r-', linewidth=2, label='Fy (횡방향)')
-            ax_f.set_ylabel('Force (N)', color='black')
-            ax_f.legend(loc='upper left', fontsize=8)
+
+            # Build envelope: mirror sweep to include negative slip range
+            sweep_full = np.concatenate([-sweep[::-1], sweep])
+            # For braking: Fx(-s) = -Fx(s), Fy(-s) = Fy(s)
+            # For cornering: Fy(-α) = -Fy(α), Fx(-α) = Fx(α)
+            Fx_mirror = np.concatenate([-r['Fx'][::-1], r['Fx']])
+            Fy_mirror = np.concatenate([-r['Fy'][::-1], r['Fy']])
+            Mz_mirror = np.concatenate([-r['Mz'][::-1], r['Mz']])
+
+            ax_f.plot(sweep_full, Fx_mirror, 'b-', linewidth=2, label='Fx (종방향)')
+            ax_f.plot(sweep_full, Fy_mirror, 'r-', linewidth=2, label='Fy (횡방향)')
+            ax_f.axhline(y=0, color='k', linewidth=0.5, alpha=0.5)
+            ax_f.axvline(x=0, color='k', linewidth=0.5, alpha=0.5)
+
+            # Fill envelope region
+            ax_f.fill_between(sweep_full, Fx_mirror, alpha=0.08, color='blue')
+            ax_f.fill_between(sweep_full, Fy_mirror, alpha=0.08, color='red')
+
+            ax_f.set_ylabel('Force (N)', fontsize=8)
+            ax_f.legend(loc='best', fontsize=7)
             ax_f.grid(True, alpha=0.3)
 
             # Twin axis for Mz
             self._ax_br_mz_twin = ax_f.twinx()
-            self._ax_br_mz_twin.plot(sweep, r['Mz'], 'g--', linewidth=1.5, label='Mz (토크)')
-            self._ax_br_mz_twin.set_ylabel('Mz (N·m)', color='green')
-            self._ax_br_mz_twin.tick_params(axis='y', labelcolor='green')
-            self._ax_br_mz_twin.legend(loc='upper right', fontsize=8)
+            self._ax_br_mz_twin.plot(sweep_full, Mz_mirror, 'g--', linewidth=1.2,
+                                      alpha=0.7, label='Mz')
+            self._ax_br_mz_twin.set_ylabel('Mz (N·m)', color='green', fontsize=8)
+            self._ax_br_mz_twin.tick_params(axis='y', labelcolor='green', labelsize=7)
+            self._ax_br_mz_twin.legend(loc='lower right', fontsize=7)
 
             if mode == 'braking':
-                ax_f.set_xlabel('Slip ratio s')
-                ax_f.set_title('Fx, Fy, Mz vs Slip Ratio', fontweight='bold', fontsize=10)
+                ax_f.set_xlabel('Slip ratio s', fontsize=8)
+                ax_f.set_title('Force Envelope (Flat-Track Style)',
+                               fontweight='bold', fontsize=10)
             else:
-                ax_f.set_xlabel('Slip angle α (°)')
-                ax_f.set_title('Fx, Fy, Mz vs Slip Angle', fontweight='bold', fontsize=10)
+                ax_f.set_xlabel('Slip angle α (°)', fontsize=8)
+                ax_f.set_title('Force Envelope (Flat-Track Style)',
+                               fontweight='bold', fontsize=10)
 
             self.fig_brush.tight_layout(pad=1.5)
             self.canvas_brush.draw_idle()
