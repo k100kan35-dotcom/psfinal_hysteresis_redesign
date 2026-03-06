@@ -23722,10 +23722,10 @@ class PerssonModelGUI_V2:
         self._brush_ellipse_mask = ellipse_mask
 
         # Compute global min/max for fixed colorbars across all frames
-        all_speed = np.array([f['v_slip_mag'][mask] for f in frames])
-        all_pres = np.array([f['p_map'][mask] * 1e-5 for f in frames])  # bar
-        all_temp = np.array([f['T_contact'][mask] + 273.15 for f in frames])  # K
-        all_mu = np.array([f['mu_eff'][mask] for f in frames])
+        all_speed = np.array([f['v_slip_mag'][ellipse_mask] for f in frames])
+        all_pres = np.array([f['p_map'][ellipse_mask] * 1e-5 for f in frames])  # bar
+        all_temp = np.array([f['T_contact'][ellipse_mask] + 273.15 for f in frames])  # K
+        all_mu = np.array([f['mu_eff'][ellipse_mask] for f in frames])
         self._br_global_ranges = {
             'speed': (max(np.min(all_speed), 0), max(np.max(all_speed), 0.1)),
             'pressure': (max(np.min(all_pres), 0), max(np.max(all_pres), 0.01)),
@@ -23750,8 +23750,13 @@ class PerssonModelGUI_V2:
         ax_in.legend(loc='upper right', fontsize=8)
         ax_in.grid(True, alpha=0.3)
         ax_in.set_xlim(t[0], t[-1])
-        # Vertical cursor (will be updated)
+        # Vertical cursor
         self._br_cursor_in = ax_in.axvline(x=0, color='k', linewidth=1.2, alpha=0.7)
+        # Current position markers (small circles)
+        self._br_marker_sa, = ax_in.plot(0, self._brush_SA[0], 'ro',
+                                          markersize=8, zorder=5)
+        self._br_marker_sr, = ax_in.plot(0, self._brush_SR[0], 'o',
+                                          color='#E68A00', markersize=8, zorder=5)
 
         # Right: Fx / Fy output
         ax_f = self.ax_br_force_t
@@ -23764,6 +23769,11 @@ class PerssonModelGUI_V2:
         ax_f.grid(True, alpha=0.3)
         ax_f.set_xlim(t[0], t[-1])
         self._br_cursor_ft = ax_f.axvline(x=0, color='k', linewidth=1.2, alpha=0.7)
+        # Current position markers
+        self._br_marker_fy, = ax_f.plot(0, self._brush_Fy_hist[0], 'ro',
+                                         markersize=8, zorder=5)
+        self._br_marker_fx, = ax_f.plot(0, self._brush_Fx_hist[0], 'o',
+                                         color='#E68A00', markersize=8, zorder=5)
 
         self.canvas_brush.draw_idle()
 
@@ -23799,11 +23809,20 @@ class PerssonModelGUI_V2:
             f"t = {t_val:.2f} s  ({idx + 1}/{len(self._brush_frames)})  "
             f"SA={f['SA']:.1f}°  SR={f['SR']:.1f}%")
 
-        # Update cursors on time-history plots
+        # Update cursors and position markers on time-history plots
         if hasattr(self, '_br_cursor_in'):
             self._br_cursor_in.set_xdata([t_val, t_val])
         if hasattr(self, '_br_cursor_ft'):
             self._br_cursor_ft.set_xdata([t_val, t_val])
+        # Move circle markers to current position
+        if hasattr(self, '_br_marker_sa'):
+            self._br_marker_sa.set_data([t_val], [f['SA']])
+        if hasattr(self, '_br_marker_sr'):
+            self._br_marker_sr.set_data([t_val], [f['SR']])
+        if hasattr(self, '_br_marker_fy'):
+            self._br_marker_fy.set_data([t_val], [f['Fy']])
+        if hasattr(self, '_br_marker_fx'):
+            self._br_marker_fx.set_data([t_val], [f['Fx']])
 
         # Ellipse clip path for matplotlib
         from matplotlib.patches import Ellipse as MplEllipse
