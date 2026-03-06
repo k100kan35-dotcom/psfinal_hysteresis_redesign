@@ -24057,48 +24057,58 @@ def main():
 
     splash = tk.Toplevel()
     splash.overrideredirect(True)
-    splash_w, splash_h = 680, 260
+    splash_w, splash_h = 800, 450
     scr_w = splash.winfo_screenwidth()
     scr_h = splash.winfo_screenheight()
     splash.geometry(f'{splash_w}x{splash_h}+{(scr_w-splash_w)//2}+{(scr_h-splash_h)//2}')
-    splash.configure(bg='white')
+    splash.configure(bg='#16162a')
     splash.attributes('-topmost', True)
 
-    # Preferred fonts (Segoe UI for Windows, fallback to system sans-serif)
-    _sp_font = 'Segoe UI'
+    # ── Load splash background image ──
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    _splash_path = os.path.join(_script_dir, 'assets', 'splash_image.png')
+    if not os.path.exists(_splash_path):
+        _splash_path = os.path.join(_script_dir, 'assets', 'nexen_logo.png')
 
-    # Title labels
-    title_frame = tk.Frame(splash, bg='white')
-    title_frame.pack(pady=(40, 6))
-    tk.Label(title_frame, text="NEXEN Tire", font=(_sp_font, 28, 'bold'),
-             fg='#6B21A8', bg='white').pack(side=tk.LEFT)
-    tk.Label(title_frame, text="  Rubber Friction Modelling Software",
-             font=(_sp_font, 18), fg='#1E293B', bg='white').pack(side=tk.LEFT, pady=(6, 0))
+    _splash_canvas = tk.Canvas(splash, width=splash_w, height=splash_h,
+                               highlightthickness=0, bd=0, bg='#16162a')
+    _splash_canvas.place(x=0, y=0)
+    _splash_img_ref = None  # keep reference to prevent GC
 
-    # Version
-    tk.Label(splash, text="v3.0", font=(_sp_font, 11),
-             fg='#94A3B8', bg='white').pack(pady=(0, 12))
+    if os.path.exists(_splash_path):
+        try:
+            from PIL import Image, ImageTk, ImageDraw
+            _pil_img = Image.open(_splash_path).convert('RGBA')
+            # Fit image to splash window (cover)
+            img_w, img_h = _pil_img.size
+            scale = max(splash_w / img_w, splash_h / img_h)
+            new_w, new_h = int(img_w * scale), int(img_h * scale)
+            _pil_img = _pil_img.resize((new_w, new_h), Image.LANCZOS)
+            # Center crop
+            left = (new_w - splash_w) // 2
+            top = (new_h - splash_h) // 2
+            _pil_img = _pil_img.crop((left, top, left + splash_w, top + splash_h))
+            # Dark overlay (60% opacity) so white text is readable
+            _overlay = Image.new('RGBA', (splash_w, splash_h), (22, 22, 42, 153))
+            _pil_img = Image.alpha_composite(_pil_img, _overlay)
+            _pil_final = _pil_img.convert('RGB')
+            _splash_img_ref = ImageTk.PhotoImage(_pil_final)
+            _splash_canvas.create_image(0, 0, anchor='nw', image=_splash_img_ref)
+        except ImportError:
+            pass
 
-    # Status label
-    splash_status = tk.Label(splash, text="초기화 중...", font=(_sp_font, 11),
-                             fg='#64748B', bg='white')
-    splash_status.pack(pady=(0, 8))
-
-    # Progress bar
-    splash_progress = ttk.Progressbar(splash, orient='horizontal',
-                                       length=580, mode='determinate',
-                                       maximum=100)
-    splash_progress.pack(pady=(0, 16))
-
-    # Bottom accent border
-    tk.Frame(splash, bg='#6B21A8', height=4).pack(side=tk.BOTTOM, fill=tk.X)
+    # ── Percentage text: white, large, italic, dead center ──
+    _pct_text_id = _splash_canvas.create_text(
+        splash_w // 2, splash_h // 2,
+        text="0%", anchor='center',
+        font=('Segoe UI', 80, 'bold italic'),
+        fill='white')
 
     splash.update()
 
     def _splash_update(msg, pct):
         try:
-            splash_status.config(text=msg)
-            splash_progress['value'] = pct
+            _splash_canvas.itemconfig(_pct_text_id, text=f"{int(pct)}%")
             splash.update()
         except tk.TclError:
             pass
