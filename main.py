@@ -23577,16 +23577,45 @@ class PerssonModelGUI_V2:
         # Build LUT
         lut_cold, lut_hot = self._build_brush_lut()
 
-        # Build pressure map
-        p_map, x_arr, y_arr, dx, dy = self._build_pressure_map(
-            Nx, Ny, L, W, Fz, ptype, driving_mode)
+        # Build BASE pressure map (symmetric, no driving mode bias)
+        p_map_base, x_arr, y_arr, dx, dy = self._build_pressure_map(
+            Nx, Ny, L, W, Fz, ptype, 'Braking')  # base only for shape
+        # Rebuild symmetric base without driving mode weighting
+        xx_g, yy_g = np.meshgrid(x_arr, y_arr, indexing='ij')
+        if ptype == 'uniform':
+            p_base = np.ones((Nx, Ny))
+        elif ptype == 'elliptic':
+            r2 = (2 * xx_g / L)**2 + (2 * yy_g / W)**2
+            p_base = np.sqrt(np.clip(1 - r2, 0, None))
+        else:  # parabolic
+            p_base = np.clip(1 - (2 * xx_g / L)**2, 0, None) * \
+                     np.clip(1 - (2 * yy_g / W)**2, 0, None)
         dA = dx * dy
-        Fz_ij = p_map * dA
 
         # Elliptical contact mask
-        xx_g, yy_g = np.meshgrid(x_arr, y_arr, indexing='ij')
         ellipse_mask = ((2 * xx_g / L)**2 + (2 * yy_g / W)**2) <= 1.0
-        Fz_ij *= ellipse_mask
+
+        def _build_dynamic_pressure(sa_deg, sr_pct):
+            """Build pressure map that shifts with SA and SR direction.
+
+            SA > 0: lateral load transfer to +y (outside of turn)
+            SA < 0: lateral load transfer to -y
+            SR < 0 (braking): longitudinal load to +x (front)
+            SR > 0 (accel): longitudinal load to -x (rear)
+            """
+            p = p_base.copy()
+            # Lateral shift from SA (cornering load transfer)
+            sa_factor = np.clip(sa_deg / 6.0, -1, 1)  # normalize to ±1
+            lat_weight = 1.0 + 0.4 * sa_factor * (2 * yy_g / W)
+            # Longitudinal shift from SR (braking/accel load transfer)
+            sr_factor = np.clip(-sr_pct / 5.0, -1, 1)  # braking = forward
+            lon_weight = 1.0 + 0.5 * sr_factor * (2 * xx_g / L)
+            p *= np.clip(lat_weight, 0.1, None) * np.clip(lon_weight, 0.1, None)
+            p *= ellipse_mask
+            total = np.sum(p) * dA
+            if total > 0:
+                p *= Fz / total
+            return p
 
         # Time arrays
         t_out = np.arange(0, T_total + dt_out * 0.5, dt_out)
@@ -23626,6 +23655,10 @@ class PerssonModelGUI_V2:
             sr_pct = SR_profile[fi]
             alpha_rad = np.radians(sa_deg)
             sr_frac = sr_pct / 100.0
+
+            # Dynamic pressure map based on current SA/SR
+            p_map = _build_dynamic_pressure(sa_deg, sr_pct)
+            Fz_ij = p_map * dA
 
             # Rim velocities (combined braking + cornering)
             v_rim_x = vc * sr_frac
