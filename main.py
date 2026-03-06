@@ -22462,6 +22462,13 @@ class PerssonModelGUI_V2:
         ttk.Entry(row_cy, textvariable=self.br_cy_var, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_cy, text="N·s/m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
+        row_fs = ttk.Frame(sec1); row_fs.pack(fill=tk.X, pady=1)
+        ttk.Label(row_fs, text="마찰 감도 계수:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_friction_scale_var = tk.StringVar(value="0.5")
+        ttk.Entry(row_fs, textvariable=self.br_friction_scale_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_fs, text="(< 1: 슬라이딩↑)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
         # ── 2) 주행 조건 ──
         sec2 = self._create_section(left_panel, "2) 주행 조건")
 
@@ -22604,6 +22611,13 @@ class PerssonModelGUI_V2:
                                     state='readonly')
         speed_combo.pack(side=tk.LEFT, padx=1)
 
+        ttk.Label(play_row, text="프레임:", font=self.FONTS['small']).pack(side=tk.LEFT, padx=(8, 2))
+        self.br_frame_count_var = tk.StringVar(value="240")
+        frame_combo = ttk.Combobox(play_row, textvariable=self.br_frame_count_var, width=5,
+                                    values=['60', '120', '240', '480', '960'],
+                                    state='readonly')
+        frame_combo.pack(side=tk.LEFT, padx=1)
+
         self.br_frame_label_var = tk.StringVar(value="t = 0.00 s  (0/0)")
         ttk.Label(play_row, textvariable=self.br_frame_label_var,
                   font=self.FONTS['small'], foreground='#0369A1').pack(side=tk.LEFT, padx=6)
@@ -22662,36 +22676,31 @@ class PerssonModelGUI_V2:
         self.ax_br_force_t.set_title('Fx / Fy Output', fontsize=10, fontweight='bold')
         self.ax_br_force_t.grid(True, alpha=0.3)
 
-        # Bottom row: 5 contour plots
+        # Bottom row: 5 contour plots (no set_aspect='equal' for uniform sizing)
         self.ax_br_stick = self.fig_brush.add_subplot(gs[1, 0:2])
         self.ax_br_stick.set_title('sliding vs adhesion', fontsize=9, fontweight='bold')
         self.ax_br_stick.set_xlabel('length [mm]', fontsize=8)
         self.ax_br_stick.set_ylabel('width [mm]', fontsize=8)
-        self.ax_br_stick.set_aspect('equal')
 
         self.ax_br_speed = self.fig_brush.add_subplot(gs[1, 2:4])
         self.ax_br_speed.set_title('sliding speed', fontsize=9, fontweight='bold')
         self.ax_br_speed.set_xlabel('length [mm]', fontsize=8)
         self.ax_br_speed.set_ylabel('width [mm]', fontsize=8)
-        self.ax_br_speed.set_aspect('equal')
 
         self.ax_br_pressure = self.fig_brush.add_subplot(gs[1, 4:6])
         self.ax_br_pressure.set_title('contact pressure', fontsize=9, fontweight='bold')
         self.ax_br_pressure.set_xlabel('length [mm]', fontsize=8)
         self.ax_br_pressure.set_ylabel('width [mm]', fontsize=8)
-        self.ax_br_pressure.set_aspect('equal')
 
         self.ax_br_temperature = self.fig_brush.add_subplot(gs[1, 6:8])
         self.ax_br_temperature.set_title('temperature', fontsize=9, fontweight='bold')
         self.ax_br_temperature.set_xlabel('length [mm]', fontsize=8)
         self.ax_br_temperature.set_ylabel('width [mm]', fontsize=8)
-        self.ax_br_temperature.set_aspect('equal')
 
         self.ax_br_friction = self.fig_brush.add_subplot(gs[1, 8:10])
         self.ax_br_friction.set_title('friction', fontsize=9, fontweight='bold')
         self.ax_br_friction.set_xlabel('length [mm]', fontsize=8)
         self.ax_br_friction.set_ylabel('width [mm]', fontsize=8)
-        self.ax_br_friction.set_aspect('equal')
 
         self.canvas_brush = FigureCanvasTkAgg(self.fig_brush, plot_frame)
         self.canvas_brush.draw_idle()
@@ -23561,6 +23570,7 @@ class PerssonModelGUI_V2:
         vc = float(self.br_vc_var.get())
         D_mm = float(self.br_D_macro_var.get())
         s0 = 0.2 * D_mm * 1e-3
+        friction_scale = float(self.br_friction_scale_var.get())
         dt = float(self.br_dt_var.get())
         max_steps = int(self.br_max_steps_var.get())
         ss_tol = float(self.br_ss_tol_var.get())
@@ -23568,7 +23578,8 @@ class PerssonModelGUI_V2:
         driving_mode = self.br_driving_mode_var.get()
 
         T_total = float(self.br_total_time_var.get())
-        dt_out = float(self.br_output_dt_var.get())
+        frame_count = int(self.br_frame_count_var.get())
+        dt_out = T_total / max(frame_count, 1)
         sa_type = self.br_sa_type_var.get()
         sa_amp = float(self.br_sa_amp_var.get())
         sr_type = self.br_sr_type_var.get()
@@ -23688,8 +23699,8 @@ class PerssonModelGUI_V2:
             mu_hot_vals = lut_hot(np.full_like(t_contact, v_rim_mag))
             mu_eff = mu_cold_vals * blend + mu_hot_vals * (1.0 - blend)
 
-            # Friction capacity per node
-            F_fric_max = mu_eff * Fz_ij  # [N]
+            # Friction capacity per node (scaled by friction sensitivity)
+            F_fric_max = mu_eff * Fz_ij * friction_scale  # [N]
 
             # Stick/slip classification per node:
             # "Is spring force < friction limit?" → Stick
@@ -23928,47 +23939,61 @@ class PerssonModelGUI_V2:
         ax.set_ylabel('width [mm]', fontsize=7)
         ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
         ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
-        ax.set_aspect('equal')
         ax.tick_params(labelsize=7)
 
-        # ── (2) sliding speed — arrows sized & colored by magnitude ──
+        # Common colorbar parameters for uniform plot sizing
+        _cb_kw = dict(fraction=0.046, pad=0.04)
+        # Invisible spacer colorbar for plot 1 to match width of plots 2-5
+        if not self._br_cbs_created:
+            import matplotlib.cm as mcm
+            _sm = mcm.ScalarMappable(cmap='jet', norm=plt.Normalize(0, 1))
+            _sm.set_array([])
+            _cb_dummy = self.fig_brush.colorbar(_sm, ax=self.ax_br_stick, **_cb_kw)
+            _cb_dummy.ax.set_visible(False)
+        _n_levels = 64  # dense contour levels for smooth fill
+
+        # ── (2) sliding speed — contourf background + quiver arrows ──
         ax = self.ax_br_speed
         ax.clear()
         vs_data = f['v_slip_mag'].copy()
         vs_data[~mask] = 0.0
         sp_lo, sp_hi = (gr['speed'] if gr else (0, max(np.max(vs_data), 0.1)))
-        # No contourf background; arrows themselves show speed
+        # Contourf background for complete color fill
+        levels_s = np.linspace(sp_lo, sp_hi, _n_levels)
+        if levels_s[-1] <= levels_s[0]:
+            levels_s = np.linspace(0, 0.1, _n_levels)
+        cf2 = ax.contourf(x_mm, y_mm, vs_data.T, levels=levels_s, cmap='jet',
+                           extend='both')
         clip_e2 = make_clip_ellipse(ax)
+        clip_contourf(cf2, clip_e2)
 
-        # Quiver: size proportional to speed, color by magnitude
-        step_x = max(1, len(x_mm) // 10)
-        step_y = max(1, len(y_mm) // 5)
+        # Quiver overlay: denser arrows
+        step_x = max(1, len(x_mm) // 20)
+        step_y = max(1, len(y_mm) // 10)
         xx_q, yy_q = np.meshgrid(x_mm[::step_x], y_mm[::step_y], indexing='ij')
         u_q = f['v_slip_x'][::step_x, ::step_y]
         v_q = f['v_slip_y'][::step_x, ::step_y]
         mag_q = np.sqrt(u_q**2 + v_q**2)
         mask_q = self._brush_ellipse_mask[::step_x, ::step_y]
-        # Only arrows inside ellipse
         xx_q_f = xx_q[mask_q]
         yy_q_f = yy_q[mask_q]
         u_q_f = u_q[mask_q]
         v_q_f = v_q[mask_q]
         mag_q_f = mag_q[mask_q]
         if len(mag_q_f) > 0 and np.max(mag_q_f) > 1e-15:
-            q = ax.quiver(xx_q_f, yy_q_f, u_q_f, v_q_f, mag_q_f,
-                          cmap='jet', clim=(sp_lo, sp_hi),
-                          scale=max(np.max(mag_q_f) * 15, 1),
-                          headwidth=4, headlength=5, linewidth=0.6, alpha=0.85)
-            if not self._br_cbs_created:
-                self._cb_br_speed = self.fig_brush.colorbar(q, ax=ax, shrink=0.55, pad=0.02)
-                self._cb_br_speed.set_label('speed [m/s]', fontsize=7)
-                self._cb_br_speed.ax.tick_params(labelsize=6)
+            ax.quiver(xx_q_f, yy_q_f, u_q_f, v_q_f, mag_q_f,
+                      cmap='jet', clim=(sp_lo, sp_hi),
+                      scale=max(np.max(mag_q_f) * 15, 1),
+                      headwidth=3, headlength=4, linewidth=0.5, alpha=0.85)
+        if not self._br_cbs_created:
+            self._cb_br_speed = self.fig_brush.colorbar(cf2, ax=ax, **_cb_kw)
+            self._cb_br_speed.set_label('speed [m/s]', fontsize=7)
+            self._cb_br_speed.ax.tick_params(labelsize=6)
         ax.set_title('sliding speed', fontsize=9, fontweight='bold')
         ax.set_xlabel('length [mm]', fontsize=7)
         ax.set_ylabel('width [mm]', fontsize=7)
         ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
         ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
-        ax.set_aspect('equal')
         ax.tick_params(labelsize=7)
 
         # ── (3) contact pressure ──
@@ -23977,15 +24002,15 @@ class PerssonModelGUI_V2:
         p_bar = f['p_map'].copy() * 1e-5  # Pa → bar
         p_bar[~mask] = 0.0
         pr_lo, pr_hi = (gr['pressure'] if gr else (0, max(np.max(p_bar), 0.01)))
-        levels_p = np.linspace(pr_lo, pr_hi, 16)
+        levels_p = np.linspace(pr_lo, pr_hi, _n_levels)
         if levels_p[-1] <= levels_p[0]:
-            levels_p = np.linspace(0, 1, 16)
+            levels_p = np.linspace(0, 1, _n_levels)
         cf3 = ax.contourf(x_mm, y_mm, p_bar.T, levels=levels_p, cmap='jet',
                            extend='both')
         clip_e3 = make_clip_ellipse(ax)
         clip_contourf(cf3, clip_e3)
         if not self._br_cbs_created:
-            self._cb_br_pres = self.fig_brush.colorbar(cf3, ax=ax, shrink=0.55, pad=0.02)
+            self._cb_br_pres = self.fig_brush.colorbar(cf3, ax=ax, **_cb_kw)
             self._cb_br_pres.set_label('pressure [bar]', fontsize=7)
             self._cb_br_pres.ax.tick_params(labelsize=6)
         ax.set_title('contact pressure', fontsize=9, fontweight='bold')
@@ -23993,7 +24018,6 @@ class PerssonModelGUI_V2:
         ax.set_ylabel('width [mm]', fontsize=7)
         ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
         ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
-        ax.set_aspect('equal')
         ax.tick_params(labelsize=7)
 
         # ── (4) temperature ──
@@ -24002,15 +24026,15 @@ class PerssonModelGUI_V2:
         T_K = f['T_contact'].copy() + 273.15
         T_K[~mask] = np.mean(T_K[mask]) if np.any(mask) else 300.0
         t_lo, t_hi = (gr['temperature'] if gr else (np.min(T_K), np.max(T_K)))
-        levels_t = np.linspace(t_lo, t_hi, 16)
+        levels_t = np.linspace(t_lo, t_hi, _n_levels)
         if levels_t[-1] <= levels_t[0]:
-            levels_t = np.linspace(290, 330, 16)
+            levels_t = np.linspace(290, 330, _n_levels)
         cf4 = ax.contourf(x_mm, y_mm, T_K.T, levels=levels_t, cmap='jet',
                            extend='both')
         clip_e4 = make_clip_ellipse(ax)
         clip_contourf(cf4, clip_e4)
         if not self._br_cbs_created:
-            self._cb_br_temp = self.fig_brush.colorbar(cf4, ax=ax, shrink=0.55, pad=0.02)
+            self._cb_br_temp = self.fig_brush.colorbar(cf4, ax=ax, **_cb_kw)
             self._cb_br_temp.set_label('temperature [K]', fontsize=7)
             self._cb_br_temp.ax.tick_params(labelsize=6)
         ax.set_title('temperature', fontsize=9, fontweight='bold')
@@ -24018,7 +24042,6 @@ class PerssonModelGUI_V2:
         ax.set_ylabel('width [mm]', fontsize=7)
         ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
         ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
-        ax.set_aspect('equal')
         ax.tick_params(labelsize=7)
 
         # ── (5) friction ──
@@ -24027,15 +24050,15 @@ class PerssonModelGUI_V2:
         mu = f['mu_eff'].copy()
         mu[~mask] = np.mean(mu[mask]) if np.any(mask) else 1.0
         f_lo, f_hi = (gr['friction'] if gr else (np.min(mu), np.max(mu)))
-        levels_f = np.linspace(f_lo, f_hi, 16)
+        levels_f = np.linspace(f_lo, f_hi, _n_levels)
         if levels_f[-1] <= levels_f[0]:
-            levels_f = np.linspace(0.5, 2.0, 16)
-        cf5 = ax.contourf(x_mm, y_mm, mu.T, levels=levels_f, cmap='jet_r',
+            levels_f = np.linspace(0.5, 2.0, _n_levels)
+        cf5 = ax.contourf(x_mm, y_mm, mu.T, levels=levels_f, cmap='jet',
                            extend='both')
         clip_e5 = make_clip_ellipse(ax)
         clip_contourf(cf5, clip_e5)
         if not self._br_cbs_created:
-            self._cb_br_fric = self.fig_brush.colorbar(cf5, ax=ax, shrink=0.55, pad=0.02)
+            self._cb_br_fric = self.fig_brush.colorbar(cf5, ax=ax, **_cb_kw)
             self._cb_br_fric.set_label('friction [-]', fontsize=7)
             self._cb_br_fric.ax.tick_params(labelsize=6)
         ax.set_title('friction', fontsize=9, fontweight='bold')
@@ -24043,7 +24066,6 @@ class PerssonModelGUI_V2:
         ax.set_ylabel('width [mm]', fontsize=7)
         ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
         ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
-        ax.set_aspect('equal')
         ax.tick_params(labelsize=7)
 
         # ── Steering wheel indicator (in gap between two top plots) ──
