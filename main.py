@@ -24246,6 +24246,7 @@ class PerssonModelGUI_V2:
         v_rx = f.get('v_slip_x', None)
         v_ry = f.get('v_slip_y', None)
         L_mm = self._brush_L_mm
+        W_mm = self._brush_W_mm
         if v_rx is not None and v_ry is not None:
             # Use mean slip velocity of SLIDING nodes only for arrow direction
             # Arrow points OPPOSITE to sliding velocity (= friction force direction)
