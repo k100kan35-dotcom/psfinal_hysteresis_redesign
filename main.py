@@ -20757,7 +20757,7 @@ class PerssonModelGUI_V2:
                   foreground='#0369A1').pack(anchor='w', pady=(6, 0))
         row_p_preset = ttk.Frame(sec1); row_p_preset.pack(fill=tk.X, pady=1)
         ttk.Label(row_p_preset, text="프리셋:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.fm_p0_preset_var = tk.StringVar(value="세분화")
+        self.fm_p0_preset_var = tk.StringVar(value="Simple")
         fm_p0_presets = {"Simple": "0.1, 0.3, 0.5",
                          "세분화": "0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1.2, 1.5"}
         self._fm_p0_presets = fm_p0_presets
@@ -20767,7 +20767,7 @@ class PerssonModelGUI_V2:
                             command=self._apply_fm_p0_preset).pack(side=tk.LEFT, padx=3)
         row_p = ttk.Frame(sec1); row_p.pack(fill=tk.X, pady=1)
         ttk.Label(row_p, text="배열:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.fm_p0_array_var = tk.StringVar(value="0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1.2, 1.5")
+        self.fm_p0_array_var = tk.StringVar(value="0.1, 0.3, 0.5")
         ttk.Entry(row_p, textvariable=self.fm_p0_array_var, width=36).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_p, text="MPa", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
@@ -20782,7 +20782,7 @@ class PerssonModelGUI_V2:
         self.fm_v_log_end_var = tk.StringVar(value="2")
         ttk.Entry(row_v, textvariable=self.fm_v_log_end_var, width=5).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_v, text="포인트:", font=self.FONTS['body']).pack(side=tk.LEFT, padx=(6, 0))
-        self.fm_v_npts_var = tk.StringVar(value="100")
+        self.fm_v_npts_var = tk.StringVar(value="10")
         ttk.Entry(row_v, textvariable=self.fm_v_npts_var, width=5).pack(side=tk.LEFT, padx=2)
 
         # ── 2) Progress ──
