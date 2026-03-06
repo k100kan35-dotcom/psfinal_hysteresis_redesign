@@ -22637,29 +22637,35 @@ class PerssonModelGUI_V2:
         self._br_artists_ready = False
 
         # ── 6) Steering wheel animation in left panel ──
-        sec6 = self._create_section(left_panel, "6) 조향 핸들")
+        sec6 = self._create_section(left_panel, "6) 조향 핸들 / 타이어")
         from matplotlib.figure import Figure as _Fig
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg as _FCA
-        self._steer_fig = _Fig(figsize=(2.8, 2.8), dpi=80, facecolor='#F8FAFC')
+
+        # Horizontal frame: steering wheel (left) + tire (right)
+        steer_tire_row = ttk.Frame(sec6)
+        steer_tire_row.pack(fill=tk.X, pady=2)
+
+        # Steering wheel (left side)
+        self._steer_fig = _Fig(figsize=(2.2, 2.2), dpi=80, facecolor='#F8FAFC')
         self._steer_ax = self._steer_fig.add_axes([0.05, 0.05, 0.9, 0.9])
         self._steer_ax.set_xlim(-1.5, 1.5)
         self._steer_ax.set_ylim(-1.5, 1.5)
         self._steer_ax.set_aspect('equal')
         self._steer_ax.axis('off')
-        self._steer_canvas = _FCA(self._steer_fig, sec6)
-        self._steer_canvas.get_tk_widget().pack(fill=tk.X, pady=2)
+        self._steer_canvas = _FCA(self._steer_fig, steer_tire_row)
+        self._steer_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         # Draw initial steering wheel
         self._init_left_steering_wheel()
 
-        # ── 6b) Tire animation (top-down view, next to steering wheel) ──
-        self._tire_fig = _Fig(figsize=(2.8, 2.4), dpi=80, facecolor='#F8FAFC')
-        self._tire_ax = self._tire_fig.add_axes([0.08, 0.08, 0.84, 0.84])
-        self._tire_ax.set_xlim(-2.0, 2.0)
-        self._tire_ax.set_ylim(-1.6, 1.6)
+        # ── 6b) Tire animation (upright view, RIGHT of steering wheel) ──
+        self._tire_fig = _Fig(figsize=(1.8, 2.8), dpi=80, facecolor='#F8FAFC')
+        self._tire_ax = self._tire_fig.add_axes([0.05, 0.05, 0.9, 0.9])
+        self._tire_ax.set_xlim(-1.5, 1.5)
+        self._tire_ax.set_ylim(-2.0, 2.0)
         self._tire_ax.set_aspect('equal')
         self._tire_ax.axis('off')
-        self._tire_canvas = _FCA(self._tire_fig, sec6)
-        self._tire_canvas.get_tk_widget().pack(fill=tk.X, pady=2)
+        self._tire_canvas = _FCA(self._tire_fig, steer_tire_row)
+        self._tire_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         self._init_tire_animation()
 
         export_row = ttk.Frame(sec6); export_row.pack(fill=tk.X, pady=2)
@@ -24071,49 +24077,51 @@ class PerssonModelGUI_V2:
     # ── 2D Brush: Tire animation (top-down rolling tire with lateral force) ──
 
     def _init_tire_animation(self):
-        """Draw initial tire in top-down view with road surface."""
+        """Draw initial tire in upright view (rolling direction = north)."""
         ax = self._tire_ax
         ax.clear()
-        ax.set_xlim(-2.0, 2.0)
-        ax.set_ylim(-1.6, 1.6)
+        ax.set_xlim(-1.5, 1.5)
+        ax.set_ylim(-2.0, 2.0)
         ax.set_aspect('equal')
         ax.axis('off')
 
         # Road surface (gray background)
         from matplotlib.patches import FancyBboxPatch, Rectangle
-        road = Rectangle((-2.0, -1.6), 4.0, 3.2, facecolor='#E8E8E8',
+        road = Rectangle((-1.5, -2.0), 3.0, 4.0, facecolor='#E8E8E8',
                           edgecolor='none', zorder=0)
         ax.add_patch(road)
 
-        # Road center dashes
-        for xi in np.arange(-1.8, 2.0, 0.5):
-            ax.plot([xi, xi + 0.25], [0, 0], '-', color='#CCCCCC', lw=1, zorder=1)
+        # Road center dashes (vertical, since rolling direction is north)
+        for yi in np.arange(-1.8, 2.0, 0.5):
+            ax.plot([0, 0], [yi, yi + 0.25], '-', color='#CCCCCC', lw=1, zorder=1)
 
-        # Tire body (top-down: rounded rectangle)
-        tire_w = 0.5   # tire width (lateral)
-        tire_l = 1.0   # tire length (longitudinal = rolling direction)
+        # Tire body (upright: tall rounded rectangle, rolling direction = y-axis)
+        tire_w = 0.7   # tire width (lateral / x-direction)
+        tire_h = 1.6   # tire height (longitudinal / rolling = y-direction)
         self._tire_body = FancyBboxPatch(
-            (-tire_l / 2, -tire_w / 2), tire_l, tire_w,
+            (-tire_w / 2, -tire_h / 2), tire_w, tire_h,
             boxstyle="round,pad=0.08", facecolor='#333333',
-            edgecolor='#111111', linewidth=2, zorder=3)
+            edgecolor='#111111', linewidth=2.5, zorder=3)
         ax.add_patch(self._tire_body)
+        self._tire_w = tire_w
+        self._tire_h = tire_h
 
         # Tread marks (horizontal lines across tire for rolling animation)
         self._tire_treads = []
-        for offset in np.linspace(-tire_l / 2 + 0.1, tire_l / 2 - 0.1, 6):
-            line, = ax.plot([offset, offset], [-tire_w / 2 + 0.04, tire_w / 2 - 0.04],
+        for offset in np.linspace(-tire_h / 2 + 0.12, tire_h / 2 - 0.12, 7):
+            line, = ax.plot([-tire_w / 2 + 0.06, tire_w / 2 - 0.06], [offset, offset],
                             '-', color='#666666', lw=1.5, zorder=4)
             self._tire_treads.append(line)
         self._tire_tread_phase = 0.0  # rolling phase accumulator
 
-        # Rolling direction arrow (below tire)
-        ax.annotate('', xy=(-0.8, -0.55), xytext=(0.8, -0.55),
+        # Rolling direction arrow (right side of tire, pointing north)
+        ax.annotate('', xy=(0.65, 0.9), xytext=(0.65, -0.9),
                      arrowprops=dict(arrowstyle='->', color='#00C853', lw=2,
                                      mutation_scale=14), zorder=5)
-        ax.text(0, -0.72, '\u2190 Rolling', fontsize=7, ha='center', va='top',
+        ax.text(0.65, -1.05, 'Rolling\n  ↑', fontsize=6, ha='center', va='top',
                 color='#00C853', fontweight='bold', zorder=5)
 
-        # Lateral force arrow (initially hidden)
+        # Lateral force arrow (initially hidden, horizontal)
         self._tire_Fy_arrow = ax.annotate(
             '', xy=(0, 0), xytext=(0, 0),
             arrowprops=dict(arrowstyle='->', color='#FF6600', lw=3,
@@ -24121,7 +24129,7 @@ class PerssonModelGUI_V2:
         self._tire_Fy_arrow.set_visible(False)
 
         # Force magnitude label
-        self._tire_Fy_label = ax.text(0, 1.1, '', fontsize=9, ha='center',
+        self._tire_Fy_label = ax.text(0, 1.7, '', fontsize=8, ha='center',
                                        va='bottom', fontweight='bold',
                                        color='#FF6600', zorder=6)
 
@@ -24130,7 +24138,7 @@ class PerssonModelGUI_V2:
                                        alpha=0.7, zorder=2)
 
         # Title
-        ax.text(0, 1.45, 'Tire Top View', fontsize=9, ha='center', va='top',
+        ax.text(0, 1.9, 'Tire Top View', fontsize=8, ha='center', va='top',
                 fontweight='bold', color='#333')
 
         self._tire_canvas.draw_idle()
@@ -24138,65 +24146,64 @@ class PerssonModelGUI_V2:
     def _update_tire_animation(self, sa_deg, Fy, Fz):
         """Update tire position, rolling animation, and lateral force vector.
 
+        Upright tire view: rolling direction = north (+y).
         sa_deg: slip angle in degrees (positive = right turn)
         Fy: lateral force in N
         Fz: vertical load in N (for normalizing arrow length)
         """
-        ax = self._tire_ax
-        tire_w = 0.5
-        tire_l = 1.0
+        tire_w = self._tire_w
+        tire_h = self._tire_h
 
         # Lateral displacement proportional to slip angle
-        # Positive SA (right turn) → tire moves to the right (+y in top-down)
+        # Positive SA (right turn) → tire shifts right (+x)
         sa_norm = np.clip(sa_deg / 8.0, -1, 1)
-        lat_shift = sa_norm * 0.6  # max ±0.6 lateral shift
+        lat_shift = sa_norm * 0.5  # max ±0.5 lateral shift
 
-        # Update tire body position
-        self._tire_body.set_xy((-tire_l / 2, -tire_w / 2 + lat_shift))
+        # Update tire body position (FancyBboxPatch: use set_x/set_y)
+        self._tire_body.set_x(-tire_w / 2 + lat_shift)
+        self._tire_body.set_y(-tire_h / 2)
 
-        # Rolling animation: advance tread phase
+        # Rolling animation: advance tread phase (treads move upward = north)
         self._tire_tread_phase += 0.12
-        tread_spacing = tire_l / 6.0
-        base_positions = np.linspace(-tire_l / 2 + 0.1, tire_l / 2 - 0.1, 6)
+        tread_spacing = tire_h / 7.0
+        base_positions = np.linspace(-tire_h / 2 + 0.12, tire_h / 2 - 0.12, 7)
         phase_offset = (self._tire_tread_phase * tread_spacing) % tread_spacing
         for i, line in enumerate(self._tire_treads):
-            x_pos = base_positions[i] - phase_offset
+            y_pos = base_positions[i] + phase_offset
             # Wrap around
-            if x_pos < -tire_l / 2 + 0.05:
-                x_pos += tire_l - 0.2
-            line.set_data([x_pos, x_pos],
-                          [-tire_w / 2 + 0.04 + lat_shift,
-                           tire_w / 2 - 0.04 + lat_shift])
+            if y_pos > tire_h / 2 - 0.08:
+                y_pos -= tire_h - 0.24
+            line.set_data([-tire_w / 2 + 0.06 + lat_shift,
+                           tire_w / 2 - 0.06 + lat_shift],
+                          [y_pos, y_pos])
 
         # Slip angle indicator line (from tire center, showing heading deviation)
         if abs(sa_deg) > 0.3:
             sa_rad = np.radians(sa_deg)
-            line_len = 1.2
-            # Travel direction is -x (left), tire heading is rotated by SA
-            x_end = -line_len * np.cos(sa_rad)
-            y_end = -line_len * np.sin(sa_rad) + lat_shift
-            self._tire_sa_line.set_data([0, x_end], [lat_shift, y_end])
+            line_len = 1.3
+            # Travel direction is +y (north), tire heading rotated by SA
+            x_end = line_len * np.sin(sa_rad) + lat_shift
+            y_end = line_len * np.cos(sa_rad)
+            self._tire_sa_line.set_data([lat_shift, x_end], [0, y_end])
             self._tire_sa_line.set_visible(True)
         else:
             self._tire_sa_line.set_visible(False)
 
-        # Lateral force arrow
+        # Lateral force arrow (horizontal, in x-direction)
         if abs(Fy) > 0.1 and Fz > 0:
-            # Arrow length proportional to Fy/Fz (normalized lateral force)
             mu_y = Fy / max(Fz, 1.0)
-            arrow_len = np.clip(abs(mu_y) * 1.2, 0.15, 1.3)
-            arrow_dir = np.sign(Fy)  # positive Fy → +y direction
+            arrow_len = np.clip(abs(mu_y) * 1.2, 0.15, 1.2)
+            arrow_dir = np.sign(Fy)  # positive Fy → +x direction
 
-            # Arrow starts at tire center, points in Fy direction
-            y_start = lat_shift
-            y_end = lat_shift + arrow_dir * arrow_len
+            x_start = lat_shift
+            x_end = lat_shift + arrow_dir * arrow_len
 
-            self._tire_Fy_arrow.xy = (0, y_end)
-            self._tire_Fy_arrow.set_position((0, y_start))
+            self._tire_Fy_arrow.xy = (x_end, 0)
+            self._tire_Fy_arrow.set_position((x_start, 0))
             self._tire_Fy_arrow.set_visible(True)
 
             # Force label
-            self._tire_Fy_label.set_position((0, max(y_end, y_start) + 0.15))
+            self._tire_Fy_label.set_position((max(x_end, x_start) + 0.1, 0.15))
             self._tire_Fy_label.set_text(f'Fy={Fy:+.0f}N')
             self._tire_Fy_label.set_visible(True)
         else:
