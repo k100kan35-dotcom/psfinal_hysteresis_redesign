@@ -20707,6 +20707,7 @@ class PerssonModelGUI_V2:
         # Tab 1: 3D Map (기존 마찰맵 표면)
         self.friction_map_right = ttk.Frame(self.fm_right_notebook)
         self.fm_right_notebook.add(self.friction_map_right, text='  3D Map  ')
+        self._create_fm_3d_toolbar(self.friction_map_right)
 
         # Tab 2: 2D Graph (선택 가능한 데이터 플롯)
         fm_graph_tab = ttk.Frame(self.fm_right_notebook)
@@ -20822,6 +20823,60 @@ class PerssonModelGUI_V2:
                                        wrap=tk.WORD, state=tk.DISABLED)
         self.fm_result_text.pack(fill=tk.BOTH, expand=True, pady=2)
 
+    def _create_fm_3d_toolbar(self, parent):
+        """Create the data-selection toolbar for the 3D Map tab (at init time)."""
+        # Row 1: data selection
+        toolbar = ttk.Frame(parent)
+        toolbar.pack(side=tk.TOP, fill=tk.X, padx=2, pady=(2, 0))
+        self._fm_3d_toolbar = toolbar
+
+        ttk.Label(toolbar, text="데이터:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 4))
+        self._fm_3d_data_var = tk.StringVar(value="mu_total")
+        for label, val in [("mu_total", "mu_total"), ("mu_hys", "mu_visc"),
+                           ("mu_adh", "mu_adh"), ("F_total", "F_total"),
+                           ("F_hys", "F_visc"), ("F_adh", "F_adh"),
+                           ("A/A0", "A_A0"), ("tau_s", "tau_f")]:
+            ttk.Radiobutton(toolbar, text=label,
+                            variable=self._fm_3d_data_var, value=val,
+                            command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+
+        # Row 2: view options (axis direction + View Reset)
+        toolbar2 = ttk.Frame(parent)
+        toolbar2.pack(side=tk.TOP, fill=tk.X, padx=2, pady=(0, 2))
+        self._fm_3d_toolbar2 = toolbar2
+
+        ttk.Label(toolbar2, text="속도축:", font=('', 9, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        self._fm_3d_v_dir = tk.StringVar(value="asc")
+        ttk.Radiobutton(toolbar2, text="오름차순",
+                        variable=self._fm_3d_v_dir, value="asc",
+                        command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+        ttk.Radiobutton(toolbar2, text="내림차순",
+                        variable=self._fm_3d_v_dir, value="desc",
+                        command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+
+        ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
+
+        ttk.Label(toolbar2, text="온도축:", font=('', 9, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        self._fm_3d_T_dir = tk.StringVar(value="asc")
+        ttk.Radiobutton(toolbar2, text="오름차순",
+                        variable=self._fm_3d_T_dir, value="asc",
+                        command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+        ttk.Radiobutton(toolbar2, text="내림차순",
+                        variable=self._fm_3d_T_dir, value="desc",
+                        command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+
+        def _reset_fm_view():
+            v_asc = self._fm_3d_v_dir.get() == "asc"
+            T_asc = self._fm_3d_T_dir.get() == "asc"
+            azim = 225 if (T_asc and v_asc) else 225
+            for ax in getattr(self, '_fm_3d_axes', []):
+                ax.view_init(elev=25, azim=azim)
+            if hasattr(self, '_fm_canvas'):
+                self._fm_canvas.draw_idle()
+
+        tk.Button(toolbar2, text="View Reset",
+                  command=_reset_fm_view, width=10).pack(side=tk.RIGHT, padx=4)
+
     def _create_fm_graph_tab(self, parent):
         """Create the 2D graph tab inside Friction Map right panel."""
         from matplotlib.figure import Figure
@@ -20834,7 +20889,8 @@ class PerssonModelGUI_V2:
         ttk.Label(ctrl1, text="데이터:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
         self.fm_graph_data_var = tk.StringVar(value="mu_total")
         for label, val in [("A/A0", "A_A0"), ("tau_s", "tau_f"),
-                           ("mu_hys", "mu_visc"), ("mu_adh", "mu_adh"), ("mu_total", "mu_total")]:
+                           ("mu_hys", "mu_visc"), ("mu_adh", "mu_adh"), ("mu_total", "mu_total"),
+                           ("F_hys", "F_visc"), ("F_adh", "F_adh"), ("F_total", "F_total")]:
             ttk.Radiobutton(ctrl1, text=label, variable=self.fm_graph_data_var,
                             value=val, command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
 
@@ -20923,19 +20979,28 @@ class PerssonModelGUI_V2:
         if not self.fm_graph_p0_var.get() and p0_vals:
             self.fm_graph_p0_var.set(p0_vals[len(p0_vals) // 2])
 
-        # Select LUT
-        suffix = '_cold' if branch == 'cold' else '_hot'
-        if data_key == 'mu_total':
-            lut_key = 'LUT_cold' if branch == 'cold' else 'LUT_hot'
+        # Select LUT — handle F_ (force) keys by mapping to mu LUT × p0
+        is_force = data_key.startswith('F_')
+        if is_force:
+            mu_key = data_key.replace('F_', '', 1)  # F_visc→visc, F_adh→adh, F_total→total
         else:
-            lut_key = f'LUT_{data_key}{suffix}'
+            mu_key = data_key
+
+        suffix = '_cold' if branch == 'cold' else '_hot'
+        if mu_key in ('mu_total', 'total'):
+            lut_key = 'LUT_cold' if branch == 'cold' else 'LUT_hot'
+        elif mu_key == 'visc':
+            lut_key = f'LUT_mu_visc{suffix}'
+        elif mu_key == 'adh':
+            lut_key = f'LUT_mu_adh{suffix}'
+        else:
+            lut_key = f'LUT_{mu_key}{suffix}'
         LUT = r.get(lut_key)
         if LUT is None:
             return
 
         # Determine which T, p0 indices to plot
         if mode == 'fix_T':
-            # T fixed → show all p0 lines
             try:
                 sel_T = float(self.fm_graph_T_var.get())
                 i_T = int(np.argmin(np.abs(T_arr - sel_T)))
@@ -20944,7 +21009,6 @@ class PerssonModelGUI_V2:
             T_indices = [i_T]
             p0_indices = list(range(len(p0_arr)))
         elif mode == 'fix_p0':
-            # p0 fixed → show all T lines
             try:
                 sel_p0 = float(self.fm_graph_p0_var.get())
                 i_p = int(np.argmin(np.abs(p0_arr - sel_p0)))
@@ -20953,7 +21017,6 @@ class PerssonModelGUI_V2:
             T_indices = list(range(len(T_arr)))
             p0_indices = [i_p]
         else:
-            # All combinations
             T_indices = list(range(len(T_arr)))
             p0_indices = list(range(len(p0_arr)))
 
@@ -20967,11 +21030,13 @@ class PerssonModelGUI_V2:
             T0 = T_arr[i_T]
             for i_p in p0_indices:
                 p0 = p0_arr[i_p]
-                data = LUT[i_T, i_p, :]
+                data = LUT[i_T, i_p, :].copy()
                 if data_key == 'tau_f':
                     data = data / 1e6
+                elif is_force:
+                    # F = μ × p₀ (MPa)
+                    data = data * p0
 
-                # Color/style: distinguish by varying axis
                 if mode == 'fix_T':
                     c = colors_p[i_p % len(colors_p)]
                     ls = '-'
@@ -20994,24 +21059,36 @@ class PerssonModelGUI_V2:
             if v_ref is not None:
                 overlay_data = None
                 overlay_label = None
-                if data_key == 'mu_visc':
+                # Tab σ₀ for force overlay (MPa)
+                try:
+                    tab_sigma0_MPa = float(self.sigma_0_var.get())
+                except (ValueError, AttributeError):
+                    tab_sigma0_MPa = 0.3
+
+                if data_key in ('mu_visc', 'F_visc'):
                     overlay_data = mvr.get('mu') if branch == 'cold' else mvr.get('mu_hot')
-                    overlay_label = 'mu_visc 탭 (mu_hys)'
+                    if overlay_data is not None and data_key == 'F_visc':
+                        overlay_data = overlay_data * tab_sigma0_MPa
+                    overlay_label = f'탭 검증 (F_hys, σ₀={tab_sigma0_MPa}MPa)' if is_force else 'mu_visc 탭 (mu_hys)'
                 elif data_key == 'A_A0':
                     overlay_data = mvr.get('A_A0_cold') if branch == 'cold' else mvr.get('A_A0_hot')
                     overlay_label = 'mu_visc 탭 (A/A0)'
-                elif data_key == 'mu_total':
+                elif data_key in ('mu_total', 'F_total'):
                     mu_v = mvr.get('mu') if branch == 'cold' else mvr.get('mu_hot')
                     mar = getattr(self, 'mu_adh_results', None)
                     mu_a = mar.get('mu_adh') if mar else None
                     if mu_v is not None and mu_a is not None and len(mu_v) == len(mu_a):
                         overlay_data = mu_v + mu_a
-                        overlay_label = 'mu_visc+mu_adh 탭 (total)'
-                elif data_key == 'mu_adh':
+                        if is_force:
+                            overlay_data = overlay_data * tab_sigma0_MPa
+                        overlay_label = f'탭 검증 (F_total, σ₀={tab_sigma0_MPa}MPa)' if is_force else 'mu_visc+mu_adh 탭 (total)'
+                elif data_key in ('mu_adh', 'F_adh'):
                     mar = getattr(self, 'mu_adh_results', None)
                     if mar:
                         overlay_data = mar.get('mu_adh')
-                        overlay_label = 'mu_adh 탭'
+                        if overlay_data is not None and is_force:
+                            overlay_data = overlay_data * tab_sigma0_MPa
+                        overlay_label = f'탭 검증 (F_adh, σ₀={tab_sigma0_MPa}MPa)' if is_force else 'mu_adh 탭'
                 elif data_key == 'tau_f':
                     mar = getattr(self, 'mu_adh_results', None)
                     if mar and mar.get('tau_f') is not None:
@@ -21024,7 +21101,9 @@ class PerssonModelGUI_V2:
 
         # Axis labels and title
         y_labels = {'mu_total': r'$\mu_{total}$', 'A_A0': 'A/A₀', 'tau_f': r'$\tau_s$ (MPa)',
-                    'mu_visc': r'$\mu_{hysteresis}$', 'mu_adh': r'$\mu_{adhesion}$'}
+                    'mu_visc': r'$\mu_{hysteresis}$', 'mu_adh': r'$\mu_{adhesion}$',
+                    'F_visc': r'$F_{hys}$ (MPa)', 'F_adh': r'$F_{adh}$ (MPa)',
+                    'F_total': r'$F_{total}$ (MPa)'}
         mode_desc = {'fix_T': f'T={T_arr[T_indices[0]]:.0f}°C 고정',
                      'fix_p0': f'p₀={p0_arr[p0_indices[0]]:.3g} MPa 고정',
                      'all': '전체'}
@@ -21768,6 +21847,20 @@ class PerssonModelGUI_V2:
 
     def _plot_friction_map(self):
         """Plot 3D friction map surfaces for all pressures (Cold & Hot)."""
+        r = self.friction_map_results
+        if r is None:
+            return
+
+        right_frame = self.friction_map_right
+        if right_frame is None:
+            return
+
+        # Reset data var to default
+        self._fm_3d_data_var.set("mu_total")
+        self._replot_friction_map_3d()
+
+    def _replot_friction_map_3d(self):
+        """Replot 3D surfaces based on selected data type with scroll support."""
         from matplotlib.figure import Figure
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
@@ -21775,6 +21868,13 @@ class PerssonModelGUI_V2:
         if r is None:
             return
 
+        right_frame = self.friction_map_right
+        # Destroy only the plot area (preserve toolbar rows = first 2 children)
+        children = right_frame.winfo_children()
+        for w in children[2:]:
+            w.destroy()
+
+        data_type = self._fm_3d_data_var.get()
         T_arr = r['T_array']
         p0_arr = r['p0_array_MPa']
         v_arr = r['v_array']
@@ -21782,20 +21882,57 @@ class PerssonModelGUI_V2:
         n_p = len(p0_arr)
         has_hot = r.get('use_flash', False)
 
-        # Clear previous plot
-        right_frame = self.friction_map_right
-        if right_frame is None:
-            return
-        for w in right_frame.winfo_children():
-            w.destroy()
+        # Axis direction settings
+        v_asc = self._fm_3d_v_dir.get() == "asc"
+        T_asc = self._fm_3d_T_dir.get() == "asc"
 
-        # Adaptive layout: 1 row (Cold only) or 2 rows (Cold + Hot)
+        # Determine which LUT to use
+        is_force = data_type.startswith('F_')
+        if is_force:
+            base_key = data_type.replace('F_', '', 1)
+        else:
+            base_key = data_type
+
+        def _get_Z(branch, i_p):
+            suffix = '_cold' if branch == 'cold' else '_hot'
+            if base_key in ('mu_total', 'total'):
+                lut_key = 'LUT_cold' if branch == 'cold' else 'LUT_hot'
+            elif base_key in ('mu_visc', 'visc'):
+                lut_key = f'LUT_mu_visc{suffix}'
+            elif base_key in ('mu_adh', 'adh'):
+                lut_key = f'LUT_mu_adh{suffix}'
+            else:
+                lut_key = f'LUT_{base_key}{suffix}'
+            Z = r.get(lut_key)
+            if Z is None:
+                return None
+            Z_slice = Z[:, i_p, :].copy()
+            if data_type == 'tau_f':
+                Z_slice = Z_slice / 1e6
+            elif is_force:
+                Z_slice = Z_slice * p0_arr[i_p]
+            return Z_slice
+
+        # Compute global z-limits
+        all_cold = [_get_Z('cold', i) for i in range(n_p)]
+        all_cold = [z for z in all_cold if z is not None]
+        if not all_cold:
+            return
+        z_min_cold = min(z.min() for z in all_cold)
+        z_max_cold = max(z.max() for z in all_cold)
+        if has_hot:
+            all_hot = [_get_Z('hot', i) for i in range(n_p)]
+            all_hot = [z for z in all_hot if z is not None]
+            z_min_hot = min(z.min() for z in all_hot) if all_hot else z_min_cold
+            z_max_hot = max(z.max() for z in all_hot) if all_hot else z_max_cold
+        else:
+            z_min_hot, z_max_hot = z_min_cold, z_max_cold
+
+        # Layout
         n_rows = 2 if has_hot else 1
-        n_cols = max(n_p, 1)
-        # Limit columns per row; wrap into additional row-groups if too many
         MAX_COLS = 4
+        n_cols = max(n_p, 1)
         if n_cols > MAX_COLS:
-            # Arrange into multiple row-groups: ceil(n_p / MAX_COLS) groups
             n_groups = int(np.ceil(n_p / MAX_COLS))
             n_cols_eff = MAX_COLS
             n_grid_rows = n_rows * n_groups
@@ -21804,24 +21941,22 @@ class PerssonModelGUI_V2:
             n_cols_eff = n_cols
             n_grid_rows = n_rows
 
-        fig_w = max(4.5 * n_cols_eff, 10)
-        fig_h = max(4.5 * n_grid_rows, 5)
-        fig = Figure(figsize=(fig_w, fig_h), dpi=80)
-        fig.subplots_adjust(left=0.03, right=0.97, top=0.94, bottom=0.04,
-                            wspace=0.28, hspace=0.32)
+        # Figure size: width fills panel, height grows with rows for scrolling
+        right_frame.update_idletasks()
+        avail_w = right_frame.winfo_width()
+        toolbar_h = 60  # two toolbar rows
+        if avail_w < 200:
+            avail_w = 900
+        fig_dpi = 100
+        fig_w = max(avail_w - 20, 600) / fig_dpi  # -20 for scrollbar
+        row_h = 4.5  # inches per subplot row
+        fig_h = max(row_h * n_grid_rows, 5)
+        fig = Figure(figsize=(fig_w, fig_h), dpi=fig_dpi)
+        fig.subplots_adjust(left=0.04, right=0.97, top=0.96, bottom=0.04,
+                            wspace=0.22, hspace=0.28)
 
         T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
 
-        # Compute global z-limits for consistent coloring across pressures
-        z_min_cold = np.min(r['LUT_cold'])
-        z_max_cold = np.max(r['LUT_cold'])
-        if has_hot:
-            z_min_hot = np.min(r['LUT_hot'])
-            z_max_hot = np.max(r['LUT_hot'])
-        else:
-            z_min_hot, z_max_hot = z_min_cold, z_max_cold
-
-        # Prepare fine grid for smooth interpolation
         use_fine = len(T_arr) >= 2 and len(v_arr) >= 2
         if use_fine:
             from scipy.interpolate import RectBivariateSpline
@@ -21829,11 +21964,28 @@ class PerssonModelGUI_V2:
             log_v_fine = np.linspace(log_v[0], log_v[-1], 40)
             T_mesh_f, V_mesh_f = np.meshgrid(T_fine, log_v_fine, indexing='ij')
 
-        # Store axes for reset button
+        # z-axis label
+        z_labels = {'mu_total': r'$\mu_{total}$', 'mu_visc': r'$\mu_{hys}$',
+                     'mu_adh': r'$\mu_{adh}$', 'A_A0': 'A/A₀',
+                     'tau_f': r'$\tau_s$ (MPa)',
+                     'F_total': r'$F_{total}$ (MPa)', 'F_visc': r'$F_{hys}$ (MPa)',
+                     'F_adh': r'$F_{adh}$ (MPa)'}
+        z_label = z_labels.get(data_type, data_type)
+
+        # Compute azimuth based on axis directions
+        # Default azim=225: T increases left→right, v increases front→back
+        if T_asc and v_asc:
+            azim = 225
+        elif T_asc and not v_asc:
+            azim = 315
+        elif not T_asc and v_asc:
+            azim = 135
+        else:
+            azim = 45
+
         self._fm_3d_axes = []
 
-        def _plot_surface(ax, Z, T_arr, log_v, cmap_name, label, p0, z_lo, z_hi):
-            """Helper to plot a single 3D surface with unified z-limits."""
+        def _plot_surface(ax, Z, cmap_name, label, p0, z_lo, z_hi):
             if use_fine:
                 try:
                     sp = RectBivariateSpline(T_arr, log_v, Z)
@@ -21842,118 +21994,82 @@ class PerssonModelGUI_V2:
                                     cmap=cmap_name, alpha=0.85,
                                     rstride=1, cstride=1,
                                     linewidth=0, antialiased=False,
-                                    rasterized=True,
-                                    vmin=z_lo, vmax=z_hi)
+                                    rasterized=True, vmin=z_lo, vmax=z_hi)
                 except Exception:
                     ax.plot_surface(T_mesh, V_mesh, Z,
                                     cmap=cmap_name, alpha=0.85,
-                                    rasterized=True,
-                                    vmin=z_lo, vmax=z_hi)
+                                    rasterized=True, vmin=z_lo, vmax=z_hi)
             else:
                 ax.plot_surface(T_mesh, V_mesh, Z,
                                 cmap=cmap_name, alpha=0.85,
-                                rasterized=True,
-                                vmin=z_lo, vmax=z_hi)
+                                rasterized=True, vmin=z_lo, vmax=z_hi)
             ax.set_zlim(z_lo, z_hi)
-            ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=8)
-            ax.set_ylabel(r'$\log_{10}(v)$', fontsize=8)
-            ax.set_zlabel(r'$\mu$', fontsize=8)
-
-            # Title with A/A0 range for adhesion diagnostics
-            A_key = 'LUT_A_A0_cold' if label == 'Cold' else 'LUT_A_A0_hot'
-            A_slice = r[A_key][:, i_p, :] if A_key in r else None
-            title_lines = (
-                f'{label}  $p_0$={p0:.3g} MPa\n'
-                f'$\\mu$: {Z.min():.4f} ~ {Z.max():.4f}')
-            if A_slice is not None:
-                title_lines += f'\nA/A₀: {A_slice.min():.4f} ~ {A_slice.max():.4f}'
-            ax.set_title(title_lines, fontsize=8, fontweight='bold')
-            ax.invert_yaxis()
-            ax.view_init(elev=25, azim=225)
-            ax.tick_params(labelsize=7)
+            ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=11, labelpad=6)
+            ax.set_ylabel(r'$\log_{10}(v)$', fontsize=11, labelpad=6)
+            ax.set_zlabel(z_label, fontsize=11, labelpad=6)
+            ax.set_title(f'{label}  $p_0$={p0:.3g} MPa\n'
+                         f'{z_label}: {Z.min():.4f} ~ {Z.max():.4f}',
+                         fontsize=11, fontweight='bold')
+            ax.view_init(elev=25, azim=azim)
+            ax.tick_params(labelsize=9)
 
         for i_p, p0 in enumerate(p0_arr):
             group_idx = i_p // MAX_COLS
             col_idx = i_p % MAX_COLS
 
-            # ── Cold surface ──
-            cold_row = group_idx * n_rows  # 0-based row in grid
+            cold_row = group_idx * n_rows
             subplot_idx = cold_row * n_cols_eff + col_idx + 1
             ax_cold = fig.add_subplot(n_grid_rows, n_cols_eff, subplot_idx, projection='3d')
             self._fm_3d_axes.append(ax_cold)
-            Z_cold = r['LUT_cold'][:, i_p, :]
-            _plot_surface(ax_cold, Z_cold, T_arr, log_v, 'viridis', 'Cold', p0,
-                          z_min_cold, z_max_cold)
+            Z_cold = all_cold[i_p]
+            _plot_surface(ax_cold, Z_cold, 'viridis', 'Cold', p0, z_min_cold, z_max_cold)
 
-            # ── Hot surface (only if flash enabled) ──
             if has_hot:
                 hot_row = cold_row + 1
                 subplot_idx_h = hot_row * n_cols_eff + col_idx + 1
                 ax_hot = fig.add_subplot(n_grid_rows, n_cols_eff, subplot_idx_h, projection='3d')
                 self._fm_3d_axes.append(ax_hot)
-                Z_hot = r['LUT_hot'][:, i_p, :]
-                _plot_surface(ax_hot, Z_hot, T_arr, log_v, 'inferno', 'Hot', p0,
-                              z_min_hot, z_max_hot)
-
-        # ── Top toolbar with Reset button ──
-        import tkinter as tk_local
-        toolbar_frame = tk_local.Frame(right_frame)
-        toolbar_frame.pack(side=tk_local.TOP, fill=tk_local.X)
-
-        def _reset_fm_view():
-            """Reset all 3D axes to original view orientation."""
-            for ax in self._fm_3d_axes:
-                ax.view_init(elev=25, azim=225)
-                ax.invert_yaxis()
-            self._fm_canvas.draw_idle()
-
-        reset_btn = tk_local.Button(toolbar_frame, text="View Reset",
-                                    command=_reset_fm_view, width=12)
-        reset_btn.pack(side=tk_local.LEFT, padx=4, pady=2)
+                Z_hot = all_hot[i_p]
+                _plot_surface(ax_hot, Z_hot, 'inferno', 'Hot', p0, z_min_hot, z_max_hot)
 
         # Scrollable canvas for the matplotlib figure
-        scroll_frame = tk_local.Frame(right_frame)
-        scroll_frame.pack(fill=tk_local.BOTH, expand=True)
+        scroll_frame = tk.Frame(right_frame)
+        scroll_frame.pack(fill=tk.BOTH, expand=True)
 
-        v_scrollbar = ttk.Scrollbar(scroll_frame, orient=tk_local.VERTICAL)
-        h_scrollbar = ttk.Scrollbar(scroll_frame, orient=tk_local.HORIZONTAL)
-        plot_canvas = tk_local.Canvas(scroll_frame,
-                                       yscrollcommand=v_scrollbar.set,
-                                       xscrollcommand=h_scrollbar.set)
-
+        v_scrollbar = ttk.Scrollbar(scroll_frame, orient=tk.VERTICAL)
+        v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        plot_canvas = tk.Canvas(scroll_frame, yscrollcommand=v_scrollbar.set)
         v_scrollbar.config(command=plot_canvas.yview)
-        h_scrollbar.config(command=plot_canvas.xview)
-        v_scrollbar.pack(side=tk_local.RIGHT, fill=tk_local.Y)
-        h_scrollbar.pack(side=tk_local.BOTTOM, fill=tk_local.X)
-        plot_canvas.pack(side=tk_local.LEFT, fill=tk_local.BOTH, expand=True)
+        plot_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # Embed matplotlib figure into inner frame
-        inner_frame = tk_local.Frame(plot_canvas)
+        inner_frame = tk.Frame(plot_canvas)
         canvas = FigureCanvasTkAgg(fig, master=inner_frame)
         canvas.draw()
         canvas_widget = canvas.get_tk_widget()
-        canvas_widget.pack(fill=tk_local.BOTH, expand=True)
-
-        # Set the canvas widget size to match the figure
-        dpi = fig.get_dpi()
-        fig_w_px = int(fig_w * dpi)
-        fig_h_px = int(fig_h * dpi)
+        fig_w_px = int(fig_w * fig_dpi)
+        fig_h_px = int(fig_h * fig_dpi)
         canvas_widget.config(width=fig_w_px, height=fig_h_px)
+        canvas_widget.pack(fill=tk.X)
 
-        plot_canvas.create_window((0, 0), window=inner_frame, anchor='nw')
+        win_id = plot_canvas.create_window((0, 0), window=inner_frame, anchor='nw',
+                                           width=fig_w_px)
 
-        def _update_scrollregion(event=None):
+        def _on_configure(event):
             plot_canvas.configure(scrollregion=plot_canvas.bbox('all'))
-        inner_frame.bind('<Configure>', _update_scrollregion)
+            # Keep figure width matched to canvas width
+            new_w = event.width
+            if new_w > 100:
+                plot_canvas.itemconfig(win_id, width=new_w)
+        plot_canvas.bind('<Configure>', _on_configure)
 
-        # Mousewheel scrolling for the plot canvas
+        # Mousewheel scrolling
         def _on_mousewheel(event):
             if event.delta:
                 plot_canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
             elif event.num == 4:
-                plot_canvas.yview_scroll(-1, 'units')
+                plot_canvas.yview_scroll(-3, 'units')
             elif event.num == 5:
-                plot_canvas.yview_scroll(1, 'units')
+                plot_canvas.yview_scroll(3, 'units')
 
         def _bind_mw(event):
             plot_canvas.bind_all('<MouseWheel>', _on_mousewheel)
@@ -21968,7 +22084,6 @@ class PerssonModelGUI_V2:
         plot_canvas.bind('<Enter>', _bind_mw)
         plot_canvas.bind('<Leave>', _unbind_mw)
 
-        # Store for later use
         self._fm_fig = fig
         self._fm_canvas = canvas
 
