@@ -23205,16 +23205,15 @@ class PerssonModelGUI_V2:
             r2 = (2 * xx / L) ** 2 + (2 * yy / W) ** 2
             p_map = np.sqrt(np.clip(1 - r2, 0, None))
         elif ptype == 'dual_peak':
-            # Dual-peak distribution: two humps at front and rear of contact patch
-            # Resembles realistic tire contact pressure (reference image 2)
-            lat = np.clip(1 - (2 * yy / W) ** 2, 0, None)  # lateral envelope
-            # Two Gaussian-like peaks along longitudinal axis
-            x_norm = 2 * xx / L  # normalized x: -1 to +1
-            peak_pos = 0.40  # peak positions at ±40% of half-length
+            # Dual-peak distribution: two humps at high/low width sides
+            # Peaks along lateral (width) axis — top and bottom of contact patch
+            lon_env = np.clip(1 - (2 * xx / L) ** 2, 0, None)  # longitudinal envelope
+            y_norm = 2 * yy / W  # normalized y: -1 to +1
+            peak_pos = 0.40  # peak positions at ±40% of half-width
             peak_width = 0.45  # width of each peak (sigma-like)
-            peak_front = np.exp(-((x_norm + peak_pos) / peak_width) ** 2)
-            peak_rear = np.exp(-((x_norm - peak_pos) / peak_width) ** 2)
-            p_map = (peak_front + peak_rear) * lat
+            peak_high = np.exp(-((y_norm - peak_pos) / peak_width) ** 2)  # +y side
+            peak_low = np.exp(-((y_norm + peak_pos) / peak_width) ** 2)   # -y side
+            p_map = (peak_high + peak_low) * lon_env
             # Zero outside ellipse
             r2 = (2 * xx / L) ** 2 + (2 * yy / W) ** 2
             p_map *= (r2 <= 1.0)
@@ -23656,12 +23655,12 @@ class PerssonModelGUI_V2:
             r2 = (2 * xx_g / L)**2 + (2 * yy_g / W)**2
             p_base = np.sqrt(np.clip(1 - r2, 0, None))
         elif ptype == 'dual_peak':
-            lat = np.clip(1 - (2 * yy_g / W)**2, 0, None)
-            x_norm = 2 * xx_g / L
+            lon_env = np.clip(1 - (2 * xx_g / L)**2, 0, None)  # longitudinal envelope
+            y_norm = 2 * yy_g / W
             peak_pos = 0.40
             peak_width = 0.45
-            p_base = (np.exp(-((x_norm + peak_pos) / peak_width)**2) +
-                      np.exp(-((x_norm - peak_pos) / peak_width)**2)) * lat
+            p_base = (np.exp(-((y_norm + peak_pos) / peak_width)**2) +
+                      np.exp(-((y_norm - peak_pos) / peak_width)**2)) * lon_env
             p_base *= ellipse_mask
         else:  # parabolic
             p_base = np.clip(1 - (2 * xx_g / L)**2, 0, None) * \
@@ -23670,12 +23669,12 @@ class PerssonModelGUI_V2:
         # Pre-compute dual-peak components for dynamic SA-dependent asymmetry
         _is_dual_peak = (ptype == 'dual_peak')
         if _is_dual_peak:
-            lat_env = np.clip(1 - (2 * yy_g / W)**2, 0, None)
-            x_norm_dp = 2 * xx_g / L
+            lon_env_dp = np.clip(1 - (2 * xx_g / L)**2, 0, None)
+            y_norm_dp = 2 * yy_g / W
             pk_pos = 0.40
             pk_w = 0.45
-            _peak_front = np.exp(-((x_norm_dp + pk_pos) / pk_w)**2) * lat_env * ellipse_mask
-            _peak_rear = np.exp(-((x_norm_dp - pk_pos) / pk_w)**2) * lat_env * ellipse_mask
+            _peak_high = np.exp(-((y_norm_dp - pk_pos) / pk_w)**2) * lon_env_dp * ellipse_mask  # +y (high width)
+            _peak_low = np.exp(-((y_norm_dp + pk_pos) / pk_w)**2) * lon_env_dp * ellipse_mask   # -y (low width)
 
         def _build_dynamic_pressure(sa_deg, sr_pct):
             """Build pressure map that shifts with SA and SR direction.
@@ -23688,14 +23687,12 @@ class PerssonModelGUI_V2:
             sa_abs = abs(sa_factor)
 
             if _is_dual_peak:
-                # Dual-peak with SA-dependent asymmetry:
-                # As SA increases, one peak grows and the other shrinks
-                front_scale = 1.0 + 0.5 * sa_abs   # leading peak grows
-                rear_scale = 1.0 - 0.4 * sa_abs    # trailing peak shrinks
-                p = front_scale * _peak_front + max(rear_scale, 0.1) * _peak_rear
-                # Also apply lateral load transfer from SA
-                lat_weight = 1.0 + 0.4 * sa_factor * (2 * yy_g / W)
-                p *= np.clip(lat_weight, 0.1, None)
+                # Dual-peak with SA-dependent asymmetry (width direction):
+                # SA > 0 (right turn): load transfers to +y (high width side)
+                # SA < 0 (left turn): load transfers to -y (low width side)
+                high_scale = 1.0 + 0.5 * sa_factor   # +y peak grows with positive SA
+                low_scale = 1.0 - 0.5 * sa_factor    # -y peak shrinks with positive SA
+                p = max(high_scale, 0.1) * _peak_high + max(low_scale, 0.1) * _peak_low
             else:
                 p = p_base.copy()
                 lat_weight = 1.0 + 0.4 * sa_factor * (2 * yy_g / W)
@@ -23866,9 +23863,9 @@ class PerssonModelGUI_V2:
             F_node_mag = np.sqrt(Fnode_x**2 + Fnode_y**2)
             F_node_mag *= ellipse_mask
 
-            # Total forces (reaction force on tire from road)
+            # Total forces: Fy follows SA sign (SA<0 left turn → Fy<0)
             Fx_total = -np.sum(Fnode_x)
-            Fy_total = -np.sum(Fnode_y)
+            Fy_total = np.sum(Fnode_y)
             Fx_hist[fi] = Fx_total
             Fy_hist[fi] = Fy_total
 
@@ -23881,6 +23878,8 @@ class PerssonModelGUI_V2:
                 'is_sliding': is_sliding.copy(),
                 'v_slip_x': v_slip_x.copy(),
                 'v_slip_y': v_slip_y.copy(),
+                'v_trans_x': v_trans_x.copy(),
+                'v_trans_y': v_trans_y.copy(),
                 'v_slip_mag': v_slip_local.copy(),
                 'p_map': p_map.copy(),
                 'T_contact': T_contact.copy(),
@@ -24151,7 +24150,9 @@ class PerssonModelGUI_V2:
             x_edges, y_edges, init_data.T, cmap=cmap_sa, norm=norm_sa,
             shading='flat', zorder=1)
         self._br_outline_patches = []  # collect all 5 outline patches
-        self._br_outline_patches.append(_add_contact_outline(ax1))
+        _outline1 = _add_contact_outline(ax1)
+        self._br_outline_patches.append(_outline1)
+        self._br_pm_stick.set_clip_path(_outline1)
         # Direction arrow (single large arrow in center)
         self._br_stick_arrow = ax1.annotate(
             '', xy=(0, 0), xytext=(0, 0),
@@ -24187,7 +24188,8 @@ class PerssonModelGUI_V2:
         ax2 = self.ax_br_speed
         ax2.clear()
         ax2.set_facecolor('#FFFFFF')
-        self._br_outline_patches.append(_add_contact_outline(ax2))
+        _outline2 = _add_contact_outline(ax2)
+        self._br_outline_patches.append(_outline2)
         # Quiver grid
         step_x = max(1, len(x_mm) // 18)
         step_y = max(1, len(y_mm) // 9)
@@ -24216,7 +24218,7 @@ class PerssonModelGUI_V2:
         self._cb_br_speed.set_label('speed [m/s]', fontsize=7)
         sp_centers = 0.5 * (sp_boundaries[:-1] + sp_boundaries[1:])
         self._cb_br_speed.set_ticks(sp_centers)
-        self._cb_br_speed.set_ticklabels([f'L{i+1}: {v:.2f}' for i, v in enumerate(sp_centers)])
+        self._cb_br_speed.set_ticklabels([f'{int(round(v))}' for v in sp_centers])
         self._cb_br_speed.ax.tick_params(labelsize=5.5)
         _setup_ax(ax2, 'sliding speed')
 
@@ -24230,12 +24232,14 @@ class PerssonModelGUI_V2:
         self._br_pm_pres = ax3.pcolormesh(
             x_edges, y_edges, np.where(mask, 0.0, np.nan).T,
             cmap=pr_cmap, norm=pr_norm, shading='flat', zorder=1)
-        self._br_outline_patches.append(_add_contact_outline(ax3))
+        _outline3 = _add_contact_outline(ax3)
+        self._br_outline_patches.append(_outline3)
+        self._br_pm_pres.set_clip_path(_outline3)
         self._cb_br_pres = _make_cb(self._br_pm_pres, ax3, 'pressure')
         self._cb_br_pres.set_label('pressure [bar]', fontsize=7)
         pr_centers = 0.5 * (pr_boundaries[:-1] + pr_boundaries[1:])
         self._cb_br_pres.set_ticks(pr_centers)
-        self._cb_br_pres.set_ticklabels([f'L{i+1}: {v:.2f}' for i, v in enumerate(pr_centers)])
+        self._cb_br_pres.set_ticklabels([f'{v:.2f}' for v in pr_centers])
         self._cb_br_pres.ax.tick_params(labelsize=5.5)
         # Rolling direction arrow on pressure plot
         _roll_y3 = -W_mm * 0.55
@@ -24264,12 +24268,14 @@ class PerssonModelGUI_V2:
         self._br_pm_temp = ax4.pcolormesh(
             x_edges, y_edges, np.where(mask, 25.0, np.nan).T,
             cmap=t_cmap, norm=t_norm, shading='flat', zorder=1)
-        self._br_outline_patches.append(_add_contact_outline(ax4))
+        _outline4 = _add_contact_outline(ax4)
+        self._br_outline_patches.append(_outline4)
+        self._br_pm_temp.set_clip_path(_outline4)
         self._cb_br_temp = _make_cb(self._br_pm_temp, ax4, 'temperature')
         self._cb_br_temp.set_label('temperature [\u00b0C]', fontsize=7)
         t_centers = 0.5 * (t_boundaries[:-1] + t_boundaries[1:])
         self._cb_br_temp.set_ticks(t_centers)
-        self._cb_br_temp.set_ticklabels([f'L{i+1}: {v:.1f}' for i, v in enumerate(t_centers)])
+        self._cb_br_temp.set_ticklabels([f'{v:.1f}' for v in t_centers])
         self._cb_br_temp.ax.tick_params(labelsize=5.5)
         _setup_ax(ax4, 'temperature')
 
@@ -24283,13 +24289,15 @@ class PerssonModelGUI_V2:
         self._br_pm_fric = ax5.pcolormesh(
             x_edges, y_edges, np.where(mask, 0.0, np.nan).T,
             cmap=fric_cmap, norm=fric_norm, shading='flat', zorder=1)
-        self._br_outline_patches.append(_add_contact_outline(ax5))
+        _outline5 = _add_contact_outline(ax5)
+        self._br_outline_patches.append(_outline5)
+        self._br_pm_fric.set_clip_path(_outline5)
         self._cb_br_fric = _make_cb(self._br_pm_fric, ax5, 'friction')
         self._cb_br_fric.set_label('friction force [N]', fontsize=7)
         # Set indexed tick labels: show level index + value
         fric_centers = 0.5 * (fric_boundaries[:-1] + fric_boundaries[1:])
         self._cb_br_fric.set_ticks(fric_centers)
-        self._cb_br_fric.set_ticklabels([f'L{i+1}: {v:.3f}' for i, v in enumerate(fric_centers)])
+        self._cb_br_fric.set_ticklabels([f'{v:.3f}' for v in fric_centers])
         self._cb_br_fric.ax.tick_params(labelsize=5.5)
         _setup_ax(ax5, 'friction force')
 
@@ -24385,22 +24393,24 @@ class PerssonModelGUI_V2:
         else:
             self._br_stick_arrow.set_visible(False)
 
-        # ── (2) sliding speed — update quiver arrows (length + color by magnitude) ──
+        # ── (2) sliding speed — update quiver arrows (straight, no spin curvature) ──
         step_x, step_y = self._br_speed_step
         mask_q = self._br_speed_mask_q
+        # Use translational-only velocity for arrow direction (no spin → all straight)
         # Negate arrows: display friction force direction (opposite to slip velocity)
-        # This makes sliding speed arrows match sliding vs adhesion arrow direction,
-        # and both are opposite to the SA/SR graph direction (correct tire convention)
-        u_q = -f['v_slip_x'][::step_x, ::step_y]
-        v_q = -f['v_slip_y'][::step_x, ::step_y]
-        mag_q = np.sqrt(u_q**2 + v_q**2)
+        u_trans = -f['v_trans_x'][::step_x, ::step_y]
+        v_trans = -f['v_trans_y'][::step_x, ::step_y]
+        # Magnitude from total slip speed (including spin) for color
+        mag_q = f['v_slip_mag'][::step_x, ::step_y]
+        # Scale translational direction by local magnitude for arrow length
+        trans_mag = np.sqrt(u_trans**2 + v_trans**2) + 1e-15
+        u_q = u_trans / trans_mag * mag_q
+        v_q = v_trans / trans_mag * mag_q
         u_f = u_q[mask_q]
         v_f = v_q[mask_q]
         mag_f = mag_q[mask_q]
         sp_hi = self._br_global_ranges['speed'][1]
-        # Scale arrows proportionally to magnitude (both length AND color)
         self._br_quiver_speed.set_UVC(u_f, v_f, mag_f)
-        # Set scale so arrows are readable: larger scale = smaller arrows
         self._br_quiver_speed.scale = max(sp_hi * 8.0, 0.1)
 
         # ── (3) contact pressure — update pcolormesh ──
@@ -24433,16 +24443,15 @@ class PerssonModelGUI_V2:
             # Base ellipse
             x_base = L_mm / 2 * cos_t
             y_base = W_mm / 2 * sin_t
-            # Isosceles rounded triangle: symmetric about y=0 (centerline)
-            # Rolling right-to-left: leading edge at -x (cos_t=-1), trailing at +x (cos_t=+1)
-            # Wide at leading edge (-x), narrow at trailing (+x)
-            width_mod = 1.0 - sa_abs * 0.5 * cos_t  # >1 at cos_t<0 (LE), <1 at cos_t>0 (TE)
-            y_deformed = y_base * np.clip(width_mod, 0.2, None)
-            # No lateral lean — keep symmetric isosceles shape
-            y_final = y_deformed
+            # Isosceles rounded triangle: base at top or bottom (width direction)
+            # SA > 0 (right turn): base at +y (top), narrow at -y (bottom)
+            # SA < 0 (left turn): base at -y (bottom), narrow at +y (top)
+            # Modify x-extent (length) based on y-position (sin_t)
+            length_mod = 1.0 + sa_factor * 0.5 * sin_t  # wider on loaded side
+            x_deformed = x_base * np.clip(length_mod, 0.2, None)
             # Correct centroid to stay at (0,0) — no drifting
-            y_final -= np.mean(y_final)
-            new_verts = np.column_stack([x_base, y_final])
+            x_deformed -= np.mean(x_deformed)
+            new_verts = np.column_stack([x_deformed, y_base])
             for poly in self._br_outline_patches:
                 poly.set_xy(new_verts)
 
