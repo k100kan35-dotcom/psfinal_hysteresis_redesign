@@ -23662,8 +23662,36 @@ class PerssonModelGUI_V2:
         xx_g, yy_g = np.meshgrid(x_arr, y_arr, indexing='ij')
         dA = dx * dy
 
-        # Elliptical contact mask
+        # Elliptical contact mask (base — used when SA=0)
         ellipse_mask = ((2 * xx_g / L)**2 + (2 * yy_g / W)**2) <= 1.0
+
+        # ── Helper: deformed contact mask (rounded triangle) ──
+        # At nonzero SA the patch deforms from ellipse toward isosceles
+        # rounded triangle.  The SAME geometry is used for both the data
+        # computation mask and the outline drawn on the plots.
+        from matplotlib.path import Path as _MplPath
+
+        def _deformed_mask(sa_deg_local):
+            """Return (mask, outline_verts) for the given SA.
+
+            Direction convention (matches pressure computation):
+            SA > 0 (right turn): wider at -y (loaded side), narrower at +y
+            SA < 0 (left turn): wider at +y (loaded side), narrower at -y
+            """
+            sf = -np.clip(sa_deg_local / 6.0, -1, 1)  # negate to match pressure
+            theta = np.linspace(0, 2 * np.pi, 120)
+            cos_t = np.cos(theta)
+            sin_t = np.sin(theta)
+            x_b = L / 2 * cos_t
+            y_b = W / 2 * sin_t
+            lmod = 1.0 + sf * 0.5 * sin_t
+            x_d = x_b * np.clip(lmod, 0.2, None)
+            x_d -= np.mean(x_d)
+            verts = np.column_stack([x_d, y_b])
+            path = _MplPath(verts)
+            pts = np.column_stack([xx_g.ravel(), yy_g.ravel()])
+            mask = path.contains_points(pts).reshape(xx_g.shape)
+            return mask, verts
 
         # Build base pressure distribution (static, no SA/SR effect)
         if ptype == 'uniform':
@@ -23690,16 +23718,20 @@ class PerssonModelGUI_V2:
             y_norm_dp = 2 * yy_g / W
             pk_pos = 0.40
             pk_w = 0.45
-            _peak_high = np.exp(-((y_norm_dp - pk_pos) / pk_w)**2) * lon_env_dp * ellipse_mask  # +y (high width)
-            _peak_low = np.exp(-((y_norm_dp + pk_pos) / pk_w)**2) * lon_env_dp * ellipse_mask   # -y (low width)
+            _peak_high = np.exp(-((y_norm_dp - pk_pos) / pk_w)**2) * lon_env_dp  # +y (high width)
+            _peak_low = np.exp(-((y_norm_dp + pk_pos) / pk_w)**2) * lon_env_dp   # -y (low width)
 
-        def _build_dynamic_pressure(sa_deg, sr_pct):
+        def _build_dynamic_pressure(sa_deg, sr_pct, contact_mask=None):
             """Build pressure map that shifts with SA and SR direction.
 
             For dual_peak: SA makes one peak grow and the other shrink.
             SA > 0 (right turn): lateral load transfer to -y (아래)
             SA < 0 (left turn): lateral load transfer to +y (위)
+
+            contact_mask: per-frame deformed mask (uses ellipse_mask if None).
             """
+            if contact_mask is None:
+                contact_mask = ellipse_mask
             sa_factor = -np.clip(sa_deg / 6.0, -1, 1)
             sa_abs = abs(sa_factor)
 
@@ -23720,7 +23752,7 @@ class PerssonModelGUI_V2:
             sr_factor = np.clip(sr_pct / 5.0, -1, 1)
             lon_weight = 1.0 + 0.5 * sr_factor * (2 * xx_g / L)
             p *= np.clip(lon_weight, 0.1, None)
-            p *= ellipse_mask
+            p *= contact_mask
             total = np.sum(p) * dA
             if total > 0:
                 p *= Fz / total
@@ -23768,8 +23800,11 @@ class PerssonModelGUI_V2:
             alpha_rad = np.radians(sa_deg)
             sr_frac = sr_pct / 100.0
 
+            # Per-frame deformed contact mask (rounded triangle at nonzero SA)
+            cmask, outline_verts = _deformed_mask(sa_deg)
+
             # Dynamic pressure map based on current SA/SR
-            p_map = _build_dynamic_pressure(sa_deg, sr_pct)
+            p_map = _build_dynamic_pressure(sa_deg, sr_pct, contact_mask=cmask)
             Fz_ij = p_map * dA  # normal force per node [N]
 
             # Rim velocity relative to road (slip velocity if no deformation)
@@ -23803,7 +23838,7 @@ class PerssonModelGUI_V2:
             # Stick/slip classification per node:
             # "Is spring force < friction limit?" → Stick
             # "Spring force exceeds limit?" → Slip
-            is_sliding = (F_spring_mag > F_fric_max) & ellipse_mask
+            is_sliding = (F_spring_mag > F_fric_max) & cmask
 
             # Actual force per node:
             # Stick: force = spring force (rubber held by friction)
@@ -23818,8 +23853,8 @@ class PerssonModelGUI_V2:
             Fnode_y = np.where(is_sliding,
                                F_fric_max * deform_dir_y,
                                Fspring_y)
-            Fnode_x *= ellipse_mask
-            Fnode_y *= ellipse_mask
+            Fnode_x *= cmask
+            Fnode_y *= cmask
 
             # Local slip velocity (spatial variation!):
             # Translational slip from rim velocity:
@@ -23828,7 +23863,7 @@ class PerssonModelGUI_V2:
                              np.clip(F_fric_max / F_spring_mag, 0, 1), 1.0)
             v_slip_trans = v_rim_mag * (1.0 - scale)
             v_slip_trans = np.where(is_sliding, v_slip_trans, 0.0)
-            v_slip_trans *= ellipse_mask
+            v_slip_trans *= cmask
 
             # Translational slip velocity components
             v_dir_x = v_rim_x / v_rim_mag
@@ -23843,14 +23878,14 @@ class PerssonModelGUI_V2:
             v_spin_x = -omega_spin * yy_g  # tangential velocity from spin
             v_spin_y = omega_spin * xx_g
             # Spin slip only in sliding zone
-            v_spin_x = np.where(is_sliding, v_spin_x, 0.0) * ellipse_mask
-            v_spin_y = np.where(is_sliding, v_spin_y, 0.0) * ellipse_mask
+            v_spin_x = np.where(is_sliding, v_spin_x, 0.0) * cmask
+            v_spin_y = np.where(is_sliding, v_spin_y, 0.0) * cmask
 
             # Total local slip velocity = translational + spin
             v_slip_x = v_trans_x + v_spin_x
             v_slip_y = v_trans_y + v_spin_y
             v_slip_local = np.sqrt(v_slip_x**2 + v_slip_y**2)
-            v_slip_local *= ellipse_mask
+            v_slip_local *= cmask
 
             # Temperature from local frictional energy dissipation
             # Per-node flash temperature from the Cold&Hot model, evaluated at
@@ -23862,23 +23897,23 @@ class PerssonModelGUI_V2:
             # Contact time modulation: longer contact → more accumulated heat
             dT_local = dT_interp(np.clip(v_slip_local.ravel(), 0, None)).reshape(Nx, Ny)
             # Pressure effect: local pressure relative to mean contact pressure
-            p_mean_contact = np.mean(p_map[ellipse_mask]) if np.any(ellipse_mask) else 1.0
+            p_mean_contact = np.mean(p_map[cmask]) if np.any(cmask) else 1.0
             p_ratio = p_map / max(p_mean_contact, 1e-10)
             # Contact time effect: heat accumulates over contact duration
             t_max = np.max(t_contact) if np.max(t_contact) > 0 else 1.0
             t_ratio = np.sqrt(t_contact / t_max)  # sqrt for flash temperature law
             T_contact = T0_base + dT_local * p_ratio * t_ratio
-            T_contact = T_contact * ellipse_mask + T0_base * (~ellipse_mask)
+            T_contact = T_contact * cmask + T0_base * (~cmask)
 
             # Available friction coefficient at each node (from Cold/Hot LUT)
             # This is the mu_eff that the friction map generates — the actual
             # friction coefficient of the rubber at the local slip speed.
-            mu_available = mu_eff.copy() * ellipse_mask
+            mu_available = mu_eff.copy() * cmask
 
             # Friction force per node: actual shear force magnitude at each cell
             # Stick zones: spring force; Slip zones: friction capacity = mu * Fz
             F_node_mag = np.sqrt(Fnode_x**2 + Fnode_y**2)
-            F_node_mag *= ellipse_mask
+            F_node_mag *= cmask
 
             # Total forces: Fy follows SA sign (SA<0 left turn → Fy<0)
             Fx_total = -np.sum(Fnode_x)
@@ -23902,6 +23937,8 @@ class PerssonModelGUI_V2:
                 'T_contact': T_contact.copy(),
                 'mu_eff': mu_available.copy(),
                 'F_friction': F_node_mag.copy(),
+                '_contact_mask': cmask,         # per-frame deformed mask
+                '_outline_verts': outline_verts, # outline vertices (mm)
             })
 
             # Progress
@@ -23923,15 +23960,16 @@ class PerssonModelGUI_V2:
         self._brush_ellipse_mask = ellipse_mask
 
         # Expanded mask for visualization: dilate by 1 cell so pcolormesh
-        # fills the ellipse outline without white gaps at the boundary.
+        # fills the outline without white gaps at the boundary.
         from scipy.ndimage import binary_dilation
         self._brush_fill_mask = binary_dilation(ellipse_mask, iterations=1)
 
         # Compute global min/max for fixed colorbars across all frames
-        all_speed = np.array([f['v_slip_mag'][ellipse_mask] for f in frames])
-        all_pres = np.array([f['p_map'][ellipse_mask] * 1e-5 for f in frames])  # bar
-        all_temp = np.array([f['T_contact'][ellipse_mask] for f in frames])  # °C
-        all_fric_force = np.array([f['F_friction'][ellipse_mask] for f in frames])
+        # Use each frame's own deformed mask for accurate ranges.
+        all_speed = np.concatenate([f['v_slip_mag'][f['_contact_mask']] for f in frames])
+        all_pres = np.concatenate([f['p_map'][f['_contact_mask']] * 1e-5 for f in frames])
+        all_temp = np.concatenate([f['T_contact'][f['_contact_mask']] for f in frames])
+        all_fric_force = np.concatenate([f['F_friction'][f['_contact_mask']] for f in frames])
         self._br_global_ranges = {
             'speed': (max(np.min(all_speed), 0), max(np.max(all_speed), 0.1)),
             'pressure': (max(np.min(all_pres), 0), max(np.max(all_pres), 0.01)),
@@ -24500,8 +24538,10 @@ class PerssonModelGUI_V2:
             self._brush_init_artists()
 
         f = self._brush_frames[idx]
-        mask = self._brush_ellipse_mask
-        mask_fill = getattr(self, '_brush_fill_mask', mask)
+        # Use per-frame deformed mask (falls back to ellipse for old data)
+        mask = f.get('_contact_mask', self._brush_ellipse_mask)
+        from scipy.ndimage import binary_dilation
+        mask_fill = binary_dilation(mask, iterations=1)
 
         # Update frame label
         t_val = f['t']
@@ -24592,29 +24632,28 @@ class PerssonModelGUI_V2:
         self._br_pm_fric.set_array(f_fric.T.ravel())
 
         # ── Update contact patch outline based on SA ──
-        # Shape deforms to rounded isosceles triangle at high SA.
-        # The outline does NOT shift — centroid stays at (0,0).
-        # SA > 0 (right turn, SAE): trailing edge leans toward +y (outside)
-        # SA < 0 (left turn): trailing edge leans toward -y (outside)
+        # Uses pre-computed outline vertices (same geometry as data mask).
+        # Direction convention (matches data):
+        # SA > 0 (right turn): wider at -y (loaded side), narrower at +y
+        # SA < 0 (left turn): wider at +y (loaded side), narrower at -y
         if hasattr(self, '_br_outline_patches') and self._br_outline_patches:
-            sa_deg = f['SA']
-            sa_factor = np.clip(sa_deg / 6.0, -1, 1)  # normalize to ±1
-            sa_abs = abs(sa_factor)
-            theta = np.linspace(0, 2 * np.pi, 120)
-            cos_t = np.cos(theta)
-            sin_t = np.sin(theta)
-            # Base ellipse
-            x_base = L_mm / 2 * cos_t
-            y_base = W_mm / 2 * sin_t
-            # Isosceles rounded triangle: base at top or bottom (width direction)
-            # SA > 0 (right turn): base at +y (top), narrow at -y (bottom)
-            # SA < 0 (left turn): base at -y (bottom), narrow at +y (top)
-            # Modify x-extent (length) based on y-position (sin_t)
-            length_mod = 1.0 + sa_factor * 0.5 * sin_t  # wider on loaded side
-            x_deformed = x_base * np.clip(length_mod, 0.2, None)
-            # Correct centroid to stay at (0,0) — no drifting
-            x_deformed -= np.mean(x_deformed)
-            new_verts = np.column_stack([x_deformed, y_base])
+            outline_verts_m = f.get('_outline_verts', None)
+            if outline_verts_m is not None:
+                # Convert from meters to mm for display
+                new_verts = outline_verts_m * 1000.0
+            else:
+                # Fallback: recompute (for old frame data without stored verts)
+                sa_deg = f['SA']
+                sa_factor = -np.clip(sa_deg / 6.0, -1, 1)  # negated to match data
+                theta = np.linspace(0, 2 * np.pi, 120)
+                cos_t = np.cos(theta)
+                sin_t = np.sin(theta)
+                x_base = L_mm / 2 * cos_t
+                y_base = W_mm / 2 * sin_t
+                length_mod = 1.0 + sa_factor * 0.5 * sin_t
+                x_deformed = x_base * np.clip(length_mod, 0.2, None)
+                x_deformed -= np.mean(x_deformed)
+                new_verts = np.column_stack([x_deformed, y_base])
             for poly in self._br_outline_patches:
                 poly.set_xy(new_verts)
 
