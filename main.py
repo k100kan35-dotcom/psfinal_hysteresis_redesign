@@ -22493,36 +22493,50 @@ class PerssonModelGUI_V2:
             ttk.Radiobutton(row_drive, text=dm, variable=self.br_driving_mode_var,
                             value=dm).pack(side=tk.LEFT, padx=3)
 
-        # ── 3) 스윕 설정 ──
-        sec3 = self._create_section(left_panel, "3) 스윕 설정")
+        # ── 3) 시간 프로파일 설정 ──
+        sec3 = self._create_section(left_panel, "3) 시간 프로파일 (SA / SR)")
 
-        row_smode = ttk.Frame(sec3); row_smode.pack(fill=tk.X, pady=1)
-        ttk.Label(row_smode, text="해석 모드:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.br_sweep_mode_var = tk.StringVar(value="braking")
-        ttk.Combobox(row_smode, textvariable=self.br_sweep_mode_var, width=14,
-                     values=['braking', 'cornering'],
-                     state='readonly').pack(side=tk.LEFT, padx=2)
+        row_ttime = ttk.Frame(sec3); row_ttime.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ttime, text="총 시간:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_total_time_var = tk.StringVar(value="6.0")
+        ttk.Entry(row_ttime, textvariable=self.br_total_time_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_ttime, text="s", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
-        row_smin = ttk.Frame(sec3); row_smin.pack(fill=tk.X, pady=1)
-        ttk.Label(row_smin, text="슬립 시작:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.br_slip_min_var = tk.StringVar(value="0.005")
-        ttk.Entry(row_smin, textvariable=self.br_slip_min_var, width=8).pack(side=tk.LEFT, padx=2)
+        row_odt = ttk.Frame(sec3); row_odt.pack(fill=tk.X, pady=1)
+        ttk.Label(row_odt, text="출력 Δt:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_output_dt_var = tk.StringVar(value="0.05")
+        ttk.Entry(row_odt, textvariable=self.br_output_dt_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_odt, text="s", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
-        row_smax = ttk.Frame(sec3); row_smax.pack(fill=tk.X, pady=1)
-        ttk.Label(row_smax, text="슬립 끝:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.br_slip_max_var = tk.StringVar(value="0.30")
-        ttk.Entry(row_smax, textvariable=self.br_slip_max_var, width=8).pack(side=tk.LEFT, padx=2)
+        # SA profile
+        ttk.Label(sec3, text="── SA (Slip Angle, °) ──", font=self.FONTS['body'],
+                  foreground='#DC2626').pack(anchor='w', pady=(6, 0))
+        row_sa_type = ttk.Frame(sec3); row_sa_type.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sa_type, text="프로파일:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_sa_type_var = tk.StringVar(value="triangular")
+        for sa_t in ["triangular", "sinusoidal", "step", "constant"]:
+            ttk.Radiobutton(row_sa_type, text=sa_t, variable=self.br_sa_type_var,
+                            value=sa_t).pack(side=tk.LEFT, padx=2)
+        row_sa_amp = ttk.Frame(sec3); row_sa_amp.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sa_amp, text="진폭:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_sa_amp_var = tk.StringVar(value="6.0")
+        ttk.Entry(row_sa_amp, textvariable=self.br_sa_amp_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_sa_amp, text="deg", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
-        row_ns = ttk.Frame(sec3); row_ns.pack(fill=tk.X, pady=1)
-        ttk.Label(row_ns, text="스윕 개수:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.br_n_sweep_var = tk.StringVar(value="25")
-        ttk.Entry(row_ns, textvariable=self.br_n_sweep_var, width=6).pack(side=tk.LEFT, padx=2)
-
-        sweep_note = ttk.Label(sec3,
-                               text="※ 제동: s = (vc - vR)/vc, 0~0.3\n"
-                                    "   선회: α = slip angle, 0~25°",
-                               font=self.FONTS['small'], foreground='#64748B')
-        sweep_note.pack(anchor=tk.W, pady=(2, 0))
+        # SR profile
+        ttk.Label(sec3, text="── SR (Slip Ratio, %) ──", font=self.FONTS['body'],
+                  foreground='#E65100').pack(anchor='w', pady=(6, 0))
+        row_sr_type = ttk.Frame(sec3); row_sr_type.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sr_type, text="프로파일:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_sr_type_var = tk.StringVar(value="constant")
+        for sr_t in ["constant", "triangular", "sinusoidal", "step"]:
+            ttk.Radiobutton(row_sr_type, text=sr_t, variable=self.br_sr_type_var,
+                            value=sr_t).pack(side=tk.LEFT, padx=2)
+        row_sr_val = ttk.Frame(sec3); row_sr_val.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sr_val, text="값/진폭:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_sr_val_var = tk.StringVar(value="-1.0")
+        ttk.Entry(row_sr_val, textvariable=self.br_sr_val_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_sr_val, text="%", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
         # ── 4) 시뮬레이션 설정 ──
         sec4 = self._create_section(left_panel, "4) 시뮬레이션 설정")
@@ -22549,17 +22563,14 @@ class PerssonModelGUI_V2:
                              font=self.FONTS['small'], foreground='#DC2626')
         sim_note.pack(anchor=tk.W, pady=(2, 0))
 
-        # ── 5) 실행 & 결과 ──
-        sec5 = self._create_section(left_panel, "5) 실행")
+        # ── 5) 실행 & 재생 ──
+        sec5 = self._create_section(left_panel, "5) 실행 & 재생")
 
         calc_row = ttk.Frame(sec5); calc_row.pack(fill=tk.X, pady=2)
-        self.br_calc_btn = ttk.Button(calc_row, text="제동 해석 (μ-slip)",
-                                       command=self._run_brush_braking, width=18,
+        self.br_calc_btn = ttk.Button(calc_row, text="▶ Transient 시뮬레이션",
+                                       command=self._run_brush_transient_wrapper, width=22,
                                        style='Accent.TButton')
         self.br_calc_btn.pack(side=tk.LEFT, padx=2)
-        self.br_calc_btn2 = ttk.Button(calc_row, text="선회 해석 (μ-α)",
-                                        command=self._run_brush_cornering, width=18)
-        self.br_calc_btn2.pack(side=tk.LEFT, padx=2)
 
         self.br_progress_var = tk.IntVar()
         self.br_progress_bar = ttk.Progressbar(calc_row, variable=self.br_progress_var,
@@ -22573,6 +22584,42 @@ class PerssonModelGUI_V2:
         self.br_sync_status_var = tk.StringVar(value="(Cold & Hot 결과 필요)")
         ttk.Label(sync_row, textvariable=self.br_sync_status_var,
                   font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=4)
+
+        # Playback controls
+        play_row = ttk.Frame(sec5); play_row.pack(fill=tk.X, pady=4)
+        self.br_play_btn = ttk.Button(play_row, text="▶", width=3,
+                                       command=self._brush_play)
+        self.br_play_btn.pack(side=tk.LEFT, padx=1)
+        self.br_pause_btn = ttk.Button(play_row, text="⏸", width=3,
+                                        command=self._brush_pause)
+        self.br_pause_btn.pack(side=tk.LEFT, padx=1)
+        self.br_reset_btn = ttk.Button(play_row, text="⏮", width=3,
+                                        command=self._brush_reset)
+        self.br_reset_btn.pack(side=tk.LEFT, padx=1)
+
+        ttk.Label(play_row, text="속도:", font=self.FONTS['small']).pack(side=tk.LEFT, padx=(8, 2))
+        self.br_play_speed_var = tk.StringVar(value="1x")
+        speed_combo = ttk.Combobox(play_row, textvariable=self.br_play_speed_var, width=4,
+                                    values=['0.25x', '0.5x', '1x', '2x', '4x'],
+                                    state='readonly')
+        speed_combo.pack(side=tk.LEFT, padx=1)
+
+        self.br_frame_label_var = tk.StringVar(value="t = 0.00 s  (0/0)")
+        ttk.Label(play_row, textvariable=self.br_frame_label_var,
+                  font=self.FONTS['small'], foreground='#0369A1').pack(side=tk.LEFT, padx=6)
+
+        # Time slider
+        slider_row = ttk.Frame(sec5); slider_row.pack(fill=tk.X, pady=2)
+        self.br_time_slider = ttk.Scale(slider_row, from_=0, to=100,
+                                         orient='horizontal',
+                                         command=self._on_brush_slider_change)
+        self.br_time_slider.pack(fill=tk.X, padx=4)
+
+        # Internal playback state
+        self._brush_frames = []
+        self._brush_frame_idx = 0
+        self._brush_playing = False
+        self._brush_play_after_id = None
 
         # Result text
         sec6 = self._create_section(left_panel, "6) 결과 요약")
@@ -22589,67 +22636,62 @@ class PerssonModelGUI_V2:
         self.br_right_notebook = ttk.Notebook(right_panel)
         self.br_right_notebook.pack(fill=tk.BOTH, expand=True)
 
-        # ── Tab 1: Simulation plots ──
+        # ── Tab 1: Transient Simulation plots ──
         sim_tab = ttk.Frame(self.br_right_notebook)
         self.br_right_notebook.add(sim_tab, text='  시뮬레이션  ')
 
-        plot_frame = ttk.LabelFrame(sim_tab, text="2D Brush Model 시뮬레이션", padding=5)
+        plot_frame = ttk.Frame(sim_tab)
         plot_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.fig_brush = Figure(figsize=(12, 9), dpi=100)
+        from matplotlib.gridspec import GridSpec
+        self.fig_brush = Figure(figsize=(14, 8), dpi=100)
+        gs = GridSpec(2, 10, figure=self.fig_brush, height_ratios=[1, 1.3],
+                      hspace=0.40, wspace=0.8,
+                      left=0.05, right=0.97, top=0.95, bottom=0.07)
 
-        # Row 1: Contour plots (Load / Velocity / Temperature)
-        self.ax_br_load = self.fig_brush.add_subplot(231)
-        self.ax_br_load.set_title('하중 컨투어 (Load)', fontweight='bold', fontsize=10,
-                                   color='#1565C0')
-        self.ax_br_load.set_xlabel('x (종방향, m)')
-        self.ax_br_load.set_ylabel('y (횡방향, m)')
-        self.ax_br_load.set_aspect('equal')
+        # Top row: 2 time-history plots
+        self.ax_br_input = self.fig_brush.add_subplot(gs[0, :5])
+        self.ax_br_input.set_xlabel('time [s]', fontsize=9)
+        self.ax_br_input.set_ylabel('slip', fontsize=9)
+        self.ax_br_input.set_title('SA / SR Input Profile', fontsize=10, fontweight='bold')
+        self.ax_br_input.grid(True, alpha=0.3)
 
-        self.ax_br_velocity = self.fig_brush.add_subplot(232)
-        self.ax_br_velocity.set_title('속도 컨투어 (Velocity)', fontweight='bold', fontsize=10,
-                                       color='#6A6A6A')
-        self.ax_br_velocity.set_xlabel('x (종방향, m)')
-        self.ax_br_velocity.set_ylabel('y (횡방향, m)')
-        self.ax_br_velocity.set_aspect('equal')
-        self.ax_br_velocity.text(0.5, 0.5, '해석 실행 후 표시',
-                                  transform=self.ax_br_velocity.transAxes,
-                                  ha='center', va='center', fontsize=9,
-                                  color='#999999', style='italic')
+        self.ax_br_force_t = self.fig_brush.add_subplot(gs[0, 5:])
+        self.ax_br_force_t.set_xlabel('time [s]', fontsize=9)
+        self.ax_br_force_t.set_ylabel('force [N]', fontsize=9)
+        self.ax_br_force_t.set_title('Fx / Fy Output', fontsize=10, fontweight='bold')
+        self.ax_br_force_t.grid(True, alpha=0.3)
 
-        self.ax_br_temperature = self.fig_brush.add_subplot(233)
-        self.ax_br_temperature.set_title('온도 컨투어 (Temperature)', fontweight='bold', fontsize=10,
-                                          color='#6A6A6A')
-        self.ax_br_temperature.set_xlabel('x (종방향, m)')
-        self.ax_br_temperature.set_ylabel('y (횡방향, m)')
+        # Bottom row: 5 contour plots
+        self.ax_br_stick = self.fig_brush.add_subplot(gs[1, 0:2])
+        self.ax_br_stick.set_title('sliding vs adhesion', fontsize=9, fontweight='bold')
+        self.ax_br_stick.set_xlabel('length [mm]', fontsize=8)
+        self.ax_br_stick.set_ylabel('width [mm]', fontsize=8)
+        self.ax_br_stick.set_aspect('equal')
+
+        self.ax_br_speed = self.fig_brush.add_subplot(gs[1, 2:4])
+        self.ax_br_speed.set_title('sliding speed', fontsize=9, fontweight='bold')
+        self.ax_br_speed.set_xlabel('length [mm]', fontsize=8)
+        self.ax_br_speed.set_ylabel('width [mm]', fontsize=8)
+        self.ax_br_speed.set_aspect('equal')
+
+        self.ax_br_pressure = self.fig_brush.add_subplot(gs[1, 4:6])
+        self.ax_br_pressure.set_title('contact pressure', fontsize=9, fontweight='bold')
+        self.ax_br_pressure.set_xlabel('length [mm]', fontsize=8)
+        self.ax_br_pressure.set_ylabel('width [mm]', fontsize=8)
+        self.ax_br_pressure.set_aspect('equal')
+
+        self.ax_br_temperature = self.fig_brush.add_subplot(gs[1, 6:8])
+        self.ax_br_temperature.set_title('temperature', fontsize=9, fontweight='bold')
+        self.ax_br_temperature.set_xlabel('length [mm]', fontsize=8)
+        self.ax_br_temperature.set_ylabel('width [mm]', fontsize=8)
         self.ax_br_temperature.set_aspect('equal')
-        self.ax_br_temperature.text(0.5, 0.5, 'Cold & Hot 결과 필요',
-                                     transform=self.ax_br_temperature.transAxes,
-                                     ha='center', va='center', fontsize=9,
-                                     color='#999999', style='italic')
 
-        # Row 2: Contact patch + sliding dir | μ-slip curve | Force envelope
-        self.ax_br_patch = self.fig_brush.add_subplot(234)
-        self.ax_br_patch.set_title('Contact Patch + Sliding Direction',
-                                    fontweight='bold', fontsize=10)
-        self.ax_br_patch.set_xlabel('x (종방향, m)')
-        self.ax_br_patch.set_ylabel('y (횡방향, m)')
-        self.ax_br_patch.set_aspect('equal')
-
-        self.ax_br_mu_slip = self.fig_brush.add_subplot(235)
-        self.ax_br_mu_slip.set_title('μ vs Slip', fontweight='bold', fontsize=10)
-        self.ax_br_mu_slip.set_xlabel('Slip ratio s  or  Slip angle α (°)')
-        self.ax_br_mu_slip.set_ylabel('μ = F / Fz')
-        self.ax_br_mu_slip.grid(True, alpha=0.3)
-
-        self.ax_br_forces = self.fig_brush.add_subplot(236)
-        self.ax_br_forces.set_title('Force Envelope (Fx, Fy)', fontweight='bold', fontsize=10)
-        self.ax_br_forces.set_xlabel('Slip ratio s  or  Slip angle α (°)')
-        self.ax_br_forces.set_ylabel('Force (N)')
-        self.ax_br_forces.grid(True, alpha=0.3)
-
-        self.fig_brush.subplots_adjust(left=0.08, right=0.94, top=0.95, bottom=0.07,
-                                        hspace=0.50, wspace=0.40)
+        self.ax_br_friction = self.fig_brush.add_subplot(gs[1, 8:10])
+        self.ax_br_friction.set_title('friction', fontsize=9, fontweight='bold')
+        self.ax_br_friction.set_xlabel('length [mm]', fontsize=8)
+        self.ax_br_friction.set_ylabel('width [mm]', fontsize=8)
+        self.ax_br_friction.set_aspect('equal')
 
         self.canvas_brush = FigureCanvasTkAgg(self.fig_brush, plot_frame)
         self.canvas_brush.draw_idle()
@@ -23441,268 +23483,482 @@ class PerssonModelGUI_V2:
             import traceback
             traceback.print_exc()
 
-    # ── 2D Brush: Plot update ──
+    # ── 2D Brush: Time profile generation ──
 
-    def _update_brush_plots(self):
-        """Update all 6 subplots for the 2D Brush Model results."""
-        if self.brush_results is None:
-            return
+    def _generate_time_profile(self, profile_type, amplitude, t_arr):
+        """Generate SA or SR profile over time.
 
+        profile_type: 'triangular', 'sinusoidal', 'step', 'constant'
+        amplitude: peak value
+        t_arr: time array
+        Returns: profile array same length as t_arr.
+        """
+        T = t_arr[-1]  # total time
+        if profile_type == 'triangular':
+            # 0 → +amp @ T/4 → 0 @ T/2 → -amp @ 3T/4 → 0 @ T
+            phase = (t_arr % T) / T
+            prof = np.where(phase < 0.25, amplitude * (phase / 0.25),
+                   np.where(phase < 0.75, amplitude * (1 - 2 * (phase - 0.25) / 0.5),
+                            amplitude * (-1 + (phase - 0.75) / 0.25)))
+        elif profile_type == 'sinusoidal':
+            prof = amplitude * np.sin(2 * np.pi * t_arr / T)
+        elif profile_type == 'step':
+            prof = np.where(t_arr < T / 3, 0.0,
+                   np.where(t_arr < 2 * T / 3, amplitude, 0.0))
+        else:  # constant
+            prof = np.full_like(t_arr, amplitude)
+        return prof
+
+    # ── 2D Brush: Transient simulation ──
+
+    def _run_brush_transient_wrapper(self):
+        """Run full transient simulation with SA(t)/SR(t) profiles."""
         try:
-            r = self.brush_results
-            mode = r['mode']
-            driving_mode = r.get('driving_mode', 'Braking')
-            sweep = r['sweep']
-            x_arr = r['x_arr']
-            y_arr = r['y_arr']
+            self.br_calc_btn.config(state='disabled')
+            self.br_progress_var.set(0)
+            self.status_var.set("2D Brush Transient 시뮬레이션 중...")
+            self.root.update()
 
-            # Remove old colorbars if they exist
-            for attr in ('_cb_br_load', '_cb_br_patch', '_cb_br_vel', '_cb_br_temp'):
-                if hasattr(self, attr) and getattr(self, attr) is not None:
-                    try:
-                        getattr(self, attr).remove()
-                    except Exception:
-                        pass
-                    setattr(self, attr, None)
-            # Remove old twin axis for Mz
-            if hasattr(self, '_ax_br_mz_twin') and self._ax_br_mz_twin is not None:
-                try:
-                    self._ax_br_mz_twin.remove()
-                except Exception:
-                    pass
-                self._ax_br_mz_twin = None
+            self._run_brush_transient()
 
-            slip_label = ""
-            if mode == 'braking':
-                slip_label = f"s={sweep[len(sweep)//2]:.3f}"
-            else:
-                slip_label = f"α={sweep[len(sweep)//2]:.1f}°"
+            self.br_progress_var.set(100)
+            self.status_var.set("2D Brush Transient 완료")
+            self.br_calc_btn.config(state='normal')
+            n = len(self._brush_frames)
+            self._show_status(f"Transient 완료: {n} 프레임 생성", 'success')
 
-            # ── (1) Load contour ──
-            self.ax_br_load.clear()
-            p_map = r['p_map']
-            if p_map is not None:
-                # Convert Pa to MPa for display
-                p_show = p_map * 1e-6
-                im_load = self.ax_br_load.contourf(
-                    x_arr, y_arr, p_show.T, levels=20,
-                    cmap='YlOrRd')
-                self.ax_br_load.contour(
-                    x_arr, y_arr, p_show.T, levels=10,
-                    colors='k', linewidths=0.3, alpha=0.5)
-                self._cb_br_load = self.fig_brush.colorbar(
-                    im_load, ax=self.ax_br_load, shrink=0.8, pad=0.02)
-                self._cb_br_load.set_label('MPa', fontsize=8)
-            mode_colors = {'Braking': '#1565C0', 'Handling': '#E65100',
-                           'Acceleration': '#2E7D32'}
-            self.ax_br_load.set_title(
-                f'하중 컨투어 ({driving_mode})',
-                fontweight='bold', fontsize=10,
-                color=mode_colors.get(driving_mode, '#1565C0'))
-            self.ax_br_load.set_xlabel('x (m)', fontsize=8)
-            self.ax_br_load.set_ylabel('y (m)', fontsize=8)
-            self.ax_br_load.set_aspect('equal')
+            # Update slider range and show first frame
+            self.br_time_slider.config(to=max(n - 1, 1))
+            self.br_time_slider.set(0)
+            self._brush_frame_idx = 0
+            self._brush_show_frame(0)
 
-            # ── (2) Velocity contour — from simulation v_slip_mag ──
-            self.ax_br_velocity.clear()
-            vs_mag = r.get('mid_v_slip_mag')
-            if vs_mag is not None:
-                im_vel = self.ax_br_velocity.contourf(
-                    x_arr, y_arr, vs_mag.T, levels=20, cmap='cool')
-                self.ax_br_velocity.contour(
-                    x_arr, y_arr, vs_mag.T, levels=10,
-                    colors='k', linewidths=0.3, alpha=0.4)
-                self._cb_br_vel = self.fig_brush.colorbar(
-                    im_vel, ax=self.ax_br_velocity, shrink=0.8, pad=0.02)
-                self._cb_br_vel.set_label('m/s', fontsize=8)
-                self.ax_br_velocity.set_title(
-                    f'속도 컨투어 ({slip_label})',
-                    fontweight='bold', fontsize=10, color='#0D47A1')
-            else:
-                self.ax_br_velocity.set_title('속도 컨투어 (No data)',
-                                               fontweight='bold', fontsize=10, color='#6A6A6A')
-                self.ax_br_velocity.text(0.5, 0.5, '해석 실행 후 표시',
-                                          transform=self.ax_br_velocity.transAxes,
-                                          ha='center', va='center', fontsize=9,
-                                          color='#999999', style='italic')
-            self.ax_br_velocity.set_xlabel('x (m)', fontsize=8)
-            self.ax_br_velocity.set_ylabel('y (m)', fontsize=8)
-            self.ax_br_velocity.set_aspect('equal')
-
-            # ── (3) Temperature contour — from Cold&Hot ΔT(v) interpolation ──
-            self.ax_br_temperature.clear()
-            if vs_mag is not None and self.cold_hot_results is not None:
-                chr_ = self.cold_hot_results
-                v_ref = chr_['v']
-                dT_ref = chr_['delta_T']
-                T0_base = chr_.get('T0', 25.0)
-
-                # Interpolate ΔT at each node's slip velocity
-                from scipy.interpolate import interp1d
-                dT_interp = interp1d(v_ref, dT_ref, kind='linear',
-                                     bounds_error=False,
-                                     fill_value=(dT_ref[0], dT_ref[-1]))
-                T_contact = T0_base + dT_interp(vs_mag)
-
-                im_temp = self.ax_br_temperature.contourf(
-                    x_arr, y_arr, T_contact.T, levels=20, cmap='hot')
-                self.ax_br_temperature.contour(
-                    x_arr, y_arr, T_contact.T, levels=10,
-                    colors='k', linewidths=0.3, alpha=0.4)
-                self._cb_br_temp = self.fig_brush.colorbar(
-                    im_temp, ax=self.ax_br_temperature, shrink=0.8, pad=0.02)
-                self._cb_br_temp.set_label('°C', fontsize=8)
-                T_min = np.min(T_contact)
-                T_max = np.max(T_contact)
-                self.ax_br_temperature.set_title(
-                    f'온도 컨투어 ({T_min:.0f}~{T_max:.0f}°C)',
-                    fontweight='bold', fontsize=10, color='#B71C1C')
-            else:
-                self.ax_br_temperature.set_title('온도 컨투어 (No data)',
-                                                  fontweight='bold', fontsize=10, color='#6A6A6A')
-                self.ax_br_temperature.text(0.5, 0.5, 'Cold & Hot 결과 필요',
-                                             transform=self.ax_br_temperature.transAxes,
-                                             ha='center', va='center', fontsize=9,
-                                             color='#999999', style='italic')
-            self.ax_br_temperature.set_xlabel('x (m)', fontsize=8)
-            self.ax_br_temperature.set_ylabel('y (m)', fontsize=8)
-            self.ax_br_temperature.set_aspect('equal')
-
-            # ── (4) Contact patch + sliding direction arrows ──
-            self.ax_br_patch.clear()
-            if r['mid_slip_dist'] is not None:
-                s_dist_show = r['mid_slip_dist']
-                im_patch = self.ax_br_patch.pcolormesh(
-                    x_arr, y_arr, s_dist_show.T,
-                    shading='auto', cmap='YlOrRd')
-                self._cb_br_patch = self.fig_brush.colorbar(
-                    im_patch, ax=self.ax_br_patch, shrink=0.8, pad=0.02)
-                self._cb_br_patch.set_label('Slip dist (m)', fontsize=7)
-
-                # Sliding direction arrows (quiver)
-                vsx = r.get('mid_v_slip_x')
-                vsy = r.get('mid_v_slip_y')
-                if vsx is not None and vsy is not None:
-                    # Subsample for clarity
-                    step_x = max(1, len(x_arr) // 8)
-                    step_y = max(1, len(y_arr) // 4)
-                    xx_q, yy_q = np.meshgrid(x_arr[::step_x], y_arr[::step_y], indexing='ij')
-                    u_q = vsx[::step_x, ::step_y]
-                    v_q = vsy[::step_x, ::step_y]
-                    mag_q = np.sqrt(u_q**2 + v_q**2) + 1e-15
-                    self.ax_br_patch.quiver(
-                        xx_q, yy_q, u_q / mag_q, v_q / mag_q,
-                        color='white', alpha=0.85, scale=25,
-                        headwidth=4, headlength=5, linewidth=0.8)
-
-                    # Direction label with angle and magnitude
-                    avg_vx = np.mean(vsx)
-                    avg_vy = np.mean(vsy)
-                    avg_mag = np.sqrt(avg_vx**2 + avg_vy**2)
-                    angle_deg = np.degrees(np.arctan2(avg_vy, avg_vx))
-
-                    if mode == 'braking':
-                        dir_str = f'→ 종방향 슬립 (v={avg_mag:.3f} m/s)'
-                    else:
-                        dir_str = f'↗ 슬립각 방향 ({angle_deg:.1f}°, v={avg_mag:.3f} m/s)'
-                    self.ax_br_patch.set_title(
-                        f'Sliding Direction\n{dir_str}',
-                        fontweight='bold', fontsize=9)
-                else:
-                    self.ax_br_patch.set_title(
-                        'Contact Patch (Slip Distance)',
-                        fontweight='bold', fontsize=10)
-            else:
-                self.ax_br_patch.set_title('Contact Patch (No data)', fontsize=10)
-            self.ax_br_patch.set_xlabel('x (m)', fontsize=8)
-            self.ax_br_patch.set_ylabel('y (m)', fontsize=8)
-            self.ax_br_patch.set_aspect('equal')
-
-            # ── (5) μ-slip or μ-slip angle curve ──
-            self.ax_br_mu_slip.clear()
-            if mode == 'braking':
-                self.ax_br_mu_slip.plot(sweep, r['mu_x'], 'b-o', linewidth=2,
-                                         markersize=3, label='μ_x (제동력)')
-                if np.any(r['mu_y'] > 1e-6):
-                    self.ax_br_mu_slip.plot(sweep, r['mu_y'], 'r--', linewidth=1.5,
-                                             label='μ_y (횡력)')
-                self.ax_br_mu_slip.set_xlabel('Slip ratio s', fontsize=8)
-                self.ax_br_mu_slip.set_title('μ vs Slip Ratio',
-                                              fontweight='bold', fontsize=10)
-            else:
-                self.ax_br_mu_slip.plot(sweep, r['mu_y'], 'r-o', linewidth=2,
-                                         markersize=3, label='μ_y (코너링)')
-                if np.any(r['mu_x'] > 1e-6):
-                    self.ax_br_mu_slip.plot(sweep, r['mu_x'], 'b--', linewidth=1.5,
-                                             label='μ_x (종방향)')
-                self.ax_br_mu_slip.set_xlabel('Slip angle α (°)', fontsize=8)
-                self.ax_br_mu_slip.set_title('μ vs Slip Angle',
-                                              fontweight='bold', fontsize=10)
-            self.ax_br_mu_slip.set_ylabel('μ = |F| / Fz', fontsize=8)
-            self.ax_br_mu_slip.legend(fontsize=7)
-            self.ax_br_mu_slip.grid(True, alpha=0.3)
-
-            # Peak marker
-            mu_main = r['mu_x'] if mode == 'braking' else r['mu_y']
-            if len(mu_main) > 0 and np.max(mu_main) > 0:
-                idx_peak = np.argmax(mu_main)
-                self.ax_br_mu_slip.annotate(
-                    f'Peak: μ={mu_main[idx_peak]:.3f}\n@ {sweep[idx_peak]:.3f}',
-                    xy=(sweep[idx_peak], mu_main[idx_peak]),
-                    xytext=(sweep[idx_peak] + (sweep[-1] - sweep[0]) * 0.1,
-                            mu_main[idx_peak] * 0.9),
-                    fontsize=7, color='#DC2626',
-                    arrowprops=dict(arrowstyle='->', color='#DC2626', lw=1.2))
-
-            # ── (6) Force envelope (Fx, Fy) with mirrored negative values ──
-            self.ax_br_forces.clear()
-            ax_f = self.ax_br_forces
-
-            # Build envelope: mirror sweep to include negative slip range
-            sweep_full = np.concatenate([-sweep[::-1], sweep])
-            # For braking: Fx(-s) = -Fx(s), Fy(-s) = Fy(s)
-            # For cornering: Fy(-α) = -Fy(α), Fx(-α) = Fx(α)
-            Fx_mirror = np.concatenate([-r['Fx'][::-1], r['Fx']])
-            Fy_mirror = np.concatenate([-r['Fy'][::-1], r['Fy']])
-            Mz_mirror = np.concatenate([-r['Mz'][::-1], r['Mz']])
-
-            ax_f.plot(sweep_full, Fx_mirror, 'b-', linewidth=2, label='Fx (종방향)')
-            ax_f.plot(sweep_full, Fy_mirror, 'r-', linewidth=2, label='Fy (횡방향)')
-            ax_f.axhline(y=0, color='k', linewidth=0.5, alpha=0.5)
-            ax_f.axvline(x=0, color='k', linewidth=0.5, alpha=0.5)
-
-            # Fill envelope region
-            ax_f.fill_between(sweep_full, Fx_mirror, alpha=0.08, color='blue')
-            ax_f.fill_between(sweep_full, Fy_mirror, alpha=0.08, color='red')
-
-            ax_f.set_ylabel('Force (N)', fontsize=8)
-            ax_f.legend(loc='best', fontsize=7)
-            ax_f.grid(True, alpha=0.3)
-
-            # Twin axis for Mz
-            self._ax_br_mz_twin = ax_f.twinx()
-            self._ax_br_mz_twin.plot(sweep_full, Mz_mirror, 'g--', linewidth=1.2,
-                                      alpha=0.7, label='Mz')
-            self._ax_br_mz_twin.set_ylabel('Mz (N·m)', color='green', fontsize=8)
-            self._ax_br_mz_twin.tick_params(axis='y', labelcolor='green', labelsize=7)
-            self._ax_br_mz_twin.legend(loc='lower right', fontsize=7)
-
-            if mode == 'braking':
-                ax_f.set_xlabel('Slip ratio s', fontsize=8)
-                ax_f.set_title('Force Envelope (Flat-Track Style)',
-                               fontweight='bold', fontsize=10)
-            else:
-                ax_f.set_xlabel('Slip angle α (°)', fontsize=8)
-                ax_f.set_title('Force Envelope (Flat-Track Style)',
-                               fontweight='bold', fontsize=10)
-
-            self.fig_brush.tight_layout(pad=1.5)
-            self.canvas_brush.draw_idle()
-
+        except ValueError as e:
+            self.br_calc_btn.config(state='normal')
+            self._show_status(f"입력값 오류: {str(e)}", 'warning')
         except Exception as e:
-            print(f"[2D Brush] Plot update error: {e}")
+            self.br_calc_btn.config(state='normal')
+            messagebox.showerror("오류", f"Transient 시뮬레이션 실패:\n{str(e)}")
             import traceback
             traceback.print_exc()
+
+    def _run_brush_transient(self):
+        """Core transient simulation with time-varying SA(t) and SR(t)."""
+        if self.cold_hot_results is None:
+            raise ValueError("Cold & Hot Branch 결과가 필요합니다.")
+
+        # Read parameters
+        Nx = int(self.br_Nx_var.get())
+        Ny = int(self.br_Ny_var.get())
+        L = float(self.br_L_var.get())
+        W = float(self.br_W_var.get())
+        Fz = float(self.br_Fz_var.get())
+        kx = float(self.br_kx_var.get())
+        ky = float(self.br_ky_var.get())
+        cx = float(self.br_cx_var.get())
+        cy = float(self.br_cy_var.get())
+        vc = float(self.br_vc_var.get())
+        D_mm = float(self.br_D_macro_var.get())
+        s0 = 0.2 * D_mm * 1e-3
+        dt = float(self.br_dt_var.get())
+        max_steps = int(self.br_max_steps_var.get())
+        ss_tol = float(self.br_ss_tol_var.get())
+        ptype = self.br_pressure_type_var.get()
+        driving_mode = self.br_driving_mode_var.get()
+
+        T_total = float(self.br_total_time_var.get())
+        dt_out = float(self.br_output_dt_var.get())
+        sa_type = self.br_sa_type_var.get()
+        sa_amp = float(self.br_sa_amp_var.get())
+        sr_type = self.br_sr_type_var.get()
+        sr_val = float(self.br_sr_val_var.get())
+
+        # Build LUT
+        lut_cold, lut_hot = self._build_brush_lut()
+
+        # Build pressure map
+        p_map, x_arr, y_arr, dx, dy = self._build_pressure_map(
+            Nx, Ny, L, W, Fz, ptype, driving_mode)
+        dA = dx * dy
+        Fz_ij = p_map * dA
+
+        # Elliptical contact mask
+        xx_g, yy_g = np.meshgrid(x_arr, y_arr, indexing='ij')
+        ellipse_mask = ((2 * xx_g / L)**2 + (2 * yy_g / W)**2) <= 1.0
+        Fz_ij *= ellipse_mask
+
+        # Time arrays
+        t_out = np.arange(0, T_total + dt_out * 0.5, dt_out)
+        n_frames = len(t_out)
+        SA_profile = self._generate_time_profile(sa_type, sa_amp, t_out)
+        SR_profile = self._generate_time_profile(sr_type, sr_val, t_out)
+
+        # Temperature interpolator from Cold&Hot
+        from scipy.interpolate import interp1d
+        chr_ = self.cold_hot_results
+        T0_base = chr_.get('T0', 25.0)
+        dT_interp = interp1d(chr_['v'], chr_['delta_T'], kind='linear',
+                             bounds_error=False,
+                             fill_value=(chr_['delta_T'][0], chr_['delta_T'][-1]))
+
+        # Sub-steps per output frame
+        sub_steps = max(1, int(round(dt_out / dt)))
+
+        # State arrays (persist across frames)
+        ux = np.zeros((Nx, Ny))
+        uy = np.zeros((Nx, Ny))
+        vx_node = np.zeros((Nx, Ny))
+        vy_node = np.zeros((Nx, Ny))
+        s_dist = np.zeros((Nx, Ny))
+
+        # Bending stiffness
+        kBx = kx * 0.05
+        kBy = ky * 0.05
+
+        # Store frames
+        frames = []
+        Fx_hist = np.zeros(n_frames)
+        Fy_hist = np.zeros(n_frames)
+
+        for fi in range(n_frames):
+            sa_deg = SA_profile[fi]
+            sr_pct = SR_profile[fi]
+            alpha_rad = np.radians(sa_deg)
+            sr_frac = sr_pct / 100.0
+
+            # Rim velocities (combined braking + cornering)
+            v_rim_x = vc * sr_frac
+            v_rim_y = vc * np.sin(alpha_rad)
+
+            # Inner time integration
+            for _ in range(sub_steps):
+                Fspring_x = -kx * ux - cx * vx_node
+                Fspring_y = -ky * uy - cy * vy_node
+
+                lap_ux = np.zeros_like(ux)
+                lap_uy = np.zeros_like(uy)
+                if Nx > 2:
+                    lap_ux[1:-1, :] += ux[:-2, :] + ux[2:, :] - 2 * ux[1:-1, :]
+                    lap_uy[1:-1, :] += uy[:-2, :] + uy[2:, :] - 2 * uy[1:-1, :]
+                if Ny > 2:
+                    lap_ux[:, 1:-1] += ux[:, :-2] + ux[:, 2:] - 2 * ux[:, 1:-1]
+                    lap_uy[:, 1:-1] += uy[:, :-2] + uy[:, 2:] - 2 * uy[:, 1:-1]
+
+                v_slip_x = v_rim_x + vx_node
+                v_slip_y = v_rim_y + vy_node
+                v_slip_mag = np.sqrt(v_slip_x**2 + v_slip_y**2) + 1e-15
+
+                s_dist += v_slip_mag * dt
+
+                mu_cold_vals = lut_cold(v_slip_mag)
+                mu_hot_vals = lut_hot(v_slip_mag)
+                blend = np.exp(-s_dist / max(s0, 1e-10))
+                mu_eff = mu_cold_vals * blend + mu_hot_vals * (1 - blend)
+
+                F_fric_x = -mu_eff * Fz_ij * v_slip_x / v_slip_mag
+                F_fric_y = -mu_eff * Fz_ij * v_slip_y / v_slip_mag
+                F_fric_x *= ellipse_mask
+                F_fric_y *= ellipse_mask
+
+                Ftot_x = Fspring_x + kBx * lap_ux + F_fric_x
+                Ftot_y = Fspring_y + kBy * lap_uy + F_fric_y
+
+                m_node = 0.001
+                vx_node += (Ftot_x / m_node) * dt
+                vy_node += (Ftot_y / m_node) * dt
+                vx_node *= 0.85
+                vy_node *= 0.85
+                ux += vx_node * dt
+                uy += vy_node * dt
+
+            # Snapshot for this frame
+            Fx_total = np.sum(F_fric_x)
+            Fy_total = np.sum(F_fric_y)
+            Fx_hist[fi] = Fx_total
+            Fy_hist[fi] = Fy_total
+
+            # Stick vs slip classification
+            friction_capacity = mu_eff * Fz_ij
+            tangential_force = np.sqrt(F_fric_x**2 + F_fric_y**2)
+            stick_ratio = np.where(friction_capacity > 1e-10,
+                                   tangential_force / friction_capacity, 0.0)
+            # stick_ratio near 1 = sliding, near 0 = adhesion
+
+            # Temperature from slip velocity
+            T_contact = T0_base + dT_interp(v_slip_mag)
+
+            frames.append({
+                't': t_out[fi],
+                'SA': sa_deg,
+                'SR': sr_pct,
+                'Fx': Fx_total,
+                'Fy': Fy_total,
+                'stick_ratio': stick_ratio.copy(),
+                'v_slip_x': v_slip_x.copy(),
+                'v_slip_y': v_slip_y.copy(),
+                'v_slip_mag': v_slip_mag.copy(),
+                'p_map': p_map.copy(),
+                'T_contact': T_contact.copy(),
+                'mu_eff': mu_eff.copy(),
+            })
+
+            # Progress
+            self.br_progress_var.set(int(100 * (fi + 1) / n_frames))
+            if fi % 5 == 0:
+                self.root.update()
+
+        # Store results
+        self._brush_frames = frames
+        self._brush_t_out = t_out
+        self._brush_SA = SA_profile
+        self._brush_SR = SR_profile
+        self._brush_Fx_hist = Fx_hist
+        self._brush_Fy_hist = Fy_hist
+        self._brush_x_mm = x_arr * 1000  # convert to mm
+        self._brush_y_mm = y_arr * 1000
+        self._brush_L_mm = L * 1000
+        self._brush_W_mm = W * 1000
+        self._brush_ellipse_mask = ellipse_mask
+
+        # Draw the static time-history plots
+        self._brush_draw_time_histories()
+
+    def _brush_draw_time_histories(self):
+        """Draw the top two time-history plots (SA/SR input, Fx/Fy output)."""
+        t = self._brush_t_out
+
+        # Left: SA / SR input
+        ax_in = self.ax_br_input
+        ax_in.clear()
+        ax_in.plot(t, self._brush_SA, 'r-', linewidth=2, label='SA [deg]')
+        ax_in.plot(t, self._brush_SR, color='#E68A00', linewidth=2, label='SR [%]')
+        ax_in.set_xlabel('time [s]', fontsize=9)
+        ax_in.set_ylabel('slip', fontsize=9)
+        ax_in.legend(loc='upper right', fontsize=8)
+        ax_in.grid(True, alpha=0.3)
+        ax_in.set_xlim(t[0], t[-1])
+        # Vertical cursor (will be updated)
+        self._br_cursor_in = ax_in.axvline(x=0, color='k', linewidth=1.2, alpha=0.7)
+
+        # Right: Fx / Fy output
+        ax_f = self.ax_br_force_t
+        ax_f.clear()
+        ax_f.plot(t, self._brush_Fy_hist, 'r-', linewidth=2, label='Fy')
+        ax_f.plot(t, self._brush_Fx_hist, color='#E68A00', linewidth=2, label='Fx')
+        ax_f.set_xlabel('time [s]', fontsize=9)
+        ax_f.set_ylabel('force [N]', fontsize=9)
+        ax_f.legend(loc='upper right', fontsize=8)
+        ax_f.grid(True, alpha=0.3)
+        ax_f.set_xlim(t[0], t[-1])
+        self._br_cursor_ft = ax_f.axvline(x=0, color='k', linewidth=1.2, alpha=0.7)
+
+        self.canvas_brush.draw_idle()
+
+    # ── 2D Brush: Frame display ──
+
+    def _brush_show_frame(self, idx):
+        """Display a single frame of the transient simulation."""
+        if not self._brush_frames or idx >= len(self._brush_frames):
+            return
+
+        f = self._brush_frames[idx]
+        x_mm = self._brush_x_mm
+        y_mm = self._brush_y_mm
+        L_mm = self._brush_L_mm
+        W_mm = self._brush_W_mm
+        mask = self._brush_ellipse_mask
+
+        # Remove old colorbars
+        for attr in ('_cb_br_speed', '_cb_br_pres', '_cb_br_temp', '_cb_br_fric'):
+            if hasattr(self, attr) and getattr(self, attr) is not None:
+                try:
+                    getattr(self, attr).remove()
+                except Exception:
+                    pass
+                setattr(self, attr, None)
+
+        # Update frame label
+        t_val = f['t']
+        self.br_frame_label_var.set(
+            f"t = {t_val:.2f} s  ({idx + 1}/{len(self._brush_frames)})  "
+            f"SA={f['SA']:.1f}°  SR={f['SR']:.1f}%")
+
+        # Update cursors on time-history plots
+        if hasattr(self, '_br_cursor_in'):
+            self._br_cursor_in.set_xdata([t_val, t_val])
+        if hasattr(self, '_br_cursor_ft'):
+            self._br_cursor_ft.set_xdata([t_val, t_val])
+
+        # Ellipse outline for contour plots
+        theta_e = np.linspace(0, 2 * np.pi, 100)
+        ex = (L_mm / 2) * np.cos(theta_e)
+        ey = (W_mm / 2) * np.sin(theta_e)
+
+        # Masked data (NaN outside ellipse)
+        def masked(data):
+            d = data.copy().astype(float)
+            d[~mask] = np.nan
+            return d
+
+        # ── (1) sliding vs adhesion ──
+        ax = self.ax_br_stick
+        ax.clear()
+        sr = masked(f['stick_ratio'])
+        # Red = sliding (ratio > 0.95), Blue = adhesion
+        ax.contourf(x_mm, y_mm, sr.T, levels=[0, 0.5, 0.95, 1.01],
+                     colors=['#2196F3', '#FFC107', '#F44336'], alpha=0.9)
+        ax.plot(ex, ey, 'k-', linewidth=1.5)
+        ax.set_title('sliding vs adhesion', fontsize=9, fontweight='bold')
+        ax.set_xlabel('length [mm]', fontsize=7)
+        ax.set_ylabel('width [mm]', fontsize=7)
+        ax.set_aspect('equal')
+        ax.tick_params(labelsize=7)
+
+        # ── (2) sliding speed + quiver ──
+        ax = self.ax_br_speed
+        ax.clear()
+        vs = masked(f['v_slip_mag'])
+        vs_valid = vs[~np.isnan(vs)]
+        if len(vs_valid) > 0:
+            vmin, vmax = np.nanmin(vs), np.nanmax(vs)
+            if vmax - vmin < 1e-10:
+                vmax = vmin + 0.1
+            im_sp = ax.contourf(x_mm, y_mm, vs.T, levels=15,
+                                 cmap='jet', vmin=vmin, vmax=vmax)
+            self._cb_br_speed = self.fig_brush.colorbar(im_sp, ax=ax, shrink=0.75, pad=0.02)
+            self._cb_br_speed.set_label('speed [m/s]', fontsize=7)
+            self._cb_br_speed.ax.tick_params(labelsize=6)
+        # Quiver arrows
+        step_x = max(1, len(x_mm) // 8)
+        step_y = max(1, len(y_mm) // 4)
+        xx_q, yy_q = np.meshgrid(x_mm[::step_x], y_mm[::step_y], indexing='ij')
+        u_q = f['v_slip_x'][::step_x, ::step_y]
+        v_q = f['v_slip_y'][::step_x, ::step_y]
+        mag_q = np.sqrt(u_q**2 + v_q**2) + 1e-15
+        # Color quiver by magnitude
+        ax.quiver(xx_q, yy_q, u_q / mag_q, v_q / mag_q,
+                  mag_q, cmap='cool', scale=30, headwidth=3, headlength=4,
+                  linewidth=0.5, alpha=0.8)
+        ax.plot(ex, ey, 'k-', linewidth=1.5)
+        ax.set_title('sliding speed', fontsize=9, fontweight='bold')
+        ax.set_xlabel('length [mm]', fontsize=7)
+        ax.set_ylabel('width [mm]', fontsize=7)
+        ax.set_aspect('equal')
+        ax.tick_params(labelsize=7)
+
+        # ── (3) contact pressure ──
+        ax = self.ax_br_pressure
+        ax.clear()
+        p_bar = masked(f['p_map'] * 1e-5)  # Pa → bar
+        p_valid = p_bar[~np.isnan(p_bar)]
+        if len(p_valid) > 0 and np.nanmax(p_bar) > 0:
+            im_pr = ax.contourf(x_mm, y_mm, p_bar.T, levels=15, cmap='jet')
+            self._cb_br_pres = self.fig_brush.colorbar(im_pr, ax=ax, shrink=0.75, pad=0.02)
+            self._cb_br_pres.set_label('pressure [bar]', fontsize=7)
+            self._cb_br_pres.ax.tick_params(labelsize=6)
+        ax.plot(ex, ey, 'k-', linewidth=1.5)
+        ax.set_title('contact pressure', fontsize=9, fontweight='bold')
+        ax.set_xlabel('length [mm]', fontsize=7)
+        ax.set_ylabel('width [mm]', fontsize=7)
+        ax.set_aspect('equal')
+        ax.tick_params(labelsize=7)
+
+        # ── (4) temperature ──
+        ax = self.ax_br_temperature
+        ax.clear()
+        T_K = masked(f['T_contact'] + 273.15)  # °C → K
+        T_valid = T_K[~np.isnan(T_K)]
+        if len(T_valid) > 0:
+            im_t = ax.contourf(x_mm, y_mm, T_K.T, levels=15, cmap='YlGn')
+            self._cb_br_temp = self.fig_brush.colorbar(im_t, ax=ax, shrink=0.75, pad=0.02)
+            self._cb_br_temp.set_label('temperature [K]', fontsize=7)
+            self._cb_br_temp.ax.tick_params(labelsize=6)
+        ax.plot(ex, ey, 'k-', linewidth=1.5)
+        ax.set_title('temperature', fontsize=9, fontweight='bold')
+        ax.set_xlabel('length [mm]', fontsize=7)
+        ax.set_ylabel('width [mm]', fontsize=7)
+        ax.set_aspect('equal')
+        ax.tick_params(labelsize=7)
+
+        # ── (5) friction ──
+        ax = self.ax_br_friction
+        ax.clear()
+        mu = masked(f['mu_eff'])
+        mu_valid = mu[~np.isnan(mu)]
+        if len(mu_valid) > 0:
+            im_f = ax.contourf(x_mm, y_mm, mu.T, levels=15, cmap='jet_r')
+            self._cb_br_fric = self.fig_brush.colorbar(im_f, ax=ax, shrink=0.75, pad=0.02)
+            self._cb_br_fric.set_label('friction [-]', fontsize=7)
+            self._cb_br_fric.ax.tick_params(labelsize=6)
+        ax.plot(ex, ey, 'k-', linewidth=1.5)
+        ax.set_title('friction', fontsize=9, fontweight='bold')
+        ax.set_xlabel('length [mm]', fontsize=7)
+        ax.set_ylabel('width [mm]', fontsize=7)
+        ax.set_aspect('equal')
+        ax.tick_params(labelsize=7)
+
+        self.canvas_brush.draw_idle()
+
+    # ── 2D Brush: Playback controls ──
+
+    def _on_brush_slider_change(self, value):
+        """Handle slider change."""
+        if not self._brush_frames:
+            return
+        idx = int(float(value))
+        idx = max(0, min(idx, len(self._brush_frames) - 1))
+        self._brush_frame_idx = idx
+        self._brush_show_frame(idx)
+
+    def _brush_play(self):
+        """Start playback."""
+        if not self._brush_frames:
+            return
+        self._brush_playing = True
+        self._brush_animate()
+
+    def _brush_pause(self):
+        """Pause playback."""
+        self._brush_playing = False
+        if self._brush_play_after_id is not None:
+            self.root.after_cancel(self._brush_play_after_id)
+            self._brush_play_after_id = None
+
+    def _brush_reset(self):
+        """Reset to first frame."""
+        self._brush_pause()
+        self._brush_frame_idx = 0
+        self.br_time_slider.set(0)
+        if self._brush_frames:
+            self._brush_show_frame(0)
+
+    def _brush_animate(self):
+        """Advance one frame and schedule next."""
+        if not self._brush_playing or not self._brush_frames:
+            return
+
+        self._brush_frame_idx += 1
+        if self._brush_frame_idx >= len(self._brush_frames):
+            self._brush_frame_idx = 0  # loop
+
+        self.br_time_slider.set(self._brush_frame_idx)
+        self._brush_show_frame(self._brush_frame_idx)
+
+        # Speed control
+        speed_str = self.br_play_speed_var.get()
+        speed_map = {'0.25x': 200, '0.5x': 100, '1x': 50, '2x': 25, '4x': 12}
+        delay_ms = speed_map.get(speed_str, 50)
+
+        self._brush_play_after_id = self.root.after(delay_ms, self._brush_animate)
+
+    # ── 2D Brush: Plot update (legacy, for backward compat) ──
+
+    def _update_brush_plots(self):
+        """Redirect to frame display if transient data available."""
+        if self._brush_frames:
+            self._brush_show_frame(self._brush_frame_idx)
+        elif self.brush_results is not None:
+            pass  # Legacy results no longer displayed in new layout
 
     # ── 2D Brush: Result text ──
 
