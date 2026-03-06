@@ -245,8 +245,9 @@ class PerssonModelGUI_V2:
     }
     _REFERENCE_WIDTH = 1600   # reference window width for font scaling
 
-    def __init__(self, root):
+    def __init__(self, root, splash_callback=None):
         """Initialize enhanced GUI."""
+        self._splash_cb = splash_callback or (lambda msg, pct: None)
         self.root = root
         self.root.title("NEXEN Rubber Friction Modelling Program  v3.0")
         self.root.geometry("1920x1040")
@@ -266,6 +267,7 @@ class PerssonModelGUI_V2:
         self._dpi_scale = _get_system_dpi_scale()
 
         # ── Apply modern theme ──
+        self._splash_cb("테마 설정 중...", 5)
         self._setup_modern_theme()
 
         # Initialize variables
@@ -327,17 +329,22 @@ class PerssonModelGUI_V2:
         self.psd_Cq0_var = tk.StringVar(value="3.5e-13")
 
         # Create UI
+        self._splash_cb("메뉴 생성 중...", 10)
         self._create_menu()
+        self._splash_cb("탭 UI 구성 중...", 15)
         self._create_main_layout()
+        self._splash_cb("상태바 생성 중...", 85)
         self._create_status_bar()
 
         # Load default measured data
+        self._splash_cb("기본 데이터 로딩 중...", 90)
         self._load_default_data()
 
         # ── 창이 완전히 표시된 후 모든 그래프 레이아웃 재계산 ──
         # Figure는 __init__ 중에 figsize 기준으로 tight_layout이 호출되지만,
         # 이 시점에서는 실제 위젯 크기를 모르므로 서브플롯 배치가 어긋남.
         # 윈도우가 화면에 표시된 후 한 번 더 recalc하면 정상 배치됨.
+        self._splash_cb("레이아웃 최적화 중...", 100)
         self.root.after(300, self._initial_layout_refresh)
 
     def _initial_layout_refresh(self):
@@ -708,7 +715,10 @@ class PerssonModelGUI_V2:
         self._all_tabs = []  # (attr, label, frame) for visibility management
         self._tab_visible_vars = {}  # attr → BooleanVar
 
-        for attr, label, builder in tabs:
+        n_tabs = len(tabs)
+        for i, (attr, label, builder) in enumerate(tabs):
+            pct = 15 + int(65 * (i / n_tabs))  # 15% → 80%
+            self._splash_cb(f"탭 생성: {label} ...", pct)
             frame = ttk.Frame(self.notebook)
             setattr(self, attr, frame)
             self.notebook.add(frame, text=f'  {label}  ')
@@ -20840,7 +20850,7 @@ class PerssonModelGUI_V2:
                             variable=self._fm_3d_data_var, value=val,
                             command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
 
-        # Row 2: view options (axis direction + View Reset)
+        # Row 2: view options (axis direction, position + View Reset)
         toolbar2 = ttk.Frame(parent)
         toolbar2.pack(side=tk.TOP, fill=tk.X, padx=2, pady=(0, 2))
         self._fm_3d_toolbar2 = toolbar2
@@ -20854,7 +20864,7 @@ class PerssonModelGUI_V2:
                         variable=self._fm_3d_v_dir, value="desc",
                         command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
 
-        ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
+        ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=4)
 
         ttk.Label(toolbar2, text="온도축:", font=('', 9, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
         self._fm_3d_T_dir = tk.StringVar(value="asc")
@@ -20865,14 +20875,34 @@ class PerssonModelGUI_V2:
                         variable=self._fm_3d_T_dir, value="desc",
                         command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
 
+        ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=4)
+
+        ttk.Label(toolbar2, text="속도 위치:", font=('', 9, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        self._fm_3d_v_pos = tk.StringVar(value="left")
+        ttk.Radiobutton(toolbar2, text="왼쪽",
+                        variable=self._fm_3d_v_pos, value="left",
+                        command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+        ttk.Radiobutton(toolbar2, text="오른쪽",
+                        variable=self._fm_3d_v_pos, value="right",
+                        command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+
+        ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=4)
+
+        ttk.Label(toolbar2, text="온도 위치:", font=('', 9, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        self._fm_3d_T_pos = tk.StringVar(value="right")
+        ttk.Radiobutton(toolbar2, text="왼쪽",
+                        variable=self._fm_3d_T_pos, value="left",
+                        command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+        ttk.Radiobutton(toolbar2, text="오른쪽",
+                        variable=self._fm_3d_T_pos, value="right",
+                        command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+
         def _reset_fm_view():
-            v_asc = self._fm_3d_v_dir.get() == "asc"
-            T_asc = self._fm_3d_T_dir.get() == "asc"
-            azim = 225 if (T_asc and v_asc) else 225
-            for ax in getattr(self, '_fm_3d_axes', []):
-                ax.view_init(elev=25, azim=azim)
-            if hasattr(self, '_fm_canvas'):
-                self._fm_canvas.draw_idle()
+            self._fm_3d_v_dir.set("asc")
+            self._fm_3d_T_dir.set("asc")
+            self._fm_3d_v_pos.set("left")
+            self._fm_3d_T_pos.set("right")
+            self._replot_friction_map_3d()
 
         tk.Button(toolbar2, text="View Reset",
                   command=_reset_fm_view, width=10).pack(side=tk.RIGHT, padx=4)
@@ -21951,9 +21981,9 @@ class PerssonModelGUI_V2:
         fig_w = max(avail_w - 20, 600) / fig_dpi  # -20 for scrollbar
         row_h = 4.5  # inches per subplot row
         fig_h = max(row_h * n_grid_rows, 5)
-        fig = Figure(figsize=(fig_w, fig_h), dpi=fig_dpi)
-        fig.subplots_adjust(left=0.04, right=0.97, top=0.96, bottom=0.04,
-                            wspace=0.22, hspace=0.28)
+        fig = Figure(figsize=(fig_w, fig_h), dpi=fig_dpi, facecolor='white')
+        fig.subplots_adjust(left=0.04, right=0.97, top=0.92, bottom=0.04,
+                            wspace=0.22, hspace=0.35)
 
         T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
 
@@ -21972,13 +22002,21 @@ class PerssonModelGUI_V2:
                      'F_adh': r'$F_{adh}$ (MPa)'}
         z_label = z_labels.get(data_type, data_type)
 
-        # Compute azimuth based on axis directions
-        # Default azim=225: T increases left→right, v increases front→back
-        if T_asc and v_asc:
-            azim = 225
-        elif T_asc and not v_asc:
-            azim = 315
-        elif not T_asc and v_asc:
+        # Axis position settings
+        v_left = self._fm_3d_v_pos.get() == "left"
+        T_left = self._fm_3d_T_pos.get() == "left"
+
+        # Compute azimuth based on axis position (which axis on left/right)
+        # In matplotlib 3D: azim controls rotation around z-axis
+        # azim=225: x(T) goes right, y(v) goes left
+        # azim=315: x(T) goes left, y(v) goes right
+        # azim=135: x(T) goes left, y(v) goes left (flipped)
+        # azim=45:  x(T) goes right, y(v) goes right (flipped)
+        if v_left and not T_left:
+            azim = 225  # v on left, T on right (default)
+        elif not v_left and T_left:
+            azim = 315  # v on right, T on left
+        elif T_left and v_left:
             azim = 135
         else:
             azim = 45
@@ -22012,6 +22050,11 @@ class PerssonModelGUI_V2:
                          fontsize=11, fontweight='bold')
             ax.view_init(elev=25, azim=azim)
             ax.tick_params(labelsize=9)
+            # Axis direction: invert if descending
+            if not v_asc:
+                ax.invert_yaxis()
+            if not T_asc:
+                ax.invert_xaxis()
 
         for i_p, p0 in enumerate(p0_arr):
             group_idx = i_p // MAX_COLS
@@ -22033,16 +22076,17 @@ class PerssonModelGUI_V2:
                 _plot_surface(ax_hot, Z_hot, 'inferno', 'Hot', p0, z_min_hot, z_max_hot)
 
         # Scrollable canvas for the matplotlib figure
-        scroll_frame = tk.Frame(right_frame)
+        scroll_frame = tk.Frame(right_frame, bg='white')
         scroll_frame.pack(fill=tk.BOTH, expand=True)
 
         v_scrollbar = ttk.Scrollbar(scroll_frame, orient=tk.VERTICAL)
         v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        plot_canvas = tk.Canvas(scroll_frame, yscrollcommand=v_scrollbar.set)
+        plot_canvas = tk.Canvas(scroll_frame, yscrollcommand=v_scrollbar.set,
+                                bg='white', highlightthickness=0)
         v_scrollbar.config(command=plot_canvas.yview)
         plot_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        inner_frame = tk.Frame(plot_canvas)
+        inner_frame = tk.Frame(plot_canvas, bg='white')
         canvas = FigureCanvasTkAgg(fig, master=inner_frame)
         canvas.draw()
         canvas_widget = canvas.get_tk_widget()
@@ -23994,14 +24038,55 @@ def main():
 
     # ── Detect system DPI scaling and adjust Tk scaling factor ──
     dpi_scale = _get_system_dpi_scale()
-    # With System DPI Aware (1), Tk's default scaling already matches
-    # the system DPI.  We only intervene at extreme scales (≥150%)
-    # to prevent widgets/fonts from becoming excessively large.
     if dpi_scale >= 1.5:
-        # Cap Tk scaling at 125% equivalent to keep UI usable
-        root.tk.call('tk', 'scaling', 1.25 * 96.0 / 72.0)   # ≈ 1.667
+        root.tk.call('tk', 'scaling', 1.25 * 96.0 / 72.0)
 
-    app = PerssonModelGUI_V2(root)
+    # ── Splash screen ──
+    root.withdraw()  # Hide main window during loading
+
+    splash = tk.Toplevel()
+    splash.overrideredirect(True)
+    splash_w, splash_h = 520, 200
+    scr_w = splash.winfo_screenwidth()
+    scr_h = splash.winfo_screenheight()
+    splash.geometry(f'{splash_w}x{splash_h}+{(scr_w-splash_w)//2}+{(scr_h-splash_h)//2}')
+    splash.configure(bg='white')
+    splash.attributes('-topmost', True)
+
+    # Title labels
+    title_frame = tk.Frame(splash, bg='white')
+    title_frame.pack(pady=(30, 8))
+    tk.Label(title_frame, text="NEXEN Tire", font=('Arial', 22, 'bold'),
+             fg='#6B21A8', bg='white').pack(side=tk.LEFT)
+    tk.Label(title_frame, text="  Rubber Friction Modelling Software",
+             font=('Arial', 16, 'bold'), fg='#1E293B', bg='white').pack(side=tk.LEFT)
+
+    # Status label
+    splash_status = tk.Label(splash, text="초기화 중...", font=('Arial', 10),
+                             fg='#64748B', bg='white')
+    splash_status.pack(pady=(4, 8))
+
+    # Progress bar
+    splash_progress = ttk.Progressbar(splash, orient='horizontal',
+                                       length=440, mode='determinate',
+                                       maximum=100)
+    splash_progress.pack(pady=(0, 10))
+
+    # Border
+    splash_border = tk.Frame(splash, bg='#6B21A8', height=3)
+    splash_border.pack(side=tk.BOTTOM, fill=tk.X)
+
+    splash.update()
+
+    def _splash_update(msg, pct):
+        splash_status.config(text=msg)
+        splash_progress['value'] = pct
+        splash.update()
+
+    app = PerssonModelGUI_V2(root, splash_callback=_splash_update)
+
+    splash.destroy()
+    root.deiconify()
     root.mainloop()
 
 
