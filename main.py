@@ -22729,6 +22729,18 @@ class PerssonModelGUI_V2:
         self.canvas_brush.draw_idle()
         self.canvas_brush.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
+        # Save TRUE original axis positions from GridSpec BEFORE any colorbars
+        # are created. This prevents cumulative width shrinkage when the
+        # transient simulation is re-run multiple times.
+        self._br_original_ax_positions = {}
+        for ax_name in ('ax_br_stick', 'ax_br_speed', 'ax_br_pressure',
+                        'ax_br_temperature', 'ax_br_friction',
+                        'ax_br_input', 'ax_br_force_t',
+                        'ax_br_fy_sa', 'ax_br_fx_sr'):
+            ax = getattr(self, ax_name, None)
+            if ax is not None:
+                self._br_original_ax_positions[ax_name] = ax.get_position().frozen()
+
         toolbar = NavigationToolbar2Tk(self.canvas_brush, plot_frame)
         toolbar.update()
 
@@ -24141,19 +24153,9 @@ class PerssonModelGUI_V2:
 
         # Steering wheel is now in the left panel (sec6)
 
-        # Save original axis positions after first colorbar creation
-        # so we can restore them on subsequent calls
-        if not hasattr(self, '_br_original_ax_positions'):
-            self.fig_brush.canvas.draw_idle()
-            self.fig_brush.canvas.flush_events()
-            self._br_original_ax_positions = {}
-            for ax_name in ('ax_br_stick', 'ax_br_speed', 'ax_br_pressure',
-                            'ax_br_temperature', 'ax_br_friction',
-                            'ax_br_input', 'ax_br_force_t',
-                            'ax_br_fy_sa', 'ax_br_fx_sr'):
-                ax = getattr(self, ax_name, None)
-                if ax is not None:
-                    self._br_original_ax_positions[ax_name] = ax.get_position().frozen()
+        # Positions are restored from _br_original_ax_positions at the top
+        # of this method (saved at figure creation time, before any colorbars).
+        # No need to re-save here.
 
         self._br_artists_ready = True
         self.canvas_brush.draw_idle()
@@ -24227,8 +24229,11 @@ class PerssonModelGUI_V2:
         # ── (2) sliding speed — update quiver arrows (length + color by magnitude) ──
         step_x, step_y = self._br_speed_step
         mask_q = self._br_speed_mask_q
-        u_q = f['v_slip_x'][::step_x, ::step_y]
-        v_q = f['v_slip_y'][::step_x, ::step_y]
+        # Negate arrows: display friction force direction (opposite to slip velocity)
+        # This makes sliding speed arrows match sliding vs adhesion arrow direction,
+        # and both are opposite to the SA/SR graph direction (correct tire convention)
+        u_q = -f['v_slip_x'][::step_x, ::step_y]
+        v_q = -f['v_slip_y'][::step_x, ::step_y]
         mag_q = np.sqrt(u_q**2 + v_q**2)
         u_f = u_q[mask_q]
         v_f = v_q[mask_q]
