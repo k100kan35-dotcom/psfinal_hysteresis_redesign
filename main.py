@@ -40,6 +40,13 @@ matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib')
+warnings.filterwarnings('ignore', message='Glyph.*missing from font')
+
+# Suppress matplotlib font glyph substitution log messages
+import logging
+logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
+logging.getLogger('matplotlib.mathtext').setLevel(logging.ERROR)
+logging.getLogger('matplotlib.backends').setLevel(logging.ERROR)
 
 # === 기본 폰트/수식 설정 (모든 환경에서 안전) ===
 matplotlib.rcParams.update({
@@ -278,6 +285,9 @@ class PerssonModelGUI_V2:
         self.raw_dma_data = None  # Store raw DMA data for plotting
         self.raw_psd_data = None  # Store raw PSD data for comparison plotting
         self.target_xi = None  # Target h'rms from Tab 2 PSD settings
+
+        # Early status_var init (used by many methods before _create_status_bar)
+        self.status_var = tk.StringVar(value="초기화 중...")
 
         # Data source tracking
         self.material_source = None  # 마스터 커브 출처: "기본 파일", "예제 SBR", "Tab 1 확정", etc.
@@ -24042,50 +24052,62 @@ def main():
         root.tk.call('tk', 'scaling', 1.25 * 96.0 / 72.0)
 
     # ── Splash screen ──
-    root.withdraw()  # Hide main window during loading
+    root.withdraw()  # Hide main window completely during loading
+    root.attributes('-alpha', 0)  # Fully transparent even if briefly shown
 
     splash = tk.Toplevel()
     splash.overrideredirect(True)
-    splash_w, splash_h = 520, 200
+    splash_w, splash_h = 680, 260
     scr_w = splash.winfo_screenwidth()
     scr_h = splash.winfo_screenheight()
     splash.geometry(f'{splash_w}x{splash_h}+{(scr_w-splash_w)//2}+{(scr_h-splash_h)//2}')
     splash.configure(bg='white')
     splash.attributes('-topmost', True)
 
+    # Preferred fonts (Segoe UI for Windows, fallback to system sans-serif)
+    _sp_font = 'Segoe UI'
+
     # Title labels
     title_frame = tk.Frame(splash, bg='white')
-    title_frame.pack(pady=(30, 8))
-    tk.Label(title_frame, text="NEXEN Tire", font=('Arial', 22, 'bold'),
+    title_frame.pack(pady=(40, 6))
+    tk.Label(title_frame, text="NEXEN Tire", font=(_sp_font, 28, 'bold'),
              fg='#6B21A8', bg='white').pack(side=tk.LEFT)
     tk.Label(title_frame, text="  Rubber Friction Modelling Software",
-             font=('Arial', 16, 'bold'), fg='#1E293B', bg='white').pack(side=tk.LEFT)
+             font=(_sp_font, 18), fg='#1E293B', bg='white').pack(side=tk.LEFT, pady=(6, 0))
+
+    # Version
+    tk.Label(splash, text="v3.0", font=(_sp_font, 11),
+             fg='#94A3B8', bg='white').pack(pady=(0, 12))
 
     # Status label
-    splash_status = tk.Label(splash, text="초기화 중...", font=('Arial', 10),
+    splash_status = tk.Label(splash, text="초기화 중...", font=(_sp_font, 11),
                              fg='#64748B', bg='white')
-    splash_status.pack(pady=(4, 8))
+    splash_status.pack(pady=(0, 8))
 
     # Progress bar
     splash_progress = ttk.Progressbar(splash, orient='horizontal',
-                                       length=440, mode='determinate',
+                                       length=580, mode='determinate',
                                        maximum=100)
-    splash_progress.pack(pady=(0, 10))
+    splash_progress.pack(pady=(0, 16))
 
-    # Border
-    splash_border = tk.Frame(splash, bg='#6B21A8', height=3)
-    splash_border.pack(side=tk.BOTTOM, fill=tk.X)
+    # Bottom accent border
+    tk.Frame(splash, bg='#6B21A8', height=4).pack(side=tk.BOTTOM, fill=tk.X)
 
     splash.update()
 
     def _splash_update(msg, pct):
-        splash_status.config(text=msg)
-        splash_progress['value'] = pct
-        splash.update()
+        try:
+            splash_status.config(text=msg)
+            splash_progress['value'] = pct
+            splash.update()
+        except tk.TclError:
+            pass
 
     app = PerssonModelGUI_V2(root, splash_callback=_splash_update)
 
+    # Fully ready → show main window at once
     splash.destroy()
+    root.attributes('-alpha', 1)  # Restore opacity
     root.deiconify()
     root.mainloop()
 
