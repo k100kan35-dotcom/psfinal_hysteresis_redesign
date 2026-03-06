@@ -22644,10 +22644,10 @@ class PerssonModelGUI_V2:
         plot_frame.pack(fill=tk.BOTH, expand=True)
 
         from matplotlib.gridspec import GridSpec
-        self.fig_brush = Figure(figsize=(14, 8), dpi=100)
-        gs = GridSpec(2, 10, figure=self.fig_brush, height_ratios=[1, 1.8],
-                      hspace=0.40, wspace=0.8,
-                      left=0.05, right=0.97, top=0.95, bottom=0.07)
+        self.fig_brush = Figure(figsize=(14, 10), dpi=100)
+        gs = GridSpec(2, 10, figure=self.fig_brush, height_ratios=[1, 2.5],
+                      hspace=0.35, wspace=0.8,
+                      left=0.05, right=0.97, top=0.96, bottom=0.05)
 
         # Top row: 2 time-history plots
         self.ax_br_input = self.fig_brush.add_subplot(gs[0, :5])
@@ -23960,7 +23960,7 @@ class PerssonModelGUI_V2:
                           scale=max(np.max(mag_q_f) * 15, 1),
                           headwidth=4, headlength=5, linewidth=0.6, alpha=0.85)
             if not self._br_cbs_created:
-                self._cb_br_speed = self.fig_brush.colorbar(q, ax=ax, shrink=0.75, pad=0.02)
+                self._cb_br_speed = self.fig_brush.colorbar(q, ax=ax, shrink=0.55, pad=0.02)
                 self._cb_br_speed.set_label('speed [m/s]', fontsize=7)
                 self._cb_br_speed.ax.tick_params(labelsize=6)
         ax.set_title('sliding speed', fontsize=9, fontweight='bold')
@@ -23985,7 +23985,7 @@ class PerssonModelGUI_V2:
         clip_e3 = make_clip_ellipse(ax)
         clip_contourf(cf3, clip_e3)
         if not self._br_cbs_created:
-            self._cb_br_pres = self.fig_brush.colorbar(cf3, ax=ax, shrink=0.75, pad=0.02)
+            self._cb_br_pres = self.fig_brush.colorbar(cf3, ax=ax, shrink=0.55, pad=0.02)
             self._cb_br_pres.set_label('pressure [bar]', fontsize=7)
             self._cb_br_pres.ax.tick_params(labelsize=6)
         ax.set_title('contact pressure', fontsize=9, fontweight='bold')
@@ -24010,7 +24010,7 @@ class PerssonModelGUI_V2:
         clip_e4 = make_clip_ellipse(ax)
         clip_contourf(cf4, clip_e4)
         if not self._br_cbs_created:
-            self._cb_br_temp = self.fig_brush.colorbar(cf4, ax=ax, shrink=0.75, pad=0.02)
+            self._cb_br_temp = self.fig_brush.colorbar(cf4, ax=ax, shrink=0.55, pad=0.02)
             self._cb_br_temp.set_label('temperature [K]', fontsize=7)
             self._cb_br_temp.ax.tick_params(labelsize=6)
         ax.set_title('temperature', fontsize=9, fontweight='bold')
@@ -24035,7 +24035,7 @@ class PerssonModelGUI_V2:
         clip_e5 = make_clip_ellipse(ax)
         clip_contourf(cf5, clip_e5)
         if not self._br_cbs_created:
-            self._cb_br_fric = self.fig_brush.colorbar(cf5, ax=ax, shrink=0.75, pad=0.02)
+            self._cb_br_fric = self.fig_brush.colorbar(cf5, ax=ax, shrink=0.55, pad=0.02)
             self._cb_br_fric.set_label('friction [-]', fontsize=7)
             self._cb_br_fric.ax.tick_params(labelsize=6)
         ax.set_title('friction', fontsize=9, fontweight='bold')
