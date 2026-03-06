@@ -23641,6 +23641,13 @@ class PerssonModelGUI_V2:
         t_contact_1d = np.clip((L / 2.0 - x_arr) / max(vc, 0.01), 0, None)
         t_contact = t_contact_1d[:, np.newaxis] * np.ones((1, Ny))
 
+        # Distribute total stiffness across nodes inside ellipse
+        # kx, ky = total tire tread stiffness [N/m]
+        # Per-node stiffness = total / n_nodes_in_contact
+        n_in_ellipse = max(np.sum(ellipse_mask), 1)
+        kx_node = kx / n_in_ellipse  # [N/m] per node
+        ky_node = ky / n_in_ellipse
+
         # Store frames
         frames = []
         Fx_hist = np.zeros(n_frames)
@@ -23665,15 +23672,17 @@ class PerssonModelGUI_V2:
             ux_stick = v_rim_x * t_contact  # [m] deformation in x
             uy_stick = v_rim_y * t_contact  # [m] deformation in y
 
-            # Spring force if all nodes stick
-            Fspring_x = kx * ux_stick  # [N/m^2 * m = N/m] per unit...
-            Fspring_y = ky * uy_stick
+            # Spring force per node if all nodes stick
+            Fspring_x = kx_node * ux_stick  # [N] per node
+            Fspring_y = ky_node * uy_stick   # [N] per node
             F_spring_mag = np.sqrt(Fspring_x**2 + Fspring_y**2)
 
-            # Sliding distance (for Cold→Hot blend): how far rubber has slid
+            # Sliding distance (for Cold→Hot blend): contact distance
             s_dist_local = v_rim_mag * t_contact
 
             # Cold→Hot friction blend varies spatially
+            # Leading edge: s_dist≈0 → mu≈mu_cold (cold rubber)
+            # Trailing edge: s_dist large → mu≈mu_hot (heated rubber)
             blend = np.exp(-s_dist_local / max(s0, 1e-10))
             mu_cold_vals = lut_cold(np.full_like(t_contact, v_rim_mag))
             mu_hot_vals = lut_hot(np.full_like(t_contact, v_rim_mag))
@@ -23682,17 +23691,18 @@ class PerssonModelGUI_V2:
             # Friction capacity per node
             F_fric_max = mu_eff * Fz_ij  # [N]
 
-            # Stick/slip classification per node
+            # Stick/slip classification per node:
+            # "Is spring force < friction limit?" → Stick
+            # "Spring force exceeds limit?" → Slip
             is_sliding = (F_spring_mag > F_fric_max) & ellipse_mask
 
             # Actual force per node:
-            # Stick: force = spring force (F_spring)
-            # Slip: force = friction capacity (capped), direction from deformation
+            # Stick: force = spring force (rubber held by friction)
+            # Slip: force capped at friction capacity, in deformation direction
             deform_mag = np.sqrt(ux_stick**2 + uy_stick**2) + 1e-15
             deform_dir_x = ux_stick / deform_mag
             deform_dir_y = uy_stick / deform_mag
 
-            # Node force (reaction on tire = opposite to deformation direction)
             Fnode_x = np.where(is_sliding,
                                F_fric_max * deform_dir_x,
                                Fspring_x)
@@ -23702,9 +23712,10 @@ class PerssonModelGUI_V2:
             Fnode_x *= ellipse_mask
             Fnode_y *= ellipse_mask
 
-            # Local slip velocity:
-            # Stick: v_slip = 0 (rubber matches road)
-            # Slip: excess velocity that friction can't hold
+            # Local slip velocity (spatial variation!):
+            # Stick zone: v_slip = 0 (rubber matches road)
+            # Slip zone: excess velocity → increases toward trailing edge
+            #   v_slip = v_rim * (1 - F_fric_max / F_spring)
             scale = np.where(F_spring_mag > 1e-15,
                              np.clip(F_fric_max / F_spring_mag, 0, 1), 1.0)
             v_slip_local = v_rim_mag * (1.0 - scale)
@@ -23717,12 +23728,12 @@ class PerssonModelGUI_V2:
             v_slip_x = v_slip_local * v_dir_x
             v_slip_y = v_slip_local * v_dir_y
 
-            # Temperature from local slip velocity
+            # Temperature from local slip velocity (spatial variation!)
+            # Stick zone: v_slip=0 → T = T0 + dT(0) (minimal rise)
+            # Slip zone: v_slip>0 → T increases toward trailing edge
             T_contact = T0_base + dT_interp(v_slip_local)
-            # Stick zone: v_slip=0 → minimal temperature rise
 
             # Total forces (reaction force on tire from road)
-            # These push opposite to slip direction
             Fx_total = -np.sum(Fnode_x)
             Fy_total = -np.sum(Fnode_y)
             Fx_hist[fi] = Fx_total
@@ -24035,10 +24046,8 @@ class PerssonModelGUI_V2:
         ax.set_aspect('equal')
         ax.tick_params(labelsize=7)
 
-        # ── Steering wheel indicator ──
+        # ── Steering wheel indicator (in gap between two top plots) ──
         sa_deg = f['SA']
-        # Draw a small steering wheel in the SA/SR time plot
-        ax_in = self.ax_br_input
         # Remove old steering indicator if any
         if hasattr(self, '_br_steering_artists'):
             for a in self._br_steering_artists:
@@ -24047,30 +24056,35 @@ class PerssonModelGUI_V2:
                 except Exception:
                     pass
         self._br_steering_artists = []
-        # Inset position (axes fraction): upper-left corner
-        ins_cx, ins_cy = 0.12, 0.72  # center in axes coords
-        ins_r = 0.08  # radius in axes coords
-        steer_rad = np.radians(-sa_deg)  # negative for visual convention
-        # Draw wheel circle
+        # Draw using figure coordinates (gap between the two top plots)
+        fig_trans = self.fig_brush.transFigure
+        ins_cx, ins_cy = 0.50, 0.88  # center of gap between top plots
+        ins_r = 0.025  # small radius in figure coords
+        steer_rad = np.radians(-sa_deg)
+        # Wheel circle
         theta_w = np.linspace(0, 2 * np.pi, 40)
         wx = ins_cx + ins_r * np.cos(theta_w)
-        wy = ins_cy + ins_r * np.sin(theta_w) * 1.5  # stretch for aspect
-        line_w, = ax_in.plot(wx, wy, 'k-', lw=1.5, transform=ax_in.transAxes,
-                             clip_on=False)
+        wy = ins_cy + ins_r * np.sin(theta_w)
+        line_w, = self.fig_brush.axes[0].plot(
+            wx, wy, 'k-', lw=2, transform=fig_trans, clip_on=False)
         self._br_steering_artists.append(line_w)
-        # Spoke rotated by SA
-        for spoke_angle_base in [0, np.pi / 2, np.pi, 3 * np.pi / 2]:
+        # 3 spokes rotated by SA
+        for spoke_angle_base in [np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]:
             sa = spoke_angle_base + steer_rad
-            sx = [ins_cx, ins_cx + ins_r * 0.8 * np.cos(sa)]
-            sy = [ins_cy, ins_cy + ins_r * 0.8 * np.sin(sa) * 1.5]
-            sp, = ax_in.plot(sx, sy, 'k-', lw=1.2, transform=ax_in.transAxes,
-                             clip_on=False)
+            sx = [ins_cx, ins_cx + ins_r * 0.85 * np.cos(sa)]
+            sy = [ins_cy, ins_cy + ins_r * 0.85 * np.sin(sa)]
+            sp, = self.fig_brush.axes[0].plot(
+                sx, sy, 'k-', lw=1.5, transform=fig_trans, clip_on=False)
             self._br_steering_artists.append(sp)
-        # Label
-        steer_txt = ax_in.text(ins_cx, ins_cy - ins_r * 1.8,
-                               f'SA={sa_deg:.1f}°', fontsize=7,
-                               ha='center', va='top', fontweight='bold',
-                               transform=ax_in.transAxes, clip_on=False)
+        # Center dot
+        cd, = self.fig_brush.axes[0].plot(
+            ins_cx, ins_cy, 'ko', markersize=3, transform=fig_trans, clip_on=False)
+        self._br_steering_artists.append(cd)
+        # Label below
+        steer_txt = self.fig_brush.axes[0].text(
+            ins_cx, ins_cy - ins_r * 1.6, f'SA={sa_deg:.1f}°',
+            fontsize=8, ha='center', va='top', fontweight='bold',
+            transform=fig_trans, clip_on=False)
         self._br_steering_artists.append(steer_txt)
 
         self._br_cbs_created = True
