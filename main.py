@@ -22651,6 +22651,17 @@ class PerssonModelGUI_V2:
         # Draw initial steering wheel
         self._init_left_steering_wheel()
 
+        # ── 6b) Tire animation (top-down view, next to steering wheel) ──
+        self._tire_fig = _Fig(figsize=(2.8, 2.4), dpi=80, facecolor='#F8FAFC')
+        self._tire_ax = self._tire_fig.add_axes([0.08, 0.08, 0.84, 0.84])
+        self._tire_ax.set_xlim(-2.0, 2.0)
+        self._tire_ax.set_ylim(-1.6, 1.6)
+        self._tire_ax.set_aspect('equal')
+        self._tire_ax.axis('off')
+        self._tire_canvas = _FCA(self._tire_fig, sec6)
+        self._tire_canvas.get_tk_widget().pack(fill=tk.X, pady=2)
+        self._init_tire_animation()
+
         export_row = ttk.Frame(sec6); export_row.pack(fill=tk.X, pady=2)
         ttk.Button(export_row, text="CSV 내보내기",
                    command=self._export_brush_csv, width=14).pack(side=tk.LEFT, padx=1)
@@ -23905,6 +23916,11 @@ class PerssonModelGUI_V2:
         self._brush_W_mm = W * 1000
         self._brush_ellipse_mask = ellipse_mask
 
+        # Expanded mask for visualization: dilate by 1 cell so pcolormesh
+        # fills the ellipse outline without white gaps at the boundary.
+        from scipy.ndimage import binary_dilation
+        self._brush_fill_mask = binary_dilation(ellipse_mask, iterations=1)
+
         # Compute global min/max for fixed colorbars across all frames
         all_speed = np.array([f['v_slip_mag'][ellipse_mask] for f in frames])
         all_pres = np.array([f['p_map'][ellipse_mask] * 1e-5 for f in frames])  # bar
@@ -24052,6 +24068,143 @@ class PerssonModelGUI_V2:
             self._steer_right_label.set_fontsize(14)
         self._steer_canvas.draw_idle()
 
+    # ── 2D Brush: Tire animation (top-down rolling tire with lateral force) ──
+
+    def _init_tire_animation(self):
+        """Draw initial tire in top-down view with road surface."""
+        ax = self._tire_ax
+        ax.clear()
+        ax.set_xlim(-2.0, 2.0)
+        ax.set_ylim(-1.6, 1.6)
+        ax.set_aspect('equal')
+        ax.axis('off')
+
+        # Road surface (gray background)
+        from matplotlib.patches import FancyBboxPatch, Rectangle
+        road = Rectangle((-2.0, -1.6), 4.0, 3.2, facecolor='#E8E8E8',
+                          edgecolor='none', zorder=0)
+        ax.add_patch(road)
+
+        # Road center dashes
+        for xi in np.arange(-1.8, 2.0, 0.5):
+            ax.plot([xi, xi + 0.25], [0, 0], '-', color='#CCCCCC', lw=1, zorder=1)
+
+        # Tire body (top-down: rounded rectangle)
+        tire_w = 0.5   # tire width (lateral)
+        tire_l = 1.0   # tire length (longitudinal = rolling direction)
+        self._tire_body = FancyBboxPatch(
+            (-tire_l / 2, -tire_w / 2), tire_l, tire_w,
+            boxstyle="round,pad=0.08", facecolor='#333333',
+            edgecolor='#111111', linewidth=2, zorder=3)
+        ax.add_patch(self._tire_body)
+
+        # Tread marks (horizontal lines across tire for rolling animation)
+        self._tire_treads = []
+        for offset in np.linspace(-tire_l / 2 + 0.1, tire_l / 2 - 0.1, 6):
+            line, = ax.plot([offset, offset], [-tire_w / 2 + 0.04, tire_w / 2 - 0.04],
+                            '-', color='#666666', lw=1.5, zorder=4)
+            self._tire_treads.append(line)
+        self._tire_tread_phase = 0.0  # rolling phase accumulator
+
+        # Rolling direction arrow (below tire)
+        ax.annotate('', xy=(-0.8, -0.55), xytext=(0.8, -0.55),
+                     arrowprops=dict(arrowstyle='->', color='#00C853', lw=2,
+                                     mutation_scale=14), zorder=5)
+        ax.text(0, -0.72, '\u2190 Rolling', fontsize=7, ha='center', va='top',
+                color='#00C853', fontweight='bold', zorder=5)
+
+        # Lateral force arrow (initially hidden)
+        self._tire_Fy_arrow = ax.annotate(
+            '', xy=(0, 0), xytext=(0, 0),
+            arrowprops=dict(arrowstyle='->', color='#FF6600', lw=3,
+                            mutation_scale=20), zorder=6)
+        self._tire_Fy_arrow.set_visible(False)
+
+        # Force magnitude label
+        self._tire_Fy_label = ax.text(0, 1.1, '', fontsize=9, ha='center',
+                                       va='bottom', fontweight='bold',
+                                       color='#FF6600', zorder=6)
+
+        # Slip angle indicator (dashed line showing tire heading vs travel)
+        self._tire_sa_line, = ax.plot([], [], '--', color='#FF6600', lw=1.5,
+                                       alpha=0.7, zorder=2)
+
+        # Title
+        ax.text(0, 1.45, 'Tire Top View', fontsize=9, ha='center', va='top',
+                fontweight='bold', color='#333')
+
+        self._tire_canvas.draw_idle()
+
+    def _update_tire_animation(self, sa_deg, Fy, Fz):
+        """Update tire position, rolling animation, and lateral force vector.
+
+        sa_deg: slip angle in degrees (positive = right turn)
+        Fy: lateral force in N
+        Fz: vertical load in N (for normalizing arrow length)
+        """
+        ax = self._tire_ax
+        tire_w = 0.5
+        tire_l = 1.0
+
+        # Lateral displacement proportional to slip angle
+        # Positive SA (right turn) → tire moves to the right (+y in top-down)
+        sa_norm = np.clip(sa_deg / 8.0, -1, 1)
+        lat_shift = sa_norm * 0.6  # max ±0.6 lateral shift
+
+        # Update tire body position
+        self._tire_body.set_xy((-tire_l / 2, -tire_w / 2 + lat_shift))
+
+        # Rolling animation: advance tread phase
+        self._tire_tread_phase += 0.12
+        tread_spacing = tire_l / 6.0
+        base_positions = np.linspace(-tire_l / 2 + 0.1, tire_l / 2 - 0.1, 6)
+        phase_offset = (self._tire_tread_phase * tread_spacing) % tread_spacing
+        for i, line in enumerate(self._tire_treads):
+            x_pos = base_positions[i] - phase_offset
+            # Wrap around
+            if x_pos < -tire_l / 2 + 0.05:
+                x_pos += tire_l - 0.2
+            line.set_data([x_pos, x_pos],
+                          [-tire_w / 2 + 0.04 + lat_shift,
+                           tire_w / 2 - 0.04 + lat_shift])
+
+        # Slip angle indicator line (from tire center, showing heading deviation)
+        if abs(sa_deg) > 0.3:
+            sa_rad = np.radians(sa_deg)
+            line_len = 1.2
+            # Travel direction is -x (left), tire heading is rotated by SA
+            x_end = -line_len * np.cos(sa_rad)
+            y_end = -line_len * np.sin(sa_rad) + lat_shift
+            self._tire_sa_line.set_data([0, x_end], [lat_shift, y_end])
+            self._tire_sa_line.set_visible(True)
+        else:
+            self._tire_sa_line.set_visible(False)
+
+        # Lateral force arrow
+        if abs(Fy) > 0.1 and Fz > 0:
+            # Arrow length proportional to Fy/Fz (normalized lateral force)
+            mu_y = Fy / max(Fz, 1.0)
+            arrow_len = np.clip(abs(mu_y) * 1.2, 0.15, 1.3)
+            arrow_dir = np.sign(Fy)  # positive Fy → +y direction
+
+            # Arrow starts at tire center, points in Fy direction
+            y_start = lat_shift
+            y_end = lat_shift + arrow_dir * arrow_len
+
+            self._tire_Fy_arrow.xy = (0, y_end)
+            self._tire_Fy_arrow.set_position((0, y_start))
+            self._tire_Fy_arrow.set_visible(True)
+
+            # Force label
+            self._tire_Fy_label.set_position((0, max(y_end, y_start) + 0.15))
+            self._tire_Fy_label.set_text(f'Fy={Fy:+.0f}N')
+            self._tire_Fy_label.set_visible(True)
+        else:
+            self._tire_Fy_arrow.set_visible(False)
+            self._tire_Fy_label.set_visible(False)
+
+        self._tire_canvas.draw_idle()
+
     # ── 2D Brush: Persistent artist initialization ──
 
     def _brush_init_artists(self):
@@ -24091,6 +24244,7 @@ class PerssonModelGUI_V2:
         L_mm = self._brush_L_mm
         W_mm = self._brush_W_mm
         mask = self._brush_ellipse_mask
+        mask_fill = getattr(self, '_brush_fill_mask', mask)  # expanded for gap-free fill
         gr = self._br_global_ranges
 
         # ── Common helpers ──
@@ -24137,7 +24291,8 @@ class PerssonModelGUI_V2:
         y_edges = np.concatenate([y_mm - dy / 2, [y_mm[-1] + dy / 2]])
 
         # NaN-masked base for outside-ellipse (transparent)
-        nan_base = np.where(mask, 0.0, np.nan)
+        # Use expanded mask_fill so pcolormesh cells cover the full ellipse outline
+        nan_base = np.where(mask_fill, 0.0, np.nan)
 
         # ── (1) sliding vs adhesion — pcolormesh with 2-color map ──
         ax1 = self.ax_br_stick
@@ -24145,7 +24300,7 @@ class PerssonModelGUI_V2:
         cmap_sa = ListedColormap(['#2196F3', '#F44336'])
         bounds_sa = [0, 0.5, 1.0]
         norm_sa = BoundaryNorm(bounds_sa, cmap_sa.N)
-        init_data = np.where(mask, 0.0, np.nan)
+        init_data = np.where(mask_fill, 0.0, np.nan)
         self._br_pm_stick = ax1.pcolormesh(
             x_edges, y_edges, init_data.T, cmap=cmap_sa, norm=norm_sa,
             shading='flat', zorder=1)
@@ -24230,7 +24385,7 @@ class PerssonModelGUI_V2:
         pr_cmap = plt.cm.get_cmap('jet', n_levels)
         pr_norm = BoundaryNorm(pr_boundaries, pr_cmap.N)
         self._br_pm_pres = ax3.pcolormesh(
-            x_edges, y_edges, np.where(mask, 0.0, np.nan).T,
+            x_edges, y_edges, np.where(mask_fill, 0.0, np.nan).T,
             cmap=pr_cmap, norm=pr_norm, shading='flat', zorder=1)
         _outline3 = _add_contact_outline(ax3)
         self._br_outline_patches.append(_outline3)
@@ -24266,7 +24421,7 @@ class PerssonModelGUI_V2:
         t_cmap = plt.cm.get_cmap('jet', n_levels)
         t_norm = BoundaryNorm(t_boundaries, t_cmap.N)
         self._br_pm_temp = ax4.pcolormesh(
-            x_edges, y_edges, np.where(mask, 25.0, np.nan).T,
+            x_edges, y_edges, np.where(mask_fill, 25.0, np.nan).T,
             cmap=t_cmap, norm=t_norm, shading='flat', zorder=1)
         _outline4 = _add_contact_outline(ax4)
         self._br_outline_patches.append(_outline4)
@@ -24287,7 +24442,7 @@ class PerssonModelGUI_V2:
         fric_cmap = plt.cm.get_cmap('jet', n_levels)
         fric_norm = BoundaryNorm(fric_boundaries, fric_cmap.N)
         self._br_pm_fric = ax5.pcolormesh(
-            x_edges, y_edges, np.where(mask, 0.0, np.nan).T,
+            x_edges, y_edges, np.where(mask_fill, 0.0, np.nan).T,
             cmap=fric_cmap, norm=fric_norm, shading='flat', zorder=1)
         _outline5 = _add_contact_outline(ax5)
         self._br_outline_patches.append(_outline5)
@@ -24339,6 +24494,7 @@ class PerssonModelGUI_V2:
 
         f = self._brush_frames[idx]
         mask = self._brush_ellipse_mask
+        mask_fill = getattr(self, '_brush_fill_mask', mask)
 
         # Update frame label
         t_val = f['t']
@@ -24362,7 +24518,7 @@ class PerssonModelGUI_V2:
 
         # ── (1) sliding vs adhesion — update pcolormesh ──
         is_sl = f['is_sliding'].astype(float).copy()
-        is_sl[~mask] = np.nan
+        is_sl[~mask_fill] = np.nan
         self._br_pm_stick.set_array(is_sl.T.ravel())
         # Update direction arrow
         v_rx = f.get('v_slip_x', None)
@@ -24415,17 +24571,17 @@ class PerssonModelGUI_V2:
 
         # ── (3) contact pressure — update pcolormesh ──
         p_bar = f['p_map'].copy() * 1e-5
-        p_bar[~mask] = np.nan
+        p_bar[~mask_fill] = np.nan
         self._br_pm_pres.set_array(p_bar.T.ravel())
 
         # ── (4) temperature — update pcolormesh (°C) ──
         T_C = f['T_contact'].copy()
-        T_C[~mask] = np.nan
+        T_C[~mask_fill] = np.nan
         self._br_pm_temp.set_array(T_C.T.ravel())
 
         # ── (5) friction force — update pcolormesh ──
         f_fric = f['F_friction'].copy()
-        f_fric[~mask] = np.nan
+        f_fric[~mask_fill] = np.nan
         self._br_pm_fric.set_array(f_fric.T.ravel())
 
         # ── Update contact patch outline based on SA ──
@@ -24455,8 +24611,11 @@ class PerssonModelGUI_V2:
             for poly in self._br_outline_patches:
                 poly.set_xy(new_verts)
 
-        # ── Steering wheel update (left panel) ──
+        # ── Steering wheel & tire animation update (left panel) ──
         self._update_left_steering_wheel(f['SA'])
+        if hasattr(self, '_tire_ax'):
+            Fz = float(self.br_Fz_var.get()) if self.br_Fz_var.get() else 4000.0
+            self._update_tire_animation(f['SA'], f['Fy'], Fz)
 
         # ── Update Fy vs SA and Fx vs SR plots ──
         if hasattr(self, '_br_cursor_fy_sa'):
