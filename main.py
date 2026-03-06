@@ -22583,10 +22583,17 @@ class PerssonModelGUI_V2:
         ttk.Button(export_row, text="CSV 내보내기",
                    command=self._export_brush_csv, width=14).pack(side=tk.LEFT, padx=1)
 
-        # ============== Right Panel: Plots ==============
+        # ============== Right Panel: Notebook (Simulation + Education) ==============
         right_panel = layout['right']
 
-        plot_frame = ttk.LabelFrame(right_panel, text="2D Brush Model 시뮬레이션", padding=5)
+        self.br_right_notebook = ttk.Notebook(right_panel)
+        self.br_right_notebook.pack(fill=tk.BOTH, expand=True)
+
+        # ── Tab 1: Simulation plots ──
+        sim_tab = ttk.Frame(self.br_right_notebook)
+        self.br_right_notebook.add(sim_tab, text='  시뮬레이션  ')
+
+        plot_frame = ttk.LabelFrame(sim_tab, text="2D Brush Model 시뮬레이션", padding=5)
         plot_frame.pack(fill=tk.BOTH, expand=True)
 
         self.fig_brush = Figure(figsize=(12, 9), dpi=100)
@@ -22650,6 +22657,374 @@ class PerssonModelGUI_V2:
 
         toolbar = NavigationToolbar2Tk(self.canvas_brush, plot_frame)
         toolbar.update()
+
+        # ── Tab 2: Educational Material ──
+        self._create_brush_education_tab(self.br_right_notebook)
+
+    def _create_brush_education_tab(self, notebook):
+        """Create educational material tab explaining the 2D Brush Model theory and pseudocode."""
+        edu_tab = ttk.Frame(notebook)
+        notebook.add(edu_tab, text='  교육 자료 (Theory & Code)  ')
+
+        # Scrollable canvas
+        canvas_frame = tk.Frame(edu_tab, bg='white')
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
+
+        edu_canvas = tk.Canvas(canvas_frame, bg='white', highlightthickness=0)
+        scrollbar_y = ttk.Scrollbar(canvas_frame, orient='vertical', command=edu_canvas.yview)
+        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        edu_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        edu_canvas.configure(yscrollcommand=scrollbar_y.set)
+
+        inner = tk.Frame(edu_canvas, bg='white')
+        inner_id = edu_canvas.create_window((0, 0), window=inner, anchor='nw')
+
+        def _on_edu_configure(event):
+            edu_canvas.configure(scrollregion=edu_canvas.bbox('all'))
+        inner.bind('<Configure>', _on_edu_configure)
+
+        def _on_edu_canvas_configure(event):
+            edu_canvas.itemconfig(inner_id, width=event.width)
+        edu_canvas.bind('<Configure>', _on_edu_canvas_configure)
+
+        # Mouse wheel scrolling
+        def _on_mousewheel(event):
+            edu_canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+        edu_canvas.bind_all('<MouseWheel>', _on_mousewheel, add='+')
+
+        # ── Helper functions for styled text blocks ──
+        pad_x = 20
+
+        def add_title(text, fg='#1E293B'):
+            lbl = tk.Label(inner, text=text, font=('Segoe UI', 18, 'bold'),
+                           fg=fg, bg='white', anchor='w', justify=tk.LEFT)
+            lbl.pack(fill=tk.X, padx=pad_x, pady=(18, 4))
+
+        def add_subtitle(text, fg='#0369A1'):
+            lbl = tk.Label(inner, text=text, font=('Segoe UI', 14, 'bold'),
+                           fg=fg, bg='white', anchor='w', justify=tk.LEFT)
+            lbl.pack(fill=tk.X, padx=pad_x, pady=(14, 2))
+
+        def add_text(text, fg='#334155', bold=False, font_size=11):
+            weight = 'bold' if bold else 'normal'
+            lbl = tk.Label(inner, text=text,
+                           font=('Segoe UI', font_size, weight),
+                           fg=fg, bg='white', anchor='w', justify=tk.LEFT,
+                           wraplength=900)
+            lbl.pack(fill=tk.X, padx=pad_x, pady=1)
+
+        def add_bullet(text, indent=1, fg='#334155'):
+            prefix = '    ' * indent + '• '
+            lbl = tk.Label(inner, text=prefix + text,
+                           font=('Segoe UI', 10), fg=fg, bg='white',
+                           anchor='w', justify=tk.LEFT, wraplength=860)
+            lbl.pack(fill=tk.X, padx=pad_x, pady=0)
+
+        def add_code(text, title=None):
+            if title:
+                t_lbl = tk.Label(inner, text=title,
+                                 font=('Consolas', 10, 'bold'),
+                                 fg='#059669', bg='#F0FDF4', anchor='w')
+                t_lbl.pack(fill=tk.X, padx=pad_x + 4, pady=(8, 0))
+            code_frame = tk.Frame(inner, bg='#1E293B', padx=2, pady=2)
+            code_frame.pack(fill=tk.X, padx=pad_x, pady=(2, 8))
+            code_text = tk.Text(code_frame, font=('Consolas', 9),
+                                fg='#E2E8F0', bg='#1E293B',
+                                wrap=tk.NONE, relief=tk.FLAT,
+                                padx=12, pady=8, height=text.count('\n') + 1)
+            code_text.insert('1.0', text)
+            code_text.config(state=tk.DISABLED)
+            code_text.pack(fill=tk.X)
+
+        def add_separator():
+            sep = ttk.Separator(inner, orient='horizontal')
+            sep.pack(fill=tk.X, padx=pad_x, pady=10)
+
+        def add_highlight_box(text, bg_color='#EFF6FF', fg_color='#1E40AF',
+                              border_color='#3B82F6'):
+            box = tk.Frame(inner, bg=border_color, padx=2, pady=2)
+            box.pack(fill=tk.X, padx=pad_x, pady=6)
+            inner_box = tk.Label(box, text=text,
+                                  font=('Segoe UI', 10),
+                                  fg=fg_color, bg=bg_color,
+                                  anchor='w', justify=tk.LEFT,
+                                  wraplength=860, padx=12, pady=8)
+            inner_box.pack(fill=tk.X)
+
+        # =====================================================================
+        # 교육 자료 본문
+        # =====================================================================
+
+        add_title("2D Brush Model — Persson 마찰 이론과 타이어 동역학의 결합")
+        add_text("이 교육 자료는 Persson의 고무 마찰 이론(Cold/Hot 마찰 맵)과 "
+                 "브러시 모델의 뉴턴 동역학(F = ma)을 결합하여, "
+                 "타이어의 제동력과 코너링 포스가 어떻게 발생하는지 "
+                 "단계별로 설명합니다.", font_size=11)
+
+        add_separator()
+
+        # ── 공통 설정 ──
+        add_subtitle("📝 공통 설정 — 2D 브러시 모델의 구조", fg='#0369A1')
+
+        add_text("시뮬레이션 전, 타이어 접지면(Footprint)을 2D 격자로 분할하고 "
+                 "각 셀(고무 블록)에 초기값을 부여합니다.", font_size=11)
+
+        add_text("입력 데이터:", bold=True, font_size=11)
+        add_bullet("접지압 분포 P(x, y) — 주행 모드(Braking/Handling/Acceleration)에 따라 비대칭")
+        add_bullet("μ_cold(v), μ_hot(v) — Persson 이론으로 사전 계산된 마찰 맵 (LUT)")
+        add_bullet("특성 슬립 거리 s₀ = 0.2 × D_macro — Cold → Hot 전환을 제어하는 거시적 돌기 크기")
+
+        add_text("각 셀이 추적하는 물리량:", bold=True, font_size=11)
+        add_bullet("변위 (u_x, u_y) — 스프링이 늘어난 길이")
+        add_bullet("속도 (v_x, v_y) — 블록의 슬립 속도")
+        add_bullet("누적 슬립 거리 (s_dist) — 열 발생 추적 → Cold/Hot 전환 제어")
+
+        add_code(
+            "class TreadBlock:\n"
+            "    def __init__(self, x, y, pressure, mass, k, c):\n"
+            "        self.x, self.y = x, y          # 풋프린트 내 좌표\n"
+            "        self.pressure = pressure        # 접지압 P(x,y)\n"
+            "        self.F_N = pressure * dx * dy   # 수직 하중 [N]\n"
+            "\n"
+            "        self.m = mass                   # 블록 질량 [kg]\n"
+            "        self.k = k                      # 스프링 강성 [N/m]\n"
+            "        self.c = c                      # 댐퍼 계수  [N·s/m]\n"
+            "\n"
+            "        self.u_x, self.u_y = 0.0, 0.0  # 변위 (스프링 변형)\n"
+            "        self.v_x, self.v_y = 0.0, 0.0  # 슬립 속도\n"
+            "        self.slip_distance = 0.0        # 누적 미끄러짐 거리",
+            title="▶ TreadBlock 클래스 — 각 고무 블록의 상태"
+        )
+
+        add_highlight_box(
+            "💡 핵심 아이디어:  각 고무 블록은 독립된 질량-스프링-댐퍼 시스템입니다.\n"
+            "카커스(Carcass)에 스프링으로 연결되어 있고, 노면과는 마찰력으로 상호작용합니다.\n"
+            "마찰계수는 고정값이 아니라, 슬립 속도와 누적 슬립 거리에 따라 동적으로 변합니다."
+        )
+
+        add_separator()
+
+        # ── 제동 시뮬레이션 ──
+        add_subtitle("🛑 1. 제동 시뮬레이션 (Braking / Longitudinal Slip)", fg='#DC2626')
+
+        add_text("물리적 상황:", bold=True, font_size=11, fg='#1E293B')
+        add_text("직진 중 브레이크를 밟습니다. 조향각 θ = 0이므로 횡방향 슬립은 없습니다.")
+        add_bullet("차량 속도: v_c  (차체가 앞으로 나가는 속도)")
+        add_bullet("바퀴 회전 속도: v_R  (브레이크로 인해 v_c보다 느려짐)")
+        add_bullet("슬립 비율: s = (v_c − v_R) / v_c")
+        add_bullet("림 슬립 속도: v_rim = v_c − v_R  (종방향으로만 작용)")
+
+        add_code(
+            "def simulate_braking(blocks, v_c, v_R, dt, steps):\n"
+            "    v_rim_x = v_c - v_R   # 림과 노면 사이의 슬립 속도\n"
+            "    s_0 = 0.2 * D_macro   # Cold→Hot 전환 특성 거리 [m]\n"
+            "\n"
+            "    for t in range(steps):\n"
+            "        total_Fx = 0.0\n"
+            "\n"
+            "        for block in blocks:\n"
+            "            # ① 현재 슬립 속도에서의 마찰계수 조회\n"
+            "            v_mag = abs(block.v_x)\n"
+            "            mu_cold = lookup_mu_cold(v_mag)   # Persson Cold LUT\n"
+            "            mu_hot  = lookup_mu_hot(v_mag)    # Persson Hot  LUT\n"
+            "\n"
+            "            # ② 슬립 거리 기반 Cold→Hot 블렌딩 (메모리 효과)\n"
+            "            weight = exp(-block.slip_distance / s_0)\n"
+            "            mu_eff = mu_cold * weight + mu_hot * (1 - weight)\n"
+            "\n"
+            "            # ③ 마찰력 = μ × F_N, 미끄러짐 반대 방향\n"
+            "            F_fric_x = -mu_eff * block.F_N * sign(block.v_x)\n"
+            "\n"
+            "            # ④ 스프링 복원력 + 감쇠력 (카커스 연결)\n"
+            "            F_spring_x = -block.k * block.u_x\n"
+            "            F_damper_x = -block.c * block.v_x\n"
+            "\n"
+            "            # ⑤ 뉴턴 제2법칙  F = ma\n"
+            "            a_x = (F_spring_x + F_damper_x + F_fric_x) / block.m\n"
+            "\n"
+            "            # ⑥ Explicit Euler 적분\n"
+            "            block.v_x += a_x * dt\n"
+            "            block.u_x += block.v_x * dt\n"
+            "\n"
+            "            # ⑦ 누적 슬립 거리 갱신 (온도 추적)\n"
+            "            block.slip_distance += abs(block.v_x) * dt\n"
+            "\n"
+            "            total_Fx += F_fric_x   # 전체 제동력 합산",
+            title="▶ 제동(Braking) 시뮬레이션 의사코드"
+        )
+
+        add_highlight_box(
+            "🔍 관찰 포인트 — Stick-Slip 전이:\n\n"
+            "• 풋프린트 앞쪽 (Leading Edge): 방금 노면에 닿아 slip_distance ≈ 0\n"
+            "  → weight ≈ 1 → μ ≈ μ_cold (높은 그립) → Stick 영역\n\n"
+            "• 풋프린트 뒤쪽 (Trailing Edge): 오래 미끄러져 slip_distance ↑\n"
+            "  → weight → 0 → μ ≈ μ_hot (낮은 그립) → Slip 영역\n\n"
+            "이 Stick→Slip 전이가 바로 타이어 마찰의 비선형 특성을 만듭니다.",
+            bg_color='#FFF7ED', fg_color='#9A3412', border_color='#F97316'
+        )
+
+        add_separator()
+
+        # ── 코너링 시뮬레이션 ──
+        add_subtitle("🔄 2. 코너링 시뮬레이션 (Cornering / Lateral Slip)", fg='#2563EB')
+
+        add_text("물리적 상황:", bold=True, font_size=11, fg='#1E293B')
+        add_text("브레이크 없이 일정 속도로 달리며 핸들을 슬립각 α만큼 꺾은 상태입니다.")
+        add_bullet("종방향 슬립: v_x = v_c·cos(α) − v_R ≈ 0 (자유 굴림)")
+        add_bullet("횡방향 슬립: v_y = v_c·sin(α)  (코너링의 핵심)")
+        add_bullet("Self-Aligning Torque (M_z): 횡력의 비대칭 분포가 만드는 복원 모멘트")
+
+        add_code(
+            "def simulate_cornering(blocks, v_c, alpha_deg, dt, steps):\n"
+            "    alpha = radians(alpha_deg)\n"
+            "    v_R = v_c                      # 자유 굴림 가정\n"
+            "    v_rim_x = v_c * cos(alpha) - v_R   # ≈ 0\n"
+            "    v_rim_y = v_c * sin(alpha)          # 횡방향 슬립\n"
+            "    s_0 = 0.2 * D_macro\n"
+            "\n"
+            "    for t in range(steps):\n"
+            "        total_Fy, total_Mz = 0.0, 0.0\n"
+            "\n"
+            "        for block in blocks:\n"
+            "            # ① 2D 벡터 슬립 속도\n"
+            "            v_mag = sqrt(block.v_x**2 + block.v_y**2)\n"
+            "\n"
+            "            # ② Cold-Hot 블렌딩 (제동과 동일한 원리)\n"
+            "            mu_cold = lookup_mu_cold(v_mag)\n"
+            "            mu_hot  = lookup_mu_hot(v_mag)\n"
+            "            weight  = exp(-block.slip_distance / s_0)\n"
+            "            mu_eff  = mu_cold * weight + mu_hot * (1 - weight)\n"
+            "\n"
+            "            # ③ Friction Circle — 마찰력을 속도 방향으로 분배\n"
+            "            F_max = mu_eff * block.F_N\n"
+            "            F_fric_x = -F_max * (block.v_x / v_mag)\n"
+            "            F_fric_y = -F_max * (block.v_y / v_mag)\n"
+            "\n"
+            "            # ④ 2D 스프링 + 댐퍼\n"
+            "            F_spring_x = -block.k * block.u_x\n"
+            "            F_spring_y = -block.k * block.u_y\n"
+            "            F_damper_x = -block.c * block.v_x\n"
+            "            F_damper_y = -block.c * block.v_y\n"
+            "\n"
+            "            # ⑤ F = ma (x, y 각각)\n"
+            "            a_x = (F_spring_x + F_damper_x + F_fric_x) / block.m\n"
+            "            a_y = (F_spring_y + F_damper_y + F_fric_y) / block.m\n"
+            "\n"
+            "            # ⑥ Euler 적분\n"
+            "            block.v_x += a_x * dt;  block.u_x += block.v_x * dt\n"
+            "            block.v_y += a_y * dt;  block.u_y += block.v_y * dt\n"
+            "            block.slip_distance += v_mag * dt\n"
+            "\n"
+            "            total_Fy += F_fric_y\n"
+            "\n"
+            "            # ⑦ Self-Aligning Torque  Mz = Σ(r × F)\n"
+            "            total_Mz += F_fric_y * block.x - F_fric_x * block.y",
+            title="▶ 코너링(Cornering) 시뮬레이션 의사코드"
+        )
+
+        add_highlight_box(
+            "🔍 Self-Aligning Torque(M_z)의 발생 원리:\n\n"
+            "• 풋프린트 앞쪽 (Cold 영역): μ_cold가 높아 강한 횡력 F_y 발생\n"
+            "• 풋프린트 뒤쪽 (Hot 영역): μ_hot이 낮아 약한 횡력 F_y 발생\n\n"
+            "→ 횡력의 합력 작용점이 풋프린트 중심보다 앞쪽에 위치\n"
+            "→ 이 편심이 핸들을 원래 위치로 되돌리려는 복원 토크(M_z)를 만듦\n\n"
+            "이것이 운전자가 핸들에서 느끼는 '노면 감각(Road Feel)'의 물리적 근원입니다.",
+            bg_color='#EFF6FF', fg_color='#1E40AF', border_color='#3B82F6'
+        )
+
+        add_separator()
+
+        # ── Cold-Hot 블렌딩 상세 설명 ──
+        add_subtitle("🌡️ 3. Cold → Hot 전환 메커니즘", fg='#059669')
+
+        add_text("Persson의 마찰 이론에서 마찰계수는 고정값이 아닙니다. "
+                 "슬립이 누적되면 접촉면의 온도가 상승하여 고무의 점탄성 응답이 바뀝니다.", font_size=11)
+
+        add_code(
+            "# Cold-Hot 블렌딩 공식\n"
+            "#\n"
+            "#   μ_eff(v, s) = μ_cold(v) · e^(-s/s₀) + μ_hot(v) · (1 - e^(-s/s₀))\n"
+            "#\n"
+            "# 여기서:\n"
+            "#   v     = 순간 슬립 속도 (각 노드별로 다름)\n"
+            "#   s     = 누적 슬립 거리 (시간에 따라 증가)\n"
+            "#   s₀    = 0.2 × D_macro (특성 거리, 보통 0.2~0.5 mm)\n"
+            "#\n"
+            "# 물리적 의미:\n"
+            "#   s ≈ 0  →  e^(-s/s₀) ≈ 1  →  μ ≈ μ_cold  (차가운 고무, 높은 그립)\n"
+            "#   s >> s₀ →  e^(-s/s₀) → 0  →  μ ≈ μ_hot   (뜨거운 고무, 낮은 그립)\n"
+            "#\n"
+            "# μ_cold(v)와 μ_hot(v)는 Persson의 접촉역학 이론에서 계산:\n"
+            "#   - Cold: 기준 온도 T₀에서의 점탄성 스펙트럼 → μ_visc + μ_adhesion\n"
+            "#   - Hot:  플래시 온도 T_hot에서 WLF shift 적용 → 감소된 μ",
+            title="▶ 핵심 수식 — Cold-Hot 블렌딩"
+        )
+
+        add_separator()
+
+        # ── 시각화 가이드 ──
+        add_subtitle("📊 4. 시뮬레이션 결과 해석 가이드", fg='#7C3AED')
+
+        add_text("이 탭의 시뮬레이션 결과에서 관찰할 수 있는 현상들:", bold=True, font_size=11)
+
+        add_highlight_box(
+            "① 하중 컨투어 (Load Contour)\n"
+            "   Braking: 하중이 전방으로 이동 (무게 이동)\n"
+            "   Handling: 하중이 바깥쪽으로 이동 (횡방향 하중 전이)\n"
+            "   Acceleration: 하중이 후방으로 이동 (구동 시 무게 이동)",
+            bg_color='#FEFCE8', fg_color='#854D0E', border_color='#EAB308'
+        )
+
+        add_highlight_box(
+            "② 속도 컨투어 (Velocity Contour)\n"
+            "   각 블록의 순간 슬립 속도 |v_slip| 분포를 보여줍니다.\n"
+            "   Stick 영역(낮은 속도)과 Slip 영역(높은 속도)의 경계를 확인하세요.",
+            bg_color='#F0F9FF', fg_color='#075985', border_color='#0EA5E9'
+        )
+
+        add_highlight_box(
+            "③ 온도 컨투어 (Temperature Contour)\n"
+            "   Cold & Hot Branch의 ΔT(v) 데이터를 보간하여 추정한 접촉 온도입니다.\n"
+            "   T_contact = T₀ + ΔT(v_slip)\n"
+            "   슬립 속도가 큰 영역에서 온도가 높아지는 것을 확인할 수 있습니다.",
+            bg_color='#FFF1F2', fg_color='#9F1239', border_color='#FB7185'
+        )
+
+        add_highlight_box(
+            "④ Force Envelope (Flat-Track 스타일)\n"
+            "   슬립 값을 ±양방향으로 미러링하여 전체 힘의 포락선을 표시합니다.\n"
+            "   제동: Fx가 0을 중심으로 양(가속)/음(감속) 대칭 곡선\n"
+            "   선회: Fy가 0을 중심으로 좌/우 대칭 코너링 포스 곡선\n"
+            "   이 형태가 실제 Flat-Track 시험기에서 측정되는 타이어 특성 곡선입니다.",
+            bg_color='#F5F3FF', fg_color='#5B21B6', border_color='#8B5CF6'
+        )
+
+        add_separator()
+
+        # ── 정리 ──
+        add_subtitle("📌 5. 요약 — 이 모델이 보여주는 것", fg='#1E293B')
+
+        add_text("Persson 이론 + 브러시 모델의 결합이 설명하는 현상들:", bold=True, font_size=11)
+        add_bullet("타이어 마찰의 속도 의존성 — μ(v) 곡선의 비선형 형태")
+        add_bullet("Stick-Slip 전이 — 접지면 내부의 영역별 그립 차이")
+        add_bullet("Flash Temperature 효과 — 슬립이 누적되면 마찰이 감소하는 열적 피드백")
+        add_bullet("Self-Aligning Torque — 횡력 분포의 비대칭이 만드는 복원 모멘트")
+        add_bullet("하중 전이의 영향 — Braking/Cornering/Acceleration에서 달라지는 힘의 분포")
+
+        add_text("")  # spacing
+        add_highlight_box(
+            "📚 참고 문헌:\n"
+            "• B.N.J. Persson, \"Theory of rubber friction and contact mechanics\", "
+            "J. Chem. Phys. 115, 3840 (2001)\n"
+            "• B.N.J. Persson, \"Rubber friction: role of the flash temperature\", "
+            "J. Phys.: Condens. Matter 18, 7789 (2006)\n"
+            "• H. Pacejka, \"Tire and Vehicle Dynamics\", 3rd ed., Butterworth-Heinemann (2012)\n"
+            "• K.A. Grosch, \"The relation between the friction and visco-elastic properties of rubber\", "
+            "Proc. R. Soc. A 274, 21 (1963)",
+            bg_color='#F8FAFC', fg_color='#475569', border_color='#94A3B8'
+        )
+
+        add_text("")  # bottom padding
 
     # ── 2D Brush: LUT Sync ──
 
