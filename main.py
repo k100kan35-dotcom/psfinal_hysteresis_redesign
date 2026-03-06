@@ -23519,6 +23519,7 @@ class PerssonModelGUI_V2:
             self.status_var.set("2D Brush Transient 시뮬레이션 중...")
             self.root.update()
 
+            self._br_cbs_created = False
             self._run_brush_transient()
 
             self.br_progress_var.set(100)
@@ -23720,6 +23721,18 @@ class PerssonModelGUI_V2:
         self._brush_W_mm = W * 1000
         self._brush_ellipse_mask = ellipse_mask
 
+        # Compute global min/max for fixed colorbars across all frames
+        all_speed = np.array([f['v_slip_mag'][mask] for f in frames])
+        all_pres = np.array([f['p_map'][mask] * 1e-5 for f in frames])  # bar
+        all_temp = np.array([f['T_contact'][mask] + 273.15 for f in frames])  # K
+        all_mu = np.array([f['mu_eff'][mask] for f in frames])
+        self._br_global_ranges = {
+            'speed': (max(np.min(all_speed), 0), max(np.max(all_speed), 0.1)),
+            'pressure': (max(np.min(all_pres), 0), max(np.max(all_pres), 0.01)),
+            'temperature': (np.min(all_temp), max(np.max(all_temp), np.min(all_temp) + 1)),
+            'friction': (max(np.min(all_mu), 0), max(np.max(all_mu), 0.01)),
+        }
+
         # Draw the static time-history plots
         self._brush_draw_time_histories()
 
@@ -23767,15 +23780,18 @@ class PerssonModelGUI_V2:
         L_mm = self._brush_L_mm
         W_mm = self._brush_W_mm
         mask = self._brush_ellipse_mask
+        gr = getattr(self, '_br_global_ranges', None)
 
-        # Remove old colorbars
-        for attr in ('_cb_br_speed', '_cb_br_pres', '_cb_br_temp', '_cb_br_fric'):
-            if hasattr(self, attr) and getattr(self, attr) is not None:
-                try:
-                    getattr(self, attr).remove()
-                except Exception:
-                    pass
-                setattr(self, attr, None)
+        # Remove old colorbars only on first frame (we reuse them)
+        if not hasattr(self, '_br_cbs_created') or not self._br_cbs_created:
+            for attr in ('_cb_br_speed', '_cb_br_pres', '_cb_br_temp', '_cb_br_fric'):
+                if hasattr(self, attr) and getattr(self, attr) is not None:
+                    try:
+                        getattr(self, attr).remove()
+                    except Exception:
+                        pass
+                    setattr(self, attr, None)
+            self._br_cbs_created = False
 
         # Update frame label
         t_val = f['t']
@@ -23789,114 +23805,157 @@ class PerssonModelGUI_V2:
         if hasattr(self, '_br_cursor_ft'):
             self._br_cursor_ft.set_xdata([t_val, t_val])
 
-        # Ellipse outline for contour plots
-        theta_e = np.linspace(0, 2 * np.pi, 100)
-        ex = (L_mm / 2) * np.cos(theta_e)
-        ey = (W_mm / 2) * np.sin(theta_e)
+        # Ellipse clip path for matplotlib
+        from matplotlib.patches import Ellipse as MplEllipse
 
-        # Masked data (NaN outside ellipse)
-        def masked(data):
-            d = data.copy().astype(float)
-            d[~mask] = np.nan
-            return d
+        def make_clip_ellipse(ax):
+            """Create an ellipse patch for clipping contourf to contact patch."""
+            e = MplEllipse((0, 0), L_mm, W_mm, fill=False,
+                            edgecolor='k', linewidth=1.5)
+            ax.add_patch(e)
+            return e
+
+        def clip_contourf(cf, clip_patch):
+            """Clip all contourf collections to an ellipse."""
+            for col in cf.collections:
+                col.set_clip_path(clip_patch)
+
+        # Use full data (no NaN masking) — clip visually with ellipse instead
+        # This ensures contour fills right up to the ellipse boundary
 
         # ── (1) sliding vs adhesion ──
         ax = self.ax_br_stick
         ax.clear()
-        sr = masked(f['stick_ratio'])
-        # Red = sliding (ratio > 0.95), Blue = adhesion
-        ax.contourf(x_mm, y_mm, sr.T, levels=[0, 0.5, 0.95, 1.01],
-                     colors=['#2196F3', '#FFC107', '#F44336'], alpha=0.9)
-        ax.plot(ex, ey, 'k-', linewidth=1.5)
+        sr = f['stick_ratio'].copy()
+        sr[~mask] = 0.0  # fill outside as adhesion
+        cf1 = ax.contourf(x_mm, y_mm, sr.T, levels=[0, 0.5, 0.95, 1.01],
+                           colors=['#2196F3', '#FFC107', '#F44336'], alpha=0.9)
+        clip_e1 = make_clip_ellipse(ax)
+        clip_contourf(cf1, clip_e1)
         ax.set_title('sliding vs adhesion', fontsize=9, fontweight='bold')
         ax.set_xlabel('length [mm]', fontsize=7)
         ax.set_ylabel('width [mm]', fontsize=7)
+        ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
+        ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
         ax.set_aspect('equal')
         ax.tick_params(labelsize=7)
 
-        # ── (2) sliding speed + quiver ──
+        # ── (2) sliding speed — arrows sized & colored by magnitude ──
         ax = self.ax_br_speed
         ax.clear()
-        vs = masked(f['v_slip_mag'])
-        vs_valid = vs[~np.isnan(vs)]
-        if len(vs_valid) > 0:
-            vmin, vmax = np.nanmin(vs), np.nanmax(vs)
-            if vmax - vmin < 1e-10:
-                vmax = vmin + 0.1
-            im_sp = ax.contourf(x_mm, y_mm, vs.T, levels=15,
-                                 cmap='jet', vmin=vmin, vmax=vmax)
-            self._cb_br_speed = self.fig_brush.colorbar(im_sp, ax=ax, shrink=0.75, pad=0.02)
-            self._cb_br_speed.set_label('speed [m/s]', fontsize=7)
-            self._cb_br_speed.ax.tick_params(labelsize=6)
-        # Quiver arrows
-        step_x = max(1, len(x_mm) // 8)
-        step_y = max(1, len(y_mm) // 4)
+        vs_data = f['v_slip_mag'].copy()
+        vs_data[~mask] = 0.0
+        sp_lo, sp_hi = (gr['speed'] if gr else (0, max(np.max(vs_data), 0.1)))
+        # No contourf background; arrows themselves show speed
+        clip_e2 = make_clip_ellipse(ax)
+
+        # Quiver: size proportional to speed, color by magnitude
+        step_x = max(1, len(x_mm) // 10)
+        step_y = max(1, len(y_mm) // 5)
         xx_q, yy_q = np.meshgrid(x_mm[::step_x], y_mm[::step_y], indexing='ij')
         u_q = f['v_slip_x'][::step_x, ::step_y]
         v_q = f['v_slip_y'][::step_x, ::step_y]
-        mag_q = np.sqrt(u_q**2 + v_q**2) + 1e-15
-        # Color quiver by magnitude
-        ax.quiver(xx_q, yy_q, u_q / mag_q, v_q / mag_q,
-                  mag_q, cmap='cool', scale=30, headwidth=3, headlength=4,
-                  linewidth=0.5, alpha=0.8)
-        ax.plot(ex, ey, 'k-', linewidth=1.5)
+        mag_q = np.sqrt(u_q**2 + v_q**2)
+        mask_q = self._brush_ellipse_mask[::step_x, ::step_y]
+        # Only arrows inside ellipse
+        xx_q_f = xx_q[mask_q]
+        yy_q_f = yy_q[mask_q]
+        u_q_f = u_q[mask_q]
+        v_q_f = v_q[mask_q]
+        mag_q_f = mag_q[mask_q]
+        if len(mag_q_f) > 0 and np.max(mag_q_f) > 1e-15:
+            q = ax.quiver(xx_q_f, yy_q_f, u_q_f, v_q_f, mag_q_f,
+                          cmap='jet', clim=(sp_lo, sp_hi),
+                          scale=max(np.max(mag_q_f) * 15, 1),
+                          headwidth=4, headlength=5, linewidth=0.6, alpha=0.85)
+            if not self._br_cbs_created:
+                self._cb_br_speed = self.fig_brush.colorbar(q, ax=ax, shrink=0.75, pad=0.02)
+                self._cb_br_speed.set_label('speed [m/s]', fontsize=7)
+                self._cb_br_speed.ax.tick_params(labelsize=6)
         ax.set_title('sliding speed', fontsize=9, fontweight='bold')
         ax.set_xlabel('length [mm]', fontsize=7)
         ax.set_ylabel('width [mm]', fontsize=7)
+        ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
+        ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
         ax.set_aspect('equal')
         ax.tick_params(labelsize=7)
 
         # ── (3) contact pressure ──
         ax = self.ax_br_pressure
         ax.clear()
-        p_bar = masked(f['p_map'] * 1e-5)  # Pa → bar
-        p_valid = p_bar[~np.isnan(p_bar)]
-        if len(p_valid) > 0 and np.nanmax(p_bar) > 0:
-            im_pr = ax.contourf(x_mm, y_mm, p_bar.T, levels=15, cmap='jet')
-            self._cb_br_pres = self.fig_brush.colorbar(im_pr, ax=ax, shrink=0.75, pad=0.02)
+        p_bar = f['p_map'].copy() * 1e-5  # Pa → bar
+        p_bar[~mask] = 0.0
+        pr_lo, pr_hi = (gr['pressure'] if gr else (0, max(np.max(p_bar), 0.01)))
+        levels_p = np.linspace(pr_lo, pr_hi, 16)
+        if levels_p[-1] <= levels_p[0]:
+            levels_p = np.linspace(0, 1, 16)
+        cf3 = ax.contourf(x_mm, y_mm, p_bar.T, levels=levels_p, cmap='jet',
+                           extend='both')
+        clip_e3 = make_clip_ellipse(ax)
+        clip_contourf(cf3, clip_e3)
+        if not self._br_cbs_created:
+            self._cb_br_pres = self.fig_brush.colorbar(cf3, ax=ax, shrink=0.75, pad=0.02)
             self._cb_br_pres.set_label('pressure [bar]', fontsize=7)
             self._cb_br_pres.ax.tick_params(labelsize=6)
-        ax.plot(ex, ey, 'k-', linewidth=1.5)
         ax.set_title('contact pressure', fontsize=9, fontweight='bold')
         ax.set_xlabel('length [mm]', fontsize=7)
         ax.set_ylabel('width [mm]', fontsize=7)
+        ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
+        ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
         ax.set_aspect('equal')
         ax.tick_params(labelsize=7)
 
         # ── (4) temperature ──
         ax = self.ax_br_temperature
         ax.clear()
-        T_K = masked(f['T_contact'] + 273.15)  # °C → K
-        T_valid = T_K[~np.isnan(T_K)]
-        if len(T_valid) > 0:
-            im_t = ax.contourf(x_mm, y_mm, T_K.T, levels=15, cmap='YlGn')
-            self._cb_br_temp = self.fig_brush.colorbar(im_t, ax=ax, shrink=0.75, pad=0.02)
+        T_K = f['T_contact'].copy() + 273.15
+        T_K[~mask] = np.mean(T_K[mask]) if np.any(mask) else 300.0
+        t_lo, t_hi = (gr['temperature'] if gr else (np.min(T_K), np.max(T_K)))
+        levels_t = np.linspace(t_lo, t_hi, 16)
+        if levels_t[-1] <= levels_t[0]:
+            levels_t = np.linspace(290, 330, 16)
+        cf4 = ax.contourf(x_mm, y_mm, T_K.T, levels=levels_t, cmap='YlGn',
+                           extend='both')
+        clip_e4 = make_clip_ellipse(ax)
+        clip_contourf(cf4, clip_e4)
+        if not self._br_cbs_created:
+            self._cb_br_temp = self.fig_brush.colorbar(cf4, ax=ax, shrink=0.75, pad=0.02)
             self._cb_br_temp.set_label('temperature [K]', fontsize=7)
             self._cb_br_temp.ax.tick_params(labelsize=6)
-        ax.plot(ex, ey, 'k-', linewidth=1.5)
         ax.set_title('temperature', fontsize=9, fontweight='bold')
         ax.set_xlabel('length [mm]', fontsize=7)
         ax.set_ylabel('width [mm]', fontsize=7)
+        ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
+        ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
         ax.set_aspect('equal')
         ax.tick_params(labelsize=7)
 
         # ── (5) friction ──
         ax = self.ax_br_friction
         ax.clear()
-        mu = masked(f['mu_eff'])
-        mu_valid = mu[~np.isnan(mu)]
-        if len(mu_valid) > 0:
-            im_f = ax.contourf(x_mm, y_mm, mu.T, levels=15, cmap='jet_r')
-            self._cb_br_fric = self.fig_brush.colorbar(im_f, ax=ax, shrink=0.75, pad=0.02)
+        mu = f['mu_eff'].copy()
+        mu[~mask] = np.mean(mu[mask]) if np.any(mask) else 1.0
+        f_lo, f_hi = (gr['friction'] if gr else (np.min(mu), np.max(mu)))
+        levels_f = np.linspace(f_lo, f_hi, 16)
+        if levels_f[-1] <= levels_f[0]:
+            levels_f = np.linspace(0.5, 2.0, 16)
+        cf5 = ax.contourf(x_mm, y_mm, mu.T, levels=levels_f, cmap='jet_r',
+                           extend='both')
+        clip_e5 = make_clip_ellipse(ax)
+        clip_contourf(cf5, clip_e5)
+        if not self._br_cbs_created:
+            self._cb_br_fric = self.fig_brush.colorbar(cf5, ax=ax, shrink=0.75, pad=0.02)
             self._cb_br_fric.set_label('friction [-]', fontsize=7)
             self._cb_br_fric.ax.tick_params(labelsize=6)
-        ax.plot(ex, ey, 'k-', linewidth=1.5)
         ax.set_title('friction', fontsize=9, fontweight='bold')
         ax.set_xlabel('length [mm]', fontsize=7)
         ax.set_ylabel('width [mm]', fontsize=7)
+        ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
+        ax.set_ylim(-W_mm * 0.7, W_mm * 0.7)
         ax.set_aspect('equal')
         ax.tick_params(labelsize=7)
 
+        self._br_cbs_created = True
         self.canvas_brush.draw_idle()
 
     # ── 2D Brush: Playback controls ──
