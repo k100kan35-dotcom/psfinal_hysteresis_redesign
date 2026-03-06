@@ -23763,10 +23763,29 @@ class PerssonModelGUI_V2:
             v_slip_x = v_slip_local * v_dir_x
             v_slip_y = v_slip_local * v_dir_y
 
-            # Temperature from local slip velocity (spatial variation!)
-            # Stick zone: v_slip=0 → T = T0 + dT(0) (minimal rise)
-            # Slip zone: v_slip>0 → T increases toward trailing edge
-            T_contact = T0_base + dT_interp(v_slip_local)
+            # Temperature from local frictional energy dissipation
+            # q_friction = mu * p * v_slip (frictional heat flux, W/m²)
+            # E_friction = q_friction * t_contact (energy density, J/m²)
+            # This properly reflects both pressure distribution (y-variation)
+            # and contact time (x-variation), so temperature follows sliding direction
+            E_friction = mu_eff * p_map * v_slip_local * t_contact  # [J/m²]
+            E_max = np.max(E_friction[ellipse_mask]) if np.any(ellipse_mask) else 1.0
+            # Scale to match flash temperature model's overall magnitude
+            v_slip_mean = np.mean(v_slip_local[ellipse_mask & is_sliding]) if np.any(is_sliding & ellipse_mask) else 0.0
+            dT_ref = float(dT_interp(max(v_slip_mean, 0.0)))
+            if E_max > 1e-30:
+                T_contact = T0_base + dT_ref * (E_friction / E_max)
+            else:
+                T_contact = np.full_like(E_friction, T0_base)
+            T_contact = T_contact * ellipse_mask + T0_base * (~ellipse_mask)
+
+            # Actual local friction coefficient = |F_node| / Fz
+            # Stick zone: partially utilized friction (< mu_max)
+            # Slip zone: fully utilized friction (= mu_eff)
+            # This properly reflects the pressure distribution
+            Fnode_mag = np.sqrt(Fnode_x**2 + Fnode_y**2)
+            mu_local = np.where(Fz_ij > 1e-10, Fnode_mag / Fz_ij, 0.0)
+            mu_local *= ellipse_mask
 
             # Total forces (reaction force on tire from road)
             Fx_total = -np.sum(Fnode_x)
@@ -23786,7 +23805,7 @@ class PerssonModelGUI_V2:
                 'v_slip_mag': v_slip_local.copy(),
                 'p_map': p_map.copy(),
                 'T_contact': T_contact.copy(),
-                'mu_eff': mu_eff.copy(),
+                'mu_eff': mu_local.copy(),
             })
 
             # Progress
@@ -24183,6 +24202,9 @@ class PerssonModelGUI_V2:
         L_mm = self._brush_L_mm
         if v_rx is not None and v_ry is not None:
             # Use mean slip velocity of SLIDING nodes only for arrow direction
+            # Arrow points OPPOSITE to sliding velocity (= friction force direction)
+            # This makes the arrow point opposite to the slip angle, which is
+            # the direction the road pushes back on the rubber (reaction force)
             sliding_mask = f['is_sliding'] & mask
             if np.any(sliding_mask):
                 mean_vx = np.mean(v_rx[sliding_mask])
@@ -24193,8 +24215,8 @@ class PerssonModelGUI_V2:
             arrow_mag = np.sqrt(mean_vx**2 + mean_vy**2)
             if arrow_mag > 1e-10:
                 arrow_scale = L_mm * 0.3
-                dx_a = arrow_scale * mean_vx / arrow_mag
-                dy_a = arrow_scale * mean_vy / arrow_mag
+                dx_a = -arrow_scale * mean_vx / arrow_mag
+                dy_a = -arrow_scale * mean_vy / arrow_mag
                 self._br_stick_arrow.xy = (dx_a, dy_a)
                 self._br_stick_arrow.set_visible(True)
             else:
