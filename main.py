@@ -22412,12 +22412,12 @@ class PerssonModelGUI_V2:
 
         row_nx = ttk.Frame(sec1); row_nx.pack(fill=tk.X, pady=1)
         ttk.Label(row_nx, text="Nx (종방향 격자):", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.br_Nx_var = tk.StringVar(value="60")
+        self.br_Nx_var = tk.StringVar(value="64")
         ttk.Entry(row_nx, textvariable=self.br_Nx_var, width=6).pack(side=tk.LEFT, padx=2)
 
         row_ny = ttk.Frame(sec1); row_ny.pack(fill=tk.X, pady=1)
         ttk.Label(row_ny, text="Ny (횡방향 격자):", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.br_Ny_var = tk.StringVar(value="12")
+        self.br_Ny_var = tk.StringVar(value="64")
         ttk.Entry(row_ny, textvariable=self.br_Ny_var, width=6).pack(side=tk.LEFT, padx=2)
 
         row_L = ttk.Frame(sec1); row_L.pack(fill=tk.X, pady=1)
@@ -22606,8 +22606,8 @@ class PerssonModelGUI_V2:
 
         ttk.Label(play_row, text="속도:", font=self.FONTS['small']).pack(side=tk.LEFT, padx=(8, 2))
         self.br_play_speed_var = tk.StringVar(value="1x")
-        speed_combo = ttk.Combobox(play_row, textvariable=self.br_play_speed_var, width=4,
-                                    values=['0.25x', '0.5x', '1x', '2x', '4x', '8x', '16x'],
+        speed_combo = ttk.Combobox(play_row, textvariable=self.br_play_speed_var, width=5,
+                                    values=['0.25x', '0.5x', '1x', '2x', '4x', '8x', '16x', '32x', '64x'],
                                     state='readonly')
         speed_combo.pack(side=tk.LEFT, padx=1)
 
@@ -22636,10 +22636,20 @@ class PerssonModelGUI_V2:
         self._brush_play_after_id = None
         self._br_artists_ready = False
 
-        # Result text
-        sec6 = self._create_section(left_panel, "6) 결과 요약")
-        self.br_result_text = tk.Text(sec6, height=10, font=self.FONTS['mono_small'], wrap=tk.WORD)
-        self.br_result_text.pack(fill=tk.X)
+        # ── 6) Steering wheel animation in left panel ──
+        sec6 = self._create_section(left_panel, "6) 조향 핸들")
+        from matplotlib.figure import Figure as _Fig
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg as _FCA
+        self._steer_fig = _Fig(figsize=(2.8, 2.8), dpi=80, facecolor='#F8FAFC')
+        self._steer_ax = self._steer_fig.add_axes([0.05, 0.05, 0.9, 0.9])
+        self._steer_ax.set_xlim(-1.5, 1.5)
+        self._steer_ax.set_ylim(-1.5, 1.5)
+        self._steer_ax.set_aspect('equal')
+        self._steer_ax.axis('off')
+        self._steer_canvas = _FCA(self._steer_fig, sec6)
+        self._steer_canvas.get_tk_widget().pack(fill=tk.X, pady=2)
+        # Draw initial steering wheel
+        self._init_left_steering_wheel()
 
         export_row = ttk.Frame(sec6); export_row.pack(fill=tk.X, pady=2)
         ttk.Button(export_row, text="CSV 내보내기",
@@ -22660,45 +22670,57 @@ class PerssonModelGUI_V2:
 
         from matplotlib.gridspec import GridSpec
         self.fig_brush = Figure(figsize=(14, 10), dpi=100)
-        gs = GridSpec(2, 10, figure=self.fig_brush, height_ratios=[1.5, 2.5],
-                      hspace=0.35, wspace=0.8,
+        gs = GridSpec(2, 20, figure=self.fig_brush, height_ratios=[1.5, 2.5],
+                      hspace=0.35, wspace=1.2,
                       left=0.05, right=0.97, top=0.96, bottom=0.05)
 
-        # Top row: 2 time-history plots
+        # Top row: 4 time-history / characteristic plots
         self.ax_br_input = self.fig_brush.add_subplot(gs[0, :5])
-        self.ax_br_input.set_xlabel('time [s]', fontsize=9)
-        self.ax_br_input.set_ylabel('slip', fontsize=9)
-        self.ax_br_input.set_title('SA / SR Input Profile', fontsize=10, fontweight='bold')
+        self.ax_br_input.set_xlabel('time [s]', fontsize=8)
+        self.ax_br_input.set_ylabel('slip', fontsize=8)
+        self.ax_br_input.set_title('SA / SR Input', fontsize=9, fontweight='bold')
         self.ax_br_input.grid(True, alpha=0.3)
 
-        self.ax_br_force_t = self.fig_brush.add_subplot(gs[0, 5:])
-        self.ax_br_force_t.set_xlabel('time [s]', fontsize=9)
-        self.ax_br_force_t.set_ylabel('force [N]', fontsize=9)
-        self.ax_br_force_t.set_title('Fx / Fy Output', fontsize=10, fontweight='bold')
+        self.ax_br_force_t = self.fig_brush.add_subplot(gs[0, 5:10])
+        self.ax_br_force_t.set_xlabel('time [s]', fontsize=8)
+        self.ax_br_force_t.set_ylabel('force [N]', fontsize=8)
+        self.ax_br_force_t.set_title('Fx / Fy Output', fontsize=9, fontweight='bold')
         self.ax_br_force_t.grid(True, alpha=0.3)
 
+        self.ax_br_fy_sa = self.fig_brush.add_subplot(gs[0, 10:15])
+        self.ax_br_fy_sa.set_xlabel('SA [deg]', fontsize=8)
+        self.ax_br_fy_sa.set_ylabel('Fy [N]', fontsize=8)
+        self.ax_br_fy_sa.set_title('Fy vs Slip Angle', fontsize=9, fontweight='bold')
+        self.ax_br_fy_sa.grid(True, alpha=0.3)
+
+        self.ax_br_fx_sr = self.fig_brush.add_subplot(gs[0, 15:])
+        self.ax_br_fx_sr.set_xlabel('SR [%]', fontsize=8)
+        self.ax_br_fx_sr.set_ylabel('Fx [N]', fontsize=8)
+        self.ax_br_fx_sr.set_title('Fx vs Slip Ratio', fontsize=9, fontweight='bold')
+        self.ax_br_fx_sr.grid(True, alpha=0.3)
+
         # Bottom row: 5 contour plots (no set_aspect='equal' for uniform sizing)
-        self.ax_br_stick = self.fig_brush.add_subplot(gs[1, 0:2])
+        self.ax_br_stick = self.fig_brush.add_subplot(gs[1, 0:4])
         self.ax_br_stick.set_title('sliding vs adhesion', fontsize=9, fontweight='bold')
         self.ax_br_stick.set_xlabel('length [mm]', fontsize=8)
         self.ax_br_stick.set_ylabel('width [mm]', fontsize=8)
 
-        self.ax_br_speed = self.fig_brush.add_subplot(gs[1, 2:4])
+        self.ax_br_speed = self.fig_brush.add_subplot(gs[1, 4:8])
         self.ax_br_speed.set_title('sliding speed', fontsize=9, fontweight='bold')
         self.ax_br_speed.set_xlabel('length [mm]', fontsize=8)
         self.ax_br_speed.set_ylabel('width [mm]', fontsize=8)
 
-        self.ax_br_pressure = self.fig_brush.add_subplot(gs[1, 4:6])
+        self.ax_br_pressure = self.fig_brush.add_subplot(gs[1, 8:12])
         self.ax_br_pressure.set_title('contact pressure', fontsize=9, fontweight='bold')
         self.ax_br_pressure.set_xlabel('length [mm]', fontsize=8)
         self.ax_br_pressure.set_ylabel('width [mm]', fontsize=8)
 
-        self.ax_br_temperature = self.fig_brush.add_subplot(gs[1, 6:8])
+        self.ax_br_temperature = self.fig_brush.add_subplot(gs[1, 12:16])
         self.ax_br_temperature.set_title('temperature', fontsize=9, fontweight='bold')
         self.ax_br_temperature.set_xlabel('length [mm]', fontsize=8)
         self.ax_br_temperature.set_ylabel('width [mm]', fontsize=8)
 
-        self.ax_br_friction = self.fig_brush.add_subplot(gs[1, 8:10])
+        self.ax_br_friction = self.fig_brush.add_subplot(gs[1, 16:20])
         self.ax_br_friction.set_title('friction', fontsize=9, fontweight='bold')
         self.ax_br_friction.set_xlabel('length [mm]', fontsize=8)
         self.ax_br_friction.set_ylabel('width [mm]', fontsize=8)
@@ -23788,7 +23810,7 @@ class PerssonModelGUI_V2:
         # Compute global min/max for fixed colorbars across all frames
         all_speed = np.array([f['v_slip_mag'][ellipse_mask] for f in frames])
         all_pres = np.array([f['p_map'][ellipse_mask] * 1e-5 for f in frames])  # bar
-        all_temp = np.array([f['T_contact'][ellipse_mask] + 273.15 for f in frames])  # K
+        all_temp = np.array([f['T_contact'][ellipse_mask] for f in frames])  # °C
         all_mu = np.array([f['mu_eff'][ellipse_mask] for f in frames])
         self._br_global_ranges = {
             'speed': (max(np.min(all_speed), 0), max(np.max(all_speed), 0.1)),
@@ -23801,45 +23823,128 @@ class PerssonModelGUI_V2:
         self._brush_draw_time_histories()
 
     def _brush_draw_time_histories(self):
-        """Draw the top two time-history plots (SA/SR input, Fx/Fy output)."""
+        """Draw the top four plots (SA/SR input, Fx/Fy output, Fy vs SA, Fx vs SR)."""
         t = self._brush_t_out
 
-        # Left: SA / SR input
+        # (1) SA / SR input
         ax_in = self.ax_br_input
         ax_in.clear()
-        ax_in.plot(t, self._brush_SA, 'r-', linewidth=2, label='SA [deg]')
-        ax_in.plot(t, self._brush_SR, color='#E68A00', linewidth=2, label='SR [%]')
-        ax_in.set_xlabel('time [s]', fontsize=9)
-        ax_in.set_ylabel('slip', fontsize=9)
-        ax_in.legend(loc='upper right', fontsize=8)
+        ax_in.plot(t, self._brush_SA, 'r-', linewidth=1.5, label='SA [deg]')
+        ax_in.plot(t, self._brush_SR, color='#E68A00', linewidth=1.5, label='SR [%]')
+        ax_in.set_xlabel('time [s]', fontsize=8)
+        ax_in.set_ylabel('slip', fontsize=8)
+        ax_in.legend(loc='upper right', fontsize=7)
         ax_in.grid(True, alpha=0.3)
         ax_in.set_xlim(t[0], t[-1])
-        # Vertical cursor
         self._br_cursor_in = ax_in.axvline(x=0, color='k', linewidth=1.2, alpha=0.7)
-        # Current position markers (small circles)
         self._br_marker_sa, = ax_in.plot(0, self._brush_SA[0], 'ro',
-                                          markersize=8, zorder=5)
+                                          markersize=6, zorder=5)
         self._br_marker_sr, = ax_in.plot(0, self._brush_SR[0], 'o',
-                                          color='#E68A00', markersize=8, zorder=5)
+                                          color='#E68A00', markersize=6, zorder=5)
 
-        # Right: Fx / Fy output
+        # (2) Fx / Fy output
         ax_f = self.ax_br_force_t
         ax_f.clear()
-        ax_f.plot(t, self._brush_Fy_hist, 'r-', linewidth=2, label='Fy')
-        ax_f.plot(t, self._brush_Fx_hist, color='#E68A00', linewidth=2, label='Fx')
-        ax_f.set_xlabel('time [s]', fontsize=9)
-        ax_f.set_ylabel('force [N]', fontsize=9)
-        ax_f.legend(loc='upper right', fontsize=8)
+        ax_f.plot(t, self._brush_Fy_hist, 'r-', linewidth=1.5, label='Fy')
+        ax_f.plot(t, self._brush_Fx_hist, color='#E68A00', linewidth=1.5, label='Fx')
+        ax_f.set_xlabel('time [s]', fontsize=8)
+        ax_f.set_ylabel('force [N]', fontsize=8)
+        ax_f.legend(loc='upper right', fontsize=7)
         ax_f.grid(True, alpha=0.3)
         ax_f.set_xlim(t[0], t[-1])
         self._br_cursor_ft = ax_f.axvline(x=0, color='k', linewidth=1.2, alpha=0.7)
-        # Current position markers
         self._br_marker_fy, = ax_f.plot(0, self._brush_Fy_hist[0], 'ro',
-                                         markersize=8, zorder=5)
+                                         markersize=6, zorder=5)
         self._br_marker_fx, = ax_f.plot(0, self._brush_Fx_hist[0], 'o',
-                                         color='#E68A00', markersize=8, zorder=5)
+                                         color='#E68A00', markersize=6, zorder=5)
+
+        # (3) Fy vs Slip Angle (SA)
+        ax_fy = self.ax_br_fy_sa
+        ax_fy.clear()
+        ax_fy.plot(self._brush_SA, self._brush_Fy_hist, 'b-', linewidth=1.2, alpha=0.6)
+        ax_fy.set_xlabel('SA [deg]', fontsize=8)
+        ax_fy.set_ylabel('Fy [N]', fontsize=8)
+        ax_fy.set_title('Fy vs Slip Angle', fontsize=9, fontweight='bold')
+        ax_fy.grid(True, alpha=0.3)
+        self._br_cursor_fy_sa = ax_fy.axvline(x=self._brush_SA[0], color='k',
+                                                linewidth=1.2, alpha=0.7)
+        self._br_marker_fy_sa, = ax_fy.plot(self._brush_SA[0], self._brush_Fy_hist[0],
+                                              'ro', markersize=8, zorder=5)
+
+        # (4) Fx vs Slip Ratio (SR)
+        ax_fx = self.ax_br_fx_sr
+        ax_fx.clear()
+        ax_fx.plot(self._brush_SR, self._brush_Fx_hist, color='#E68A00',
+                   linewidth=1.2, alpha=0.6)
+        ax_fx.set_xlabel('SR [%]', fontsize=8)
+        ax_fx.set_ylabel('Fx [N]', fontsize=8)
+        ax_fx.set_title('Fx vs Slip Ratio', fontsize=9, fontweight='bold')
+        ax_fx.grid(True, alpha=0.3)
+        self._br_cursor_fx_sr = ax_fx.axvline(x=self._brush_SR[0], color='k',
+                                                linewidth=1.2, alpha=0.7)
+        self._br_marker_fx_sr, = ax_fx.plot(self._brush_SR[0], self._brush_Fx_hist[0],
+                                              'o', color='#E68A00', markersize=8, zorder=5)
 
         self.canvas_brush.draw_idle()
+
+    # ── 2D Brush: Left-panel steering wheel ──
+
+    def _init_left_steering_wheel(self):
+        """Draw steering wheel in the left-panel dedicated figure."""
+        ax = self._steer_ax
+        ax.clear()
+        ax.set_xlim(-1.5, 1.5)
+        ax.set_ylim(-1.5, 1.5)
+        ax.set_aspect('equal')
+        ax.axis('off')
+        # Outer ring
+        theta = np.linspace(0, 2 * np.pi, 80)
+        ax.plot(np.cos(theta), np.sin(theta), '-', color='#333333', lw=5)
+        # Inner ring
+        ax.plot(0.35 * np.cos(theta), 0.35 * np.sin(theta), '-', color='#666', lw=2)
+        # 3 spokes
+        self._steer_spoke_lines = []
+        for base_angle in [np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]:
+            sp, = ax.plot([0, 0.85 * np.cos(base_angle)],
+                          [0, 0.85 * np.sin(base_angle)],
+                          '-', color='#333333', lw=3)
+            self._steer_spoke_lines.append(sp)
+        # Center dot
+        ax.plot(0, 0, 'o', color='#333', markersize=6)
+        # SA label
+        self._steer_sa_label = ax.text(0, -1.3, 'SA=0.0°',
+                                        fontsize=11, ha='center', va='top', fontweight='bold')
+        # L/R indicators
+        self._steer_left_label = ax.text(-1.3, 0, 'L', fontsize=14, ha='center',
+                                          va='center', fontweight='bold', color='#BBBBBB')
+        self._steer_right_label = ax.text(1.3, 0, 'R', fontsize=14, ha='center',
+                                           va='center', fontweight='bold', color='#BBBBBB')
+        self._steer_canvas.draw_idle()
+
+    def _update_left_steering_wheel(self, sa_deg):
+        """Update the left-panel steering wheel rotation."""
+        steer_rad = np.radians(-sa_deg)
+        for i, base_angle in enumerate([np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]):
+            a = base_angle + steer_rad
+            self._steer_spoke_lines[i].set_data([0, 0.85 * np.cos(a)],
+                                                 [0, 0.85 * np.sin(a)])
+        self._steer_sa_label.set_text(f'SA={sa_deg:+.1f}°')
+        if sa_deg > 0.5:
+            self._steer_left_label.set_color('#2196F3')
+            self._steer_left_label.set_fontsize(16)
+            self._steer_right_label.set_color('#CCCCCC')
+            self._steer_right_label.set_fontsize(14)
+        elif sa_deg < -0.5:
+            self._steer_right_label.set_color('#F44336')
+            self._steer_right_label.set_fontsize(16)
+            self._steer_left_label.set_color('#CCCCCC')
+            self._steer_left_label.set_fontsize(14)
+        else:
+            self._steer_left_label.set_color('#BBBBBB')
+            self._steer_left_label.set_fontsize(14)
+            self._steer_right_label.set_color('#BBBBBB')
+            self._steer_right_label.set_fontsize(14)
+        self._steer_canvas.draw_idle()
 
     # ── 2D Brush: Persistent artist initialization ──
 
@@ -23863,14 +23968,14 @@ class PerssonModelGUI_V2:
                     pass
                 setattr(self, cb_attr, None)
 
-        # ── Clean up old steering wheel artists ──
-        for art in getattr(self, '_br_steering_artists', []):
-            try:
-                art.remove()
-            except Exception:
-                pass
-        self._br_steering_artists = []
-        self._br_spoke_lines = []
+        # Restore original axis positions from GridSpec to prevent cumulative shrinkage
+        if hasattr(self, '_br_original_ax_positions'):
+            for ax_name, pos in self._br_original_ax_positions.items():
+                ax = getattr(self, ax_name, None)
+                if ax is not None:
+                    ax.set_position(pos)
+
+        # (Steering wheel is now in left panel — no cleanup needed here)
 
         x_mm = self._brush_x_mm
         y_mm = self._brush_y_mm
@@ -23936,7 +24041,7 @@ class PerssonModelGUI_V2:
         # ── (2) sliding speed — quiver arrows ONLY (no color fill) ──
         ax2 = self.ax_br_speed
         ax2.clear()
-        ax2.set_facecolor('#F5F5F5')
+        ax2.set_facecolor('#FFFFFF')
         _add_ellipse(ax2)
         # Quiver grid
         step_x = max(1, len(x_mm) // 18)
@@ -23981,80 +24086,55 @@ class PerssonModelGUI_V2:
         ax4.clear()
         t_lo, t_hi = gr['temperature']
         self._br_pm_temp = ax4.pcolormesh(
-            x_edges, y_edges, np.where(mask, 300.0, np.nan).T,
+            x_edges, y_edges, np.where(mask, 25.0, np.nan).T,
             cmap='jet', vmin=t_lo, vmax=t_hi, shading='flat', zorder=1)
         _add_ellipse(ax4)
         self._cb_br_temp = self.fig_brush.colorbar(self._br_pm_temp, ax=ax4, **_cb_kw)
-        self._cb_br_temp.set_label('temperature [K]', fontsize=7)
+        self._cb_br_temp.set_label('temperature [°C]', fontsize=7)
         self._cb_br_temp.ax.tick_params(labelsize=6)
+        # Format temperature ticks as integers (no decimals)
+        from matplotlib.ticker import FuncFormatter
+        self._cb_br_temp.ax.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{x:.0f}'))
         _setup_ax(ax4, 'temperature')
 
-        # ── (5) friction — pcolormesh ──
+        # ── (5) friction — pcolormesh with indexed discrete levels ──
         ax5 = self.ax_br_friction
         ax5.clear()
         f_lo, f_hi = gr['friction']
+        # Create discrete levels for better distinction
+        n_levels = 8
+        fric_boundaries = np.linspace(f_lo, f_hi, n_levels + 1)
+        from matplotlib.colors import BoundaryNorm as _BN
+        fric_cmap = plt.cm.get_cmap('jet', n_levels)
+        fric_norm = _BN(fric_boundaries, fric_cmap.N)
         self._br_pm_fric = ax5.pcolormesh(
             x_edges, y_edges, np.where(mask, 1.0, np.nan).T,
-            cmap='jet', vmin=f_lo, vmax=f_hi, shading='flat', zorder=1)
+            cmap=fric_cmap, norm=fric_norm, shading='flat', zorder=1)
         _add_ellipse(ax5)
         self._cb_br_fric = self.fig_brush.colorbar(self._br_pm_fric, ax=ax5, **_cb_kw)
         self._cb_br_fric.set_label('friction [-]', fontsize=7)
-        self._cb_br_fric.ax.tick_params(labelsize=6)
+        # Set indexed tick labels: show level index + value
+        fric_centers = 0.5 * (fric_boundaries[:-1] + fric_boundaries[1:])
+        self._cb_br_fric.set_ticks(fric_centers)
+        self._cb_br_fric.set_ticklabels([f'L{i+1}: {v:.3f}' for i, v in enumerate(fric_centers)])
+        self._cb_br_fric.ax.tick_params(labelsize=5.5)
         _setup_ax(ax5, 'friction')
 
-        # ── Steering wheel indicator — positioned to left of SA/SR legend area ──
-        self._br_steering_artists = []
-        fig_trans = self.fig_brush.transFigure
-        # Place steering wheel in the gap between the two top plots
-        ins_cx, ins_cy = 0.50, 0.92
-        ins_r = 0.028
-        # Outer ring (thicker)
-        theta_w = np.linspace(0, 2 * np.pi, 60)
-        wx = ins_cx + ins_r * np.cos(theta_w)
-        wy = ins_cy + ins_r * np.sin(theta_w)
-        line_w, = self.fig_brush.axes[0].plot(
-            wx, wy, '-', color='#333333', lw=3, transform=fig_trans, clip_on=False)
-        self._br_steering_artists.append(line_w)
-        # Inner ring (decorative)
-        inner_r = ins_r * 0.35
-        iwx = ins_cx + inner_r * np.cos(theta_w)
-        iwy = ins_cy + inner_r * np.sin(theta_w)
-        line_inner, = self.fig_brush.axes[0].plot(
-            iwx, iwy, '-', color='#666', lw=1.2, transform=fig_trans, clip_on=False)
-        self._br_steering_artists.append(line_inner)
-        # 3 spokes (placeholder — will be updated per frame)
-        self._br_spoke_lines = []
-        for _ in range(3):
-            sp, = self.fig_brush.axes[0].plot(
-                [], [], '-', color='#333333', lw=2, transform=fig_trans, clip_on=False)
-            self._br_steering_artists.append(sp)
-            self._br_spoke_lines.append(sp)
-        # Center dot
-        cd, = self.fig_brush.axes[0].plot(
-            ins_cx, ins_cy, 'o', color='#333', markersize=4,
-            transform=fig_trans, clip_on=False)
-        self._br_steering_artists.append(cd)
-        # SA label below wheel
-        self._br_steer_label = self.fig_brush.axes[0].text(
-            ins_cx, ins_cy - ins_r * 1.8, 'SA=0.0°',
-            fontsize=8, ha='center', va='top', fontweight='bold',
-            transform=fig_trans, clip_on=False)
-        self._br_steering_artists.append(self._br_steer_label)
-        # L/R rotation direction indicators
-        self._br_steer_left = self.fig_brush.axes[0].text(
-            ins_cx - ins_r * 1.8, ins_cy, 'L',
-            fontsize=10, ha='center', va='center', fontweight='bold',
-            color='#BBBBBB', transform=fig_trans, clip_on=False)
-        self._br_steering_artists.append(self._br_steer_left)
-        self._br_steer_right = self.fig_brush.axes[0].text(
-            ins_cx + ins_r * 1.8, ins_cy, 'R',
-            fontsize=10, ha='center', va='center', fontweight='bold',
-            color='#BBBBBB', transform=fig_trans, clip_on=False)
-        self._br_steering_artists.append(self._br_steer_right)
-        # Store geometry
-        self._br_steer_cx = ins_cx
-        self._br_steer_cy = ins_cy
-        self._br_steer_r = ins_r
+        # Steering wheel is now in the left panel (sec6)
+
+        # Save original axis positions after first colorbar creation
+        # so we can restore them on subsequent calls
+        if not hasattr(self, '_br_original_ax_positions'):
+            self.fig_brush.canvas.draw_idle()
+            self.fig_brush.canvas.flush_events()
+            self._br_original_ax_positions = {}
+            for ax_name in ('ax_br_stick', 'ax_br_speed', 'ax_br_pressure',
+                            'ax_br_temperature', 'ax_br_friction',
+                            'ax_br_input', 'ax_br_force_t',
+                            'ax_br_fy_sa', 'ax_br_fx_sr'):
+                ax = getattr(self, ax_name, None)
+                if ax is not None:
+                    self._br_original_ax_positions[ax_name] = ax.get_position().frozen()
 
         self._br_artists_ready = True
         self.canvas_brush.draw_idle()
@@ -24142,46 +24222,28 @@ class PerssonModelGUI_V2:
         p_bar[~mask] = np.nan
         self._br_pm_pres.set_array(p_bar.T.ravel())
 
-        # ── (4) temperature — update pcolormesh ──
-        T_K = f['T_contact'].copy() + 273.15
-        T_K[~mask] = np.nan
-        self._br_pm_temp.set_array(T_K.T.ravel())
+        # ── (4) temperature — update pcolormesh (°C) ──
+        T_C = f['T_contact'].copy()
+        T_C[~mask] = np.nan
+        self._br_pm_temp.set_array(T_C.T.ravel())
 
         # ── (5) friction — update pcolormesh ──
         mu = f['mu_eff'].copy()
         mu[~mask] = np.nan
         self._br_pm_fric.set_array(mu.T.ravel())
 
-        # ── Steering wheel update ──
-        sa_deg = f['SA']
-        steer_rad = np.radians(-sa_deg)
-        cx = self._br_steer_cx
-        cy = self._br_steer_cy
-        r = self._br_steer_r
-        # Update 3 spokes
-        for i, spoke_base in enumerate([np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]):
-            sa = spoke_base + steer_rad
-            self._br_spoke_lines[i].set_data(
-                [cx, cx + r * 0.85 * np.cos(sa)],
-                [cy, cy + r * 0.85 * np.sin(sa)])
-        # Update SA label
-        self._br_steer_label.set_text(f'SA={sa_deg:+.1f}°')
-        # Highlight L/R direction
-        if sa_deg > 0.5:
-            self._br_steer_left.set_color('#2196F3')
-            self._br_steer_left.set_fontsize(12)
-            self._br_steer_right.set_color('#CCCCCC')
-            self._br_steer_right.set_fontsize(10)
-        elif sa_deg < -0.5:
-            self._br_steer_right.set_color('#F44336')
-            self._br_steer_right.set_fontsize(12)
-            self._br_steer_left.set_color('#CCCCCC')
-            self._br_steer_left.set_fontsize(10)
-        else:
-            self._br_steer_left.set_color('#BBBBBB')
-            self._br_steer_left.set_fontsize(10)
-            self._br_steer_right.set_color('#BBBBBB')
-            self._br_steer_right.set_fontsize(10)
+        # ── Steering wheel update (left panel) ──
+        self._update_left_steering_wheel(f['SA'])
+
+        # ── Update Fy vs SA and Fx vs SR plots ──
+        if hasattr(self, '_br_cursor_fy_sa'):
+            self._br_cursor_fy_sa.set_xdata([f['SA'], f['SA']])
+        if hasattr(self, '_br_cursor_fx_sr'):
+            self._br_cursor_fx_sr.set_xdata([f['SR'], f['SR']])
+        if hasattr(self, '_br_marker_fy_sa'):
+            self._br_marker_fy_sa.set_data([f['SA']], [f['Fy']])
+        if hasattr(self, '_br_marker_fx_sr'):
+            self._br_marker_fx_sr.set_data([f['SR']], [f['Fx']])
 
         self.canvas_brush.draw_idle()
 
@@ -24219,21 +24281,25 @@ class PerssonModelGUI_V2:
             self._brush_show_frame(0)
 
     def _brush_animate(self):
-        """Advance one frame and schedule next."""
+        """Advance one frame and schedule next. High speeds skip frames."""
         if not self._brush_playing or not self._brush_frames:
             return
 
-        self._brush_frame_idx += 1
+        # Speed control: delay_ms and frame_skip
+        speed_str = self.br_play_speed_var.get()
+        speed_map = {
+            '0.25x': (80, 1), '0.5x': (40, 1), '1x': (16, 1),
+            '2x': (8, 1), '4x': (4, 1), '8x': (2, 1),
+            '16x': (1, 2), '32x': (1, 4), '64x': (1, 8),
+        }
+        delay_ms, frame_skip = speed_map.get(speed_str, (16, 1))
+
+        self._brush_frame_idx += frame_skip
         if self._brush_frame_idx >= len(self._brush_frames):
             self._brush_frame_idx = 0  # loop
 
         self.br_time_slider.set(self._brush_frame_idx)
         self._brush_show_frame(self._brush_frame_idx)
-
-        # Speed control
-        speed_str = self.br_play_speed_var.get()
-        speed_map = {'0.25x': 80, '0.5x': 40, '1x': 16, '2x': 8, '4x': 4, '8x': 2, '16x': 1}
-        delay_ms = speed_map.get(speed_str, 16)
 
         self._brush_play_after_id = self.root.after(delay_ms, self._brush_animate)
 
@@ -24251,6 +24317,8 @@ class PerssonModelGUI_V2:
     def _update_brush_result_text(self):
         """Update result summary text for 2D Brush model."""
         if self.brush_results is None:
+            return
+        if not hasattr(self, 'br_result_text'):
             return
 
         r = self.brush_results
