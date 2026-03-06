@@ -22687,10 +22687,28 @@ class PerssonModelGUI_V2:
             edu_canvas.itemconfig(inner_id, width=event.width)
         edu_canvas.bind('<Configure>', _on_edu_canvas_configure)
 
-        # Mouse wheel scrolling
+        # Mouse wheel scrolling (cross-platform)
         def _on_mousewheel(event):
             edu_canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
-        edu_canvas.bind_all('<MouseWheel>', _on_mousewheel, add='+')
+
+        def _on_mousewheel_up(event):
+            edu_canvas.yview_scroll(-3, 'units')
+
+        def _on_mousewheel_down(event):
+            edu_canvas.yview_scroll(3, 'units')
+
+        def _bind_mousewheel(event):
+            edu_canvas.bind_all('<MouseWheel>', _on_mousewheel)
+            edu_canvas.bind_all('<Button-4>', _on_mousewheel_up)
+            edu_canvas.bind_all('<Button-5>', _on_mousewheel_down)
+
+        def _unbind_mousewheel(event):
+            edu_canvas.unbind_all('<MouseWheel>')
+            edu_canvas.unbind_all('<Button-4>')
+            edu_canvas.unbind_all('<Button-5>')
+
+        edu_canvas.bind('<Enter>', _bind_mousewheel)
+        edu_canvas.bind('<Leave>', _unbind_mousewheel)
 
         # ── Helper functions for styled text blocks ──
         pad_x = 20
@@ -23577,19 +23595,22 @@ class PerssonModelGUI_V2:
                         color='white', alpha=0.85, scale=25,
                         headwidth=4, headlength=5, linewidth=0.8)
 
-                    # Direction label
+                    # Direction label with angle and magnitude
                     avg_vx = np.mean(vsx)
                     avg_vy = np.mean(vsy)
-                    if abs(avg_vx) > abs(avg_vy):
-                        dir_str = '→ 종방향 슬립' if avg_vx > 0 else '← 종방향 슬립'
+                    avg_mag = np.sqrt(avg_vx**2 + avg_vy**2)
+                    angle_deg = np.degrees(np.arctan2(avg_vy, avg_vx))
+
+                    if mode == 'braking':
+                        dir_str = f'→ 종방향 슬립 (v={avg_mag:.3f} m/s)'
                     else:
-                        dir_str = '↑ 횡방향 슬립' if avg_vy > 0 else '↓ 횡방향 슬립'
+                        dir_str = f'↗ 슬립각 방향 ({angle_deg:.1f}°, v={avg_mag:.3f} m/s)'
                     self.ax_br_patch.set_title(
-                        f'Sliding Direction ({slip_label})\n{dir_str}',
+                        f'Sliding Direction\n{dir_str}',
                         fontweight='bold', fontsize=9)
                 else:
                     self.ax_br_patch.set_title(
-                        f'Contact Patch ({slip_label})',
+                        'Contact Patch (Slip Distance)',
                         fontweight='bold', fontsize=10)
             else:
                 self.ax_br_patch.set_title('Contact Patch (No data)', fontsize=10)
