@@ -25427,6 +25427,14 @@ def main():
 
     app = PerssonModelGUI_V2(root, splash_callback=_splash_update)
 
+    # Ensure 100% is visible on splash before closing
+    try:
+        _splash_canvas.itemconfig(_pct_text_id, text="100%")
+        splash.update()
+        import time; time.sleep(0.5)
+    except tk.TclError:
+        pass
+
     # Fully ready → show main window at once
     splash.destroy()
     root.attributes('-alpha', 1)  # Restore opacity
