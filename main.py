@@ -22488,9 +22488,9 @@ class PerssonModelGUI_V2:
 
         row_ptype = ttk.Frame(sec2); row_ptype.pack(fill=tk.X, pady=1)
         ttk.Label(row_ptype, text="압력 분포:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.br_pressure_type_var = tk.StringVar(value="parabolic")
+        self.br_pressure_type_var = tk.StringVar(value="dual_peak")
         ttk.Combobox(row_ptype, textvariable=self.br_pressure_type_var, width=12,
-                     values=['uniform', 'parabolic', 'elliptic'],
+                     values=['dual_peak', 'parabolic', 'uniform', 'elliptic'],
                      state='readonly').pack(side=tk.LEFT, padx=2)
 
         row_drive = ttk.Frame(sec2); row_drive.pack(fill=tk.X, pady=1)
@@ -23204,17 +23204,32 @@ class PerssonModelGUI_V2:
         elif ptype == 'elliptic':
             r2 = (2 * xx / L) ** 2 + (2 * yy / W) ** 2
             p_map = np.sqrt(np.clip(1 - r2, 0, None))
-        else:  # parabolic (default)
+        elif ptype == 'dual_peak':
+            # Dual-peak distribution: two humps at front and rear of contact patch
+            # Resembles realistic tire contact pressure (reference image 2)
+            lat = np.clip(1 - (2 * yy / W) ** 2, 0, None)  # lateral envelope
+            # Two Gaussian-like peaks along longitudinal axis
+            x_norm = 2 * xx / L  # normalized x: -1 to +1
+            peak_pos = 0.40  # peak positions at ±40% of half-length
+            peak_width = 0.45  # width of each peak (sigma-like)
+            peak_front = np.exp(-((x_norm + peak_pos) / peak_width) ** 2)
+            peak_rear = np.exp(-((x_norm - peak_pos) / peak_width) ** 2)
+            p_map = (peak_front + peak_rear) * lat
+            # Zero outside ellipse
+            r2 = (2 * xx / L) ** 2 + (2 * yy / W) ** 2
+            p_map *= (r2 <= 1.0)
+        else:  # parabolic
             p_map = np.clip(1 - (2 * xx / L) ** 2, 0, None) * \
                     np.clip(1 - (2 * yy / W) ** 2, 0, None)
 
         # Apply asymmetric weighting based on driving mode
+        # Rolling direction: right-to-left (-x). Leading edge at -x, trailing at +x.
         if driving_mode == 'Braking':
-            # Front-loaded: pressure peaks toward leading edge (+x direction)
-            weight = 1.0 + 0.5 * (2 * xx / L)
-        elif driving_mode == 'Acceleration':
-            # Rear-loaded: pressure peaks toward trailing edge (-x direction)
+            # Front-loaded: pressure peaks toward leading edge (-x direction)
             weight = 1.0 - 0.5 * (2 * xx / L)
+        elif driving_mode == 'Acceleration':
+            # Rear-loaded: pressure peaks toward trailing edge (+x direction)
+            weight = 1.0 + 0.5 * (2 * xx / L)
         else:  # Handling
             # Laterally shifted: pressure peaks toward outside (+y direction)
             weight = 1.0 + 0.4 * (2 * yy / W)
@@ -23629,35 +23644,68 @@ class PerssonModelGUI_V2:
             Nx, Ny, L, W, Fz, ptype, 'Braking')  # base only for shape
         # Rebuild symmetric base without driving mode weighting
         xx_g, yy_g = np.meshgrid(x_arr, y_arr, indexing='ij')
-        if ptype == 'uniform':
-            p_base = np.ones((Nx, Ny))
-        elif ptype == 'elliptic':
-            r2 = (2 * xx_g / L)**2 + (2 * yy_g / W)**2
-            p_base = np.sqrt(np.clip(1 - r2, 0, None))
-        else:  # parabolic
-            p_base = np.clip(1 - (2 * xx_g / L)**2, 0, None) * \
-                     np.clip(1 - (2 * yy_g / W)**2, 0, None)
         dA = dx * dy
 
         # Elliptical contact mask
         ellipse_mask = ((2 * xx_g / L)**2 + (2 * yy_g / W)**2) <= 1.0
 
+        # Build base pressure distribution (static, no SA/SR effect)
+        if ptype == 'uniform':
+            p_base = np.ones((Nx, Ny))
+        elif ptype == 'elliptic':
+            r2 = (2 * xx_g / L)**2 + (2 * yy_g / W)**2
+            p_base = np.sqrt(np.clip(1 - r2, 0, None))
+        elif ptype == 'dual_peak':
+            lat = np.clip(1 - (2 * yy_g / W)**2, 0, None)
+            x_norm = 2 * xx_g / L
+            peak_pos = 0.40
+            peak_width = 0.45
+            p_base = (np.exp(-((x_norm + peak_pos) / peak_width)**2) +
+                      np.exp(-((x_norm - peak_pos) / peak_width)**2)) * lat
+            p_base *= ellipse_mask
+        else:  # parabolic
+            p_base = np.clip(1 - (2 * xx_g / L)**2, 0, None) * \
+                     np.clip(1 - (2 * yy_g / W)**2, 0, None)
+
+        # Pre-compute dual-peak components for dynamic SA-dependent asymmetry
+        _is_dual_peak = (ptype == 'dual_peak')
+        if _is_dual_peak:
+            lat_env = np.clip(1 - (2 * yy_g / W)**2, 0, None)
+            x_norm_dp = 2 * xx_g / L
+            pk_pos = 0.40
+            pk_w = 0.45
+            _peak_front = np.exp(-((x_norm_dp + pk_pos) / pk_w)**2) * lat_env * ellipse_mask
+            _peak_rear = np.exp(-((x_norm_dp - pk_pos) / pk_w)**2) * lat_env * ellipse_mask
+
         def _build_dynamic_pressure(sa_deg, sr_pct):
             """Build pressure map that shifts with SA and SR direction.
 
-            SA > 0 (right turn): lateral load transfer to +y (outside of turn)
+            For dual_peak: SA makes one peak grow and the other shrink.
+            SA > 0 (right turn): lateral load transfer to +y
             SA < 0 (left turn): lateral load transfer to -y
-            SR < 0 (braking): longitudinal load to +x (front)
-            SR > 0 (accel): longitudinal load to -x (rear)
             """
-            p = p_base.copy()
-            # Lateral shift from SA (cornering load transfer)
-            sa_factor = np.clip(sa_deg / 6.0, -1, 1)  # normalize to ±1
-            lat_weight = 1.0 + 0.4 * sa_factor * (2 * yy_g / W)
+            sa_factor = np.clip(sa_deg / 6.0, -1, 1)
+            sa_abs = abs(sa_factor)
+
+            if _is_dual_peak:
+                # Dual-peak with SA-dependent asymmetry:
+                # As SA increases, one peak grows and the other shrinks
+                front_scale = 1.0 + 0.5 * sa_abs   # leading peak grows
+                rear_scale = 1.0 - 0.4 * sa_abs    # trailing peak shrinks
+                p = front_scale * _peak_front + max(rear_scale, 0.1) * _peak_rear
+                # Also apply lateral load transfer from SA
+                lat_weight = 1.0 + 0.4 * sa_factor * (2 * yy_g / W)
+                p *= np.clip(lat_weight, 0.1, None)
+            else:
+                p = p_base.copy()
+                lat_weight = 1.0 + 0.4 * sa_factor * (2 * yy_g / W)
+                p *= np.clip(lat_weight, 0.1, None)
+
             # Longitudinal shift from SR (braking/accel load transfer)
-            sr_factor = np.clip(-sr_pct / 5.0, -1, 1)  # braking = forward
+            # Rolling right-to-left: braking loads leading edge (-x)
+            sr_factor = np.clip(sr_pct / 5.0, -1, 1)
             lon_weight = 1.0 + 0.5 * sr_factor * (2 * xx_g / L)
-            p *= np.clip(lat_weight, 0.1, None) * np.clip(lon_weight, 0.1, None)
+            p *= np.clip(lon_weight, 0.1, None)
             p *= ellipse_mask
             total = np.sum(p) * dA
             if total > 0:
@@ -23679,13 +23727,13 @@ class PerssonModelGUI_V2:
                              fill_value=(chr_['delta_T'][0], chr_['delta_T'][-1]))
 
         # ── Quasi-steady brush model ──
-        # Each x-position has a contact time: t_contact = (L/2 - x) / vc
-        # Leading edge (x = L/2) enters with zero deformation.
-        # Trailing edge (x = -L/2) has maximum contact time = L/vc.
+        # Rolling direction: right-to-left (-x direction).
+        # Leading edge (x = -L/2) enters with zero deformation.
+        # Trailing edge (x = +L/2) has maximum contact time = L/vc.
         # Deformation builds linearly in stick zone.
         # When spring force exceeds friction capacity → transition to slip.
 
-        t_contact_1d = np.clip((L / 2.0 - x_arr) / max(vc, 0.01), 0, None)
+        t_contact_1d = np.clip((x_arr + L / 2.0) / max(vc, 0.01), 0, None)
         t_contact = t_contact_1d[:, np.newaxis] * np.ones((1, Ny))
 
         # Distribute total stiffness across nodes inside ellipse
@@ -23760,20 +23808,35 @@ class PerssonModelGUI_V2:
             Fnode_y *= ellipse_mask
 
             # Local slip velocity (spatial variation!):
-            # Stick zone: v_slip = 0 (rubber matches road)
-            # Slip zone: excess velocity → increases toward trailing edge
-            #   v_slip = v_rim * (1 - F_fric_max / F_spring)
+            # Translational slip from rim velocity:
+            #   Stick zone: v_slip = 0; Slip zone: excess above friction capacity
             scale = np.where(F_spring_mag > 1e-15,
                              np.clip(F_fric_max / F_spring_mag, 0, 1), 1.0)
-            v_slip_local = v_rim_mag * (1.0 - scale)
-            v_slip_local = np.where(is_sliding, v_slip_local, 0.0)
-            v_slip_local *= ellipse_mask
+            v_slip_trans = v_rim_mag * (1.0 - scale)
+            v_slip_trans = np.where(is_sliding, v_slip_trans, 0.0)
+            v_slip_trans *= ellipse_mask
 
-            # Slip velocity components (direction = rim velocity direction)
+            # Translational slip velocity components
             v_dir_x = v_rim_x / v_rim_mag
             v_dir_y = v_rim_y / v_rim_mag
-            v_slip_x = v_slip_local * v_dir_x
-            v_slip_y = v_slip_local * v_dir_y
+            v_trans_x = v_slip_trans * v_dir_x
+            v_trans_y = v_slip_trans * v_dir_y
+
+            # Spin (yaw) component: omega_spin * r creates rotational slip
+            # For cornering, spin ≈ vc * sin(alpha) / L creates realistic
+            # spatial variation across the patch (0~5 m/s range).
+            omega_spin = vc * np.sin(alpha_rad) / max(L, 0.01)
+            v_spin_x = -omega_spin * yy_g  # tangential velocity from spin
+            v_spin_y = omega_spin * xx_g
+            # Spin slip only in sliding zone
+            v_spin_x = np.where(is_sliding, v_spin_x, 0.0) * ellipse_mask
+            v_spin_y = np.where(is_sliding, v_spin_y, 0.0) * ellipse_mask
+
+            # Total local slip velocity = translational + spin
+            v_slip_x = v_trans_x + v_spin_x
+            v_slip_y = v_trans_y + v_spin_y
+            v_slip_local = np.sqrt(v_slip_x**2 + v_slip_y**2)
+            v_slip_local *= ellipse_mask
 
             # Temperature from local frictional energy dissipation
             # Per-node flash temperature from the Cold&Hot model, evaluated at
@@ -24095,14 +24158,14 @@ class PerssonModelGUI_V2:
             arrowprops=dict(arrowstyle='->', color='white', lw=3, mutation_scale=18),
             zorder=6)
         # Rolling direction arrow (green, longitudinal, permanent)
-        # Tire rolls in +x direction (right). Arrow placed at bottom of patch.
+        # Tire rolls in -x direction (left). Arrow placed at bottom of patch.
         _roll_arrow_y = -W_mm * 0.55
-        ax1.annotate('', xy=(L_mm * 0.35, _roll_arrow_y),
-                     xytext=(-L_mm * 0.35, _roll_arrow_y),
+        ax1.annotate('', xy=(-L_mm * 0.35, _roll_arrow_y),
+                     xytext=(L_mm * 0.35, _roll_arrow_y),
                      arrowprops=dict(arrowstyle='->', color='#00C853', lw=2.5,
                                      mutation_scale=16),
                      zorder=7)
-        ax1.text(0, _roll_arrow_y - W_mm * 0.08, 'Rolling Dir. →',
+        ax1.text(0, _roll_arrow_y - W_mm * 0.08, '\u2190 Rolling Dir.',
                  fontsize=7, ha='center', va='top', color='#00C853',
                  fontweight='bold', zorder=7)
         # Legend
@@ -24116,6 +24179,9 @@ class PerssonModelGUI_V2:
         _sm.set_array([])
         self._cb_dummy_stick = _make_cb(_sm, ax1, 'dummy_stick')
         self._cb_dummy_stick.ax.set_visible(False)
+
+        # ── Shared discrete level count for consistent region labeling ──
+        n_levels = 8
 
         # ── (2) sliding speed — quiver arrows ONLY (no color fill) ──
         ax2 = self.ax_br_speed
@@ -24132,6 +24198,10 @@ class PerssonModelGUI_V2:
         self._br_speed_xx_q = xx_q
         self._br_speed_yy_q = yy_q
         sp_lo, sp_hi = gr['speed']
+        # Discrete levels for speed (matching friction level count)
+        sp_boundaries = np.linspace(sp_lo, max(sp_hi, 0.01), n_levels + 1)
+        sp_cmap = plt.cm.get_cmap('jet', n_levels)
+        sp_norm = BoundaryNorm(sp_boundaries, sp_cmap.N)
         # Flatten for masked quiver
         u_init = np.zeros_like(xx_q)
         v_init = np.zeros_like(xx_q)
@@ -24139,66 +24209,77 @@ class PerssonModelGUI_V2:
         self._br_quiver_speed = ax2.quiver(
             xx_q[mask_q], yy_q[mask_q], u_init[mask_q], v_init[mask_q],
             mag_init[mask_q],
-            cmap='jet', clim=(sp_lo, max(sp_hi, 0.01)),
+            cmap=sp_cmap, clim=(sp_lo, max(sp_hi, 0.01)), norm=sp_norm,
             scale=max(sp_hi * 8.0, 0.1), headwidth=4, headlength=5, headaxislength=4,
             linewidth=0.6, alpha=0.9, zorder=3)
         self._cb_br_speed = _make_cb(self._br_quiver_speed, ax2, 'speed')
         self._cb_br_speed.set_label('speed [m/s]', fontsize=7)
-        self._cb_br_speed.ax.tick_params(labelsize=6)
+        sp_centers = 0.5 * (sp_boundaries[:-1] + sp_boundaries[1:])
+        self._cb_br_speed.set_ticks(sp_centers)
+        self._cb_br_speed.set_ticklabels([f'L{i+1}: {v:.2f}' for i, v in enumerate(sp_centers)])
+        self._cb_br_speed.ax.tick_params(labelsize=5.5)
         _setup_ax(ax2, 'sliding speed')
 
-        # ── (3) contact pressure — pcolormesh ──
+        # ── (3) contact pressure — pcolormesh with discrete levels ──
         ax3 = self.ax_br_pressure
         ax3.clear()
         pr_lo, pr_hi = gr['pressure']
+        pr_boundaries = np.linspace(pr_lo, pr_hi, n_levels + 1)
+        pr_cmap = plt.cm.get_cmap('jet', n_levels)
+        pr_norm = BoundaryNorm(pr_boundaries, pr_cmap.N)
         self._br_pm_pres = ax3.pcolormesh(
             x_edges, y_edges, np.where(mask, 0.0, np.nan).T,
-            cmap='jet', vmin=pr_lo, vmax=pr_hi, shading='flat', zorder=1)
+            cmap=pr_cmap, norm=pr_norm, shading='flat', zorder=1)
         self._br_outline_patches.append(_add_contact_outline(ax3))
         self._cb_br_pres = _make_cb(self._br_pm_pres, ax3, 'pressure')
         self._cb_br_pres.set_label('pressure [bar]', fontsize=7)
-        self._cb_br_pres.ax.tick_params(labelsize=6)
+        pr_centers = 0.5 * (pr_boundaries[:-1] + pr_boundaries[1:])
+        self._cb_br_pres.set_ticks(pr_centers)
+        self._cb_br_pres.set_ticklabels([f'L{i+1}: {v:.2f}' for i, v in enumerate(pr_centers)])
+        self._cb_br_pres.ax.tick_params(labelsize=5.5)
         # Rolling direction arrow on pressure plot
         _roll_y3 = -W_mm * 0.55
-        ax3.annotate('', xy=(L_mm * 0.35, _roll_y3),
-                     xytext=(-L_mm * 0.35, _roll_y3),
+        ax3.annotate('', xy=(-L_mm * 0.35, _roll_y3),
+                     xytext=(L_mm * 0.35, _roll_y3),
                      arrowprops=dict(arrowstyle='->', color='#00C853', lw=2,
                                      mutation_scale=14),
                      zorder=7)
-        ax3.text(0, _roll_y3 - W_mm * 0.08, 'Rolling Dir. →',
+        ax3.text(0, _roll_y3 - W_mm * 0.08, '\u2190 Rolling Dir.',
                  fontsize=6, ha='center', va='top', color='#00C853',
                  fontweight='bold', zorder=7)
-        # Leading/trailing edge labels
-        ax3.text(L_mm * 0.42, 0, 'LE', fontsize=7, ha='left', va='center',
+        # Leading/trailing edge labels (rolling is right-to-left: LE at -x, TE at +x)
+        ax3.text(-L_mm * 0.42, 0, 'LE', fontsize=7, ha='right', va='center',
                  color='#333', fontweight='bold', fontstyle='italic', zorder=7)
-        ax3.text(-L_mm * 0.42, 0, 'TE', fontsize=7, ha='right', va='center',
+        ax3.text(L_mm * 0.42, 0, 'TE', fontsize=7, ha='left', va='center',
                  color='#333', fontweight='bold', fontstyle='italic', zorder=7)
         _setup_ax(ax3, 'contact pressure')
 
-        # ── (4) temperature — pcolormesh ──
+        # ── (4) temperature — pcolormesh with discrete levels ──
         ax4 = self.ax_br_temperature
         ax4.clear()
         t_lo, t_hi = gr['temperature']
+        t_boundaries = np.linspace(t_lo, t_hi, n_levels + 1)
+        t_cmap = plt.cm.get_cmap('jet', n_levels)
+        t_norm = BoundaryNorm(t_boundaries, t_cmap.N)
         self._br_pm_temp = ax4.pcolormesh(
             x_edges, y_edges, np.where(mask, 25.0, np.nan).T,
-            cmap='jet', vmin=t_lo, vmax=t_hi, shading='flat', zorder=1)
+            cmap=t_cmap, norm=t_norm, shading='flat', zorder=1)
         self._br_outline_patches.append(_add_contact_outline(ax4))
         self._cb_br_temp = _make_cb(self._br_pm_temp, ax4, 'temperature')
-        self._cb_br_temp.set_label('temperature [°C]', fontsize=7)
-        self._cb_br_temp.ax.tick_params(labelsize=6)
-        self._cb_br_temp.ax.yaxis.set_major_formatter(FuncFormatter(lambda x, _: f'{x:.0f}'))
+        self._cb_br_temp.set_label('temperature [\u00b0C]', fontsize=7)
+        t_centers = 0.5 * (t_boundaries[:-1] + t_boundaries[1:])
+        self._cb_br_temp.set_ticks(t_centers)
+        self._cb_br_temp.set_ticklabels([f'L{i+1}: {v:.1f}' for i, v in enumerate(t_centers)])
+        self._cb_br_temp.ax.tick_params(labelsize=5.5)
         _setup_ax(ax4, 'temperature')
 
         # ── (5) friction force — pcolormesh with indexed discrete levels ──
         ax5 = self.ax_br_friction
         ax5.clear()
         f_lo, f_hi = gr['friction']
-        # Create discrete levels for better distinction
-        n_levels = 8
         fric_boundaries = np.linspace(f_lo, f_hi, n_levels + 1)
-        from matplotlib.colors import BoundaryNorm as _BN
         fric_cmap = plt.cm.get_cmap('jet', n_levels)
-        fric_norm = _BN(fric_boundaries, fric_cmap.N)
+        fric_norm = BoundaryNorm(fric_boundaries, fric_cmap.N)
         self._br_pm_fric = ax5.pcolormesh(
             x_edges, y_edges, np.where(mask, 0.0, np.nan).T,
             cmap=fric_cmap, norm=fric_norm, shading='flat', zorder=1)
@@ -24352,13 +24433,13 @@ class PerssonModelGUI_V2:
             # Base ellipse
             x_base = L_mm / 2 * cos_t
             y_base = W_mm / 2 * sin_t
-            # Triangular deformation: wide at leading edge, narrow at trailing edge
-            # cos_t = +1 at leading edge (+x), -1 at trailing edge (-x)
-            width_mod = 1.0 + sa_abs * 0.5 * cos_t
-            y_deformed = y_base * np.clip(width_mod, 0.15, None)
-            # Lateral lean at trailing edge: trailing half shifts toward slip direction
-            trailing_lean = sa_factor * 0.18 * W_mm * np.clip(-cos_t, 0, 1)
-            y_final = y_deformed + trailing_lean
+            # Isosceles rounded triangle: symmetric about y=0 (centerline)
+            # Rolling right-to-left: leading edge at -x (cos_t=-1), trailing at +x (cos_t=+1)
+            # Wide at leading edge (-x), narrow at trailing (+x)
+            width_mod = 1.0 - sa_abs * 0.5 * cos_t  # >1 at cos_t<0 (LE), <1 at cos_t>0 (TE)
+            y_deformed = y_base * np.clip(width_mod, 0.2, None)
+            # No lateral lean — keep symmetric isosceles shape
+            y_final = y_deformed
             # Correct centroid to stay at (0,0) — no drifting
             y_final -= np.mean(y_final)
             new_verts = np.column_stack([x_base, y_final])
