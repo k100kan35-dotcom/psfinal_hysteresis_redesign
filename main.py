@@ -23677,19 +23677,22 @@ class PerssonModelGUI_V2:
             Direction convention (matches pressure computation):
             SA > 0 (right turn): wider at -y (loaded side), narrower at +y
             SA < 0 (left turn): wider at +y (loaded side), narrower at -y
+            Produces egg/teardrop shape matching real contact patch deformation.
             """
             sf = -np.clip(sa_deg_local / 6.0, -1, 1)  # negate to match pressure
             theta = np.linspace(0, 2 * np.pi, 120)
             cos_t = np.cos(theta)
             sin_t = np.sin(theta)
-            x_b = L / 2 * cos_t
-            y_b = W / 2 * sin_t
-            # Smooth modulation: sqrt(|sin|) rounds the triangle tips
+            # Smooth modulation: sqrt(|sin|) rounds the tips
             sin_smooth = np.sign(sin_t) * np.abs(sin_t) ** 0.5
-            lmod = 1.0 + sf * 0.4 * sin_smooth
-            x_d = x_b * np.clip(lmod, 0.35, None)
+            # Strong x-modulation (length): loaded side wider, unloaded much narrower
+            lmod = 1.0 + sf * 0.7 * sin_smooth
+            x_d = (L / 2 * cos_t) * np.clip(lmod, 0.12, None)
+            # Mild y-modulation (width): unloaded side slightly narrower
+            wmod = 1.0 + sf * 0.15 * sin_smooth
+            y_d = (W / 2 * sin_t) * np.clip(wmod, 0.6, None)
             x_d -= np.mean(x_d)
-            verts = np.column_stack([x_d, y_b])
+            verts = np.column_stack([x_d, y_d])
             path = _MplPath(verts)
             pts = np.column_stack([xx_g.ravel(), yy_g.ravel()])
             mask = path.contains_points(pts).reshape(xx_g.shape)
@@ -23964,7 +23967,7 @@ class PerssonModelGUI_V2:
         # Expanded mask for visualization: dilate by 1 cell so pcolormesh
         # fills the outline without white gaps at the boundary.
         from scipy.ndimage import binary_dilation
-        self._brush_fill_mask = binary_dilation(ellipse_mask, iterations=1)
+        self._brush_fill_mask = binary_dilation(ellipse_mask, iterations=2)
 
         # Compute global min/max for fixed colorbars across all frames
         # Use each frame's own deformed mask for accurate ranges.
@@ -24542,8 +24545,13 @@ class PerssonModelGUI_V2:
         f = self._brush_frames[idx]
         # Use per-frame deformed mask (falls back to ellipse for old data)
         mask = f.get('_contact_mask', self._brush_ellipse_mask)
-        from scipy.ndimage import binary_dilation
-        mask_fill = binary_dilation(mask, iterations=1)
+        # Use pre-computed dilated mask if available, otherwise compute
+        _cached_key = id(mask)
+        if getattr(self, '_br_mask_fill_cache_key', None) != _cached_key:
+            from scipy.ndimage import binary_dilation
+            self._br_mask_fill_cached = binary_dilation(mask, iterations=2)
+            self._br_mask_fill_cache_key = _cached_key
+        mask_fill = self._br_mask_fill_cached
 
         # Update frame label
         t_val = f['t']
@@ -24650,22 +24658,26 @@ class PerssonModelGUI_V2:
                 theta = np.linspace(0, 2 * np.pi, 120)
                 cos_t = np.cos(theta)
                 sin_t = np.sin(theta)
-                x_base = L_mm / 2 * cos_t
-                y_base = W_mm / 2 * sin_t
-                # Smooth modulation: sqrt(|sin|) rounds the triangle tips
                 sin_smooth = np.sign(sin_t) * np.abs(sin_t) ** 0.5
-                length_mod = 1.0 + sa_factor * 0.4 * sin_smooth
-                x_deformed = x_base * np.clip(length_mod, 0.35, None)
+                # Strong x-modulation for egg/teardrop shape
+                length_mod = 1.0 + sa_factor * 0.7 * sin_smooth
+                x_deformed = (L_mm / 2 * cos_t) * np.clip(length_mod, 0.12, None)
+                # Mild width modulation
+                wmod = 1.0 + sa_factor * 0.15 * sin_smooth
+                y_deformed = (W_mm / 2 * sin_t) * np.clip(wmod, 0.6, None)
                 x_deformed -= np.mean(x_deformed)
-                new_verts = np.column_stack([x_deformed, y_base])
+                new_verts = np.column_stack([x_deformed, y_deformed])
             for poly in self._br_outline_patches:
                 poly.set_xy(new_verts)
 
         # ── Steering wheel & tire animation update (left panel) ──
-        self._update_left_steering_wheel(f['SA'])
-        if hasattr(self, '_tire_ax'):
-            Fz = float(self.br_Fz_var.get()) if self.br_Fz_var.get() else 4000.0
-            self._update_tire_animation(f['SA'], f['Fy'], Fz)
+        # Only update every 3rd frame during playback for performance
+        _skip_aux = getattr(self, '_brush_playing', False) and (idx % 3 != 0)
+        if not _skip_aux:
+            self._update_left_steering_wheel(f['SA'])
+            if hasattr(self, '_tire_ax'):
+                Fz = float(self.br_Fz_var.get()) if self.br_Fz_var.get() else 4000.0
+                self._update_tire_animation(f['SA'], f['Fy'], Fz)
 
         # ── Update Fy vs SA and Fx vs SR plots ──
         if hasattr(self, '_br_cursor_fy_sa'):
@@ -24718,13 +24730,14 @@ class PerssonModelGUI_V2:
             return
 
         # Speed control: delay_ms and frame_skip
+        # Minimal delay for smooth playback; skip frames for higher speeds
         speed_str = self.br_play_speed_var.get()
         speed_map = {
-            '0.25x': (80, 1), '0.5x': (40, 1), '1x': (16, 1),
-            '2x': (8, 1), '4x': (4, 1), '8x': (2, 1),
-            '16x': (1, 2), '32x': (1, 4), '64x': (1, 8),
+            '0.25x': (60, 1), '0.5x': (30, 1), '1x': (10, 1),
+            '2x': (10, 2), '4x': (10, 4), '8x': (8, 8),
+            '16x': (5, 16), '32x': (3, 32), '64x': (1, 64),
         }
-        delay_ms, frame_skip = speed_map.get(speed_str, (16, 1))
+        delay_ms, frame_skip = speed_map.get(speed_str, (10, 1))
 
         self._brush_frame_idx += frame_skip
         if self._brush_frame_idx >= len(self._brush_frames):
