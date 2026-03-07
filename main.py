@@ -22723,9 +22723,9 @@ class PerssonModelGUI_V2:
 
         from matplotlib.gridspec import GridSpec
         self.fig_brush = Figure(figsize=(14, 10), dpi=100)
-        gs = GridSpec(2, 20, figure=self.fig_brush, height_ratios=[1.5, 2.5],
-                      hspace=0.35, wspace=1.2,
-                      left=0.05, right=0.97, top=0.96, bottom=0.05)
+        gs = GridSpec(2, 20, figure=self.fig_brush, height_ratios=[1.8, 2.2],
+                      hspace=0.40, wspace=1.2,
+                      left=0.05, right=0.97, top=0.96, bottom=0.06)
 
         # Top row: 4 time-history / characteristic plots
         self.ax_br_input = self.fig_brush.add_subplot(gs[0, :5])
@@ -23296,10 +23296,10 @@ class PerssonModelGUI_V2:
         return p_map, x_arr, y_arr, dx, dy
 
     # ── Single source of truth for contact-patch egg shape ──
-    _EGG_K_MAX = 0.35   # max asymmetry at SA = 6°
+    _EGG_K_MAX = 0.28   # max asymmetry at SA = 6°
     _EGG_SA_REF = 6.0    # reference SA for full deformation
     _EGG_NPTS = 120       # outline resolution
-    _ELLIPSE_POWER = 2.0  # superellipse exponent (2=ellipse, <2=diamond, >2=rectangle)
+    _ELLIPSE_POWER = 2.5  # superellipse exponent (2=ellipse, <2=diamond, >2=rectangle)
 
     @classmethod
     def _egg_outline(cls, sa_deg, half_L, half_W):
@@ -24050,7 +24050,7 @@ class PerssonModelGUI_V2:
         ax_in.plot(t, self._brush_SR, color='#E68A00', linewidth=1.5, label='SR [%]')
         ax_in.set_xlabel('time [s]', fontsize=8)
         ax_in.set_ylabel('slip', fontsize=8)
-        ax_in.legend(loc='upper right', fontsize=7)
+        ax_in.legend(loc='upper right', fontsize=8, framealpha=0.9)
         ax_in.grid(True, alpha=0.3)
         ax_in.set_xlim(t[0], t[-1])
         self._br_cursor_in = ax_in.axvline(x=0, color='k', linewidth=1.2, alpha=0.7)
@@ -24066,7 +24066,7 @@ class PerssonModelGUI_V2:
         ax_f.plot(t, self._brush_Fx_hist, color='#E68A00', linewidth=1.5, label='Fx')
         ax_f.set_xlabel('time [s]', fontsize=8)
         ax_f.set_ylabel('force [N]', fontsize=8)
-        ax_f.legend(loc='upper right', fontsize=7)
+        ax_f.legend(loc='upper right', fontsize=8, framealpha=0.9)
         ax_f.grid(True, alpha=0.3)
         ax_f.set_xlim(t[0], t[-1])
         self._br_cursor_ft = ax_f.axvline(x=0, color='k', linewidth=1.2, alpha=0.7)
@@ -24107,51 +24107,89 @@ class PerssonModelGUI_V2:
     # ── 2D Brush: Left-panel steering wheel ──
 
     def _init_left_steering_wheel(self):
-        """Draw steering wheel in the left-panel dedicated figure."""
+        """Draw steering wheel in the left-panel dedicated figure.
+        Uses full draw_idle() instead of blit — small canvas, no perf issue."""
+        from matplotlib.patches import Polygon as MplPoly
         ax = self._steer_ax
         ax.clear()
         ax.set_xlim(-1.5, 1.5)
         ax.set_ylim(-1.5, 1.5)
         ax.set_aspect('equal')
         ax.axis('off')
-        # Outer ring
-        theta = np.linspace(0, 2 * np.pi, 80)
-        ax.plot(np.cos(theta), np.sin(theta), '-', color='#333333', lw=5)
-        # Inner ring
-        ax.plot(0.35 * np.cos(theta), 0.35 * np.sin(theta), '-', color='#666', lw=2)
+        ax.set_facecolor('#F8FAFC')
+
+        # Outer ring (thick)
+        theta = np.linspace(0, 2 * np.pi, 100)
+        self._steer_outer, = ax.plot(np.cos(theta), np.sin(theta),
+                                      '-', color='#333333', lw=6, zorder=2)
+        # Inner hub ring
+        self._steer_inner, = ax.plot(0.3 * np.cos(theta), 0.3 * np.sin(theta),
+                                      '-', color='#555', lw=2, zorder=2)
+        # Center dot (logo area)
+        self._steer_center, = ax.plot(0, 0, 'o', color='#333',
+                                       markersize=7, zorder=3)
         # 3 spokes
         self._steer_spoke_lines = []
         for base_angle in [np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]:
             sp, = ax.plot([0, 0.85 * np.cos(base_angle)],
                           [0, 0.85 * np.sin(base_angle)],
-                          '-', color='#333333', lw=3)
+                          '-', color='#333333', lw=3.5, zorder=2)
             self._steer_spoke_lines.append(sp)
-        # Center dot
-        ax.plot(0, 0, 'o', color='#333', markersize=6)
-        # SA label
-        self._steer_sa_label = ax.text(0, -1.3, 'SA=0.0°',
-                                        fontsize=11, ha='center', va='top', fontweight='bold')
-        # L/R indicators
-        self._steer_left_label = ax.text(-1.3, 0, 'L', fontsize=14, ha='center',
-                                          va='center', fontweight='bold', color='#BBBBBB')
-        self._steer_right_label = ax.text(1.3, 0, 'R', fontsize=14, ha='center',
-                                           va='center', fontweight='bold', color='#BBBBBB')
-        self._steer_dynamic = list(self._steer_spoke_lines) + [
-            self._steer_sa_label, self._steer_left_label,
-            self._steer_right_label]
-        # Hide dynamic → draw clean background → cache → restore
-        for a in self._steer_dynamic:
-            a.set_visible(False)
-        self._steer_canvas.draw()
-        self._steer_blit_bg = self._steer_canvas.copy_from_bbox(
-            self._steer_fig.bbox)
-        for a in self._steer_dynamic:
-            a.set_visible(True)
 
-        # Steering angle visual arc (drawn during update)
+        # ── Hands on wheel (10 o'clock and 2 o'clock) ──
+        # Simple rounded-ish hand shapes gripping the wheel rim
+        self._steer_hands = []
+        for hand_angle_deg in [140, 40]:  # 10-o'clock, 2-o'clock
+            ha_rad = np.radians(hand_angle_deg)
+            # Hand center on rim
+            hcx = np.cos(ha_rad)
+            hcy = np.sin(ha_rad)
+            # Hand is an oval aligned with the rim tangent
+            tang = ha_rad + np.pi / 2  # tangent direction
+            hw, hh = 0.18, 0.12  # hand half-width, half-height
+            t_h = np.linspace(0, 2 * np.pi, 16)
+            hx = hw * np.cos(t_h)
+            hy = hh * np.sin(t_h)
+            # Rotate to tangent
+            cos_t = np.cos(tang)
+            sin_t = np.sin(tang)
+            rx = hx * cos_t - hy * sin_t + hcx
+            ry = hx * sin_t + hy * cos_t + hcy
+            hand_verts = np.column_stack([rx, ry])
+            hand_patch = MplPoly(hand_verts, closed=True,
+                                  facecolor='#FFD4A0', edgecolor='#CC8844',
+                                  linewidth=1.2, zorder=4)
+            ax.add_patch(hand_patch)
+            self._steer_hands.append(hand_patch)
+            # Fingers (3 small bumps on outer side)
+            for fi in range(-1, 2):
+                fang = ha_rad + fi * 0.12
+                fcx = 1.12 * np.cos(fang)
+                fcy = 1.12 * np.sin(fang)
+                finger, = ax.plot(fcx, fcy, 'o', color='#FFD4A0',
+                                   markersize=3.5, markeredgecolor='#CC8844',
+                                   markeredgewidth=0.6, zorder=4)
+                self._steer_hands.append(finger)
+
+        # Steering angle visual arc
         self._steer_arc, = ax.plot([], [], '-', color='#FF6600', lw=3,
                                     alpha=0.8, zorder=5)
-        self._steer_dynamic.append(self._steer_arc)
+        # SA label
+        self._steer_sa_label = ax.text(0, -1.35, 'SA=0.0°',
+                                        fontsize=11, ha='center', va='top',
+                                        fontweight='bold', zorder=6)
+        # L/R indicators
+        self._steer_left_label = ax.text(-1.35, 0, 'L', fontsize=14, ha='center',
+                                          va='center', fontweight='bold',
+                                          color='#BBBBBB', zorder=6)
+        self._steer_right_label = ax.text(1.35, 0, 'R', fontsize=14, ha='center',
+                                           va='center', fontweight='bold',
+                                           color='#BBBBBB', zorder=6)
+        # Store base angles for hand positions
+        self._steer_hand_base_angles = [np.radians(140), np.radians(40)]
+        # No blit — just full draw
+        self._steer_blit_bg = None
+        self._steer_canvas.draw()
 
     def _update_left_steering_wheel(self, sa_deg):
         """Update the left-panel steering wheel rotation.
@@ -24159,28 +24197,66 @@ class PerssonModelGUI_V2:
         SA > 0 → right turn → wheel rotates clockwise → R highlighted
         SA < 0 → left turn → wheel rotates counter-clockwise → L highlighted
         (SAE convention: positive slip angle = right turn)
+        Uses full draw_idle() — no blit for reliability on small canvas.
         """
-        # Positive SA = right turn = clockwise rotation (negative angle)
         steer_rad = -np.radians(sa_deg)
+        cos_s = np.cos(steer_rad)
+        sin_s = np.sin(steer_rad)
+
+        # Rotate spokes
         for i, base_angle in enumerate([np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]):
             a = base_angle + steer_rad
             self._steer_spoke_lines[i].set_data([0, 0.85 * np.cos(a)],
                                                  [0, 0.85 * np.sin(a)])
+
+        # Rotate outer/inner rings
+        theta = np.linspace(0, 2 * np.pi, 100)
+        self._steer_outer.set_data(np.cos(theta), np.sin(theta))
+        self._steer_inner.set_data(0.3 * np.cos(theta), 0.3 * np.sin(theta))
+
+        # Rotate hands on the wheel
+        if hasattr(self, '_steer_hands') and hasattr(self, '_steer_hand_base_angles'):
+            hand_idx = 0
+            for hi, base_ha in enumerate(self._steer_hand_base_angles):
+                ha_rad = base_ha + steer_rad
+                hcx = np.cos(ha_rad)
+                hcy = np.sin(ha_rad)
+                tang = ha_rad + np.pi / 2
+                hw, hh = 0.18, 0.12
+                t_h = np.linspace(0, 2 * np.pi, 16)
+                hx = hw * np.cos(t_h)
+                hy = hh * np.sin(t_h)
+                cos_t = np.cos(tang)
+                sin_t = np.sin(tang)
+                rx = hx * cos_t - hy * sin_t + hcx
+                ry = hx * sin_t + hy * cos_t + hcy
+                self._steer_hands[hand_idx].set_xy(
+                    np.column_stack([rx, ry]))
+                hand_idx += 1
+                # 3 finger dots per hand
+                for fi in range(-1, 2):
+                    fang = ha_rad + fi * 0.12
+                    self._steer_hands[hand_idx].set_data(
+                        [1.12 * np.cos(fang)], [1.12 * np.sin(fang)])
+                    hand_idx += 1
+
         self._steer_sa_label.set_text(f'SA={sa_deg:+.1f}°')
 
-        # Steering arc: colored arc showing rotation amount
-        if abs(sa_deg) > 0.2 and hasattr(self, '_steer_arc'):
-            arc_r = 0.65
+        # Steering arc
+        if abs(sa_deg) > 0.2:
+            arc_r = 0.55
             a_start = np.pi / 2
             a_end = np.pi / 2 + steer_rad
             t_arc = np.linspace(a_start, a_end, 30)
             arc_color = '#F44336' if sa_deg > 0 else '#2196F3'
-            self._steer_arc.set_data(arc_r * np.cos(t_arc), arc_r * np.sin(t_arc))
+            self._steer_arc.set_data(arc_r * np.cos(t_arc),
+                                      arc_r * np.sin(t_arc))
             self._steer_arc.set_color(arc_color)
             self._steer_arc.set_visible(True)
-        elif hasattr(self, '_steer_arc'):
+        else:
             self._steer_arc.set_visible(False)
 
+        # L/R highlight
         if sa_deg > 0.5:
             self._steer_right_label.set_color('#F44336')
             self._steer_right_label.set_fontsize(16)
@@ -24196,17 +24272,8 @@ class PerssonModelGUI_V2:
             self._steer_left_label.set_fontsize(14)
             self._steer_right_label.set_color('#BBBBBB')
             self._steer_right_label.set_fontsize(14)
-        if getattr(self, '_steer_blit_bg', None) is not None:
-            self._steer_canvas.restore_region(self._steer_blit_bg)
-            for a in self._steer_dynamic:
-                try:
-                    a.axes.draw_artist(a)
-                except Exception:
-                    pass
-            self._steer_canvas.blit(self._steer_fig.bbox)
-            self._steer_canvas.flush_events()
-        else:
-            self._steer_canvas.draw_idle()
+
+        self._steer_canvas.draw_idle()
 
     # ── 2D Brush: Tire animation (top-down rolling tire with lateral force) ──
 
@@ -24226,30 +24293,37 @@ class PerssonModelGUI_V2:
         road = Rectangle((-3.0, -4.0), 6.0, 8.0, facecolor='#4A4A4A',
                           edgecolor='none', zorder=0)
         ax.add_patch(road)
+        # Shoulder strips (slightly lighter)
+        shoulder_L = Rectangle((-3.0, -4.0), 0.5, 8.0, facecolor='#555555',
+                                edgecolor='none', zorder=0)
+        shoulder_R = Rectangle((2.5, -4.0), 0.5, 8.0, facecolor='#555555',
+                                edgecolor='none', zorder=0)
+        ax.add_patch(shoulder_L)
+        ax.add_patch(shoulder_R)
 
-        # Road edge lines (white solid, wider road)
-        ax.plot([-2.6, -2.6], [-4, 4], '-', color='#CCCCCC', lw=1.8, zorder=1)
-        ax.plot([2.6, 2.6], [-4, 4], '-', color='#CCCCCC', lw=1.8, zorder=1)
+        # Road edge lines (white solid)
+        ax.plot([-2.5, -2.5], [-4, 4], '-', color='#FFFFFF', lw=2.0, zorder=1)
+        ax.plot([2.5, 2.5], [-4, 4], '-', color='#FFFFFF', lw=2.0, zorder=1)
 
-        # Center lane dashes (yellow, scrolling)
+        # Center yellow dashed line (scrolling)
         self._road_dashes = []
-        dash_spacing = 1.0
+        dash_spacing = 1.2
         for i in range(12):
-            y0 = -5.0 + i * dash_spacing
-            line, = ax.plot([-2.6, -2.6], [y0, y0 + 0.4], '-', color='#FFD54F',
-                            lw=1.5, alpha=0.7, zorder=1)
+            y0 = -6.0 + i * dash_spacing
+            line, = ax.plot([0, 0], [y0, y0 + 0.6], '-', color='#FFD54F',
+                            lw=2.5, alpha=0.85, zorder=1)
             self._road_dashes.append(line)
-        # Right edge dashes
+
+        # White lane boundary dashes (left and right lanes)
         self._road_side_dashes_L = []
         self._road_side_dashes_R = []
         for i in range(12):
-            y0 = -5.0 + i * dash_spacing
-            rd, = ax.plot([2.6, 2.6], [y0, y0 + 0.4], '-',
-                          color='#FFD54F', lw=1.5, alpha=0.7, zorder=1)
-            # Center line
-            cd, = ax.plot([0, 0], [y0, y0 + 0.3], '-',
-                          color='#FFFFFF', lw=1.0, alpha=0.4, zorder=1)
-            self._road_side_dashes_L.append(cd)
+            y0 = -6.0 + i * dash_spacing
+            ld, = ax.plot([-1.25, -1.25], [y0, y0 + 0.4], '-',
+                          color='#AAAAAA', lw=1.2, alpha=0.5, zorder=1)
+            rd, = ax.plot([1.25, 1.25], [y0, y0 + 0.4], '-',
+                          color='#AAAAAA', lw=1.2, alpha=0.5, zorder=1)
+            self._road_side_dashes_L.append(ld)
             self._road_side_dashes_R.append(rd)
         self._road_phase = 0.0
 
@@ -24345,12 +24419,13 @@ class PerssonModelGUI_V2:
 
         self._tire_tread_phase = 0.0
 
-        # ── Lateral force arrow (on car body, dramatic) ──
-        self._tire_Fy_arrow = ax.annotate(
-            '', xy=(0, 0), xytext=(0, 0),
-            arrowprops=dict(arrowstyle='->', color='#FF4444', lw=3.5,
-                            mutation_scale=22), zorder=15)
-        self._tire_Fy_arrow.set_visible(False)
+        # ── Lateral force arrow (line + triangle head) ──
+        from matplotlib.patches import FancyArrowPatch
+        self._tire_Fy_line, = ax.plot([], [], '-', color='#FF4444', lw=3.5, zorder=15)
+        self._tire_Fy_head, = ax.plot([], [], marker='>', color='#FF4444',
+                                       markersize=12, linestyle='', zorder=15)
+        self._tire_Fy_line.set_visible(False)
+        self._tire_Fy_head.set_visible(False)
         self._tire_Fy_label = ax.text(0, 0, '', fontsize=8, ha='center',
                                        va='bottom', fontweight='bold',
                                        color='#FF6644',
@@ -24359,12 +24434,12 @@ class PerssonModelGUI_V2:
                                        zorder=16)
         self._tire_Fy_label.set_visible(False)
 
-        # Longitudinal force arrow
-        self._tire_Fx_arrow = ax.annotate(
-            '', xy=(0, 0), xytext=(0, 0),
-            arrowprops=dict(arrowstyle='->', color='#44FF44', lw=3.0,
-                            mutation_scale=20), zorder=15)
-        self._tire_Fx_arrow.set_visible(False)
+        # Longitudinal force arrow (line + triangle head)
+        self._tire_Fx_line, = ax.plot([], [], '-', color='#44FF44', lw=3.0, zorder=15)
+        self._tire_Fx_head, = ax.plot([], [], marker='^', color='#44FF44',
+                                       markersize=11, linestyle='', zorder=15)
+        self._tire_Fx_line.set_visible(False)
+        self._tire_Fx_head.set_visible(False)
         self._tire_Fx_label = ax.text(0, 0, '', fontsize=7, ha='left',
                                        va='center', fontweight='bold',
                                        color='#44FF44',
@@ -24398,8 +24473,8 @@ class PerssonModelGUI_V2:
         self._tire_dynamic.extend(self._hl_patches)
         self._tire_dynamic.extend(self._tl_patches)
         self._tire_dynamic.extend([
-            self._tire_Fy_arrow, self._tire_Fy_label,
-            self._tire_Fx_arrow, self._tire_Fx_label,
+            self._tire_Fy_line, self._tire_Fy_head, self._tire_Fy_label,
+            self._tire_Fx_line, self._tire_Fx_head, self._tire_Fx_label,
             self._tire_sa_arc, self._tire_sa_label,
             self._tire_speed_label,
         ])
@@ -24429,19 +24504,21 @@ class PerssonModelGUI_V2:
 
         # ── 1) Treadmill road scroll ──
         self._road_phase += 0.22
-        dash_spacing = 1.0
+        dash_spacing = 1.2
         total_span = dash_spacing * 12
+        # Center yellow dashes
         for i, line in enumerate(self._road_dashes):
-            y0 = -5.0 + i * dash_spacing - (self._road_phase % dash_spacing)
-            if y0 < -5.0:
+            y0 = -6.0 + i * dash_spacing - (self._road_phase % dash_spacing)
+            if y0 < -6.0:
                 y0 += total_span
-            line.set_data([-2.6, -2.6], [y0, y0 + 0.4])
+            line.set_data([0, 0], [y0, y0 + 0.6])
+        # Lane boundary dashes
         for i in range(len(self._road_side_dashes_L)):
-            y0 = -5.0 + i * dash_spacing - (self._road_phase % dash_spacing)
-            if y0 < -5.0:
+            y0 = -6.0 + i * dash_spacing - (self._road_phase % dash_spacing)
+            if y0 < -6.0:
                 y0 += total_span
-            self._road_side_dashes_R[i].set_data([2.6, 2.6], [y0, y0 + 0.4])
-            self._road_side_dashes_L[i].set_data([0, 0], [y0, y0 + 0.3])
+            self._road_side_dashes_L[i].set_data([-1.25, -1.25], [y0, y0 + 0.4])
+            self._road_side_dashes_R[i].set_data([1.25, 1.25], [y0, y0 + 0.4])
 
         # ── 2) Car yaw from front-wheel steering (bicycle model) ──
         # Front wheels steer → car body follows with delay
@@ -24536,38 +24613,48 @@ class PerssonModelGUI_V2:
             self._tire_sa_arc.set_visible(False)
             self._tire_sa_label.set_visible(False)
 
-        # ── 6) Lateral force arrow ──
+        # ── 6) Lateral force arrow (line + marker) ──
         if abs(Fy) > 10 and Fz > 0:
             mu_y = Fy / max(Fz, 1.0)
             arrow_len = np.clip(abs(mu_y) * 1.8, 0.25, 1.8)
             px, py = _rot1(np.sign(Fy) * arrow_len, 0)
-            self._tire_Fy_arrow.xy = (cx + px, cy + py)
-            self._tire_Fy_arrow.set_position((cx, cy))
-            self._tire_Fy_arrow.set_visible(True)
+            self._tire_Fy_line.set_data([cx, cx + px], [cy, cy + py])
+            self._tire_Fy_line.set_visible(True)
+            # Arrow head marker rotation
+            head_marker = '>' if Fy > 0 else '<'
+            self._tire_Fy_head.set_marker(head_marker)
+            self._tire_Fy_head.set_data([cx + px], [cy + py])
+            self._tire_Fy_head.set_visible(True)
             self._tire_Fy_label.set_position(
-                (cx + px * 1.15, cy + py * 1.15 + 0.15))
+                (cx + px * 1.15, cy + py * 1.15 + 0.2))
             self._tire_Fy_label.set_text(f'Fy {Fy:+.0f}N')
             self._tire_Fy_label.set_visible(True)
         else:
-            self._tire_Fy_arrow.set_visible(False)
+            self._tire_Fy_line.set_visible(False)
+            self._tire_Fy_head.set_visible(False)
             self._tire_Fy_label.set_visible(False)
 
-        # ── 7) Longitudinal force arrow ──
+        # ── 7) Longitudinal force arrow (line + marker) ──
         if abs(Fx) > 10 and Fz > 0:
             mu_x = Fx / max(Fz, 1.0)
             fx_len = np.clip(abs(mu_x) * 1.5, 0.25, 1.5)
             fwd_x, fwd_y = _rot1(0, np.sign(Fx) * fx_len)
             boff = car_h / 2 + 0.15
             bx, by = _rot1(0, boff * np.sign(Fx))
-            self._tire_Fx_arrow.xy = (cx + bx + fwd_x, cy + by + fwd_y)
-            self._tire_Fx_arrow.set_position((cx + bx, cy + by))
-            self._tire_Fx_arrow.set_visible(True)
-            self._tire_Fx_label.set_position(
-                (cx + bx + fwd_x + 0.15, cy + by + fwd_y))
+            sx, sy = cx + bx, cy + by
+            ex, ey = sx + fwd_x, sy + fwd_y
+            self._tire_Fx_line.set_data([sx, ex], [sy, ey])
+            self._tire_Fx_line.set_visible(True)
+            head_mk = '^' if Fx > 0 else 'v'
+            self._tire_Fx_head.set_marker(head_mk)
+            self._tire_Fx_head.set_data([ex], [ey])
+            self._tire_Fx_head.set_visible(True)
+            self._tire_Fx_label.set_position((ex + 0.15, ey))
             self._tire_Fx_label.set_text(f'Fx {Fx:+.0f}N')
             self._tire_Fx_label.set_visible(True)
         else:
-            self._tire_Fx_arrow.set_visible(False)
+            self._tire_Fx_line.set_visible(False)
+            self._tire_Fx_head.set_visible(False)
             self._tire_Fx_label.set_visible(False)
 
         # ── 7) HUD ──
@@ -24712,10 +24799,10 @@ class PerssonModelGUI_V2:
                  fontsize=7, ha='center', va='top', color='#00C853',
                  fontweight='bold', zorder=7)
         # Legend
-        legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Adhesion (Stick)'),
-                          Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Sliding (Slip)')]
-        ax1.legend(handles=legend_patches, loc='upper right', fontsize=6,
-                   framealpha=0.8, edgecolor='#999')
+        legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Adhesion'),
+                          Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Sliding')]
+        ax1.legend(handles=legend_patches, loc='upper right', fontsize=7.5,
+                   framealpha=0.9, edgecolor='#999')
         _setup_ax(ax1, 'sliding vs adhesion')
         # Invisible spacer colorbar to match width of other plots
         _sm = mcm.ScalarMappable(cmap='jet', norm=plt.Normalize(0, 1))
@@ -24835,11 +24922,10 @@ class PerssonModelGUI_V2:
         self._br_outline_patches.append(_outline5)
         self._br_pm_fric.set_clip_path(_outline5)
         self._cb_br_fric = _make_cb(self._br_pm_fric, ax5, 'friction')
-        self._cb_br_fric.set_label('friction force [N]', fontsize=7)
-        # Set indexed tick labels: show level index + value
+        self._cb_br_fric.set_label('friction [N/node]', fontsize=7)
         fric_centers = 0.5 * (fric_boundaries[:-1] + fric_boundaries[1:])
         self._cb_br_fric.set_ticks(fric_centers)
-        self._cb_br_fric.set_ticklabels([f'{v:.3f}' for v in fric_centers])
+        self._cb_br_fric.set_ticklabels([f'{v:.1e}' for v in fric_centers])
         self._cb_br_fric.ax.tick_params(labelsize=5.5)
         _setup_ax(ax5, 'friction force')
 
