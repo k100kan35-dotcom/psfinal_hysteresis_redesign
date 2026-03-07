@@ -23684,8 +23684,10 @@ class PerssonModelGUI_V2:
             sin_t = np.sin(theta)
             x_b = L / 2 * cos_t
             y_b = W / 2 * sin_t
-            lmod = 1.0 + sf * 0.5 * sin_t
-            x_d = x_b * np.clip(lmod, 0.2, None)
+            # Smooth modulation: sqrt(|sin|) rounds the triangle tips
+            sin_smooth = np.sign(sin_t) * np.abs(sin_t) ** 0.5
+            lmod = 1.0 + sf * 0.4 * sin_smooth
+            x_d = x_b * np.clip(lmod, 0.35, None)
             x_d -= np.mean(x_d)
             verts = np.column_stack([x_d, y_b])
             path = _MplPath(verts)
@@ -23739,9 +23741,9 @@ class PerssonModelGUI_V2:
                 # Dual-peak with SA-dependent asymmetry (width direction):
                 # SA > 0 (right turn): load transfers to -y (low width side, 아래)
                 # SA < 0 (left turn): load transfers to +y (high width side, 위)
-                high_scale = 1.0 + 0.5 * sa_factor   # +y peak grows with positive SA
-                low_scale = 1.0 - 0.5 * sa_factor    # -y peak shrinks with positive SA
-                p = max(high_scale, 0.1) * _peak_high + max(low_scale, 0.1) * _peak_low
+                high_scale = 1.0 + 0.25 * sa_factor   # +y peak grows slightly with SA
+                low_scale = 1.0 - 0.25 * sa_factor    # -y peak shrinks slightly with SA
+                p = max(high_scale, 0.3) * _peak_high + max(low_scale, 0.3) * _peak_low
             else:
                 p = p_base.copy()
                 lat_weight = 1.0 + 0.4 * sa_factor * (2 * yy_g / W)
