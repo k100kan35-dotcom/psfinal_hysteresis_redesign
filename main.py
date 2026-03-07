@@ -23680,7 +23680,7 @@ class PerssonModelGUI_V2:
             SA < 0 (left turn): wider at +y (loaded side), narrower at -y
             """
             sf = -np.clip(sa_deg_local / 6.0, -1, 1)  # negate to match pressure
-            k = sf * 0.65  # egg asymmetry (0 = ellipse, ±0.65 = strong egg)
+            k = sf * 0.35  # egg asymmetry (0 = ellipse, ±0.35 = moderate egg)
             theta = np.linspace(0, 2 * np.pi, 120)
             cos_t = np.cos(theta)
             sin_t = np.sin(theta)
@@ -24651,7 +24651,7 @@ class PerssonModelGUI_V2:
                 # Fallback: recompute (for old frame data without stored verts)
                 sa_deg = f['SA']
                 sa_factor = -np.clip(sa_deg / 6.0, -1, 1)  # negated to match data
-                k = sa_factor * 0.65  # egg asymmetry
+                k = sa_factor * 0.35  # egg asymmetry
                 theta = np.linspace(0, 2 * np.pi, 120)
                 cos_t = np.cos(theta)
                 sin_t = np.sin(theta)
