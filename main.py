@@ -24652,8 +24652,10 @@ class PerssonModelGUI_V2:
                 sin_t = np.sin(theta)
                 x_base = L_mm / 2 * cos_t
                 y_base = W_mm / 2 * sin_t
-                length_mod = 1.0 + sa_factor * 0.5 * sin_t
-                x_deformed = x_base * np.clip(length_mod, 0.2, None)
+                # Smooth modulation: sqrt(|sin|) rounds the triangle tips
+                sin_smooth = np.sign(sin_t) * np.abs(sin_t) ** 0.5
+                length_mod = 1.0 + sa_factor * 0.4 * sin_smooth
+                x_deformed = x_base * np.clip(length_mod, 0.35, None)
                 x_deformed -= np.mean(x_deformed)
                 new_verts = np.column_stack([x_deformed, y_base])
             for poly in self._br_outline_patches:
