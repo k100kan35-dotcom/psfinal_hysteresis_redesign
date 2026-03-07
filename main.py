@@ -22671,6 +22671,25 @@ class PerssonModelGUI_V2:
         self._brush_play_after_id = None
         self._br_artists_ready = False
 
+        # ── Fy 가이드 ──
+        guide_frame = self._create_section(left_panel,
+            "Fy (코너링 포스) 조절 가이드")
+        guide_text = (
+            "■ Fy 크기 ↑ : Fz↑, kx/ky↑, L↑, W↑, SA 진폭↑\n"
+            "■ Fy 크기 ↓ : Fz↓, kx/ky↓, L↓, W↓, SA 진폭↓\n"
+            "■ 빠른 포화 : kx/ky↑↑ (강성 증가) → 작은 SA에서 포화\n"
+            "■ 느린 포화 : kx/ky↓ (강성 감소) → 큰 SA까지 선형\n"
+            "■ 피크 후 드롭 : D↑ (돌기 직경) → 속도의존 마찰↑\n"
+            "  vc↑도 슬라이딩 속도↑ → 마찰 감소 효과\n"
+            "■ 압력 분포가 dual_peak이면 좌우 비대칭 하중\n"
+            "  전달이 Fy 특성에 영향 (더 현실적)\n"
+            "※ L, W, Fz, kx, ky 변경 후 시뮬레이션 재실행 필요\n"
+            "※ K, n 슬라이더는 아웃라인만 변경 (재실행 불필요)"
+        )
+        ttk.Label(guide_frame, text=guide_text, font=self.FONTS['small'],
+                  foreground='#1565C0', wraplength=380,
+                  justify='left').pack(anchor='w', padx=4, pady=2)
+
         # ── 6) Steering wheel animation in left panel ──
         sec6 = self._create_section(left_panel, "6) 조향 핸들 / 타이어")
         from matplotlib.figure import Figure as _Fig
@@ -23730,7 +23749,8 @@ class PerssonModelGUI_V2:
 
         # Superellipse contact mask (base — used when SA=0)
         _se_n = self._ELLIPSE_POWER
-        ellipse_mask = (np.abs(2 * xx_g / L)**_se_n + np.abs(2 * yy_g / W)**_se_n) <= 1.0
+        se_r = np.abs(2 * xx_g / L)**_se_n + np.abs(2 * yy_g / W)**_se_n
+        ellipse_mask = se_r <= 1.0
 
         # ── Helper: deformed contact mask (rounded triangle) ──
         # At nonzero SA the patch deforms from ellipse toward isosceles
@@ -23751,13 +23771,13 @@ class PerssonModelGUI_V2:
             return mask, verts
 
         # Build base pressure distribution (static, no SA/SR effect)
+        # Use superellipse power _se_n consistently with contact mask boundary
         if ptype == 'uniform':
             p_base = np.ones((Nx, Ny))
         elif ptype == 'elliptic':
-            r2 = (2 * xx_g / L)**2 + (2 * yy_g / W)**2
-            p_base = np.sqrt(np.clip(1 - r2, 0, None))
+            p_base = np.sqrt(np.clip(1 - se_r, 0, None))
         elif ptype == 'dual_peak':
-            lon_env = np.clip(1 - (2 * xx_g / L)**2, 0, None)  # longitudinal envelope
+            lon_env = np.clip(1 - np.abs(2 * xx_g / L)**_se_n, 0, None)
             y_norm = 2 * yy_g / W
             peak_pos = 0.40
             peak_width = 0.45
@@ -23765,18 +23785,18 @@ class PerssonModelGUI_V2:
                       np.exp(-((y_norm - peak_pos) / peak_width)**2)) * lon_env
             p_base *= ellipse_mask
         else:  # parabolic
-            p_base = np.clip(1 - (2 * xx_g / L)**2, 0, None) * \
-                     np.clip(1 - (2 * yy_g / W)**2, 0, None)
+            p_base = np.clip(1 - np.abs(2 * xx_g / L)**_se_n, 0, None) * \
+                     np.clip(1 - np.abs(2 * yy_g / W)**_se_n, 0, None)
 
         # Pre-compute dual-peak components for dynamic SA-dependent asymmetry
         _is_dual_peak = (ptype == 'dual_peak')
         if _is_dual_peak:
-            lon_env_dp = np.clip(1 - (2 * xx_g / L)**2, 0, None)
+            lon_env_dp = np.clip(1 - np.abs(2 * xx_g / L)**_se_n, 0, None)
             y_norm_dp = 2 * yy_g / W
             pk_pos = 0.40
             pk_w = 0.45
-            _peak_high = np.exp(-((y_norm_dp - pk_pos) / pk_w)**2) * lon_env_dp  # +y (high width)
-            _peak_low = np.exp(-((y_norm_dp + pk_pos) / pk_w)**2) * lon_env_dp   # -y (low width)
+            _peak_high = np.exp(-((y_norm_dp - pk_pos) / pk_w)**2) * lon_env_dp
+            _peak_low = np.exp(-((y_norm_dp + pk_pos) / pk_w)**2) * lon_env_dp
 
         def _build_dynamic_pressure(sa_deg, sr_pct, contact_mask=None):
             """Build pressure map that shifts with SA and SR direction.
