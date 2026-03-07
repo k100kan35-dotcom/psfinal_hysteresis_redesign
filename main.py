@@ -25393,21 +25393,25 @@ class PerssonModelGUI_V2:
     # ================================================================
 
     # ================================================================
+
+    # ================================================================
     # ====  Track Simulation (영암 서킷 랩타임 시뮬레이션) Tab  ====
     # ================================================================
 
     def _create_track_simulation_tab(self, parent):
-        """Create Track Simulation tab – Yeongam F1 circuit lap simulation.
+        """Track Simulation tab — Yeongam F1 circuit.
 
-        3-column layout: left controls | center track map | right steering+tire.
-        Uses point-mass model for lap simulation with 120 Hz playback.
+        3-column layout: left controls | center (track map + contour/SA plots) | right (steering + tire).
+        Blit-based 120 Hz playback with fractional accumulator.
+        SA/Fy graph + 5 contour plots update in real-time (exactly like 2D Brush tab).
         """
         import numpy as np
         from matplotlib.figure import Figure as _Fig
         from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg as _FCA
         from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+        from matplotlib.gridspec import GridSpec
 
-        # ── Track data storage ──
+        # ── State ──
         self._track_sim_data = None
         self._track_playing = False
         self._track_frame_idx = 0
@@ -25415,6 +25419,10 @@ class PerssonModelGUI_V2:
         self._ts_tire_rotation_deg = 0.0
         self._ts_road_phase = 0.0
         self._ts_tire_tread_phase = 0.0
+        self._ts_frame_accum = 0.0
+        self._ts_map_blit_bg = None
+        self._ts_contour_blit_bg = None
+        self._ts_use_blit = False
 
         # ===================== 3-column layout =====================
         D = self.DIMS
@@ -25423,12 +25431,12 @@ class PerssonModelGUI_V2:
         main = ttk.Frame(parent)
         main.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
 
-        # ── Left control panel (fixed width, scrollable) ──
+        # ── Left (fixed width, scrollable) ──
         left = ttk.Frame(main, width=D['panel_width'])
         left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 4))
         left.pack_propagate(False)
         self._add_logo_to_panel(left)
-        toolbar = self._create_panel_toolbar(left, buttons=[
+        self._create_panel_toolbar(left, buttons=[
             ("랩 시뮬레이션 실행", self._run_track_simulation, 'Accent.TButton'),
         ])
         scroll_canvas = tk.Canvas(left, highlightthickness=0, bg=C['bg'])
@@ -25464,69 +25472,123 @@ class PerssonModelGUI_V2:
                                       scroll_canvas.unbind_all('<Button-4>'),
                                       scroll_canvas.unbind_all('<Button-5>')))
 
-        # ── Center panel (track map) ──
+        # ── Center (track map top + contour/graph bottom) ──
         center = ttk.Frame(main)
         center.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 4))
 
-        # ── Right panel (steering wheel + tire, fixed width) ──
+        # Use PanedWindow for resizable split
+        center_pane = ttk.PanedWindow(center, orient=tk.VERTICAL)
+        center_pane.pack(fill=tk.BOTH, expand=True)
+
+        # Top: Track Map
+        map_frame = ttk.Frame(center_pane)
+        center_pane.add(map_frame, weight=3)
+
+        self.fig_track = _Fig(figsize=(10, 7), dpi=100, facecolor='#1A1A2E')
+        self.ax_track = self.fig_track.add_axes([0.02, 0.02, 0.96, 0.96])
+        self.ax_track.set_aspect('equal')
+        self.ax_track.axis('off')
+        self.fig_track.patch.set_facecolor('#1A1A2E')
+        self.ax_track.set_facecolor('#1A1A2E')
+        self.canvas_track = _FCA(self.fig_track, map_frame)
+        self.canvas_track.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Bottom: Contour/Graph figure (SA/Fy + 5 contour plots)
+        contour_frame = ttk.Frame(center_pane)
+        center_pane.add(contour_frame, weight=2)
+
+        self._ts_contour_fig = _Fig(figsize=(14, 5), dpi=100)
+        gs_c = GridSpec(2, 20, figure=self._ts_contour_fig,
+                        height_ratios=[1.0, 1.5],
+                        hspace=0.45, wspace=1.2,
+                        left=0.05, right=0.97, top=0.92, bottom=0.08)
+
+        # Row 0: SA vs Fy + Fy vs Distance
+        self._ts_ax_fy_sa = self._ts_contour_fig.add_subplot(gs_c[0, :10])
+        self._ts_ax_fy_sa.set_title('Fy vs Slip Angle', fontsize=9, fontweight='bold')
+        self._ts_ax_fy_sa.set_xlabel('SA [deg]', fontsize=8)
+        self._ts_ax_fy_sa.set_ylabel('Fy [N]', fontsize=8)
+        self._ts_ax_fy_sa.grid(True, alpha=0.3)
+
+        self._ts_ax_fy_dist = self._ts_contour_fig.add_subplot(gs_c[0, 10:])
+        self._ts_ax_fy_dist.set_title('Fy vs Distance', fontsize=9, fontweight='bold')
+        self._ts_ax_fy_dist.set_xlabel('Distance [m]', fontsize=8)
+        self._ts_ax_fy_dist.set_ylabel('Fy [N]', fontsize=8)
+        self._ts_ax_fy_dist.grid(True, alpha=0.3)
+
+        # Row 1: 5 contour plots
+        self._ts_ax_stick = self._ts_contour_fig.add_subplot(gs_c[1, 0:4])
+        self._ts_ax_stick.set_title('Adhesion / Sliding', fontsize=8, fontweight='bold')
+        self._ts_ax_speed = self._ts_contour_fig.add_subplot(gs_c[1, 4:8])
+        self._ts_ax_speed.set_title('Sliding Speed', fontsize=8, fontweight='bold')
+        self._ts_ax_press = self._ts_contour_fig.add_subplot(gs_c[1, 8:12])
+        self._ts_ax_press.set_title('Contact Pressure', fontsize=8, fontweight='bold')
+        self._ts_ax_temp = self._ts_contour_fig.add_subplot(gs_c[1, 12:16])
+        self._ts_ax_temp.set_title('Temperature', fontsize=8, fontweight='bold')
+        self._ts_ax_fric = self._ts_contour_fig.add_subplot(gs_c[1, 16:20])
+        self._ts_ax_fric.set_title('Friction Force', fontsize=8, fontweight='bold')
+
+        self._ts_contour_canvas = _FCA(self._ts_contour_fig, contour_frame)
+        self._ts_contour_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # ── Right (steering + tire, fixed 320px) ──
         right = ttk.Frame(main, width=320)
         right.pack(side=tk.LEFT, fill=tk.Y)
         right.pack_propagate(False)
 
+        ttk.Label(right, text="조향 핸들 / 타이어",
+                  font=self.FONTS['heading']).pack(pady=(4, 2))
+
+        self._ts_steer_fig = _Fig(figsize=(2.8, 2.8), dpi=80, facecolor='#F8FAFC')
+        self._ts_steer_ax = self._ts_steer_fig.add_axes([0.05, 0.05, 0.9, 0.9])
+        self._ts_steer_ax.set_xlim(-1.5, 1.5)
+        self._ts_steer_ax.set_ylim(-1.5, 1.5)
+        self._ts_steer_ax.set_aspect('equal')
+        self._ts_steer_ax.axis('off')
+        self._ts_steer_canvas = _FCA(self._ts_steer_fig, right)
+        self._ts_steer_canvas.get_tk_widget().pack(fill=tk.X, padx=4, pady=2)
+
+        self._ts_tire_fig = _Fig(figsize=(2.8, 3.5), dpi=80, facecolor='#2D2D2D')
+        self._ts_tire_ax = self._ts_tire_fig.add_axes([0.0, 0.0, 1.0, 1.0])
+        self._ts_tire_ax.set_xlim(-3.0, 3.0)
+        self._ts_tire_ax.set_ylim(-4.0, 4.0)
+        self._ts_tire_ax.set_aspect('equal')
+        self._ts_tire_ax.axis('off')
+        self._ts_tire_fig.patch.set_facecolor('#2D2D2D')
+        self._ts_tire_canvas = _FCA(self._ts_tire_fig, right)
+        self._ts_tire_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=4, pady=2)
+
+        self._ts_hud_var = tk.StringVar(value="SA: 0.0°  |  Fy: 0 N")
+        ttk.Label(right, textvariable=self._ts_hud_var,
+                  font=('Consolas', 9), foreground='#0369A1').pack(pady=2)
+
         # ===================== Left Panel Controls =====================
-        # ── 1) 트랙 정보 ──
         sec1 = self._create_section(left_panel, "1) 트랙 정보 – 영암 F1 서킷")
-        info_text = (
+        ttk.Label(sec1, text=(
             "Korean International Circuit (영암)\n"
             "총 길이: 5.615 km  |  18 코너\n"
             "최장 직선: 1.2 km (T2→T3)\n"
-            "최고속도 구간: ~320 km/h\n"
-            "Sector 1: T1-T5 (고속)\n"
-            "Sector 2: T6-T12 (기술 구간)\n"
-            "Sector 3: T13-T18 (중속 굴곡)"
-        )
-        ttk.Label(sec1, text=info_text, font=self.FONTS['small'],
-                  foreground='#1565C0', justify='left').pack(anchor='w', padx=4, pady=2)
+            "최고속도 구간: ~320 km/h"),
+            font=self.FONTS['small'], foreground='#1565C0',
+            justify='left').pack(anchor='w', padx=4, pady=2)
 
-        # ── 2) 차량 파라미터 ──
         sec2 = self._create_section(left_panel, "2) 차량 파라미터")
-
-        row = ttk.Frame(sec2); row.pack(fill=tk.X, pady=1)
-        ttk.Label(row, text="차량 질량 m:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.ts_mass_var = tk.StringVar(value="720")
-        ttk.Entry(row, textvariable=self.ts_mass_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row, text="kg", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
-
-        row = ttk.Frame(sec2); row.pack(fill=tk.X, pady=1)
-        ttk.Label(row, text="최대 엔진 출력:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.ts_power_var = tk.StringVar(value="750")
-        ttk.Entry(row, textvariable=self.ts_power_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row, text="hp", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
-
-        row = ttk.Frame(sec2); row.pack(fill=tk.X, pady=1)
-        ttk.Label(row, text="Cd·A (공기저항):", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.ts_cda_var = tk.StringVar(value="1.2")
-        ttk.Entry(row, textvariable=self.ts_cda_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row, text="m²", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
-
-        row = ttk.Frame(sec2); row.pack(fill=tk.X, pady=1)
-        ttk.Label(row, text="다운포스 Cl·A:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.ts_cla_var = tk.StringVar(value="3.5")
-        ttk.Entry(row, textvariable=self.ts_cla_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row, text="m²", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
-
-        row = ttk.Frame(sec2); row.pack(fill=tk.X, pady=1)
-        ttk.Label(row, text="타이어 마찰 계수 μ:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.ts_mu_var = tk.StringVar(value="1.5")
-        ttk.Entry(row, textvariable=self.ts_mu_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row, text="(Brush 탭 연동)", font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT)
-
-        row = ttk.Frame(sec2); row.pack(fill=tk.X, pady=1)
-        ttk.Label(row, text="브레이크 감속 max:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.ts_brake_g_var = tk.StringVar(value="5.0")
-        ttk.Entry(row, textvariable=self.ts_brake_g_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row, text="g", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+        for label, var_name, default, unit in [
+            ("차량 질량 m:", 'ts_mass_var', "720", "kg"),
+            ("최대 엔진 출력:", 'ts_power_var', "750", "hp"),
+            ("Cd·A (공기저항):", 'ts_cda_var', "1.2", "m²"),
+            ("다운포스 Cl·A:", 'ts_cla_var', "3.5", "m²"),
+            ("타이어 마찰 μ:", 'ts_mu_var', "1.5", ""),
+            ("브레이크 감속:", 'ts_brake_g_var', "5.0", "g"),
+        ]:
+            row = ttk.Frame(sec2); row.pack(fill=tk.X, pady=1)
+            ttk.Label(row, text=label, font=self.FONTS['body']).pack(side=tk.LEFT)
+            var = tk.StringVar(value=default)
+            setattr(self, var_name, var)
+            ttk.Entry(row, textvariable=var, width=8).pack(side=tk.LEFT, padx=2)
+            if unit:
+                ttk.Label(row, text=unit, font=self.FONTS['small'],
+                          foreground='#64748B').pack(side=tk.LEFT)
 
         sync_row = ttk.Frame(sec2); sync_row.pack(fill=tk.X, pady=2)
         ttk.Button(sync_row, text="Brush 탭 μ 동기화",
@@ -25535,9 +25597,7 @@ class PerssonModelGUI_V2:
         ttk.Label(sync_row, textvariable=self.ts_sync_label,
                   font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=4)
 
-        # ── 3) 실행 & 재생 ──
         sec3 = self._create_section(left_panel, "3) 실행 & 재생")
-
         calc_row = ttk.Frame(sec3); calc_row.pack(fill=tk.X, pady=2)
         self.ts_run_btn = ttk.Button(calc_row, text="▶ 랩 시뮬레이션 실행",
                                       command=self._run_track_simulation, width=22,
@@ -25549,15 +25609,9 @@ class PerssonModelGUI_V2:
         self.ts_progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
 
         play_row = ttk.Frame(sec3); play_row.pack(fill=tk.X, pady=4)
-        self.ts_play_btn = ttk.Button(play_row, text="▶", width=3,
-                                       command=self._track_play)
-        self.ts_play_btn.pack(side=tk.LEFT, padx=1)
-        self.ts_pause_btn = ttk.Button(play_row, text="⏸", width=3,
-                                        command=self._track_pause)
-        self.ts_pause_btn.pack(side=tk.LEFT, padx=1)
-        self.ts_reset_btn = ttk.Button(play_row, text="⏮", width=3,
-                                        command=self._track_reset)
-        self.ts_reset_btn.pack(side=tk.LEFT, padx=1)
+        for text, cmd in [("▶", self._track_play), ("⏸", self._track_pause),
+                          ("⏮", self._track_reset)]:
+            ttk.Button(play_row, text=text, width=3, command=cmd).pack(side=tk.LEFT, padx=1)
 
         self.ts_frame_label_var = tk.StringVar(value="t = 0.00 s  |  0 km/h")
         ttk.Label(play_row, textvariable=self.ts_frame_label_var,
@@ -25568,11 +25622,10 @@ class PerssonModelGUI_V2:
         ttk.Label(speed_row, textvariable=self._ts_speed_label_var,
                   font=self.FONTS['small']).pack(side=tk.LEFT, padx=4)
         self._ts_speed_mult = tk.DoubleVar(value=2.0)
-        self._ts_speed_slider = ttk.Scale(
-            speed_row, from_=0.5, to=10.0,
-            orient='horizontal', variable=self._ts_speed_mult,
-            command=self._on_track_speed_slider)
-        self._ts_speed_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+        ttk.Scale(speed_row, from_=0.5, to=10.0, orient='horizontal',
+                  variable=self._ts_speed_mult,
+                  command=self._on_track_speed_slider
+                  ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
 
         slider_row = ttk.Frame(sec3); slider_row.pack(fill=tk.X, pady=2)
         self.ts_time_slider = ttk.Scale(slider_row, from_=0, to=100,
@@ -25580,93 +25633,18 @@ class PerssonModelGUI_V2:
                                          command=self._on_track_slider_change)
         self.ts_time_slider.pack(fill=tk.X, padx=4)
 
-        # ── 4) 결과 요약 ──
         sec4 = self._create_section(left_panel, "4) 랩타임 결과")
         self.ts_result_text = tk.Text(sec4, height=12, font=('Consolas', 9),
                                        bg='#F8FAFC', relief='flat', wrap='word',
                                        state='disabled')
         self.ts_result_text.pack(fill=tk.X, padx=4, pady=2)
 
-        # ===================== Center: Track Map + Telemetry =====================
-        self.ts_center_notebook = ttk.Notebook(center)
-        self.ts_center_notebook.pack(fill=tk.BOTH, expand=True)
-
-        map_tab = ttk.Frame(self.ts_center_notebook)
-        self.ts_center_notebook.add(map_tab, text='  트랙 맵  ')
-
-        self.fig_track = _Fig(figsize=(10, 8), dpi=100, facecolor='#1A1A2E')
-        self.ax_track = self.fig_track.add_axes([0.02, 0.02, 0.96, 0.96])
-        self.ax_track.set_aspect('equal')
-        self.ax_track.axis('off')
-        self.fig_track.patch.set_facecolor('#1A1A2E')
-        self.ax_track.set_facecolor('#1A1A2E')
-        self.canvas_track = _FCA(self.fig_track, map_tab)
-        self.canvas_track.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        toolbar_track = NavigationToolbar2Tk(self.canvas_track, map_tab)
-        toolbar_track.update()
-
-        telem_tab = ttk.Frame(self.ts_center_notebook)
-        self.ts_center_notebook.add(telem_tab, text='  텔레메트리  ')
-
-        from matplotlib.gridspec import GridSpec
-        self.fig_telem = _Fig(figsize=(12, 8), dpi=100)
-        gs = GridSpec(4, 1, figure=self.fig_telem, hspace=0.35,
-                      left=0.08, right=0.95, top=0.95, bottom=0.06)
-        self.ax_telem_speed = self.fig_telem.add_subplot(gs[0])
-        self.ax_telem_speed.set_ylabel('Speed [km/h]', fontsize=9)
-        self.ax_telem_speed.set_title('Lap Telemetry – 영암 서킷', fontsize=11, fontweight='bold')
-        self.ax_telem_speed.grid(True, alpha=0.3)
-        self.ax_telem_accel = self.fig_telem.add_subplot(gs[1], sharex=self.ax_telem_speed)
-        self.ax_telem_accel.set_ylabel('Accel [g]', fontsize=9)
-        self.ax_telem_accel.grid(True, alpha=0.3)
-        self.ax_telem_brake = self.fig_telem.add_subplot(gs[2], sharex=self.ax_telem_speed)
-        self.ax_telem_brake.set_ylabel('Throttle / Brake', fontsize=9)
-        self.ax_telem_brake.grid(True, alpha=0.3)
-        self.ax_telem_gear = self.fig_telem.add_subplot(gs[3], sharex=self.ax_telem_speed)
-        self.ax_telem_gear.set_xlabel('Distance [m]', fontsize=9)
-        self.ax_telem_gear.set_ylabel('Sector', fontsize=9)
-        self.ax_telem_gear.grid(True, alpha=0.3)
-        self.canvas_telem = _FCA(self.fig_telem, telem_tab)
-        self.canvas_telem.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        toolbar_telem = NavigationToolbar2Tk(self.canvas_telem, telem_tab)
-        toolbar_telem.update()
-
-        # ===================== Right: Steering Wheel + Tire =====================
-        ttk.Label(right, text="조향 핸들 / 타이어",
-                  font=self.FONTS['heading']).pack(pady=(4, 2))
-
-        # Steering wheel figure
-        self._ts_steer_fig = _Fig(figsize=(2.8, 2.8), dpi=80, facecolor='#F8FAFC')
-        self._ts_steer_ax = self._ts_steer_fig.add_axes([0.05, 0.05, 0.9, 0.9])
-        self._ts_steer_ax.set_xlim(-1.5, 1.5)
-        self._ts_steer_ax.set_ylim(-1.5, 1.5)
-        self._ts_steer_ax.set_aspect('equal')
-        self._ts_steer_ax.axis('off')
-        self._ts_steer_canvas = _FCA(self._ts_steer_fig, right)
-        self._ts_steer_canvas.get_tk_widget().pack(fill=tk.X, padx=4, pady=2)
-
-        # Tire / racing view figure
-        self._ts_tire_fig = _Fig(figsize=(2.8, 4.0), dpi=80, facecolor='#2D2D2D')
-        self._ts_tire_ax = self._ts_tire_fig.add_axes([0.0, 0.0, 1.0, 1.0])
-        self._ts_tire_ax.set_xlim(-3.0, 3.0)
-        self._ts_tire_ax.set_ylim(-4.0, 4.0)
-        self._ts_tire_ax.set_aspect('equal')
-        self._ts_tire_ax.axis('off')
-        self._ts_tire_fig.patch.set_facecolor('#2D2D2D')
-        self._ts_tire_canvas = _FCA(self._ts_tire_fig, right)
-        self._ts_tire_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=4, pady=2)
-
-        # HUD labels on right panel
-        self._ts_hud_var = tk.StringVar(value="SA: 0.0°  |  Fy: 0 N")
-        ttk.Label(right, textvariable=self._ts_hud_var,
-                  font=('Consolas', 9), foreground='#0369A1').pack(pady=2)
-
         # Initialize steering wheel and tire
         self._init_track_steering_wheel()
         self._init_track_tire_animation()
 
         # Draw initial empty track
-        self._draw_yeongam_track()
+        self._draw_yeongam_track_static()
 
     # ── Yeongam circuit track geometry (accurate) ──
     def _get_yeongam_track_points(self):
@@ -25678,310 +25656,147 @@ class PerssonModelGUI_V2:
         import numpy as np
         from scipy.interpolate import CubicSpline
 
-        # Control points tracing the Yeongam circuit (x=right, y=up)
-        # Carefully matched to the official track layout image
         ctrl = np.array([
-            # ── Start/Finish (bottom center) → T1 (going right) ──
-            [550, 115],
-            [590, 112],
-            [630, 105],
-            [670, 92],
-            [710, 75],
-            # ── T1 (medium right, curving south-east) ──
-            [740, 60],
-            [762, 48],
-            [782, 42],
-            # ── T1→T2 (going far right) ──
-            [802, 42],
-            [818, 55],
-            # ── T2 (tight left hairpin at far right) ──
-            [830, 78],
-            [832, 105],    # rightmost point
-            [825, 132],
-            [810, 155],
-            # ── Long straight T2→T3 (diagonal upper-left, 1.2 km) ──
-            [785, 185],
-            [750, 225],
-            [710, 270],
-            [665, 320],
-            [620, 370],
-            [575, 415],
-            [530, 455],
-            [490, 485],
-            # ── T3 (hairpin left) ──
-            [450, 502],
-            [415, 510],
-            [390, 518],
-            [378, 535],
-            # ── T3→T4 (heading right to upper area) ──
-            [392, 545],
-            [420, 548],
-            [460, 548],
-            [510, 546],
-            [560, 543],
-            [610, 540],
-            # ── T4 (fast right) ──
-            [650, 540],
-            [675, 545],
-            [688, 555],
-            # ── T5 (medium right) ──
-            [685, 572],
-            [678, 585],
-            # ── T5→T6 (upper-right corner) ──
-            [680, 605],
-            [688, 628],
-            # ── T6 (top-right corner) ──
-            [695, 650],
-            [690, 668],
-            [678, 678],
-            # ── T6→T7 (heading left along top) ──
-            [655, 680],
-            [625, 676],
-            [585, 670],
-            [545, 665],
-            [505, 660],
-            # ── T7 (right, medium) ──
-            [472, 658],
-            [448, 660],
-            # ── T7→T8 (continuing left) ──
-            [420, 665],
-            [388, 672],
-            [358, 678],
-            # ── T8 (right, long radius) ──
-            [330, 682],
-            [305, 682],
-            [282, 675],
-            # ── T8→T9 (turning down-left) ──
-            [262, 662],
-            [248, 645],
-            [238, 625],
-            # ── T9 (left, medium) ──
-            [232, 605],
-            [230, 582],
-            # ── T9→T10 ──
-            [238, 558],
-            [255, 535],
-            [275, 518],
-            # ── T10 (right, braking) ──
-            [290, 502],
-            [288, 485],
-            # ── T10→T11 (heading far left) ──
-            [272, 468],
-            [248, 452],
-            [215, 438],
-            [175, 420],
-            [132, 402],
-            [95, 388],
-            # ── T11 (left technical, far left) ──
-            [62, 375],
-            [48, 362],    # leftmost
-            [48, 345],
-            # ── T11→T12 (going down) ──
-            [60, 328],
-            [80, 312],
-            [102, 298],
-            # ── T12 (right, slow) ──
-            [125, 288],
-            [142, 275],
-            [152, 260],
-            # ── T12→T13 ──
-            [162, 245],
-            [172, 228],
-            # ── T13 (left, slow) ──
-            [180, 212],
-            [185, 195],
-            # ── T13→T14 ──
-            [198, 180],
-            [218, 168],
-            # ── T14 (right, medium) ──
-            [242, 158],
-            [262, 148],
-            # ── T14→T15 ──
-            [280, 135],
-            [295, 120],
-            # ── T15 (left, S-sequence) ──
-            [305, 108],
-            [312, 98],
-            # ── T15→T16 ──
-            [320, 95],
-            [332, 98],
-            # ── T16 (right, throttle modulation) ──
-            [345, 106],
-            [362, 115],
-            # ── T16→T17 ──
-            [382, 120],
-            [400, 124],
-            # ── T17 (left, exit) ──
-            [418, 125],
-            [438, 122],
-            # ── T17→T18→Start ──
-            [458, 120],
-            [478, 118],
-            # ── T18 (right, main straight entry) ──
-            [498, 117],
-            [520, 116],
-            # back to start
+            [550, 115], [590, 112], [630, 105], [670, 92], [710, 75],
+            [740, 60], [762, 48], [782, 42],
+            [802, 42], [818, 55],
+            [830, 78], [832, 105], [825, 132], [810, 155],
+            [785, 185], [750, 225], [710, 270], [665, 320],
+            [620, 370], [575, 415], [530, 455], [490, 485],
+            [450, 502], [415, 510], [390, 518], [378, 535],
+            [392, 545], [420, 548], [460, 548], [510, 546], [560, 543], [610, 540],
+            [650, 540], [675, 545], [688, 555],
+            [685, 572], [678, 585],
+            [680, 605], [688, 628],
+            [695, 650], [690, 668], [678, 678],
+            [655, 680], [625, 676], [585, 670], [545, 665], [505, 660],
+            [472, 658], [448, 660],
+            [420, 665], [388, 672], [358, 678],
+            [330, 682], [305, 682], [282, 675],
+            [262, 662], [248, 645], [238, 625],
+            [232, 605], [230, 582],
+            [238, 558], [255, 535], [275, 518],
+            [290, 502], [288, 485],
+            [272, 468], [248, 452], [215, 438], [175, 420], [132, 402], [95, 388],
+            [62, 375], [48, 362], [48, 345],
+            [60, 328], [80, 312], [102, 298],
+            [125, 288], [142, 275], [152, 260],
+            [162, 245], [172, 228],
+            [180, 212], [185, 195],
+            [198, 180], [218, 168],
+            [242, 158], [262, 148],
+            [280, 135], [295, 120],
+            [305, 108], [312, 98],
+            [320, 95], [332, 98],
+            [345, 106], [362, 115],
+            [382, 120], [400, 124],
+            [418, 125], [438, 122],
+            [458, 120], [478, 118],
+            [498, 117], [520, 116],
         ], dtype=float)
 
-        # Close the loop: append first point for periodic spline
+        # Close the loop
         ctrl = np.vstack([ctrl, ctrl[0]])
-        ctrl_x = ctrl[:, 0]
-        ctrl_y = ctrl[:, 1]
+        ctrl_x, ctrl_y = ctrl[:, 0], ctrl[:, 1]
         n_ctrl = len(ctrl_x)
-
-        # Parametric spline (periodic = closed loop)
         t_ctrl = np.linspace(0, 1, n_ctrl)
         n_points = 2000
 
         cs_x = CubicSpline(t_ctrl, ctrl_x, bc_type='periodic')
         cs_y = CubicSpline(t_ctrl, ctrl_y, bc_type='periodic')
-
         t_fine = np.linspace(0, 1, n_points, endpoint=False)
         track_x = cs_x(t_fine)
         track_y = cs_y(t_fine)
 
-        # Cumulative distance
-        dx = np.diff(track_x)
-        dy = np.diff(track_y)
+        dx = np.diff(track_x); dy = np.diff(track_y)
         ds = np.sqrt(dx**2 + dy**2)
         cumul_dist = np.concatenate([[0], np.cumsum(ds)])
 
-        # Scale to 5615 m
-        total_raw = cumul_dist[-1]
-        scale = 5615.0 / total_raw
-        track_x *= scale
-        track_y *= scale
-        cumul_dist *= scale
+        scale = 5615.0 / cumul_dist[-1]
+        track_x *= scale; track_y *= scale; cumul_dist *= scale
 
-        # Turn apex positions (fractional along track)
         turn_fracs = np.array([
-            0.045,  # T1
-            0.085,  # T2
-            0.195,  # T3  (after long straight)
-            0.280,  # T4
-            0.310,  # T5
-            0.355,  # T6
-            0.415,  # T7
-            0.455,  # T8
-            0.500,  # T9
-            0.535,  # T10
-            0.595,  # T11
-            0.640,  # T12
-            0.685,  # T13
-            0.730,  # T14
-            0.775,  # T15
-            0.810,  # T16
-            0.855,  # T17
-            0.900,  # T18
-        ])
+            0.045, 0.085, 0.195, 0.280, 0.310, 0.355, 0.415, 0.455,
+            0.500, 0.535, 0.595, 0.640, 0.685, 0.730, 0.775, 0.810, 0.855, 0.900])
         turn_indices = (turn_fracs * (n_points - 1)).astype(int)
 
-        # Compute signed curvature (for steering direction)
-        dx_g = np.gradient(track_x)
-        dy_g = np.gradient(track_y)
-        ddx_g = np.gradient(dx_g)
-        ddy_g = np.gradient(dy_g)
+        dx_g = np.gradient(track_x); dy_g = np.gradient(track_y)
+        ddx_g = np.gradient(dx_g); ddy_g = np.gradient(dy_g)
         signed_curv = (dx_g * ddy_g - dy_g * ddx_g) / (dx_g**2 + dy_g**2)**1.5
 
         return {
-            'x': track_x, 'y': track_y,
-            'dist': cumul_dist,
-            'n_points': n_points,
-            'total_length': 5615.0,
-            'turn_fractions': turn_fracs,
-            'turn_indices': turn_indices,
+            'x': track_x, 'y': track_y, 'dist': cumul_dist,
+            'n_points': n_points, 'total_length': 5615.0,
+            'turn_fractions': turn_fracs, 'turn_indices': turn_indices,
             'signed_curvature': signed_curv,
         }
 
     def _get_turn_speed_limits(self):
-        """Target cornering speed for each turn (km/h)."""
-        return {
-            1: 160, 2: 140, 3: 75, 4: 220, 5: 180,
-            6: 195, 7: 170, 8: 190, 9: 155, 10: 120,
-            11: 100, 12: 90, 13: 85, 14: 135, 15: 110,
-            16: 125, 17: 115, 18: 150,
-        }
+        return {1: 160, 2: 140, 3: 75, 4: 220, 5: 180, 6: 195, 7: 170,
+                8: 190, 9: 155, 10: 120, 11: 100, 12: 90, 13: 85,
+                14: 135, 15: 110, 16: 125, 17: 115, 18: 150}
 
-    def _draw_yeongam_track(self):
-        """Draw Yeongam circuit on the track map axis."""
+    # ── Draw static track + setup blit ──
+    def _draw_yeongam_track_static(self):
+        """Draw all static track elements and create dynamic blit artists."""
         import numpy as np
 
         ax = self.ax_track
         ax.clear()
-        ax.set_facecolor('#1A1A2E')
-        ax.axis('off')
+        ax.set_facecolor('#1A1A2E'); ax.axis('off')
 
         try:
             track = self._get_yeongam_track_points()
         except Exception as e:
-            ax.text(0.5, 0.5, f"트랙 데이터 생성 오류:\n{e}",
-                    transform=ax.transAxes, ha='center', va='center',
-                    color='white', fontsize=12)
+            ax.text(0.5, 0.5, f"트랙 오류: {e}", transform=ax.transAxes,
+                    ha='center', va='center', color='white', fontsize=12)
             self.canvas_track.draw_idle()
             return
 
+        self._ts_track_cache = track
         tx, ty = track['x'], track['y']
         n = track['n_points']
 
-        # Track road surface (wide grey)
-        ax.plot(tx, ty, color='#404060', linewidth=22, solid_capstyle='round', zorder=1)
-        # Centerline
-        ax.plot(tx, ty, color='#606090', linewidth=1.0, linestyle='--', alpha=0.4, zorder=2)
+        # Static road surface
+        ax.plot(tx, ty, color='#404060', linewidth=22,
+                solid_capstyle='round', zorder=1)
 
         # Sector coloring
-        s1_end = int(0.32 * n)
-        s2_end = int(0.62 * n)
-        # Sector 1 (고속) - yellow/gold
-        ax.plot(tx[:s1_end], ty[:s1_end], color='#FFD700', linewidth=7, alpha=0.8, zorder=2)
-        # Sector 2 (기술) - red
-        ax.plot(tx[s1_end:s2_end], ty[s1_end:s2_end], color='#DC3545', linewidth=7, alpha=0.8, zorder=2)
-        # Sector 3 (중속 굴곡) - green
-        ax.plot(tx[s2_end:], ty[s2_end:], color='#28A745', linewidth=7, alpha=0.8, zorder=2)
+        s1e, s2e = int(0.32 * n), int(0.62 * n)
+        ax.plot(tx[:s1e], ty[:s1e], color='#FFD700', lw=7, alpha=0.8, zorder=2)
+        ax.plot(tx[s1e:s2e], ty[s1e:s2e], color='#DC3545', lw=7, alpha=0.8, zorder=2)
+        ax.plot(tx[s2e:], ty[s2e:], color='#28A745', lw=7, alpha=0.8, zorder=2)
 
         # Turn markers
-        turn_idx = track['turn_indices']
-        for i, idx in enumerate(turn_idx):
-            tn = i + 1
-            ax.plot(tx[idx], ty[idx], 'o', color='white', markersize=7,
+        for i, idx in enumerate(track['turn_indices']):
+            ax.plot(tx[idx], ty[idx], 'o', color='white', markersize=6,
                     markeredgecolor='#333', markeredgewidth=1, zorder=5)
-            # Smart label offset based on track direction
-            next_i = min(idx + 30, n - 1)
-            dx = tx[next_i] - tx[idx]
-            dy = ty[next_i] - ty[idx]
-            length = np.sqrt(dx**2 + dy**2)
-            if length > 0:
-                # Perpendicular offset (to the outside of the turn)
-                nx, ny = -dy / length, dx / length
+            ni = min(idx + 30, n - 1)
+            dx = tx[ni] - tx[idx]; dy = ty[ni] - ty[idx]
+            le = np.sqrt(dx**2 + dy**2)
+            if le > 0:
+                nx_v, ny_v = -dy / le, dx / le
             else:
-                nx, ny = 0, 1
-            ox = nx * 22 + 5
-            oy = ny * 22 + 5
-            ax.annotate(f'{tn:02d}', (tx[idx], ty[idx]),
-                        xytext=(ox, oy), textcoords='offset points',
-                        color='white', fontsize=8, fontweight='bold',
-                        arrowprops=dict(arrowstyle='-', color='#FFFFFF60', lw=0.5),
-                        zorder=6)
+                nx_v, ny_v = 0, 1
+            ax.annotate(f'{i+1:02d}', (tx[idx], ty[idx]),
+                        xytext=(nx_v * 22 + 5, ny_v * 22 + 5),
+                        textcoords='offset points', color='white',
+                        fontsize=8, fontweight='bold', zorder=6)
 
-        # Start/Finish markers
-        ax.plot(tx[0], ty[0], 'o', color='#FFD700', markersize=16,
+        # Start/Finish
+        ax.plot(tx[0], ty[0], 'o', color='#FFD700', markersize=14,
                 markeredgecolor='white', markeredgewidth=2, zorder=7)
-        ax.annotate('Start', (tx[0], ty[0]),
-                    xytext=(15, -25), textcoords='offset points',
-                    color='#FFD700', fontsize=10, fontweight='bold', zorder=7)
-        # Finish (same as start for circuit)
-        ax.annotate('Finish', (tx[0], ty[0]),
-                    xytext=(-55, 15), textcoords='offset points',
-                    color='#00FF88', fontsize=10, fontweight='bold', zorder=7)
+        ax.annotate('Start', (tx[0], ty[0]), xytext=(15, -22),
+                    textcoords='offset points', color='#FFD700',
+                    fontsize=10, fontweight='bold', zorder=7)
 
-        # Direction arrows along track
-        arrow_positions = [0.15, 0.35, 0.55, 0.75, 0.92]
-        for frac in arrow_positions:
+        # Direction arrows
+        for frac in [0.15, 0.35, 0.55, 0.75, 0.92]:
             ai = int(frac * n) % n
             ni = (ai + 20) % n
             ax.annotate('', xy=(tx[ni], ty[ni]), xytext=(tx[ai], ty[ai]),
-                        arrowprops=dict(arrowstyle='->', color='#FFFFFFAA', lw=2,
-                                        mutation_scale=18),
-                        zorder=4)
+                        arrowprops=dict(arrowstyle='->', color='#FFFFFFAA',
+                                        lw=2, mutation_scale=18), zorder=4)
 
         ax.set_title('Korean International Circuit – 영암 (5.615 km)',
                       color='white', fontsize=13, fontweight='bold', pad=10)
@@ -25997,264 +25812,255 @@ class PerssonModelGUI_V2:
 
         ax.set_xlim(min(tx) - 60, max(tx) + 60)
         ax.set_ylim(min(ty) - 60, max(ty) + 60)
-        self.canvas_track.draw_idle()
 
-    # ── Steering wheel for Track Sim tab ──
-    def _init_track_steering_wheel(self):
-        """Draw steering wheel in the track sim right panel."""
-        from matplotlib.patches import Polygon as MplPoly
-        ax = self._ts_steer_ax
-        ax.clear()
-        ax.set_xlim(-1.5, 1.5); ax.set_ylim(-1.5, 1.5)
-        ax.set_aspect('equal'); ax.axis('off')
-        ax.set_facecolor('#F8FAFC')
+        # ── Dynamic artists for blit ──
+        from matplotlib.collections import LineCollection
 
-        theta = np.linspace(0, 2 * np.pi, 100)
-        self._ts_sw_outer, = ax.plot(np.cos(theta), np.sin(theta),
-                                      '-', color='#333', lw=6, zorder=2)
-        self._ts_sw_inner, = ax.plot(0.3 * np.cos(theta), 0.3 * np.sin(theta),
-                                      '-', color='#555', lw=2, zorder=2)
-        ax.plot(0, 0, 'o', color='#333', markersize=7, zorder=3)
+        # Car marker
+        self._ts_car_dot, = ax.plot([], [], 'o', color='#FF0000', markersize=14,
+                                     markeredgecolor='white', markeredgewidth=2,
+                                     zorder=10)
+        # Car direction arrow head
+        self._ts_car_arrow, = ax.plot([], [], marker=(3, 0, 0), color='#FF0000',
+                                       markersize=12, linestyle='', zorder=11)
 
-        self._ts_sw_spokes = []
-        for base_a in [np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]:
-            sp, = ax.plot([0, 0.85 * np.cos(base_a)],
-                          [0, 0.85 * np.sin(base_a)],
-                          '-', color='#333', lw=3.5, zorder=2)
-            self._ts_sw_spokes.append(sp)
+        # Trail (LineCollection with alpha gradient)
+        self._ts_trail_len = 80
+        empty_segs = np.zeros((self._ts_trail_len, 2, 2))
+        empty_colors = np.zeros((self._ts_trail_len, 4))
+        self._ts_trail_lc = LineCollection(empty_segs, colors=empty_colors,
+                                            linewidths=3, zorder=8)
+        ax.add_collection(self._ts_trail_lc)
 
-        self._ts_sw_hands = []
-        for ha_deg in [140, 40]:
-            ha_rad = np.radians(ha_deg)
-            hcx, hcy = np.cos(ha_rad), np.sin(ha_rad)
-            tang = ha_rad + np.pi / 2
-            hw, hh = 0.18, 0.12
-            t_h = np.linspace(0, 2 * np.pi, 16)
-            hx = hw * np.cos(t_h); hy = hh * np.sin(t_h)
-            rx = hx * np.cos(tang) - hy * np.sin(tang) + hcx
-            ry = hx * np.sin(tang) + hy * np.cos(tang) + hcy
-            p = MplPoly(np.column_stack([rx, ry]), closed=True,
-                        facecolor='#FFD4A0', edgecolor='#CC8844', lw=1.2, zorder=4)
-            ax.add_patch(p)
-            self._ts_sw_hands.append(p)
-            for fi in range(-1, 2):
-                fang = ha_rad + fi * 0.12
-                dot, = ax.plot(1.12 * np.cos(fang), 1.12 * np.sin(fang), 'o',
-                               color='#FFD4A0', markersize=3.5,
-                               markeredgecolor='#CC8844', markeredgewidth=0.6, zorder=4)
-                self._ts_sw_hands.append(dot)
+        # HUD text
+        self._ts_hud_speed = ax.text(
+            0.02, 0.98, '', transform=ax.transAxes, fontsize=11,
+            fontweight='bold', color='#00FF88', family='monospace', va='top',
+            bbox=dict(boxstyle='round,pad=0.5', facecolor='#000000CC',
+                      edgecolor='#00FF88', lw=1), zorder=15)
+        self._ts_hud_lap = ax.text(
+            0.98, 0.98, '', transform=ax.transAxes, fontsize=14,
+            fontweight='bold', color='#FFD700', family='monospace',
+            ha='right', va='top',
+            bbox=dict(boxstyle='round,pad=0.4', facecolor='#000000CC',
+                      edgecolor='#FFD700', lw=1), zorder=15)
 
-        self._ts_sw_arc, = ax.plot([], [], '-', color='#FF6600', lw=3, alpha=0.8, zorder=5)
-        self._ts_sw_sa_label = ax.text(0, -1.35, 'SA=0.0°', fontsize=11,
-                                        ha='center', va='top', fontweight='bold', zorder=6)
-        self._ts_sw_L = ax.text(-1.35, 0, 'L', fontsize=14, ha='center', va='center',
-                                 fontweight='bold', color='#BBB', zorder=6)
-        self._ts_sw_R = ax.text(1.35, 0, 'R', fontsize=14, ha='center', va='center',
-                                 fontweight='bold', color='#BBB', zorder=6)
-        self._ts_sw_base_angles = [np.radians(140), np.radians(40)]
-        self._ts_steer_canvas.draw()
+        # Collect dynamic artists
+        self._ts_map_dynamic = [
+            self._ts_car_dot, self._ts_car_arrow, self._ts_trail_lc,
+            self._ts_hud_speed, self._ts_hud_lap,
+        ]
 
-    def _update_track_steering_wheel(self, sa_deg):
-        """Update track-sim steering wheel rotation."""
-        steer_rad = -np.radians(sa_deg)
-        for i, base_a in enumerate([np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]):
-            a = base_a + steer_rad
-            self._ts_sw_spokes[i].set_data([0, 0.85 * np.cos(a)],
-                                            [0, 0.85 * np.sin(a)])
-        # Hands
-        hand_idx = 0
-        for hi, base_ha in enumerate(self._ts_sw_base_angles):
-            ha_rad = base_ha + steer_rad
-            hcx, hcy = np.cos(ha_rad), np.sin(ha_rad)
-            tang = ha_rad + np.pi / 2
-            hw, hh = 0.18, 0.12
-            t_h = np.linspace(0, 2 * np.pi, 16)
-            hx = hw * np.cos(t_h); hy = hh * np.sin(t_h)
-            rx = hx * np.cos(tang) - hy * np.sin(tang) + hcx
-            ry = hx * np.sin(tang) + hy * np.cos(tang) + hcy
-            self._ts_sw_hands[hand_idx].set_xy(np.column_stack([rx, ry]))
-            hand_idx += 1
-            for fi in range(-1, 2):
-                fang = ha_rad + fi * 0.12
-                self._ts_sw_hands[hand_idx].set_data(
-                    [1.12 * np.cos(fang)], [1.12 * np.sin(fang)])
-                hand_idx += 1
+        # Cache blit background (hide dynamic artists → draw → cache → show)
+        for a in self._ts_map_dynamic:
+            a.set_visible(False)
+        self.canvas_track.draw()
+        self._ts_map_blit_bg = self.canvas_track.copy_from_bbox(
+            self.fig_track.bbox)
+        for a in self._ts_map_dynamic:
+            a.set_visible(True)
 
-        self._ts_sw_sa_label.set_text(f'SA={sa_deg:+.1f}°')
-        if abs(sa_deg) > 0.2:
-            arc_r = 0.55
-            t_arc = np.linspace(np.pi / 2, np.pi / 2 + steer_rad, 30)
-            self._ts_sw_arc.set_data(arc_r * np.cos(t_arc), arc_r * np.sin(t_arc))
-            self._ts_sw_arc.set_color('#F44336' if sa_deg > 0 else '#2196F3')
-            self._ts_sw_arc.set_visible(True)
-        else:
-            self._ts_sw_arc.set_visible(False)
+    # ── Pre-compute simplified brush model data ──
+    def _compute_track_brush_data(self, sa_arr, v_arr, Fz_arr, mu):
+        """Vectorized brush model for all track points.
 
-        if sa_deg > 0.5:
-            self._ts_sw_R.set_color('#F44336'); self._ts_sw_R.set_fontsize(16)
-            self._ts_sw_L.set_color('#CCC'); self._ts_sw_L.set_fontsize(14)
-        elif sa_deg < -0.5:
-            self._ts_sw_L.set_color('#2196F3'); self._ts_sw_L.set_fontsize(16)
-            self._ts_sw_R.set_color('#CCC'); self._ts_sw_R.set_fontsize(14)
-        else:
-            self._ts_sw_L.set_color('#BBB'); self._ts_sw_L.set_fontsize(14)
-            self._ts_sw_R.set_color('#BBB'); self._ts_sw_R.set_fontsize(14)
-        self._ts_steer_canvas.draw_idle()
+        Returns dict of (n, nx, ny) arrays for contour plot display.
+        """
+        import numpy as np
 
-    # ── Tire animation for Track Sim tab ──
-    def _init_track_tire_animation(self):
-        """Racing game top-down view for track sim tab."""
-        from matplotlib.patches import Rectangle, Polygon as MplPoly
-        ax = self._ts_tire_ax
-        ax.clear()
-        ax.set_xlim(-3.0, 3.0); ax.set_ylim(-4.0, 4.0)
-        ax.set_aspect('equal'); ax.axis('off')
-        ax.set_facecolor('#3A3A3A')
+        n = len(sa_arr)
+        nx, ny = 20, 15
+        a, b = 0.08, 0.06  # contact patch half-axes (m)
 
-        # Road
-        ax.add_patch(Rectangle((-3.0, -4.0), 6.0, 8.0, facecolor='#4A4A4A', zorder=0))
-        ax.plot([-2.5, -2.5], [-4, 4], '-', color='#FFF', lw=2.0, zorder=1)
-        ax.plot([2.5, 2.5], [-4, 4], '-', color='#FFF', lw=2.0, zorder=1)
+        x = np.linspace(-a, a, nx)
+        y = np.linspace(-b, b, ny)
+        xx, yy = np.meshgrid(x, y, indexing='ij')  # (nx, ny)
 
-        # Center dashes
-        self._ts_road_dashes = []
-        dash_sp = 1.2
-        for i in range(12):
-            y0 = -6.0 + i * dash_sp
-            ln, = ax.plot([0, 0], [y0, y0 + 0.6], '-', color='#FFD54F', lw=2.5, alpha=0.85, zorder=1)
-            self._ts_road_dashes.append(ln)
+        r2 = (xx / a)**2 + (yy / b)**2
+        mask = r2 <= 1.0  # (nx, ny) elliptical contact
+        p_shape = np.sqrt(np.clip(1 - r2, 0, None))  # Hertzian shape
 
-        # Car body
-        car_w, car_h = 1.6, 3.2
-        hw, hh = car_w / 2, car_h / 2
-        self._ts_car_base = np.array([
-            (-hw, -hh + 0.2), (-hw, hh - 0.5),
-            (-hw + 0.2, hh - 0.15), (-hw * 0.6, hh),
-            (hw * 0.6, hh), (hw - 0.2, hh - 0.15),
-            (hw, hh - 0.5), (hw, -hh + 0.2),
-            (hw - 0.15, -hh), (-hw + 0.15, -hh),
-        ])
-        self._ts_car_body = MplPoly(self._ts_car_base, closed=True,
-                                     facecolor='#1565C0', edgecolor='#0D47A1',
-                                     lw=2.0, zorder=5, alpha=0.92)
-        ax.add_patch(self._ts_car_body)
+        xi = np.clip(a - xx, 0, None)  # distance from leading edge
 
-        # Windshield
-        self._ts_ws_base = np.array([
-            (-0.50, 0.55), (0.50, 0.55), (0.38, 1.1), (-0.38, 1.1)])
-        self._ts_car_ws = MplPoly(self._ts_ws_base, closed=True,
-                                   facecolor='#90CAF9', edgecolor='#0D47A1',
-                                   lw=1, zorder=6, alpha=0.8)
-        ax.add_patch(self._ts_car_ws)
+        # Expand for broadcasting: (n, 1, 1)
+        sa_rad = np.radians(sa_arr)[:, None, None]
+        Fz_3d = Fz_arr[:, None, None]
+        v_3d = v_arr[:, None, None]
 
-        self._ts_car_w = car_w
-        self._ts_car_h = car_h
+        # Pressure (n, nx, ny)
+        p0 = 3.0 * Fz_3d / (2.0 * np.pi * a * b + 1e-10)
+        pressure = p0 * p_shape[None, :, :] * mask[None, :, :]
 
-        # 4 Tires
-        tw, th = 0.28, 0.60
-        self._ts_tw = tw; self._ts_th = th
-        wb = 1.2
-        tk_x = hw + tw * 0.3
-        tire_pos = [(-tk_x, wb), (tk_x, wb), (-tk_x, -wb), (tk_x, -wb)]
-        self._ts_tire_patches = []
-        self._ts_tire_pos = tire_pos
-        self._ts_tire_base_verts = []
-        self._ts_tire_treads = []
-        for (tx0, ty0) in tire_pos:
-            verts = np.array([
-                (tx0 - tw / 2, ty0 - th / 2), (tx0 + tw / 2, ty0 - th / 2),
-                (tx0 + tw / 2, ty0 + th / 2), (tx0 - tw / 2, ty0 + th / 2)])
-            tp = MplPoly(verts, closed=True, facecolor='#1A1A1A',
-                         edgecolor='#555', lw=1.0, zorder=8)
-            ax.add_patch(tp)
-            self._ts_tire_patches.append(tp)
-            self._ts_tire_base_verts.append(verts.copy())
-            treads = []
-            for j in range(3):
-                yoff = ty0 - th / 2 + 0.10 + j * (th - 0.20) / 2
-                tl, = ax.plot([tx0 - tw / 2 + 0.03, tx0 + tw / 2 - 0.03],
-                              [yoff, yoff], '-', color='#3A3A3A', lw=0.7, zorder=9)
-                treads.append(tl)
-            self._ts_tire_treads.append(treads)
+        # Bristle shear
+        cp = 5e6  # tread stiffness (Pa/m)
+        delta = xi[None, :, :] * np.tan(sa_rad)
+        tau = cp * np.abs(delta)
+        tau_max = mu * pressure
 
-        # Speed HUD on tire canvas
-        self._ts_tire_hud = ax.text(-2.85, 3.7, '', fontsize=6.5, ha='left', va='top',
-                                     color='#AAFFAA', fontweight='bold',
-                                     fontfamily='monospace', zorder=20)
-        ax.text(0, 3.8, 'Racing View', fontsize=9, ha='center', va='top',
-                fontweight='bold', color='#EEE', zorder=20)
+        # Sliding state
+        is_sliding = (tau >= tau_max) & mask[None, :, :]
 
-        self._ts_tire_canvas.draw()
+        # Friction force
+        friction = np.where(is_sliding, tau_max, tau) * mask[None, :, :]
 
-    def _update_track_tire_animation(self, sa_deg, speed_kmh):
-        """Update track-sim tire animation with steering and speed."""
-        tw = self._ts_tw; th = self._ts_th
-        car_h = self._ts_car_h
+        # Sliding speed
+        v_slide = np.zeros((n, nx, ny))
+        # In sliding zone: proportional to overshoot
+        overshoot = np.clip(1.0 - tau_max / (tau + 1e-10), 0, 1)
+        v_slide = v_3d * np.abs(np.tan(sa_rad)) * overshoot * is_sliding
 
-        # Treadmill scroll
-        vc_norm = np.clip(speed_kmh / 60.0, 0.05, 5.0) * 0.22
-        self._ts_road_phase += vc_norm
-        dash_sp = 1.2
-        total_span = dash_sp * 12
-        for i, ln in enumerate(self._ts_road_dashes):
-            y0 = -6.0 + i * dash_sp - (self._ts_road_phase % dash_sp)
-            if y0 < -6.0:
-                y0 += total_span
-            ln.set_data([0, 0], [y0, y0 + 0.6])
+        # Temperature (simplified: base + friction heating)
+        T_base = 25.0
+        k_thermal = 500.0  # thermal conductivity proxy
+        temperature = T_base + friction * np.clip(np.abs(v_slide), 0, 50) / k_thermal
+        temperature *= mask[None, :, :]
+        temperature = np.where(mask[None, :, :], temperature, np.nan)
 
-        # Car yaw (bicycle model)
-        steer_a = -sa_deg
-        target_yaw = steer_a * 0.8
-        self._ts_tire_rotation_deg += 0.18 * (target_yaw - self._ts_tire_rotation_deg)
-        yaw_rad = np.radians(self._ts_tire_rotation_deg)
-        cos_r = np.cos(yaw_rad); sin_r = np.sin(yaw_rad)
+        # Clean up for display
+        pressure_bar = pressure * 1e-5  # Pa → bar
+        pressure_bar = np.where(mask[None, :, :], pressure_bar, np.nan)
+        is_sliding_f = is_sliding.astype(float)
+        is_sliding_f = np.where(mask[None, :, :], is_sliding_f, np.nan)
+        v_slide_disp = np.where(mask[None, :, :], np.abs(v_slide), np.nan)
+        friction_disp = np.where(mask[None, :, :], friction * 1e-3, np.nan)  # kPa
 
-        def _rot(pts):
-            R = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
-            return pts @ R.T
+        # Edge arrays for pcolormesh
+        dx_e = x[1] - x[0]; dy_e = y[1] - y[0]
+        x_edges = np.concatenate([x - dx_e / 2, [x[-1] + dx_e / 2]])
+        y_edges = np.concatenate([y - dy_e / 2, [y[-1] + dy_e / 2]])
 
-        def _rot1(x, y):
-            return x * cos_r - y * sin_r, x * sin_r + y * cos_r
+        return {
+            'is_sliding': is_sliding_f,     # (n, nx, ny)
+            'v_slide': v_slide_disp,         # (n, nx, ny)
+            'pressure': pressure_bar,        # (n, nx, ny)
+            'temperature': temperature,      # (n, nx, ny)
+            'friction': friction_disp,        # (n, nx, ny)
+            'x_edges': x_edges,              # (nx+1,)
+            'y_edges': y_edges,              # (ny+1,)
+            'mask': mask,                     # (nx, ny)
+            'nx': nx, 'ny': ny,
+        }
 
-        lat_shift = np.clip(sa_deg / 15.0, -1, 1) * 0.5
-        cx, cy = lat_shift, 0.0
+    # ── Initialize contour plot artists ──
+    def _init_track_contour_artists(self):
+        """Create pcolormesh + SA/Fy plot artists and cache blit background."""
+        import numpy as np
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import BoundaryNorm, ListedColormap
+        from matplotlib.patches import Ellipse
 
-        # Rotate body
-        self._ts_car_body.set_xy(_rot(self._ts_car_base) + [cx, cy])
-        self._ts_car_ws.set_xy(_rot(self._ts_ws_base) + [cx, cy])
+        d = self._track_sim_data
+        bd = d['brush_data']
+        xe, ye = bd['x_edges'], bd['y_edges']
 
-        # Tires
-        front_steer = np.radians(-sa_deg * 0.6)
-        self._ts_tire_tread_phase += np.clip(speed_kmh / 60.0, 0.05, 5.0) * 0.18
-        tread_spacing = (th - 0.20) / 2
+        # ── SA vs Fy plot ──
+        ax_fy = self._ts_ax_fy_sa
+        ax_fy.clear()
+        sa_arr = d['sa_deg']
+        Fy_arr = d['Fy']
+        ax_fy.plot(sa_arr, Fy_arr, 'b-', lw=1.2, alpha=0.6)
+        ax_fy.set_xlabel('SA [deg]', fontsize=8)
+        ax_fy.set_ylabel('Fy [N]', fontsize=8)
+        ax_fy.set_title('Fy vs Slip Angle', fontsize=9, fontweight='bold')
+        ax_fy.grid(True, alpha=0.3)
+        self._ts_cursor_fy_sa = ax_fy.axvline(x=sa_arr[0], color='k', lw=1.2, alpha=0.7)
+        self._ts_marker_fy_sa, = ax_fy.plot(sa_arr[0], Fy_arr[0], 'ro',
+                                              markersize=8, zorder=5)
 
-        for ti, (tx0, ty0) in enumerate(self._ts_tire_pos):
-            is_front = ti < 2
-            rx, ry = _rot1(tx0, ty0)
-            tcx, tcy = rx + cx, ry + cy
-            t_rad = yaw_rad + (front_steer if is_front else 0)
-            cos_t = np.cos(t_rad); sin_t = np.sin(t_rad)
-            local_v = self._ts_tire_base_verts[ti] - [tx0, ty0]
-            R_t = np.array([[cos_t, -sin_t], [sin_t, cos_t]])
-            rotated_v = local_v @ R_t.T + [tcx, tcy]
-            self._ts_tire_patches[ti].set_xy(rotated_v)
+        # ── Fy vs Distance plot ──
+        ax_fd = self._ts_ax_fy_dist
+        ax_fd.clear()
+        dist_arr = d['dist']
+        ax_fd.plot(dist_arr, Fy_arr, 'b-', lw=0.8, alpha=0.5)
+        ax_fd.fill_between(dist_arr, Fy_arr, alpha=0.2, color='#1E90FF')
+        ax_fd.set_xlabel('Distance [m]', fontsize=8)
+        ax_fd.set_ylabel('Fy [N]', fontsize=8)
+        ax_fd.set_title('Fy vs Distance', fontsize=9, fontweight='bold')
+        ax_fd.grid(True, alpha=0.3)
+        self._ts_cursor_fy_dist = ax_fd.axvline(x=0, color='red', lw=1.5, alpha=0.8)
 
-            phase_off = (self._ts_tire_tread_phase * tread_spacing) % tread_spacing
-            for j, tl in enumerate(self._ts_tire_treads[ti]):
-                yoff = -th / 2 + 0.10 + j * tread_spacing + phase_off
-                if yoff > th / 2 - 0.06:
-                    yoff -= (th - 0.20) + tread_spacing
-                p1 = R_t @ np.array([-tw / 2 + 0.03, yoff]) + [tcx, tcy]
-                p2 = R_t @ np.array([tw / 2 - 0.03, yoff]) + [tcx, tcy]
-                tl.set_data([p1[0], p2[0]], [p1[1], p2[1]])
+        # ── Contact patch outline helper ──
+        a_cp, b_cp = 0.08, 0.06  # half-axes
 
-        self._ts_tire_hud.set_text(
-            f'SA {sa_deg:+5.1f}°\nSpeed {speed_kmh:.0f} km/h')
-        self._ts_tire_canvas.draw_idle()
+        def _setup_contour_ax(ax, title):
+            ax.clear()
+            ax.set_aspect('equal')
+            ax.set_title(title, fontsize=8, fontweight='bold')
+            ax.set_xlabel('x [m]', fontsize=7)
+            ax.set_ylabel('y [m]', fontsize=7)
+            ax.tick_params(labelsize=6)
+            ell = Ellipse((0, 0), 2 * a_cp, 2 * b_cp, fill=False,
+                          edgecolor='#333', lw=1.5, linestyle='--', zorder=5)
+            ax.add_patch(ell)
+            return ell
+
+        # ── (1) Adhesion / Sliding ──
+        _setup_contour_ax(self._ts_ax_stick, 'Adhesion / Sliding')
+        cmap_sa = ListedColormap(['#2196F3', '#F44336'])
+        bounds_sa = [0, 0.5, 1.0]
+        norm_sa = BoundaryNorm(bounds_sa, cmap_sa.N)
+        init = bd['is_sliding'][0].T
+        self._ts_pm_stick = self._ts_ax_stick.pcolormesh(
+            xe, ye, init, cmap=cmap_sa, norm=norm_sa, shading='flat', zorder=1)
+
+        # ── (2) Sliding Speed ──
+        _setup_contour_ax(self._ts_ax_speed, 'Sliding Speed')
+        sp_max = np.nanmax(bd['v_slide']) or 1.0
+        sp_cmap = plt.cm.get_cmap('hot_r', 10)
+        sp_norm = BoundaryNorm(np.linspace(0, sp_max, 11), sp_cmap.N)
+        self._ts_pm_speed = self._ts_ax_speed.pcolormesh(
+            xe, ye, bd['v_slide'][0].T, cmap=sp_cmap, norm=sp_norm,
+            shading='flat', zorder=1)
+
+        # ── (3) Contact Pressure ──
+        _setup_contour_ax(self._ts_ax_press, 'Contact Pressure [bar]')
+        pr_max = np.nanmax(bd['pressure']) or 1.0
+        pr_cmap = plt.cm.get_cmap('jet', 10)
+        pr_norm = BoundaryNorm(np.linspace(0, pr_max, 11), pr_cmap.N)
+        self._ts_pm_press = self._ts_ax_press.pcolormesh(
+            xe, ye, bd['pressure'][0].T, cmap=pr_cmap, norm=pr_norm,
+            shading='flat', zorder=1)
+
+        # ── (4) Temperature ──
+        _setup_contour_ax(self._ts_ax_temp, 'Temperature [°C]')
+        t_min = np.nanmin(bd['temperature']); t_max = np.nanmax(bd['temperature']) or 100
+        t_cmap = plt.cm.get_cmap('jet', 10)
+        t_norm = BoundaryNorm(np.linspace(t_min, t_max, 11), t_cmap.N)
+        self._ts_pm_temp = self._ts_ax_temp.pcolormesh(
+            xe, ye, bd['temperature'][0].T, cmap=t_cmap, norm=t_norm,
+            shading='flat', zorder=1)
+
+        # ── (5) Friction Force ──
+        _setup_contour_ax(self._ts_ax_fric, 'Friction Force [kPa]')
+        f_max = np.nanmax(bd['friction']) or 1.0
+        f_cmap = plt.cm.get_cmap('jet', 10)
+        f_norm = BoundaryNorm(np.linspace(0, f_max, 11), f_cmap.N)
+        self._ts_pm_fric = self._ts_ax_fric.pcolormesh(
+            xe, ye, bd['friction'][0].T, cmap=f_cmap, norm=f_norm,
+            shading='flat', zorder=1)
+
+        # Collect dynamic artists
+        self._ts_contour_dynamic = [
+            self._ts_cursor_fy_sa, self._ts_marker_fy_sa,
+            self._ts_cursor_fy_dist,
+            self._ts_pm_stick, self._ts_pm_speed, self._ts_pm_press,
+            self._ts_pm_temp, self._ts_pm_fric,
+        ]
+
+        # Cache blit background
+        for a in self._ts_contour_dynamic:
+            a.set_visible(False)
+        self._ts_contour_canvas.draw()
+        self._ts_contour_blit_bg = self._ts_contour_canvas.copy_from_bbox(
+            self._ts_contour_fig.bbox)
+        for a in self._ts_contour_dynamic:
+            a.set_visible(True)
+
+        self._ts_use_blit = True
 
     # ── Simulation engine ──
     def _run_track_simulation(self):
-        """Run lap simulation using point-mass model."""
+        """Run lap simulation + pre-compute brush data."""
         import numpy as np
 
         try:
@@ -26278,130 +26084,115 @@ class PerssonModelGUI_V2:
         dist = track['dist']
         n_pts = track['n_points']
         signed_curv = track['signed_curvature']
-
-        curvature = np.abs(signed_curv)
-        curvature = np.clip(curvature, 1e-6, None)
+        curvature = np.clip(np.abs(signed_curv), 1e-6, None)
         radius = 1.0 / curvature
 
-        # Max cornering speed (with aero downforce)
+        # Max cornering speed
         v_max_corner = np.zeros(n_pts)
         for i in range(n_pts):
             R = radius[i]
             denom = mass / R - 0.5 * rho * mu * cla
-            if denom > 0:
-                v_max_corner[i] = np.sqrt(mu * mass * g / denom)
-            else:
-                v_max_corner[i] = 500.0 / 3.6
+            v_max_corner[i] = np.sqrt(mu * mass * g / denom) if denom > 0 else 500 / 3.6
 
-        # Turn speed constraints
         turn_idx = track['turn_indices']
         for i, idx in enumerate(turn_idx):
             v_turn = turn_speeds[i + 1] / 3.6
             zone = 60
             for j in range(max(0, idx - zone), min(n_pts, idx + zone)):
-                d = abs(j - idx)
-                blend = np.exp(-0.5 * (d / (zone * 0.4))**2)
-                v_limit = v_turn + (v_max_corner[j] - v_turn) * (1 - blend)
-                v_max_corner[j] = min(v_max_corner[j], v_limit)
+                d_j = abs(j - idx)
+                blend = np.exp(-0.5 * (d_j / (zone * 0.4))**2)
+                v_max_corner[j] = min(v_max_corner[j],
+                                      v_turn + (v_max_corner[j] - v_turn) * (1 - blend))
 
-        v_max_straight = 320.0 / 3.6
-        v_max_corner = np.clip(v_max_corner, 0, v_max_straight)
+        v_max_corner = np.clip(v_max_corner, 0, 320 / 3.6)
 
-        # Forward pass (acceleration limited)
+        # Forward pass
         v_fwd = np.zeros(n_pts)
-        v_fwd[0] = min(v_max_corner[0], 150.0 / 3.6)
+        v_fwd[0] = min(v_max_corner[0], 150 / 3.6)
         for i in range(1, n_pts):
             ds_i = dist[i] - dist[i - 1]
-            if ds_i <= 0:
-                v_fwd[i] = v_fwd[i - 1]; continue
-            v_cur = v_fwd[i - 1]
-            f_eng = min(power_w / max(v_cur, 1.0), mu * mass * g)
-            f_drag = 0.5 * rho * cda * v_cur**2
-            a_net = max((f_eng - f_drag) / mass, 0.5)
-            v_fwd[i] = min(np.sqrt(v_cur**2 + 2 * a_net * ds_i), v_max_corner[i])
+            if ds_i <= 0: v_fwd[i] = v_fwd[i - 1]; continue
+            v_c = v_fwd[i - 1]
+            f_eng = min(power_w / max(v_c, 1), mu * mass * g)
+            a_net = max((f_eng - 0.5 * rho * cda * v_c**2) / mass, 0.5)
+            v_fwd[i] = min(np.sqrt(v_c**2 + 2 * a_net * ds_i), v_max_corner[i])
 
-        # Backward pass (braking limited)
-        v_bwd = np.zeros(n_pts)
-        v_bwd[-1] = v_fwd[-1]
+        # Backward pass
+        v_bwd = np.zeros(n_pts); v_bwd[-1] = v_fwd[-1]
         for i in range(n_pts - 2, -1, -1):
             ds_i = dist[i + 1] - dist[i]
-            if ds_i <= 0:
-                v_bwd[i] = v_bwd[i + 1]; continue
-            v_cur = v_bwd[i + 1]
-            a_brake = brake_g_max * g
-            v_bwd[i] = min(np.sqrt(v_cur**2 + 2 * a_brake * ds_i), v_max_corner[i])
+            if ds_i <= 0: v_bwd[i] = v_bwd[i + 1]; continue
+            v_bwd[i] = min(np.sqrt(v_bwd[i + 1]**2 + 2 * brake_g_max * g * ds_i),
+                           v_max_corner[i])
 
-        v_final = np.minimum(v_fwd, v_bwd)
-        v_final = np.clip(v_final, 10.0 / 3.6, v_max_straight)
+        v_final = np.clip(np.minimum(v_fwd, v_bwd), 10 / 3.6, 320 / 3.6)
 
         # Lap time
         dt_arr = np.zeros(n_pts - 1)
         for i in range(n_pts - 1):
-            ds_i = dist[i + 1] - dist[i]
-            v_avg = 0.5 * (v_final[i] + v_final[i + 1])
-            dt_arr[i] = ds_i / max(v_avg, 0.1)
+            dt_arr[i] = (dist[i + 1] - dist[i]) / max(0.5 * (v_final[i] + v_final[i + 1]), 0.1)
         time_arr = np.concatenate([[0], np.cumsum(dt_arr)])
         lap_time = time_arr[-1]
 
-        # Acceleration
-        dv = np.gradient(v_final)
-        dt_grad = np.gradient(time_arr)
+        dv = np.gradient(v_final); dt_grad = np.gradient(time_arr)
         dt_grad[dt_grad == 0] = 1e-6
         accel_g = dv / dt_grad / g
 
-        throttle = np.clip(accel_g, 0, None)
-        throttle = throttle / (throttle.max() + 1e-6)
-        brake_sig = np.clip(-accel_g, 0, None)
-        brake_sig = brake_sig / (brake_sig.max() + 1e-6)
-
-        # Compute steering angle from curvature + speed
-        # SA ∝ curvature × speed (simplified bicycle model)
+        # SA and Fy
         sa_arr = np.zeros(n_pts)
         for i in range(n_pts):
-            # Lateral accel = v² × curvature
-            lat_accel = v_final[i]**2 * curvature[i]
-            # SA in degrees, scaled, sign from signed curvature
-            sa_raw = np.degrees(np.arctan2(lat_accel, g)) * 0.8
+            lat_a = v_final[i]**2 * curvature[i]
+            sa_raw = np.degrees(np.arctan2(lat_a, g)) * 0.8
             sa_arr[i] = np.sign(signed_curv[i]) * min(sa_raw, 25.0)
 
-        # Lateral force
         Fy_arr = mass * v_final**2 * signed_curv
 
+        # Fz (including downforce)
+        Fz_arr = mass * g + 0.5 * rho * cla * v_final**2
+
         # Sector times
-        s1_idx = int(0.32 * n_pts)
-        s2_idx = int(0.62 * n_pts)
-        sector_times = [
-            time_arr[s1_idx] - time_arr[0],
-            time_arr[s2_idx] - time_arr[s1_idx],
-            time_arr[-1] - time_arr[s2_idx],
-        ]
+        s1i, s2i = int(0.32 * n_pts), int(0.62 * n_pts)
+        sector_times = [time_arr[s1i], time_arr[s2i] - time_arr[s1i],
+                        time_arr[-1] - time_arr[s2i]]
+
+        self.ts_progress_var.set(50)
+        self.root.update_idletasks()
+
+        # Pre-compute brush data (vectorized, fast)
+        brush_data = self._compute_track_brush_data(sa_arr, v_final, Fz_arr, mu)
 
         self._track_sim_data = {
             'track': track,
             'v_final': v_final, 'v_kmh': v_final * 3.6,
             'time': time_arr, 'dist': dist,
-            'accel_g': accel_g, 'throttle': throttle, 'brake': brake_sig,
-            'sa_deg': sa_arr, 'Fy': Fy_arr,
+            'accel_g': accel_g,
+            'throttle': np.clip(accel_g, 0, None) / (np.clip(accel_g, 0, None).max() + 1e-6),
+            'brake': np.clip(-accel_g, 0, None) / (np.clip(-accel_g, 0, None).max() + 1e-6),
+            'sa_deg': sa_arr, 'Fy': Fy_arr, 'Fz': Fz_arr,
             'lap_time': lap_time, 'sector_times': sector_times,
             'max_speed_kmh': np.max(v_final) * 3.6,
             'min_speed_kmh': np.min(v_final) * 3.6,
             'avg_speed_kmh': np.mean(v_final) * 3.6,
+            'brush_data': brush_data,
         }
 
         self.ts_progress_var.set(100)
         self._update_track_results_text()
-        self._draw_track_telemetry()
-        self._draw_yeongam_track()
+
+        # Re-draw static track + init blit artists
+        self._draw_yeongam_track_static()
+
+        # Init contour artists (SA/Fy + 5 contour plots)
+        self._init_track_contour_artists()
+
         self._track_frame_idx = 0
         self._update_track_frame(0)
         self.ts_time_slider.configure(to=n_pts - 1)
 
     def _update_track_results_text(self):
-        """Update lap time results text."""
         d = self._track_sim_data
         if d is None: return
-        lt = d['lap_time']
-        m, s = int(lt // 60), lt % 60
+        lt = d['lap_time']; m, s = int(lt // 60), lt % 60
         text = (
             f"═══ 랩타임 결과 ═══\n\n"
             f"  총 랩타임:  {m}:{s:06.3f}\n\n"
@@ -26418,68 +26209,9 @@ class PerssonModelGUI_V2:
         self.ts_result_text.insert('1.0', text)
         self.ts_result_text.configure(state='disabled')
 
-    def _draw_track_telemetry(self):
-        """Draw telemetry plots."""
-        import numpy as np
-        d = self._track_sim_data
-        if d is None: return
-
-        dist = d['dist']; v_kmh = d['v_kmh']; accel = d['accel_g']
-        throttle = d['throttle']; brake = d['brake']
-        turn_idx = d['track']['turn_indices']
-
-        self.ax_telem_speed.clear()
-        self.ax_telem_speed.fill_between(dist, v_kmh, alpha=0.3, color='#1E90FF')
-        self.ax_telem_speed.plot(dist, v_kmh, color='#1E90FF', lw=1.5)
-        self.ax_telem_speed.set_ylabel('Speed [km/h]', fontsize=9)
-        self.ax_telem_speed.set_title(
-            f"Lap Telemetry – 영암  |  {int(d['lap_time']//60)}:{d['lap_time']%60:06.3f}",
-            fontsize=11, fontweight='bold')
-        self.ax_telem_speed.grid(True, alpha=0.3)
-        for i, idx in enumerate(turn_idx):
-            self.ax_telem_speed.axvline(dist[idx], color='#FFD700', alpha=0.3, lw=0.5)
-            self.ax_telem_speed.text(dist[idx], v_kmh[idx] + 10, f'T{i+1}',
-                                      fontsize=6, ha='center', color='#FFD700', alpha=0.7)
-        self._ts_speed_marker = self.ax_telem_speed.axvline(0, color='red', lw=1.5, alpha=0.8)
-
-        self.ax_telem_accel.clear()
-        self.ax_telem_accel.fill_between(dist, np.clip(accel, 0, None), alpha=0.4, color='#32CD32')
-        self.ax_telem_accel.fill_between(dist, np.clip(accel, None, 0), alpha=0.4, color='#FF4444')
-        self.ax_telem_accel.plot(dist, accel, color='#333', lw=0.5)
-        self.ax_telem_accel.set_ylabel('Accel [g]', fontsize=9)
-        self.ax_telem_accel.grid(True, alpha=0.3); self.ax_telem_accel.axhline(0, color='white', lw=0.5)
-        self._ts_accel_marker = self.ax_telem_accel.axvline(0, color='red', lw=1.5, alpha=0.8)
-
-        self.ax_telem_brake.clear()
-        self.ax_telem_brake.fill_between(dist, throttle, alpha=0.5, color='#32CD32', label='Throttle')
-        self.ax_telem_brake.fill_between(dist, -brake, alpha=0.5, color='#FF4444', label='Brake')
-        self.ax_telem_brake.set_ylabel('Throttle / Brake', fontsize=9)
-        self.ax_telem_brake.legend(fontsize=7, loc='upper right')
-        self.ax_telem_brake.grid(True, alpha=0.3)
-        self._ts_tb_marker = self.ax_telem_brake.axvline(0, color='red', lw=1.5, alpha=0.8)
-
-        self.ax_telem_gear.clear()
-        n = len(dist)
-        s1e, s2e = int(0.32 * n), int(0.62 * n)
-        self.ax_telem_gear.fill_between(dist[:s1e], 0, 1, alpha=0.5, color='#FFD700')
-        self.ax_telem_gear.fill_between(dist[s1e:s2e], 0, 1, alpha=0.5, color='#DC3545')
-        self.ax_telem_gear.fill_between(dist[s2e:], 0, 1, alpha=0.5, color='#28A745')
-        self.ax_telem_gear.set_xlabel('Distance [m]', fontsize=9)
-        self.ax_telem_gear.set_ylabel('Sector', fontsize=9)
-        self.ax_telem_gear.set_yticks([0.5]); self.ax_telem_gear.set_yticklabels([''])
-        self.ax_telem_gear.text(dist[s1e // 2], 0.5, 'S1', ha='center', va='center',
-                                 fontsize=10, fontweight='bold', color='white')
-        self.ax_telem_gear.text(dist[(s1e + s2e) // 2], 0.5, 'S2', ha='center', va='center',
-                                 fontsize=10, fontweight='bold', color='white')
-        self.ax_telem_gear.text(dist[(s2e + n) // 2], 0.5, 'S3', ha='center', va='center',
-                                 fontsize=10, fontweight='bold', color='white')
-        self.ax_telem_gear.grid(True, alpha=0.3)
-        self._ts_sector_marker = self.ax_telem_gear.axvline(0, color='red', lw=1.5, alpha=0.8)
-
-        self.canvas_telem.draw_idle()
-
+    # ── Blit-based frame update (120 Hz capable) ──
     def _update_track_frame(self, idx):
-        """Update car position on track and steering/tire animations."""
+        """Fast blit-based frame update for track map + contour plots."""
         import numpy as np
 
         d = self._track_sim_data
@@ -26493,133 +26225,140 @@ class PerssonModelGUI_V2:
         t_cur = d['time'][idx]
         d_cur = d['dist'][idx]
         sa_cur = d['sa_deg'][idx]
+        Fy_cur = d['Fy'][idx]
 
-        ax = self.ax_track
-        ax.clear()
-        ax.set_facecolor('#1A1A2E'); ax.axis('off')
+        # ══ Track map blit update ══
+        # Car position
+        self._ts_car_dot.set_data([tx[idx]], [ty[idx]])
 
-        # Track road
-        ax.plot(tx, ty, color='#404060', linewidth=22, solid_capstyle='round', zorder=1)
-
-        # Speed-colored overlay
-        from matplotlib.collections import LineCollection
-        points = np.array([tx, ty]).T.reshape(-1, 1, 2)
-        segments = np.concatenate([points[:-1], points[1:]], axis=1)
-        norm_sp = (v_kmh[:-1] - v_kmh.min()) / (v_kmh.max() - v_kmh.min() + 1e-6)
-        colors = np.zeros((len(norm_sp), 4))
-        for i, ns in enumerate(norm_sp):
-            if ns < 0.5:
-                colors[i] = [1.0, ns * 2, 0.0, 0.8]
-            else:
-                colors[i] = [1.0 - (ns - 0.5) * 2, 1.0, 0.0, 0.8]
-        lc = LineCollection(segments, colors=colors, linewidths=6, zorder=2)
-        ax.add_collection(lc)
-
-        # Turn markers
-        turn_idx_arr = track['turn_indices']
-        for i, tidx in enumerate(turn_idx_arr):
-            ax.plot(tx[tidx], ty[tidx], 'o', color='white', markersize=5, zorder=5)
-            ax.annotate(f'{i+1:02d}', (tx[tidx], ty[tidx]),
-                        xytext=(18, 12), textcoords='offset points',
-                        color='white', fontsize=7, fontweight='bold', zorder=6)
-
-        # Start/Finish
-        ax.plot(tx[0], ty[0], 's', color='#FFD700', markersize=10, zorder=7)
-
-        # Car marker
-        car_x, car_y = tx[idx], ty[idx]
-        ni = (idx + 5) % n
-        dx = tx[ni] - car_x; dy = ty[ni] - car_y
+        # Direction arrow
+        ni = (idx + 8) % n
+        dx = tx[ni] - tx[idx]; dy = ty[ni] - ty[idx]
         le = np.sqrt(dx**2 + dy**2)
-        if le > 0: dx, dy = dx / le * 35, dy / le * 35
-
-        ax.plot(car_x, car_y, 'o', color='#FF0000', markersize=14,
-                markeredgecolor='white', markeredgewidth=2, zorder=10)
-        ax.annotate('', xy=(car_x + dx, car_y + dy), xytext=(car_x, car_y),
-                    arrowprops=dict(arrowstyle='->', color='#FF0000', lw=2.5), zorder=10)
+        if le > 0:
+            angle = np.degrees(np.arctan2(dy, dx))
+            self._ts_car_arrow.set_data([tx[idx] + dx / le * 30],
+                                         [ty[idx] + dy / le * 30])
+            self._ts_car_arrow.set_marker((3, 0, angle))
 
         # Trail
-        trail_len = 80
-        if idx >= trail_len:
-            tr_x, tr_y = tx[idx - trail_len:idx + 1], ty[idx - trail_len:idx + 1]
+        tl = self._ts_trail_len
+        if idx >= tl:
+            tr_x = tx[idx - tl:idx + 1]; tr_y = ty[idx - tl:idx + 1]
         else:
-            tr_x = np.concatenate([tx[-(trail_len - idx):], tx[:idx + 1]])
-            tr_y = np.concatenate([ty[-(trail_len - idx):], ty[:idx + 1]])
-        alphas = np.linspace(0.0, 0.6, len(tr_x))
-        for j in range(len(tr_x) - 1):
-            ax.plot([tr_x[j], tr_x[j + 1]], [tr_y[j], tr_y[j + 1]],
-                    color='#FF4444', alpha=alphas[j], linewidth=3, zorder=8)
+            tr_x = np.concatenate([tx[-(tl - idx):], tx[:idx + 1]])
+            tr_y = np.concatenate([ty[-(tl - idx):], ty[:idx + 1]])
+        segs = np.array([[tr_x[j:j + 2], tr_y[j:j + 2]] for j in range(len(tr_x) - 1)])
+        segs = segs.transpose(0, 2, 1)  # (n_seg, 2, 2) → (n_seg, 2_pts, 2_xy)
+        alphas = np.linspace(0.0, 0.7, len(segs))
+        colors = np.column_stack([np.full(len(segs), 1.0),
+                                  np.full(len(segs), 0.3),
+                                  np.full(len(segs), 0.3),
+                                  alphas])
+        self._ts_trail_lc.set_segments(segs)
+        self._ts_trail_lc.set_color(colors)
 
         # HUD
         mi, se = int(t_cur // 60), t_cur % 60
-        ax.text(0.02, 0.98,
-                f"Speed: {v_kmh[idx]:.0f} km/h\n"
-                f"Time:  {mi}:{se:05.2f}\n"
-                f"Dist:  {d_cur:.0f} m\n"
-                f"SA:    {sa_cur:+.1f}°",
-                transform=ax.transAxes, fontsize=11, fontweight='bold',
-                color='#00FF88', family='monospace', va='top',
-                bbox=dict(boxstyle='round,pad=0.5', facecolor='#000000CC',
-                          edgecolor='#00FF88', lw=1), zorder=15)
-
+        self._ts_hud_speed.set_text(
+            f"Speed: {v_kmh[idx]:.0f} km/h\n"
+            f"Time:  {mi}:{se:05.2f}\n"
+            f"Dist:  {d_cur:.0f} m\n"
+            f"SA:    {sa_cur:+.1f}°")
         lt = d['lap_time']
-        ax.text(0.98, 0.98,
-                f"LAP: {int(lt//60)}:{lt%60:06.3f}",
-                transform=ax.transAxes, fontsize=14, fontweight='bold',
-                color='#FFD700', family='monospace', ha='right', va='top',
-                bbox=dict(boxstyle='round,pad=0.4', facecolor='#000000CC',
-                          edgecolor='#FFD700', lw=1), zorder=15)
+        self._ts_hud_lap.set_text(f"LAP: {int(lt//60)}:{lt%60:06.3f}")
 
-        ax.set_title('Korean International Circuit – 영암 (5.615 km)',
-                      color='white', fontsize=13, fontweight='bold', pad=10)
-        ax.set_xlim(min(tx) - 60, max(tx) + 60)
-        ax.set_ylim(min(ty) - 60, max(ty) + 60)
-        self.canvas_track.draw_idle()
+        # Blit track map
+        if self._ts_map_blit_bg is not None:
+            canvas = self.canvas_track
+            canvas.restore_region(self._ts_map_blit_bg)
+            for artist in self._ts_map_dynamic:
+                try:
+                    artist.axes.draw_artist(artist)
+                except Exception:
+                    pass
+            canvas.blit(self.fig_track.bbox)
+            canvas.flush_events()
+        else:
+            self.canvas_track.draw_idle()
 
-        # Telemetry markers
-        try:
-            for mkr in (self._ts_speed_marker, self._ts_accel_marker,
-                        self._ts_tb_marker, self._ts_sector_marker):
-                mkr.set_xdata([d_cur, d_cur])
-            self.canvas_telem.draw_idle()
-        except Exception:
-            pass
+        # ══ Contour/graph blit update ══
+        if self._ts_use_blit and self._ts_contour_blit_bg is not None:
+            bd = d['brush_data']
 
-        # Update steering wheel and tire (right panel)
-        self._update_track_steering_wheel(sa_cur)
-        self._update_track_tire_animation(sa_cur, v_kmh[idx])
+            # Update SA/Fy cursor + marker
+            self._ts_cursor_fy_sa.set_xdata([sa_cur, sa_cur])
+            self._ts_marker_fy_sa.set_data([sa_cur], [Fy_cur])
 
-        # HUD label
+            # Update Fy vs distance cursor
+            self._ts_cursor_fy_dist.set_xdata([d_cur, d_cur])
+
+            # Update 5 contour pcolormesh
+            self._ts_pm_stick.set_array(bd['is_sliding'][idx].T.ravel())
+            self._ts_pm_speed.set_array(bd['v_slide'][idx].T.ravel())
+            self._ts_pm_press.set_array(bd['pressure'][idx].T.ravel())
+            self._ts_pm_temp.set_array(bd['temperature'][idx].T.ravel())
+            self._ts_pm_fric.set_array(bd['friction'][idx].T.ravel())
+
+            canvas_c = self._ts_contour_canvas
+            canvas_c.restore_region(self._ts_contour_blit_bg)
+            for artist in self._ts_contour_dynamic:
+                try:
+                    artist.axes.draw_artist(artist)
+                except Exception:
+                    pass
+            canvas_c.blit(self._ts_contour_fig.bbox)
+            canvas_c.flush_events()
+
+        # ══ Steering wheel + tire (lower frequency) ══
+        _playing = getattr(self, '_track_playing', False)
+        if not _playing or idx % 4 == 0:
+            self._update_track_steering_wheel(sa_cur)
+        if not _playing or idx % 2 == 0:
+            self._update_track_tire_animation(sa_cur, v_kmh[idx])
+
+        # HUD labels
         self.ts_frame_label_var.set(
             f"t={t_cur:.2f}s | {v_kmh[idx]:.0f}km/h | {d_cur:.0f}m")
-        self._ts_hud_var.set(f"SA: {sa_cur:+.1f}°  |  {v_kmh[idx]:.0f} km/h")
+        self._ts_hud_var.set(f"SA: {sa_cur:+.1f}°  |  Fy: {Fy_cur:+.0f}N")
 
-    # ── Playback controls (120 Hz) ──
+    # ── Playback: 120 Hz with fractional accumulator ──
     def _track_play(self):
-        """Start track simulation playback."""
         if self._track_sim_data is None:
             from tkinter import messagebox
             messagebox.showinfo("알림", "먼저 랩 시뮬레이션을 실행하세요.")
             return
         self._track_playing = True
+        self._ts_frame_accum = 0.0
         self._track_animate_step()
 
     def _track_animate_step(self):
-        """Single animation step – 120 Hz target."""
+        """Advance frames — ProMotion-like smoothness via fractional accumulator."""
         if not self._track_playing or self._track_sim_data is None:
             return
 
-        n = self._track_sim_data['track']['n_points']
-        step = max(1, int(self._ts_speed_mult.get() * 3))
-        self._track_frame_idx = (self._track_frame_idx + step) % n
-        self._update_track_frame(self._track_frame_idx)
-        self.ts_time_slider.set(self._track_frame_idx)
+        speed = self._ts_speed_mult.get()
+        acc = self._ts_frame_accum + speed
+        frame_skip = int(acc)
+        self._ts_frame_accum = acc - frame_skip
 
-        # 120 Hz = ~8 ms per frame
-        self._track_play_after_id = self.root.after(8, self._track_animate_step)
+        if frame_skip < 1:
+            self._track_play_after_id = self.root.after(1, self._track_animate_step)
+            return
+
+        n = self._track_sim_data['track']['n_points']
+        self._track_frame_idx = (self._track_frame_idx + frame_skip) % n
+
+        # Update slider infrequently
+        if self._track_frame_idx % 8 == 0:
+            self.ts_time_slider.set(self._track_frame_idx)
+
+        self._update_track_frame(self._track_frame_idx)
+
+        # Minimal delay — let rendering be the natural frame pacer
+        self._track_play_after_id = self.root.after(1, self._track_animate_step)
 
     def _track_pause(self):
-        """Pause track playback."""
         self._track_playing = False
         if self._track_play_after_id is not None:
             try:
@@ -26629,7 +26368,6 @@ class PerssonModelGUI_V2:
             self._track_play_after_id = None
 
     def _track_reset(self):
-        """Reset track playback to start."""
         self._track_pause()
         self._track_frame_idx = 0
         if self._track_sim_data is not None:
@@ -26637,31 +26375,232 @@ class PerssonModelGUI_V2:
             self.ts_time_slider.set(0)
 
     def _on_track_speed_slider(self, val):
-        speed = self._ts_speed_mult.get()
-        self._ts_speed_label_var.set(f"재생 속도: {speed:.1f}x")
+        self._ts_speed_label_var.set(f"재생 속도: {self._ts_speed_mult.get():.1f}x")
 
     def _on_track_slider_change(self, val):
         if self._track_sim_data is None: return
-        idx = int(float(val))
-        self._track_frame_idx = idx
-        self._update_track_frame(idx)
+        self._track_frame_idx = int(float(val))
+        self._update_track_frame(self._track_frame_idx)
 
     def _sync_track_mu_from_brush(self):
-        """Sync friction coefficient from 2D Brush Model tab."""
         try:
             if self.brush_results is not None:
                 res = self.brush_results
                 if hasattr(res, 'get'):
-                    mu_peak = res.get('mu_peak', None)
-                    if mu_peak is not None:
-                        self.ts_mu_var.set(f"{mu_peak:.3f}")
-                        self.ts_sync_label.set(f"μ = {mu_peak:.3f} (Brush 탭)")
+                    mu_p = res.get('mu_peak', None)
+                    if mu_p is not None:
+                        self.ts_mu_var.set(f"{mu_p:.3f}")
+                        self.ts_sync_label.set(f"μ = {mu_p:.3f} (Brush 탭)")
                         return
             fs = float(self.br_friction_scale_var.get())
             self.ts_mu_var.set(f"{fs * 2.0:.3f}")
             self.ts_sync_label.set(f"μ ≈ {fs * 2.0:.3f} (마찰 감도 x2)")
         except Exception:
             self.ts_sync_label.set("동기화 실패")
+
+    # ── Steering wheel (track sim) ──
+    def _init_track_steering_wheel(self):
+        from matplotlib.patches import Polygon as MplPoly
+        ax = self._ts_steer_ax
+        ax.clear()
+        ax.set_xlim(-1.5, 1.5); ax.set_ylim(-1.5, 1.5)
+        ax.set_aspect('equal'); ax.axis('off')
+        ax.set_facecolor('#F8FAFC')
+
+        theta = np.linspace(0, 2 * np.pi, 100)
+        ax.plot(np.cos(theta), np.sin(theta), '-', color='#333', lw=6, zorder=2)
+        ax.plot(0.3 * np.cos(theta), 0.3 * np.sin(theta), '-', color='#555', lw=2, zorder=2)
+        ax.plot(0, 0, 'o', color='#333', markersize=7, zorder=3)
+
+        self._ts_sw_spokes = []
+        for ba in [np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]:
+            sp, = ax.plot([0, 0.85 * np.cos(ba)], [0, 0.85 * np.sin(ba)],
+                          '-', color='#333', lw=3.5, zorder=2)
+            self._ts_sw_spokes.append(sp)
+
+        self._ts_sw_hands = []
+        for ha_deg in [140, 40]:
+            ha_r = np.radians(ha_deg)
+            hcx, hcy = np.cos(ha_r), np.sin(ha_r)
+            tang = ha_r + np.pi / 2
+            hw, hh = 0.18, 0.12
+            t_h = np.linspace(0, 2 * np.pi, 16)
+            rx = hw * np.cos(t_h) * np.cos(tang) - hh * np.sin(t_h) * np.sin(tang) + hcx
+            ry = hw * np.cos(t_h) * np.sin(tang) + hh * np.sin(t_h) * np.cos(tang) + hcy
+            p = MplPoly(np.column_stack([rx, ry]), closed=True,
+                        facecolor='#FFD4A0', edgecolor='#CC8844', lw=1.2, zorder=4)
+            ax.add_patch(p)
+            self._ts_sw_hands.append(p)
+            for fi in range(-1, 2):
+                fang = ha_r + fi * 0.12
+                dot, = ax.plot(1.12 * np.cos(fang), 1.12 * np.sin(fang), 'o',
+                               color='#FFD4A0', markersize=3.5,
+                               markeredgecolor='#CC8844', markeredgewidth=0.6, zorder=4)
+                self._ts_sw_hands.append(dot)
+
+        self._ts_sw_arc, = ax.plot([], [], '-', color='#FF6600', lw=3, alpha=0.8, zorder=5)
+        self._ts_sw_sa_label = ax.text(0, -1.35, 'SA=0.0°', fontsize=11,
+                                        ha='center', va='top', fontweight='bold', zorder=6)
+        self._ts_sw_L = ax.text(-1.35, 0, 'L', fontsize=14, ha='center', va='center',
+                                 fontweight='bold', color='#BBB', zorder=6)
+        self._ts_sw_R = ax.text(1.35, 0, 'R', fontsize=14, ha='center', va='center',
+                                 fontweight='bold', color='#BBB', zorder=6)
+        self._ts_sw_base_angles = [np.radians(140), np.radians(40)]
+        self._ts_steer_canvas.draw()
+
+    def _update_track_steering_wheel(self, sa_deg):
+        steer_rad = -np.radians(sa_deg)
+        for i, ba in enumerate([np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]):
+            a = ba + steer_rad
+            self._ts_sw_spokes[i].set_data([0, 0.85 * np.cos(a)],
+                                            [0, 0.85 * np.sin(a)])
+        hand_idx = 0
+        for hi, base_ha in enumerate(self._ts_sw_base_angles):
+            ha_r = base_ha + steer_rad
+            hcx, hcy = np.cos(ha_r), np.sin(ha_r)
+            tang = ha_r + np.pi / 2
+            hw, hh = 0.18, 0.12
+            t_h = np.linspace(0, 2 * np.pi, 16)
+            rx = hw * np.cos(t_h) * np.cos(tang) - hh * np.sin(t_h) * np.sin(tang) + hcx
+            ry = hw * np.cos(t_h) * np.sin(tang) + hh * np.sin(t_h) * np.cos(tang) + hcy
+            self._ts_sw_hands[hand_idx].set_xy(np.column_stack([rx, ry]))
+            hand_idx += 1
+            for fi in range(-1, 2):
+                fang = ha_r + fi * 0.12
+                self._ts_sw_hands[hand_idx].set_data(
+                    [1.12 * np.cos(fang)], [1.12 * np.sin(fang)])
+                hand_idx += 1
+
+        self._ts_sw_sa_label.set_text(f'SA={sa_deg:+.1f}°')
+        if abs(sa_deg) > 0.2:
+            t_arc = np.linspace(np.pi / 2, np.pi / 2 + steer_rad, 30)
+            self._ts_sw_arc.set_data(0.55 * np.cos(t_arc), 0.55 * np.sin(t_arc))
+            self._ts_sw_arc.set_color('#F44336' if sa_deg > 0 else '#2196F3')
+            self._ts_sw_arc.set_visible(True)
+        else:
+            self._ts_sw_arc.set_visible(False)
+
+        if sa_deg > 0.5:
+            self._ts_sw_R.set_color('#F44336'); self._ts_sw_R.set_fontsize(16)
+            self._ts_sw_L.set_color('#CCC'); self._ts_sw_L.set_fontsize(14)
+        elif sa_deg < -0.5:
+            self._ts_sw_L.set_color('#2196F3'); self._ts_sw_L.set_fontsize(16)
+            self._ts_sw_R.set_color('#CCC'); self._ts_sw_R.set_fontsize(14)
+        else:
+            self._ts_sw_L.set_color('#BBB'); self._ts_sw_L.set_fontsize(14)
+            self._ts_sw_R.set_color('#BBB'); self._ts_sw_R.set_fontsize(14)
+        self._ts_steer_canvas.draw_idle()
+
+    # ── Tire animation (track sim) ──
+    def _init_track_tire_animation(self):
+        from matplotlib.patches import Rectangle, Polygon as MplPoly
+        ax = self._ts_tire_ax
+        ax.clear()
+        ax.set_xlim(-3.0, 3.0); ax.set_ylim(-4.0, 4.0)
+        ax.set_aspect('equal'); ax.axis('off'); ax.set_facecolor('#3A3A3A')
+
+        ax.add_patch(Rectangle((-3.0, -4.0), 6.0, 8.0, facecolor='#4A4A4A', zorder=0))
+        ax.plot([-2.5, -2.5], [-4, 4], '-', color='#FFF', lw=2.0, zorder=1)
+        ax.plot([2.5, 2.5], [-4, 4], '-', color='#FFF', lw=2.0, zorder=1)
+
+        self._ts_road_dashes = []
+        for i in range(12):
+            y0 = -6.0 + i * 1.2
+            ln, = ax.plot([0, 0], [y0, y0 + 0.6], '-', color='#FFD54F', lw=2.5, alpha=0.85, zorder=1)
+            self._ts_road_dashes.append(ln)
+
+        car_w, car_h = 1.6, 3.2; hw, hh = car_w / 2, car_h / 2
+        self._ts_car_base = np.array([
+            (-hw, -hh + 0.2), (-hw, hh - 0.5), (-hw + 0.2, hh - 0.15), (-hw * 0.6, hh),
+            (hw * 0.6, hh), (hw - 0.2, hh - 0.15), (hw, hh - 0.5), (hw, -hh + 0.2),
+            (hw - 0.15, -hh), (-hw + 0.15, -hh)])
+        self._ts_car_body = MplPoly(self._ts_car_base, closed=True,
+                                     facecolor='#1565C0', edgecolor='#0D47A1',
+                                     lw=2.0, zorder=5, alpha=0.92)
+        ax.add_patch(self._ts_car_body)
+        self._ts_ws_base = np.array([(-0.50, 0.55), (0.50, 0.55), (0.38, 1.1), (-0.38, 1.1)])
+        self._ts_car_ws = MplPoly(self._ts_ws_base, closed=True,
+                                   facecolor='#90CAF9', edgecolor='#0D47A1', lw=1, zorder=6, alpha=0.8)
+        ax.add_patch(self._ts_car_ws)
+        self._ts_car_w = car_w; self._ts_car_h = car_h
+
+        tw, th = 0.28, 0.60; self._ts_tw = tw; self._ts_th = th
+        wb = 1.2; tk_x = hw + tw * 0.3
+        tire_pos = [(-tk_x, wb), (tk_x, wb), (-tk_x, -wb), (tk_x, -wb)]
+        self._ts_tire_patches = []; self._ts_tire_pos = tire_pos
+        self._ts_tire_base_verts = []; self._ts_tire_treads = []
+        for (tx0, ty0) in tire_pos:
+            verts = np.array([(tx0 - tw / 2, ty0 - th / 2), (tx0 + tw / 2, ty0 - th / 2),
+                              (tx0 + tw / 2, ty0 + th / 2), (tx0 - tw / 2, ty0 + th / 2)])
+            tp = MplPoly(verts, closed=True, facecolor='#1A1A1A', edgecolor='#555', lw=1.0, zorder=8)
+            ax.add_patch(tp)
+            self._ts_tire_patches.append(tp)
+            self._ts_tire_base_verts.append(verts.copy())
+            treads = []
+            for j in range(3):
+                yoff = ty0 - th / 2 + 0.10 + j * (th - 0.20) / 2
+                tl, = ax.plot([tx0 - tw / 2 + 0.03, tx0 + tw / 2 - 0.03],
+                              [yoff, yoff], '-', color='#3A3A3A', lw=0.7, zorder=9)
+                treads.append(tl)
+            self._ts_tire_treads.append(treads)
+
+        self._ts_tire_hud = ax.text(-2.85, 3.7, '', fontsize=6.5, ha='left', va='top',
+                                     color='#AAFFAA', fontweight='bold', fontfamily='monospace', zorder=20)
+        ax.text(0, 3.8, 'Racing View', fontsize=9, ha='center', va='top',
+                fontweight='bold', color='#EEE', zorder=20)
+        self._ts_tire_canvas.draw()
+
+    def _update_track_tire_animation(self, sa_deg, speed_kmh):
+        tw = self._ts_tw; th = self._ts_th
+
+        vc_n = np.clip(speed_kmh / 60.0, 0.05, 5.0) * 0.22
+        self._ts_road_phase += vc_n
+        for i, ln in enumerate(self._ts_road_dashes):
+            y0 = -6.0 + i * 1.2 - (self._ts_road_phase % 1.2)
+            if y0 < -6.0: y0 += 14.4
+            ln.set_data([0, 0], [y0, y0 + 0.6])
+
+        target_yaw = -sa_deg * 0.8
+        self._ts_tire_rotation_deg += 0.18 * (target_yaw - self._ts_tire_rotation_deg)
+        yr = np.radians(self._ts_tire_rotation_deg)
+        cr, sr = np.cos(yr), np.sin(yr)
+
+        def _rot(pts):
+            R = np.array([[cr, -sr], [sr, cr]]); return pts @ R.T
+        def _rot1(x, y):
+            return x * cr - y * sr, x * sr + y * cr
+
+        lat = np.clip(sa_deg / 15.0, -1, 1) * 0.5
+        cx, cy = lat, 0.0
+
+        self._ts_car_body.set_xy(_rot(self._ts_car_base) + [cx, cy])
+        self._ts_car_ws.set_xy(_rot(self._ts_ws_base) + [cx, cy])
+
+        fs = np.radians(-sa_deg * 0.6)
+        self._ts_tire_tread_phase += np.clip(speed_kmh / 60.0, 0.05, 5.0) * 0.18
+        ts_sp = (th - 0.20) / 2
+
+        for ti, (tx0, ty0) in enumerate(self._ts_tire_pos):
+            rx, ry = _rot1(tx0, ty0)
+            tcx, tcy = rx + cx, ry + cy
+            tr = yr + (fs if ti < 2 else 0)
+            ct, st = np.cos(tr), np.sin(tr)
+            lv = self._ts_tire_base_verts[ti] - [tx0, ty0]
+            Rt = np.array([[ct, -st], [st, ct]])
+            self._ts_tire_patches[ti].set_xy(lv @ Rt.T + [tcx, tcy])
+
+            po = (self._ts_tire_tread_phase * ts_sp) % ts_sp
+            for j, tl in enumerate(self._ts_tire_treads[ti]):
+                yoff = -th / 2 + 0.10 + j * ts_sp + po
+                if yoff > th / 2 - 0.06: yoff -= (th - 0.20) + ts_sp
+                p1 = Rt @ np.array([-tw / 2 + 0.03, yoff]) + [tcx, tcy]
+                p2 = Rt @ np.array([tw / 2 - 0.03, yoff]) + [tcx, tcy]
+                tl.set_data([p1[0], p2[0]], [p1[1], p2[1]])
+
+        self._ts_tire_hud.set_text(f'SA {sa_deg:+5.1f}°\nSpeed {speed_kmh:.0f} km/h')
+        self._ts_tire_canvas.draw_idle()
+
+
 
 
     # ====  점탄성 설계 (Viscoelastic Design Advisor) Tab  ====
