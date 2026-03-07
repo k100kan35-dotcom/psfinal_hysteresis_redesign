@@ -23284,8 +23284,8 @@ class PerssonModelGUI_V2:
     _EGG_SA_REF = 6.0    # reference SA for full deformation
     _EGG_NPTS = 120       # outline resolution
 
-    @staticmethod
-    def _egg_outline(sa_deg, half_L, half_W):
+    @classmethod
+    def _egg_outline(cls, sa_deg, half_L, half_W):
         """Compute egg-shaped contact patch outline vertices.
 
         Single source of truth — used by both _deformed_mask (data mask)
@@ -23293,7 +23293,6 @@ class PerssonModelGUI_V2:
 
         Returns (N, 2) array of (x, y) vertices.
         """
-        cls = TireFrictionApp
         sf = -np.clip(sa_deg / cls._EGG_SA_REF, -1, 1)
         k = sf * cls._EGG_K_MAX
         theta = np.linspace(0, 2 * np.pi, cls._EGG_NPTS)
@@ -24749,7 +24748,7 @@ class PerssonModelGUI_V2:
     def _on_egg_k_slider(self, value=None):
         """Update egg shape constant from slider (live preview on current frame)."""
         k = self._br_egg_k_var.get()
-        TireFrictionApp._EGG_K_MAX = k
+        type(self)._EGG_K_MAX = k
         self._br_egg_label_var.set(f"접지면 변형 (K): {k:.2f}")
         # Live-update outline on current frame (data mask stays until re-sim)
         if self._brush_frames and hasattr(self, '_br_outline_patches'):
