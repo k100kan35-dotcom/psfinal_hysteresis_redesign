@@ -22604,13 +22604,6 @@ class PerssonModelGUI_V2:
                                         command=self._brush_reset)
         self.br_reset_btn.pack(side=tk.LEFT, padx=1)
 
-        ttk.Label(play_row, text="속도:", font=self.FONTS['small']).pack(side=tk.LEFT, padx=(8, 2))
-        self.br_play_speed_var = tk.StringVar(value="1x")
-        speed_combo = ttk.Combobox(play_row, textvariable=self.br_play_speed_var, width=5,
-                                    values=['0.25x', '0.5x', '1x', '2x', '4x', '8x', '16x', '32x', '64x'],
-                                    state='readonly')
-        speed_combo.pack(side=tk.LEFT, padx=1)
-
         ttk.Label(play_row, text="프레임:", font=self.FONTS['small']).pack(side=tk.LEFT, padx=(8, 2))
         self.br_frame_count_var = tk.StringVar(value="240")
         frame_combo = ttk.Combobox(play_row, textvariable=self.br_frame_count_var, width=5,
@@ -22618,9 +22611,24 @@ class PerssonModelGUI_V2:
                                     state='readonly')
         frame_combo.pack(side=tk.LEFT, padx=1)
 
+        # Keep br_play_speed_var for backward compat (now driven by slider)
+        self.br_play_speed_var = tk.StringVar(value="1x")
+
         self.br_frame_label_var = tk.StringVar(value="t = 0.00 s  (0/0)")
         ttk.Label(play_row, textvariable=self.br_frame_label_var,
                   font=self.FONTS['small'], foreground='#0369A1').pack(side=tk.LEFT, padx=6)
+
+        # ── Speed slider (continuous, replaces combobox) ──
+        speed_slider_row = ttk.Frame(sec5); speed_slider_row.pack(fill=tk.X, pady=1)
+        self._br_speed_label_var = tk.StringVar(value="재생 속도: 1.0x")
+        ttk.Label(speed_slider_row, textvariable=self._br_speed_label_var,
+                  font=self.FONTS['small']).pack(side=tk.LEFT, padx=4)
+        self._br_speed_mult = tk.DoubleVar(value=1.0)
+        self._br_speed_slider = ttk.Scale(
+            speed_slider_row, from_=0.25, to=20.0,
+            orient='horizontal', variable=self._br_speed_mult,
+            command=self._on_brush_speed_slider)
+        self._br_speed_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
 
         # Time slider
         slider_row = ttk.Frame(sec5); slider_row.pack(fill=tk.X, pady=2)
@@ -22628,6 +22636,18 @@ class PerssonModelGUI_V2:
                                          orient='horizontal',
                                          command=self._on_brush_slider_change)
         self.br_time_slider.pack(fill=tk.X, padx=4)
+
+        # ── Egg shape (K) slider ──
+        egg_row = ttk.Frame(sec5); egg_row.pack(fill=tk.X, pady=1)
+        self._br_egg_label_var = tk.StringVar(value=f"접지면 변형 (K): {self._EGG_K_MAX:.2f}")
+        ttk.Label(egg_row, textvariable=self._br_egg_label_var,
+                  font=self.FONTS['small']).pack(side=tk.LEFT, padx=4)
+        self._br_egg_k_var = tk.DoubleVar(value=self._EGG_K_MAX)
+        self._br_egg_slider = ttk.Scale(
+            egg_row, from_=0.0, to=0.80,
+            orient='horizontal', variable=self._br_egg_k_var,
+            command=self._on_egg_k_slider)
+        self._br_egg_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
 
         # Internal playback state
         self._brush_frames = []
@@ -24721,26 +24741,47 @@ class PerssonModelGUI_V2:
         if self._brush_frames:
             self._brush_show_frame(0)
 
+    def _on_brush_speed_slider(self, value=None):
+        """Update speed label when slider moves."""
+        mult = self._br_speed_mult.get()
+        self._br_speed_label_var.set(f"재생 속도: {mult:.1f}x")
+
+    def _on_egg_k_slider(self, value=None):
+        """Update egg shape constant from slider (live preview on current frame)."""
+        k = self._br_egg_k_var.get()
+        TireFrictionApp._EGG_K_MAX = k
+        self._br_egg_label_var.set(f"접지면 변형 (K): {k:.2f}")
+        # Live-update outline on current frame (data mask stays until re-sim)
+        if self._brush_frames and hasattr(self, '_br_outline_patches'):
+            f = self._brush_frames[self._brush_frame_idx]
+            L_mm = self._brush_L_mm
+            W_mm = self._brush_W_mm
+            new_verts = self._egg_outline(f['SA'], L_mm / 2, W_mm / 2)
+            for poly in self._br_outline_patches:
+                poly.set_xy(new_verts)
+            self.canvas_brush.draw_idle()
+
     def _brush_animate(self):
-        """Advance one frame and schedule next. High speeds skip frames."""
+        """Advance frames using continuous speed multiplier for smooth playback."""
         if not self._brush_playing or not self._brush_frames:
             return
 
-        # Speed control: delay_ms and frame_skip
-        # Minimal delay for smooth playback; skip frames for higher speeds
-        speed_str = self.br_play_speed_var.get()
-        speed_map = {
-            '0.25x': (60, 1), '0.5x': (30, 1), '1x': (10, 1),
-            '2x': (10, 2), '4x': (10, 4), '8x': (8, 8),
-            '16x': (5, 16), '32x': (3, 32), '64x': (1, 64),
-        }
-        delay_ms, frame_skip = speed_map.get(speed_str, (10, 1))
+        mult = getattr(self, '_br_speed_mult', None)
+        speed = mult.get() if mult is not None else 1.0
+
+        # Constant short delay; vary frame_skip for speed
+        delay_ms = 8
+        frame_skip = max(1, int(round(speed)))
 
         self._brush_frame_idx += frame_skip
-        if self._brush_frame_idx >= len(self._brush_frames):
+        n = len(self._brush_frames)
+        if self._brush_frame_idx >= n:
             self._brush_frame_idx = 0  # loop
 
-        self.br_time_slider.set(self._brush_frame_idx)
+        # Update slider only every 4th frame to reduce overhead
+        if self._brush_frame_idx % 4 == 0:
+            self.br_time_slider.set(self._brush_frame_idx)
+
         self._brush_show_frame(self._brush_frame_idx)
 
         self._brush_play_after_id = self.root.after(delay_ms, self._brush_animate)
