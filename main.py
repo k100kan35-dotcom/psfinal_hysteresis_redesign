@@ -22428,7 +22428,7 @@ class PerssonModelGUI_V2:
 
         row_W = ttk.Frame(sec1); row_W.pack(fill=tk.X, pady=1)
         ttk.Label(row_W, text="풋프린트 폭 W:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.br_W_var = tk.StringVar(value="0.12")
+        self.br_W_var = tk.StringVar(value="0.08")
         ttk.Entry(row_W, textvariable=self.br_W_var, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_W, text="m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
@@ -24050,7 +24050,8 @@ class PerssonModelGUI_V2:
         ax_in.plot(t, self._brush_SR, color='#E68A00', linewidth=1.5, label='SR [%]')
         ax_in.set_xlabel('time [s]', fontsize=8)
         ax_in.set_ylabel('slip', fontsize=8)
-        ax_in.legend(loc='upper right', fontsize=8, framealpha=0.9)
+        ax_in.legend(loc='upper right', fontsize=7, framealpha=0.9,
+                     bbox_to_anchor=(0.98, 0.98), borderaxespad=0)
         ax_in.grid(True, alpha=0.3)
         ax_in.set_xlim(t[0], t[-1])
         self._br_cursor_in = ax_in.axvline(x=0, color='k', linewidth=1.2, alpha=0.7)
@@ -24066,7 +24067,8 @@ class PerssonModelGUI_V2:
         ax_f.plot(t, self._brush_Fx_hist, color='#E68A00', linewidth=1.5, label='Fx')
         ax_f.set_xlabel('time [s]', fontsize=8)
         ax_f.set_ylabel('force [N]', fontsize=8)
-        ax_f.legend(loc='upper right', fontsize=8, framealpha=0.9)
+        ax_f.legend(loc='upper right', fontsize=7, framealpha=0.9,
+                    bbox_to_anchor=(0.98, 0.98), borderaxespad=0)
         ax_f.grid(True, alpha=0.3)
         ax_f.set_xlim(t[0], t[-1])
         self._br_cursor_ft = ax_f.axvline(x=0, color='k', linewidth=1.2, alpha=0.7)
@@ -24293,13 +24295,6 @@ class PerssonModelGUI_V2:
         road = Rectangle((-3.0, -4.0), 6.0, 8.0, facecolor='#4A4A4A',
                           edgecolor='none', zorder=0)
         ax.add_patch(road)
-        # Shoulder strips (slightly lighter)
-        shoulder_L = Rectangle((-3.0, -4.0), 0.5, 8.0, facecolor='#555555',
-                                edgecolor='none', zorder=0)
-        shoulder_R = Rectangle((2.5, -4.0), 0.5, 8.0, facecolor='#555555',
-                                edgecolor='none', zorder=0)
-        ax.add_patch(shoulder_L)
-        ax.add_patch(shoulder_R)
 
         # Road edge lines (white solid)
         ax.plot([-2.5, -2.5], [-4, 4], '-', color='#FFFFFF', lw=2.0, zorder=1)
@@ -24485,25 +24480,19 @@ class PerssonModelGUI_V2:
         self._tire_dynamic.extend(self._road_side_dashes_L)
         self._tire_dynamic.extend(self._road_side_dashes_R)
 
-        # Hide dynamic → draw clean background → cache → restore
-        _vis = []
-        for a in self._tire_dynamic:
-            _vis.append(a.get_visible())
-            a.set_visible(False)
+        # Initial draw (no blit — use draw_idle for reliability)
+        self._tire_blit_bg = None
         self._tire_canvas.draw()
-        self._tire_blit_bg = self._tire_canvas.copy_from_bbox(
-            self._tire_fig.bbox)
-        for a, v in zip(self._tire_dynamic, _vis):
-            a.set_visible(v)
 
-    def _update_tire_animation(self, sa_deg, Fy, Fz, Fx=0.0):
+    def _update_tire_animation(self, sa_deg, Fy, Fz, Fx=0.0, vc=16.67):
         """Racing game: car + 4 tires, treadmill road, front-wheel steering."""
         tw = self._tire_w
         th = self._tire_h
         car_h = self._car_h
 
-        # ── 1) Treadmill road scroll ──
-        self._road_phase += 0.22
+        # ── 1) Treadmill road scroll (speed proportional to vc) ──
+        road_speed = np.clip(vc / 16.67, 0.05, 5.0) * 0.22
+        self._road_phase += road_speed
         dash_spacing = 1.2
         total_span = dash_spacing * 12
         # Center yellow dashes
@@ -24555,7 +24544,7 @@ class PerssonModelGUI_V2:
 
         # ── 4) Tires: front steer, rear fixed to body ──
         front_steer_extra = np.radians(-sa_deg * 0.6)
-        self._tire_tread_phase += 0.18
+        self._tire_tread_phase += np.clip(vc / 16.67, 0.05, 5.0) * 0.18
         tread_spacing_t = (th - 0.20) / 2
 
         for ti, (tx0, ty0) in enumerate(self._tire_positions):
@@ -24661,18 +24650,8 @@ class PerssonModelGUI_V2:
         self._tire_speed_label.set_text(
             f'SA {sa_deg:+5.1f}°\nFy {Fy:+6.0f}N\nFx {Fx:+6.0f}N')
 
-        # Blit
-        if getattr(self, '_tire_blit_bg', None) is not None:
-            self._tire_canvas.restore_region(self._tire_blit_bg)
-            for a in self._tire_dynamic:
-                try:
-                    a.axes.draw_artist(a)
-                except Exception:
-                    pass
-            self._tire_canvas.blit(self._tire_fig.bbox)
-            self._tire_canvas.flush_events()
-        else:
-            self._tire_canvas.draw_idle()
+        # Full redraw (small canvas — blit causes ghosting with Polygons)
+        self._tire_canvas.draw_idle()
 
     # ── 2D Brush: Persistent artist initialization ──
 
@@ -24732,11 +24711,12 @@ class PerssonModelGUI_V2:
 
             Returns a Polygon patch whose vertices will be updated in
             _brush_show_frame() based on current SA to show asymmetric shape.
+            Uses _egg_outline (single source of truth) for correct initial shape.
             """
             from matplotlib.patches import Polygon as MplPolygon
-            theta = np.linspace(0, 2 * np.pi, 120)
-            verts = np.column_stack([L_mm / 2 * np.cos(theta),
-                                     W_mm / 2 * np.sin(theta)])
+            # Use egg_outline for correct superellipse shape from the start
+            init_sa = self._brush_frames[0]['SA'] if self._brush_frames else 0
+            verts = self._egg_outline(init_sa, L_mm / 2, W_mm / 2)
             poly = MplPolygon(verts, closed=True, fill=False,
                               edgecolor='k', linewidth=1.5, zorder=5)
             ax.add_patch(poly)
@@ -24778,15 +24758,17 @@ class PerssonModelGUI_V2:
         self._br_outline_patches.append(_outline1)
         self._br_pm_stick.set_clip_path(_outline1)
         # Direction arrow: friction force direction (opposite to translational slip)
-        self._br_stick_arrow = ax1.annotate(
-            '', xy=(0, 0), xytext=(0, 0),
-            arrowprops=dict(arrowstyle='->', color='white', lw=3, mutation_scale=18),
-            zorder=6)
+        # Use line+marker instead of annotate for reliable blit rendering
+        self._br_stick_arrow_line, = ax1.plot([], [], '-', color='white',
+                                               lw=3, zorder=6)
+        self._br_stick_arrow_head, = ax1.plot([], [], marker=(3, 0, 0),
+                                               color='white', markersize=14,
+                                               linestyle='', zorder=6)
         self._br_stick_arrow_label = ax1.text(
-            0, W_mm * 0.42, 'Friction Force', fontsize=6, ha='center',
+            0, W_mm * 0.42, '', fontsize=6, ha='center',
             va='bottom', color='white', fontweight='bold',
-            bbox=dict(boxstyle='round,pad=0.15', facecolor='black', alpha=0.5),
             zorder=7)
+        self._br_stick_arrow_label.set_visible(False)
         # Rolling direction arrow (green, longitudinal, permanent)
         # Tire rolls in -x direction (left). Arrow placed at bottom of patch.
         _roll_arrow_y = -W_mm * 0.55
@@ -24799,10 +24781,11 @@ class PerssonModelGUI_V2:
                  fontsize=7, ha='center', va='top', color='#00C853',
                  fontweight='bold', zorder=7)
         # Legend
-        legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Adhesion'),
-                          Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Sliding')]
-        ax1.legend(handles=legend_patches, loc='upper right', fontsize=7.5,
-                   framealpha=0.9, edgecolor='#999')
+        legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Stick'),
+                          Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Slip')]
+        ax1.legend(handles=legend_patches, loc='upper right', fontsize=8,
+                   framealpha=0.9, edgecolor='#999',
+                   bbox_to_anchor=(0.98, 0.98), borderaxespad=0)
         _setup_ax(ax1, 'sliding vs adhesion')
         # Invisible spacer colorbar to match width of other plots
         _sm = mcm.ScalarMappable(cmap='jet', norm=plt.Normalize(0, 1))
@@ -24957,7 +24940,8 @@ class PerssonModelGUI_V2:
         self._br_dynamic_artists = [
             self._br_pm_stick, self._br_pm_pres, self._br_pm_temp,
             self._br_pm_fric, self._br_quiver_speed,
-            self._br_stick_arrow, self._br_stick_arrow_label,
+            self._br_stick_arrow_line, self._br_stick_arrow_head,
+            self._br_stick_arrow_label,
         ]
         # Outlines
         self._br_dynamic_artists.extend(self._br_outline_patches)
@@ -25051,12 +25035,20 @@ class PerssonModelGUI_V2:
                 # Arrow points opposite to slip = friction force direction
                 dx_a = -arrow_scale * mean_vx / arrow_mag
                 dy_a = -arrow_scale * mean_vy / arrow_mag
-                self._br_stick_arrow.xy = (dx_a, dy_a)
-                self._br_stick_arrow.set_visible(True)
+                self._br_stick_arrow_line.set_data([0, dx_a], [0, dy_a])
+                self._br_stick_arrow_line.set_visible(True)
+                # Rotate marker to point in arrow direction
+                angle_deg = np.degrees(np.arctan2(dy_a, dx_a))
+                self._br_stick_arrow_head.set_marker(
+                    (3, 0, angle_deg - 90))
+                self._br_stick_arrow_head.set_data([dx_a], [dy_a])
+                self._br_stick_arrow_head.set_visible(True)
             else:
-                self._br_stick_arrow.set_visible(False)
+                self._br_stick_arrow_line.set_visible(False)
+                self._br_stick_arrow_head.set_visible(False)
         else:
-            self._br_stick_arrow.set_visible(False)
+            self._br_stick_arrow_line.set_visible(False)
+            self._br_stick_arrow_head.set_visible(False)
 
         # ── (2) sliding speed — update quiver arrows (straight, no spin curvature) ──
         step_x, step_y = self._br_speed_step
@@ -25117,7 +25109,8 @@ class PerssonModelGUI_V2:
         # Tire racing view: every 2nd frame for smooth treadmill feel
         if hasattr(self, '_tire_ax') and (not _is_playing or idx % 2 == 0):
             Fz = float(self.br_Fz_var.get()) if self.br_Fz_var.get() else 4000.0
-            self._update_tire_animation(f['SA'], f['Fy'], Fz, Fx=f.get('Fx', 0.0))
+            _vc = float(self.br_vc_var.get()) if self.br_vc_var.get() else 16.67
+            self._update_tire_animation(f['SA'], f['Fy'], Fz, Fx=f.get('Fx', 0.0), vc=_vc)
 
         # ── Update Fy vs SA and Fx vs SR plots ──
         if hasattr(self, '_br_cursor_fy_sa'):
