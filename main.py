@@ -22692,11 +22692,11 @@ class PerssonModelGUI_V2:
         # Draw initial steering wheel
         self._init_left_steering_wheel()
 
-        # ── 6b) Tire animation (racing game top-down view) ──
-        self._tire_fig = _Fig(figsize=(2.0, 3.2), dpi=90, facecolor='#2D2D2D')
+        # ── 6b) Car + tire animation (racing game top-down view) ──
+        self._tire_fig = _Fig(figsize=(2.4, 3.6), dpi=85, facecolor='#2D2D2D')
         self._tire_ax = self._tire_fig.add_axes([0.0, 0.0, 1.0, 1.0])
-        self._tire_ax.set_xlim(-2.0, 2.0)
-        self._tire_ax.set_ylim(-3.0, 3.0)
+        self._tire_ax.set_xlim(-3.0, 3.0)
+        self._tire_ax.set_ylim(-4.0, 4.0)
         self._tire_ax.set_aspect('equal')
         self._tire_ax.axis('off')
         self._tire_fig.patch.set_facecolor('#2D2D2D')
@@ -24136,7 +24136,12 @@ class PerssonModelGUI_V2:
                                           va='center', fontweight='bold', color='#BBBBBB')
         self._steer_right_label = ax.text(1.3, 0, 'R', fontsize=14, ha='center',
                                            va='center', fontweight='bold', color='#BBBBBB')
-        self._steer_canvas.draw_idle()
+        self._steer_canvas.draw()
+        self._steer_blit_bg = self._steer_canvas.copy_from_bbox(
+            self._steer_fig.bbox)
+        self._steer_dynamic = list(self._steer_spoke_lines) + [
+            self._steer_sa_label, self._steer_left_label,
+            self._steer_right_label]
 
     def _update_left_steering_wheel(self, sa_deg):
         """Update the left-panel steering wheel rotation.
@@ -24169,93 +24174,145 @@ class PerssonModelGUI_V2:
             self._steer_left_label.set_fontsize(14)
             self._steer_right_label.set_color('#BBBBBB')
             self._steer_right_label.set_fontsize(14)
-        self._steer_canvas.draw_idle()
+        if getattr(self, '_steer_blit_bg', None) is not None:
+            self._steer_canvas.restore_region(self._steer_blit_bg)
+            for a in self._steer_dynamic:
+                try:
+                    a.axes.draw_artist(a)
+                except Exception:
+                    pass
+            self._steer_canvas.blit(self._steer_fig.bbox)
+            self._steer_canvas.flush_events()
+        else:
+            self._steer_canvas.draw_idle()
 
     # ── 2D Brush: Tire animation (top-down rolling tire with lateral force) ──
 
     def _init_tire_animation(self):
-        """Racing game-style top-down tire animation with treadmill road."""
+        """Racing game top-down view: car body + 4 tires + treadmill road."""
         ax = self._tire_ax
         ax.clear()
-        ax.set_xlim(-2.0, 2.0)
-        ax.set_ylim(-3.0, 3.0)
+        ax.set_xlim(-3.0, 3.0)
+        ax.set_ylim(-4.0, 4.0)
         ax.set_aspect('equal')
         ax.axis('off')
         ax.set_facecolor('#3A3A3A')
 
-        from matplotlib.patches import FancyBboxPatch, Rectangle, FancyArrowPatch
-        from matplotlib.transforms import Affine2D
+        from matplotlib.patches import FancyBboxPatch, Rectangle, Polygon as MplPoly
 
         # ── Asphalt road surface ──
-        road = Rectangle((-2.0, -3.0), 4.0, 6.0, facecolor='#4A4A4A',
+        road = Rectangle((-3.0, -4.0), 6.0, 8.0, facecolor='#4A4A4A',
                           edgecolor='none', zorder=0)
         ax.add_patch(road)
 
-        # Road edge lines (white solid)
-        ax.plot([-1.4, -1.4], [-3, 3], '-', color='#EEEEEE', lw=2.0, zorder=1)
-        ax.plot([1.4, 1.4], [-3, 3], '-', color='#EEEEEE', lw=2.0, zorder=1)
+        # Road edge lines (white solid, wider road)
+        ax.plot([-2.6, -2.6], [-4, 4], '-', color='#CCCCCC', lw=1.8, zorder=1)
+        ax.plot([2.6, 2.6], [-4, 4], '-', color='#CCCCCC', lw=1.8, zorder=1)
 
-        # Center lane dashes (yellow, scrolling — 12 dashes for dense feel)
+        # Center lane dashes (yellow, scrolling)
         self._road_dashes = []
-        dash_spacing = 0.8
-        for i in range(10):
-            y0 = -3.6 + i * dash_spacing
-            line, = ax.plot([0, 0], [y0, y0 + 0.35], '-', color='#FFD54F',
-                            lw=2.0, alpha=0.85, zorder=1)
+        dash_spacing = 1.0
+        for i in range(12):
+            y0 = -5.0 + i * dash_spacing
+            line, = ax.plot([-2.6, -2.6], [y0, y0 + 0.4], '-', color='#FFD54F',
+                            lw=1.5, alpha=0.7, zorder=1)
             self._road_dashes.append(line)
-
-        # Side lane dashes (white dashed, both sides)
+        # Right edge dashes
         self._road_side_dashes_L = []
         self._road_side_dashes_R = []
-        for i in range(10):
-            y0 = -3.6 + i * dash_spacing
-            ld, = ax.plot([-0.7, -0.7], [y0, y0 + 0.25], '-',
-                          color='#BBBBBB', lw=1.0, alpha=0.5, zorder=1)
-            rd, = ax.plot([0.7, 0.7], [y0, y0 + 0.25], '-',
-                          color='#BBBBBB', lw=1.0, alpha=0.5, zorder=1)
-            self._road_side_dashes_L.append(ld)
+        for i in range(12):
+            y0 = -5.0 + i * dash_spacing
+            rd, = ax.plot([2.6, 2.6], [y0, y0 + 0.4], '-',
+                          color='#FFD54F', lw=1.5, alpha=0.7, zorder=1)
+            # Center line
+            cd, = ax.plot([0, 0], [y0, y0 + 0.3], '-',
+                          color='#FFFFFF', lw=1.0, alpha=0.4, zorder=1)
+            self._road_side_dashes_L.append(cd)
             self._road_side_dashes_R.append(rd)
+        self._road_phase = 0.0
 
-        self._road_phase = 0.0  # treadmill scroll accumulator
+        # ── Car body (simple top-down silhouette) ──
+        # Main body: rounded rectangle
+        car_w = 2.2   # full width
+        car_h = 4.4   # full length
+        self._car_body = FancyBboxPatch(
+            (-car_w / 2, -car_h / 2), car_w, car_h,
+            boxstyle="round,pad=0.25", facecolor='#1565C0',
+            edgecolor='#0D47A1', linewidth=1.5, zorder=5, alpha=0.9)
+        ax.add_patch(self._car_body)
 
-        # ── Tire body (top-down rounded rectangle) ──
-        tire_w = 0.8
-        tire_h = 1.7
-        self._tire_body = FancyBboxPatch(
-            (-tire_w / 2, -tire_h / 2), tire_w, tire_h,
-            boxstyle="round,pad=0.10", facecolor='#1A1A1A',
-            edgecolor='#555555', linewidth=2.0, zorder=10)
-        ax.add_patch(self._tire_body)
-        self._tire_w = tire_w
-        self._tire_h = tire_h
+        # Windshield (front trapezoid)
+        ws_verts = [(-0.7, 0.8), (0.7, 0.8), (0.55, 1.5), (-0.55, 1.5)]
+        self._car_windshield = MplPoly(ws_verts, closed=True,
+                                        facecolor='#90CAF9', edgecolor='#1565C0',
+                                        linewidth=1, zorder=6, alpha=0.8)
+        ax.add_patch(self._car_windshield)
 
-        # Tire tread chevrons (V-pattern for racing look)
-        self._tire_treads = []
-        n_treads = 9
-        for i in range(n_treads):
-            y0 = -tire_h / 2 + 0.15 + i * (tire_h - 0.3) / (n_treads - 1)
-            # Left half of V
-            lL, = ax.plot([-tire_w / 2 + 0.08, 0], [y0 - 0.06, y0 + 0.06],
-                          '-', color='#444444', lw=1.2, zorder=11)
-            # Right half of V
-            lR, = ax.plot([0, tire_w / 2 - 0.08], [y0 + 0.06, y0 - 0.06],
-                          '-', color='#444444', lw=1.2, zorder=11)
-            self._tire_treads.append((lL, lR))
+        # Rear window
+        rw_verts = [(-0.65, -0.8), (0.65, -0.8), (0.5, -1.4), (-0.5, -1.4)]
+        self._car_rearwindow = MplPoly(rw_verts, closed=True,
+                                        facecolor='#90CAF9', edgecolor='#1565C0',
+                                        linewidth=1, zorder=6, alpha=0.7)
+        ax.add_patch(self._car_rearwindow)
+
+        # Headlights (two small yellow rectangles at front)
+        for hx in [-0.75, 0.75]:
+            hl = Rectangle((hx - 0.15, 1.85), 0.3, 0.15,
+                           facecolor='#FFE082', edgecolor='#FFC107',
+                           linewidth=0.8, zorder=6)
+            ax.add_patch(hl)
+
+        # Tail lights (two small red rectangles at rear)
+        for tx in [-0.75, 0.75]:
+            tl = Rectangle((tx - 0.15, -2.0), 0.3, 0.12,
+                           facecolor='#EF5350', edgecolor='#C62828',
+                           linewidth=0.8, zorder=6)
+            ax.add_patch(tl)
+
+        self._car_w = car_w
+        self._car_h = car_h
+
+        # ── 4 Tires (small rounded rectangles at corners) ──
+        tw = 0.35  # tire width
+        th = 0.75  # tire height
+        self._tire_w = tw
+        self._tire_h = th
+        # Positions: (x_center, y_center) relative to car center
+        # FL, FR, RL, RR
+        wb = 1.6   # half-wheelbase (front-rear distance / 2)
+        tk_x = car_w / 2 + tw * 0.05  # tire x offset (just outside body)
+        tire_positions = [
+            (-tk_x, wb), (tk_x, wb),   # front-left, front-right
+            (-tk_x, -wb), (tk_x, -wb),  # rear-left, rear-right
+        ]
+        self._tire_patches = []
+        self._tire_positions = tire_positions
+        self._tire_tread_lines = []  # tread marks per tire
+        for (tx, ty) in tire_positions:
+            tp = FancyBboxPatch(
+                (tx - tw / 2, ty - th / 2), tw, th,
+                boxstyle="round,pad=0.04", facecolor='#1A1A1A',
+                edgecolor='#444444', linewidth=1.2, zorder=8)
+            ax.add_patch(tp)
+            self._tire_patches.append(tp)
+            # 3 tread marks per tire
+            treads = []
+            for j in range(3):
+                yoff = ty - th / 2 + 0.12 + j * (th - 0.24) / 2
+                ln, = ax.plot([tx - tw / 2 + 0.04, tx + tw / 2 - 0.04],
+                              [yoff, yoff], '-', color='#3A3A3A', lw=0.8, zorder=9)
+                treads.append(ln)
+            self._tire_tread_lines.append(treads)
+
         self._tire_tread_phase = 0.0
 
-        # Tire center line (brand stripe)
-        self._tire_center_line, = ax.plot([0, 0], [-tire_h / 2 + 0.12, tire_h / 2 - 0.12],
-                                           '-', color='#666666', lw=0.8, zorder=11)
-
-        # ── Lateral force arrow (large, dramatic) ──
+        # ── Lateral force arrow (on car body, dramatic) ──
         self._tire_Fy_arrow = ax.annotate(
             '', xy=(0, 0), xytext=(0, 0),
             arrowprops=dict(arrowstyle='->', color='#FF4444', lw=3.5,
                             mutation_scale=22), zorder=15)
         self._tire_Fy_arrow.set_visible(False)
-
-        # Force magnitude label
-        self._tire_Fy_label = ax.text(0, 0, '', fontsize=9, ha='center',
+        self._tire_Fy_label = ax.text(0, 0, '', fontsize=8, ha='center',
                                        va='bottom', fontweight='bold',
                                        color='#FF6644',
                                        bbox=dict(boxstyle='round,pad=0.12',
@@ -24263,13 +24320,13 @@ class PerssonModelGUI_V2:
                                        zorder=16)
         self._tire_Fy_label.set_visible(False)
 
-        # Longitudinal force arrow (braking/accel, vertical)
+        # Longitudinal force arrow
         self._tire_Fx_arrow = ax.annotate(
             '', xy=(0, 0), xytext=(0, 0),
             arrowprops=dict(arrowstyle='->', color='#44FF44', lw=3.0,
                             mutation_scale=20), zorder=15)
         self._tire_Fx_arrow.set_visible(False)
-        self._tire_Fx_label = ax.text(0, 0, '', fontsize=8, ha='left',
+        self._tire_Fx_label = ax.text(0, 0, '', fontsize=7, ha='left',
                                        va='center', fontweight='bold',
                                        color='#44FF44',
                                        bbox=dict(boxstyle='round,pad=0.10',
@@ -24277,170 +24334,197 @@ class PerssonModelGUI_V2:
                                        zorder=16)
         self._tire_Fx_label.set_visible(False)
 
-        # Slip angle arc indicator
+        # SA arc indicator
         self._tire_sa_arc, = ax.plot([], [], '-', color='#FFD54F', lw=1.5,
-                                      alpha=0.8, zorder=9)
+                                      alpha=0.8, zorder=12)
         self._tire_sa_label = ax.text(0, 0, '', fontsize=7, ha='center',
                                        va='center', color='#FFD54F',
-                                       fontweight='bold', zorder=9)
+                                       fontweight='bold', zorder=12)
 
-        # Speed / rolling indicator text
+        # HUD text
         self._tire_speed_label = ax.text(
-            -1.85, 2.75, '', fontsize=7, ha='left', va='top',
+            -2.85, 3.7, '', fontsize=6.5, ha='left', va='top',
             color='#AAFFAA', fontweight='bold',
             fontfamily='monospace', zorder=20)
 
-        # Title
-        ax.text(0, 2.85, 'Racing View', fontsize=9, ha='center', va='top',
+        ax.text(0, 3.8, 'Racing View', fontsize=9, ha='center', va='top',
                 fontweight='bold', color='#EEEEEE', zorder=20)
 
-        # Store rotation transform for tire group
         self._tire_rotation_deg = 0.0
 
-        self._tire_canvas.draw_idle()
+        # Full draw once, then cache background for blit
+        self._tire_canvas.draw()
+        self._tire_blit_bg = self._tire_canvas.copy_from_bbox(
+            self._tire_fig.bbox)
+        self._tire_dynamic = [
+            self._car_body, self._car_windshield, self._car_rearwindow,
+            self._tire_Fy_arrow, self._tire_Fy_label,
+            self._tire_Fx_arrow, self._tire_Fx_label,
+            self._tire_sa_arc, self._tire_sa_label,
+            self._tire_speed_label,
+        ]
+        self._tire_dynamic.extend(self._tire_patches)
+        for treads in self._tire_tread_lines:
+            self._tire_dynamic.extend(treads)
+        self._tire_dynamic.extend(self._road_dashes)
+        self._tire_dynamic.extend(self._road_side_dashes_L)
+        self._tire_dynamic.extend(self._road_side_dashes_R)
 
     def _update_tire_animation(self, sa_deg, Fy, Fz, Fx=0.0):
-        """Racing game-style tire update with treadmill road and turning.
+        """Racing game: car + 4 tires, treadmill road, turning + forces."""
+        tw = self._tire_w
+        th = self._tire_h
+        car_w = self._car_w
+        car_h = self._car_h
 
-        sa_deg: slip angle (positive = right turn)
-        Fy: lateral force [N]
-        Fz: vertical load [N]
-        Fx: longitudinal force [N]
-        """
-        tire_w = self._tire_w
-        tire_h = self._tire_h
-
-        # ── 1) Treadmill road scroll (continuous, independent of SA) ──
-        self._road_phase += 0.18  # scroll speed (road moves downward)
-        dash_spacing = 0.8
-        total_span = dash_spacing * 10
+        # ── 1) Treadmill road scroll ──
+        self._road_phase += 0.22
+        dash_spacing = 1.0
+        total_span = dash_spacing * 12
         for i, line in enumerate(self._road_dashes):
-            y_base = -3.6 + i * dash_spacing
-            y0 = y_base - (self._road_phase % dash_spacing)
-            # Wrap
-            if y0 < -3.6:
+            y0 = -5.0 + i * dash_spacing - (self._road_phase % dash_spacing)
+            if y0 < -5.0:
                 y0 += total_span
-            line.set_data([0, 0], [y0, y0 + 0.35])
-
+            line.set_data([-2.6, -2.6], [y0, y0 + 0.4])
         for i in range(len(self._road_side_dashes_L)):
-            y_base = -3.6 + i * dash_spacing
-            y0 = y_base - (self._road_phase % dash_spacing)
-            if y0 < -3.6:
+            y0 = -5.0 + i * dash_spacing - (self._road_phase % dash_spacing)
+            if y0 < -5.0:
                 y0 += total_span
-            self._road_side_dashes_L[i].set_data([-0.7, -0.7], [y0, y0 + 0.25])
-            self._road_side_dashes_R[i].set_data([0.7, 0.7], [y0, y0 + 0.25])
+            self._road_side_dashes_R[i].set_data([2.6, 2.6], [y0, y0 + 0.4])
+            self._road_side_dashes_L[i].set_data([0, 0], [y0, y0 + 0.3])
 
-        # ── 2) Tire rotation (yaw) following SA — racing game feel ──
-        # Smooth interpolation toward target rotation
-        target_rot = -sa_deg  # negative because SA>0 = turn right = CW visually
-        alpha_smooth = 0.25   # smoothing factor (0=no change, 1=instant)
+        # ── 2) Car yaw: smooth interpolation ──
+        target_rot = -sa_deg * 1.5  # amplify for visual drama
+        alpha_smooth = 0.22
         self._tire_rotation_deg += alpha_smooth * (target_rot - self._tire_rotation_deg)
         rot_rad = np.radians(self._tire_rotation_deg)
         cos_r = np.cos(rot_rad)
         sin_r = np.sin(rot_rad)
 
         def _rot(x, y):
-            """Rotate point around origin."""
             return x * cos_r - y * sin_r, x * sin_r + y * cos_r
 
-        # Lateral shift (tire drifts opposite to turning direction)
+        # Lateral drift
         sa_norm = np.clip(sa_deg / 8.0, -1, 1)
-        lat_shift = -sa_norm * 0.6
-
-        # Update tire body (approximate rotation via position shift)
-        # FancyBboxPatch doesn't support rotation natively, so shift + rotate treads
+        lat_shift = -sa_norm * 0.8
         cx, cy = lat_shift, 0.0
-        self._tire_body.set_x(-tire_w / 2 + cx)
-        self._tire_body.set_y(-tire_h / 2 + cy)
 
-        # ── 3) Tread chevrons with rolling + rotation ──
-        self._tire_tread_phase += 0.15
-        n_treads = len(self._tire_treads)
-        tread_range = tire_h - 0.30
-        tread_spacing_t = tread_range / (n_treads - 1)
-        phase_off = (self._tire_tread_phase * tread_spacing_t) % tread_spacing_t
+        # Car body position (can't truly rotate FancyBboxPatch — shift only)
+        self._car_body.set_x(-car_w / 2 + cx)
+        self._car_body.set_y(-car_h / 2 + cy)
 
-        for i, (lL, lR) in enumerate(self._tire_treads):
-            y0 = -tire_h / 2 + 0.15 + i * tread_spacing_t + phase_off
-            if y0 > tire_h / 2 - 0.10:
-                y0 -= tread_range + tread_spacing_t
-            # Chevron points (local frame)
-            pts = [(-tire_w / 2 + 0.08, y0 - 0.06),
-                   (0, y0 + 0.06),
-                   (tire_w / 2 - 0.08, y0 - 0.06)]
-            # Rotate + translate
-            rpts = [(_rot(px, py)[0] + cx, _rot(px, py)[1] + cy) for px, py in pts]
-            lL.set_data([rpts[0][0], rpts[1][0]], [rpts[0][1], rpts[1][1]])
-            lR.set_data([rpts[1][0], rpts[2][0]], [rpts[1][1], rpts[2][1]])
+        # Windshield / rear window — update polygon vertices
+        ws_base = [(-0.7, 0.8), (0.7, 0.8), (0.55, 1.5), (-0.55, 1.5)]
+        rw_base = [(-0.65, -0.8), (0.65, -0.8), (0.5, -1.4), (-0.5, -1.4)]
+        ws_rot = [(_rot(x, y)[0] + cx, _rot(x, y)[1] + cy) for x, y in ws_base]
+        rw_rot = [(_rot(x, y)[0] + cx, _rot(x, y)[1] + cy) for x, y in rw_base]
+        self._car_windshield.set_xy(ws_rot)
+        self._car_rearwindow.set_xy(rw_rot)
 
-        # Center line rotation
-        p1 = _rot(0, -tire_h / 2 + 0.12)
-        p2 = _rot(0, tire_h / 2 - 0.12)
-        self._tire_center_line.set_data(
-            [p1[0] + cx, p2[0] + cx], [p1[1] + cy, p2[1] + cy])
+        # ── 3) Front tires: steer with SA, rear tires: fixed ──
+        # Front tire extra rotation = slip angle
+        front_steer_rad = rot_rad + np.radians(-sa_deg * 0.5)
+        cos_fs = np.cos(front_steer_rad)
+        sin_fs = np.sin(front_steer_rad)
 
-        # ── 4) Slip angle arc indicator ──
+        def _rot_front(x, y):
+            return x * cos_fs - y * sin_fs, x * sin_fs + y * cos_fs
+
+        self._tire_tread_phase += 0.18
+        tread_spacing_t = (th - 0.24) / 2
+
+        for ti, (tx0, ty0) in enumerate(self._tire_positions):
+            is_front = ti < 2
+            # Tire center in rotated car frame
+            rx, ry = _rot(tx0, ty0)
+            tcx, tcy = rx + cx, ry + cy
+
+            # Update tire patch position
+            self._tire_patches[ti].set_x(tcx - tw / 2)
+            self._tire_patches[ti].set_y(tcy - th / 2)
+
+            # Tread marks with rolling animation
+            phase_off = (self._tire_tread_phase * tread_spacing_t) % tread_spacing_t
+            for j, ln in enumerate(self._tire_tread_lines[ti]):
+                yoff = -th / 2 + 0.12 + j * tread_spacing_t + phase_off
+                if yoff > th / 2 - 0.08:
+                    yoff -= (th - 0.24) + tread_spacing_t
+                ln.set_data([tcx - tw / 2 + 0.04, tcx + tw / 2 - 0.04],
+                            [tcy + yoff, tcy + yoff])
+
+        # ── 4) SA arc at front of car ──
         if abs(sa_deg) > 0.3:
-            arc_r = 1.6
-            # Arc from vertical to tire heading
-            a_start = np.pi / 2  # straight ahead
+            arc_r = 2.5
+            front_y = car_h / 2 + 0.3
+            arc_cx, arc_cy = _rot(0, front_y)
+            arc_cx += cx; arc_cy += cy
+            a_start = np.pi / 2
             a_end = np.pi / 2 - rot_rad
             t_arc = np.linspace(a_start, a_end, 20)
-            ax_pts = arc_r * np.cos(t_arc) + cx
-            ay_pts = arc_r * np.sin(t_arc) + cy
-            self._tire_sa_arc.set_data(ax_pts, ay_pts)
+            self._tire_sa_arc.set_data(
+                arc_r * np.cos(t_arc) * 0.6 + arc_cx,
+                arc_r * np.sin(t_arc) * 0.6 + arc_cy)
             self._tire_sa_arc.set_visible(True)
-            # Label at midpoint of arc
             mid_a = (a_start + a_end) / 2
             self._tire_sa_label.set_position(
-                ((arc_r + 0.25) * np.cos(mid_a) + cx,
-                 (arc_r + 0.25) * np.sin(mid_a) + cy))
+                (arc_r * 0.75 * np.cos(mid_a) + arc_cx,
+                 arc_r * 0.75 * np.sin(mid_a) + arc_cy))
             self._tire_sa_label.set_text(f'{sa_deg:+.1f}°')
             self._tire_sa_label.set_visible(True)
         else:
             self._tire_sa_arc.set_visible(False)
             self._tire_sa_label.set_visible(False)
 
-        # ── 5) Lateral force arrow (perpendicular to tire, dramatic) ──
+        # ── 5) Lateral force arrow (from car center, perpendicular) ──
         if abs(Fy) > 10 and Fz > 0:
             mu_y = Fy / max(Fz, 1.0)
-            arrow_len = np.clip(abs(mu_y) * 1.5, 0.2, 1.5)
-            # Arrow perpendicular to tire heading (rotated)
-            perp_x, perp_y = _rot(np.sign(Fy) * arrow_len, 0)
-            self._tire_Fy_arrow.xy = (cx + perp_x, cy + perp_y)
+            arrow_len = np.clip(abs(mu_y) * 2.0, 0.3, 2.0)
+            px, py = _rot(np.sign(Fy) * arrow_len, 0)
+            self._tire_Fy_arrow.xy = (cx + px, cy + py)
             self._tire_Fy_arrow.set_position((cx, cy))
             self._tire_Fy_arrow.set_visible(True)
             self._tire_Fy_label.set_position(
-                (cx + perp_x * 1.25, cy + perp_y * 1.25 + 0.15))
+                (cx + px * 1.15, cy + py * 1.15 + 0.2))
             self._tire_Fy_label.set_text(f'Fy {Fy:+.0f}N')
             self._tire_Fy_label.set_visible(True)
         else:
             self._tire_Fy_arrow.set_visible(False)
             self._tire_Fy_label.set_visible(False)
 
-        # ── 6) Longitudinal force arrow (along tire heading) ──
+        # ── 6) Longitudinal force arrow ──
         if abs(Fx) > 10 and Fz > 0:
             mu_x = Fx / max(Fz, 1.0)
-            fx_len = np.clip(abs(mu_x) * 1.3, 0.2, 1.3)
+            fx_len = np.clip(abs(mu_x) * 1.8, 0.3, 1.8)
             fwd_x, fwd_y = _rot(0, np.sign(Fx) * fx_len)
-            y_off = tire_h / 2 + 0.1
-            base_x, base_y = _rot(0, y_off * np.sign(Fx))
-            self._tire_Fx_arrow.xy = (cx + base_x + fwd_x, cy + base_y + fwd_y)
-            self._tire_Fx_arrow.set_position((cx + base_x, cy + base_y))
+            base_y_off = car_h / 2 + 0.2
+            bx, by = _rot(0, base_y_off * np.sign(Fx))
+            self._tire_Fx_arrow.xy = (cx + bx + fwd_x, cy + by + fwd_y)
+            self._tire_Fx_arrow.set_position((cx + bx, cy + by))
             self._tire_Fx_arrow.set_visible(True)
             self._tire_Fx_label.set_position(
-                (cx + base_x + fwd_x + 0.15, cy + base_y + fwd_y))
+                (cx + bx + fwd_x + 0.2, cy + by + fwd_y))
             self._tire_Fx_label.set_text(f'Fx {Fx:+.0f}N')
             self._tire_Fx_label.set_visible(True)
         else:
             self._tire_Fx_arrow.set_visible(False)
             self._tire_Fx_label.set_visible(False)
 
-        # ── 7) Speed HUD ──
+        # ── 7) HUD ──
         self._tire_speed_label.set_text(
             f'SA {sa_deg:+5.1f}°\nFy {Fy:+6.0f}N\nFx {Fx:+6.0f}N')
 
-        self._tire_canvas.draw_idle()
+        # Blit
+        if getattr(self, '_tire_blit_bg', None) is not None:
+            self._tire_canvas.restore_region(self._tire_blit_bg)
+            for a in self._tire_dynamic:
+                try:
+                    a.axes.draw_artist(a)
+                except Exception:
+                    pass
+            self._tire_canvas.blit(self._tire_fig.bbox)
+            self._tire_canvas.flush_events()
+        else:
+            self._tire_canvas.draw_idle()
 
     # ── 2D Brush: Persistent artist initialization ──
 
@@ -24721,7 +24805,28 @@ class PerssonModelGUI_V2:
                     self._br_final_ax_positions[ax_name] = ax.get_position().frozen()
 
         self._br_artists_ready = True
-        self.canvas_brush.draw_idle()
+        self.canvas_brush.draw()  # full draw once to establish layout
+
+        # ── Blit setup: cache static background, list dynamic artists ──
+        self._br_blit_bg = self.canvas_brush.copy_from_bbox(
+            self.fig_brush.bbox)
+        self._br_dynamic_artists = [
+            self._br_pm_stick, self._br_pm_pres, self._br_pm_temp,
+            self._br_pm_fric, self._br_quiver_speed,
+            self._br_stick_arrow, self._br_stick_arrow_label,
+        ]
+        # Outlines
+        self._br_dynamic_artists.extend(self._br_outline_patches)
+        # Time-history cursors and markers
+        for attr in ('_br_cursor_in', '_br_cursor_ft',
+                     '_br_marker_sa', '_br_marker_sr',
+                     '_br_marker_fy', '_br_marker_fx',
+                     '_br_cursor_fy_sa', '_br_cursor_fx_sr',
+                     '_br_marker_fy_sa', '_br_marker_fx_sr'):
+            a = getattr(self, attr, None)
+            if a is not None:
+                self._br_dynamic_artists.append(a)
+        self._br_use_blit = True
 
     # ── 2D Brush: Frame display ──
 
@@ -24869,7 +24974,19 @@ class PerssonModelGUI_V2:
         if hasattr(self, '_br_marker_fx_sr'):
             self._br_marker_fx_sr.set_data([f['SR']], [f['Fx']])
 
-        self.canvas_brush.draw_idle()
+        # ── Fast render: blit if available, else full redraw ──
+        if getattr(self, '_br_use_blit', False) and self._br_blit_bg is not None:
+            canvas = self.canvas_brush
+            canvas.restore_region(self._br_blit_bg)
+            for artist in self._br_dynamic_artists:
+                try:
+                    artist.axes.draw_artist(artist)
+                except Exception:
+                    pass
+            canvas.blit(self.fig_brush.bbox)
+            canvas.flush_events()
+        else:
+            self.canvas_brush.draw_idle()
 
     # ── 2D Brush: Playback controls ──
 
@@ -24910,35 +25027,44 @@ class PerssonModelGUI_V2:
         mult = self._br_speed_mult.get()
         self._br_speed_label_var.set(f"재생 속도: {mult:.1f}x")
 
+    def _refresh_outline_and_blit_bg(self):
+        """Update outlines + re-clip pcolormesh + recapture blit background."""
+        if not self._brush_frames or not hasattr(self, '_br_outline_patches'):
+            return
+        f = self._brush_frames[self._brush_frame_idx]
+        L_mm = self._brush_L_mm
+        W_mm = self._brush_W_mm
+        new_verts = self._egg_outline(f['SA'], L_mm / 2, W_mm / 2)
+        for poly in self._br_outline_patches:
+            poly.set_xy(new_verts)
+        # Re-clip pcolormesh to updated outline
+        for pm, poly in zip(
+                [self._br_pm_stick, self._br_pm_pres,
+                 self._br_pm_temp, self._br_pm_fric],
+                [self._br_outline_patches[0]] + self._br_outline_patches[2:]):
+            try:
+                pm.set_clip_path(poly)
+            except Exception:
+                pass
+        # Full redraw + recapture blit background
+        self.canvas_brush.draw()
+        if getattr(self, '_br_use_blit', False):
+            self._br_blit_bg = self.canvas_brush.copy_from_bbox(
+                self.fig_brush.bbox)
+
     def _on_egg_k_slider(self, value=None):
         """Update egg shape constant from slider (live preview on current frame)."""
         k = self._br_egg_k_var.get()
         type(self)._EGG_K_MAX = k
         self._br_egg_label_var.set(f"접지면 변형 (K): {k:.2f}")
-        # Live-update outline on current frame (data mask stays until re-sim)
-        if self._brush_frames and hasattr(self, '_br_outline_patches'):
-            f = self._brush_frames[self._brush_frame_idx]
-            L_mm = self._brush_L_mm
-            W_mm = self._brush_W_mm
-            new_verts = self._egg_outline(f['SA'], L_mm / 2, W_mm / 2)
-            for poly in self._br_outline_patches:
-                poly.set_xy(new_verts)
-            self.canvas_brush.draw_idle()
+        self._refresh_outline_and_blit_bg()
 
     def _on_ellipse_power_slider(self, value=None):
         """Update superellipse exponent from slider (live preview)."""
         n = self._br_ellipse_power_var.get()
         type(self)._ELLIPSE_POWER = n
         self._br_ellipse_power_label_var.set(f"타원 형상 (n): {n:.1f}")
-        # Live-update outline on current frame
-        if self._brush_frames and hasattr(self, '_br_outline_patches'):
-            f = self._brush_frames[self._brush_frame_idx]
-            L_mm = self._brush_L_mm
-            W_mm = self._brush_W_mm
-            new_verts = self._egg_outline(f['SA'], L_mm / 2, W_mm / 2)
-            for poly in self._br_outline_patches:
-                poly.set_xy(new_verts)
-            self.canvas_brush.draw_idle()
+        self._refresh_outline_and_blit_bg()
 
     def _brush_animate(self):
         """Advance frames — optimized for ProMotion-like smoothness."""
