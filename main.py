@@ -24689,8 +24689,16 @@ class PerssonModelGUI_V2:
         import matplotlib.cm as mcm
         from matplotlib.ticker import FuncFormatter
 
-        # Detect whether colorbar axes already exist from a previous run
-        _reuse_cax = hasattr(self, '_br_cbar_axes') and self._br_cbar_axes is not None
+        # Inset colorbars: always recreate (they don't steal axis space)
+        # Remove old inset colorbar axes to prevent duplicates
+        if hasattr(self, '_br_cbar_axes') and self._br_cbar_axes:
+            for cax in self._br_cbar_axes.values():
+                try:
+                    cax.remove()
+                except Exception:
+                    pass
+        _reuse_cax = False  # always fresh inset colorbars
+        self._br_cbar_axes = None
 
         # Restore original axis positions from GridSpec
         if hasattr(self, '_br_original_ax_positions'):
@@ -24698,14 +24706,6 @@ class PerssonModelGUI_V2:
                 ax = getattr(self, ax_name, None)
                 if ax is not None:
                     ax.set_position(pos)
-
-        # If reusing, also restore saved colorbar axes positions
-        if _reuse_cax and hasattr(self, '_br_cbar_ax_positions'):
-            for key, pos in self._br_cbar_ax_positions.items():
-                cax = self._br_cbar_axes.get(key)
-                if cax is not None:
-                    cax.clear()
-                    cax.set_position(pos)
 
         x_mm = self._brush_x_mm
         y_mm = self._brush_y_mm
@@ -24723,7 +24723,7 @@ class PerssonModelGUI_V2:
             ax.set_xlabel('length [mm]', fontsize=7)
             ax.set_ylabel('width [mm]', fontsize=7)
             ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
-            ax.set_ylim(-W_mm * 0.78, W_mm * 0.7)
+            ax.set_ylim(-W_mm * 0.85, W_mm * 0.75)
             ax.tick_params(labelsize=7)
 
         def _add_contact_outline(ax):
@@ -24742,15 +24742,22 @@ class PerssonModelGUI_V2:
             ax.add_patch(poly)
             return poly
 
+        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+
         def _make_cb(mappable, ax, cax_key, **extra_kw):
-            """Create colorbar, reusing existing cax if available."""
+            """Create INSET colorbar inside the plot axes (horizontal, bottom).
+            Reuses existing cax if available from a previous run."""
             if _reuse_cax and cax_key in self._br_cbar_axes:
-                cb = self.fig_brush.colorbar(mappable,
-                                             cax=self._br_cbar_axes[cax_key],
-                                             **extra_kw)
+                cax = self._br_cbar_axes[cax_key]
+                cax.clear()
+                cb = self.fig_brush.colorbar(mappable, cax=cax, **extra_kw)
             else:
-                cb = self.fig_brush.colorbar(mappable, ax=ax, **_cb_kw,
-                                             **extra_kw)
+                cax = inset_axes(ax, width="45%", height="4%",
+                                  loc='lower right', borderpad=1.2)
+                cb = self.fig_brush.colorbar(mappable, cax=cax,
+                                              orientation='horizontal',
+                                              **extra_kw)
+            cb.ax.tick_params(labelsize=4.5, length=2, pad=1)
             return cb
 
         # Build mesh edges for pcolormesh (needs N+1 edges for N centers)
@@ -24807,11 +24814,7 @@ class PerssonModelGUI_V2:
                    framealpha=0.9, edgecolor='#999',
                    bbox_to_anchor=(0.98, 0.98), borderaxespad=0)
         _setup_ax(ax1, 'sliding vs adhesion')
-        # Invisible spacer colorbar to match width of other plots
-        _sm = mcm.ScalarMappable(cmap='jet', norm=plt.Normalize(0, 1))
-        _sm.set_array([])
-        self._cb_dummy_stick = _make_cb(_sm, ax1, 'dummy_stick')
-        self._cb_dummy_stick.ax.set_visible(False)
+        # No dummy colorbar needed — inset colorbars don't steal axis space
 
         # ── Shared discrete level count for consistent region labeling ──
         n_levels = 8
@@ -24847,11 +24850,10 @@ class PerssonModelGUI_V2:
             scale=max(sp_hi * 8.0, 0.1), headwidth=4, headlength=5, headaxislength=4,
             linewidth=0.6, alpha=0.9, zorder=3)
         self._cb_br_speed = _make_cb(self._br_quiver_speed, ax2, 'speed')
-        self._cb_br_speed.set_label('speed [m/s]', fontsize=7)
+        self._cb_br_speed.set_label('m/s', fontsize=5.5)
         sp_centers = 0.5 * (sp_boundaries[:-1] + sp_boundaries[1:])
-        self._cb_br_speed.set_ticks(sp_centers)
-        self._cb_br_speed.set_ticklabels([f'{int(round(v))}' for v in sp_centers])
-        self._cb_br_speed.ax.tick_params(labelsize=5.5)
+        self._cb_br_speed.set_ticks(sp_centers[::2])
+        self._cb_br_speed.set_ticklabels([f'{v:.1f}' for v in sp_centers[::2]])
         _setup_ax(ax2, 'sliding speed')
 
         # ── (3) contact pressure — pcolormesh with discrete levels ──
@@ -24868,11 +24870,10 @@ class PerssonModelGUI_V2:
         self._br_outline_patches.append(_outline3)
         self._br_pm_pres.set_clip_path(_outline3)
         self._cb_br_pres = _make_cb(self._br_pm_pres, ax3, 'pressure')
-        self._cb_br_pres.set_label('pressure [bar]', fontsize=7)
+        self._cb_br_pres.set_label('bar', fontsize=5.5)
         pr_centers = 0.5 * (pr_boundaries[:-1] + pr_boundaries[1:])
-        self._cb_br_pres.set_ticks(pr_centers)
-        self._cb_br_pres.set_ticklabels([f'{v:.2f}' for v in pr_centers])
-        self._cb_br_pres.ax.tick_params(labelsize=5.5)
+        self._cb_br_pres.set_ticks(pr_centers[::2])
+        self._cb_br_pres.set_ticklabels([f'{v:.1f}' for v in pr_centers[::2]])
         # Rolling direction arrow on pressure plot
         _roll_y3 = -W_mm * 0.55
         ax3.annotate('', xy=(-L_mm * 0.35, _roll_y3),
@@ -24904,11 +24905,10 @@ class PerssonModelGUI_V2:
         self._br_outline_patches.append(_outline4)
         self._br_pm_temp.set_clip_path(_outline4)
         self._cb_br_temp = _make_cb(self._br_pm_temp, ax4, 'temperature')
-        self._cb_br_temp.set_label('temperature [\u00b0C]', fontsize=7)
+        self._cb_br_temp.set_label('\u00b0C', fontsize=5.5)
         t_centers = 0.5 * (t_boundaries[:-1] + t_boundaries[1:])
-        self._cb_br_temp.set_ticks(t_centers)
-        self._cb_br_temp.set_ticklabels([f'{v:.1f}' for v in t_centers])
-        self._cb_br_temp.ax.tick_params(labelsize=5.5)
+        self._cb_br_temp.set_ticks(t_centers[::2])
+        self._cb_br_temp.set_ticklabels([f'{v:.1f}' for v in t_centers[::2]])
         _setup_ax(ax4, 'temperature')
 
         # ── (5) friction force — pcolormesh with indexed discrete levels ──
@@ -24925,23 +24925,20 @@ class PerssonModelGUI_V2:
         self._br_outline_patches.append(_outline5)
         self._br_pm_fric.set_clip_path(_outline5)
         self._cb_br_fric = _make_cb(self._br_pm_fric, ax5, 'friction')
-        self._cb_br_fric.set_label('friction [N/node]', fontsize=7)
+        self._cb_br_fric.set_label('N/node', fontsize=5.5)
         fric_centers = 0.5 * (fric_boundaries[:-1] + fric_boundaries[1:])
-        self._cb_br_fric.set_ticks(fric_centers)
-        self._cb_br_fric.set_ticklabels([f'{v:.1e}' for v in fric_centers])
-        self._cb_br_fric.ax.tick_params(labelsize=5.5)
+        self._cb_br_fric.set_ticks(fric_centers[::2])
+        self._cb_br_fric.set_ticklabels([f'{v:.1e}' for v in fric_centers[::2]])
         _setup_ax(ax5, 'friction force')
 
         # ── Save colorbar axes for reuse on subsequent runs ──
         if not _reuse_cax:
             self._br_cbar_axes = {
-                'dummy_stick': self._cb_dummy_stick.ax,
                 'speed': self._cb_br_speed.ax,
                 'pressure': self._cb_br_pres.ax,
                 'temperature': self._cb_br_temp.ax,
                 'friction': self._cb_br_fric.ax,
             }
-            # Save colorbar axes positions after first layout
             self._br_cbar_ax_positions = {
                 key: cax.get_position().frozen()
                 for key, cax in self._br_cbar_axes.items()
