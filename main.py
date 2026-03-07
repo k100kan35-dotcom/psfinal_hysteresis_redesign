@@ -23674,23 +23674,19 @@ class PerssonModelGUI_V2:
         def _deformed_mask(sa_deg_local):
             """Return (mask, outline_verts) for the given SA.
 
-            Direction convention (matches pressure computation):
+            Uses egg parametrisation: x = a·cos(θ)·(1+k·sin(θ))
+            which naturally rounds BOTH tips (no cusp/point).
             SA > 0 (right turn): wider at -y (loaded side), narrower at +y
             SA < 0 (left turn): wider at +y (loaded side), narrower at -y
-            Produces egg/teardrop shape matching real contact patch deformation.
             """
             sf = -np.clip(sa_deg_local / 6.0, -1, 1)  # negate to match pressure
+            k = sf * 0.65  # egg asymmetry (0 = ellipse, ±0.65 = strong egg)
             theta = np.linspace(0, 2 * np.pi, 120)
             cos_t = np.cos(theta)
             sin_t = np.sin(theta)
-            # Smooth modulation: sqrt(|sin|) rounds the tips
-            sin_smooth = np.sign(sin_t) * np.abs(sin_t) ** 0.5
-            # Strong x-modulation (length): loaded side wider, unloaded much narrower
-            lmod = 1.0 + sf * 0.7 * sin_smooth
-            x_d = (L / 2 * cos_t) * np.clip(lmod, 0.12, None)
-            # Mild y-modulation (width): unloaded side slightly narrower
-            wmod = 1.0 + sf * 0.15 * sin_smooth
-            y_d = (W / 2 * sin_t) * np.clip(wmod, 0.6, None)
+            # Egg shape: cos·(1+k·sin) gives natural rounding at both poles
+            x_d = (L / 2 * cos_t) * (1.0 + k * sin_t)
+            y_d = W / 2 * sin_t
             x_d -= np.mean(x_d)
             verts = np.column_stack([x_d, y_d])
             path = _MplPath(verts)
@@ -24655,16 +24651,12 @@ class PerssonModelGUI_V2:
                 # Fallback: recompute (for old frame data without stored verts)
                 sa_deg = f['SA']
                 sa_factor = -np.clip(sa_deg / 6.0, -1, 1)  # negated to match data
+                k = sa_factor * 0.65  # egg asymmetry
                 theta = np.linspace(0, 2 * np.pi, 120)
                 cos_t = np.cos(theta)
                 sin_t = np.sin(theta)
-                sin_smooth = np.sign(sin_t) * np.abs(sin_t) ** 0.5
-                # Strong x-modulation for egg/teardrop shape
-                length_mod = 1.0 + sa_factor * 0.7 * sin_smooth
-                x_deformed = (L_mm / 2 * cos_t) * np.clip(length_mod, 0.12, None)
-                # Mild width modulation
-                wmod = 1.0 + sa_factor * 0.15 * sin_smooth
-                y_deformed = (W_mm / 2 * sin_t) * np.clip(wmod, 0.6, None)
+                x_deformed = (L_mm / 2 * cos_t) * (1.0 + k * sin_t)
+                y_deformed = W_mm / 2 * sin_t
                 x_deformed -= np.mean(x_deformed)
                 new_verts = np.column_stack([x_deformed, y_deformed])
             for poly in self._br_outline_patches:
