@@ -22605,9 +22605,9 @@ class PerssonModelGUI_V2:
         self.br_reset_btn.pack(side=tk.LEFT, padx=1)
 
         ttk.Label(play_row, text="프레임:", font=self.FONTS['small']).pack(side=tk.LEFT, padx=(8, 2))
-        self.br_frame_count_var = tk.StringVar(value="240")
+        self.br_frame_count_var = tk.StringVar(value="480")
         frame_combo = ttk.Combobox(play_row, textvariable=self.br_frame_count_var, width=5,
-                                    values=['60', '120', '240', '480', '960'],
+                                    values=['120', '240', '480', '960', '1920'],
                                     state='readonly')
         frame_combo.pack(side=tk.LEFT, padx=1)
 
@@ -22620,10 +22620,10 @@ class PerssonModelGUI_V2:
 
         # ── Speed slider (continuous, replaces combobox) ──
         speed_slider_row = ttk.Frame(sec5); speed_slider_row.pack(fill=tk.X, pady=1)
-        self._br_speed_label_var = tk.StringVar(value="재생 속도: 1.0x")
+        self._br_speed_label_var = tk.StringVar(value="재생 속도: 3.0x")
         ttk.Label(speed_slider_row, textvariable=self._br_speed_label_var,
                   font=self.FONTS['small']).pack(side=tk.LEFT, padx=4)
-        self._br_speed_mult = tk.DoubleVar(value=1.0)
+        self._br_speed_mult = tk.DoubleVar(value=3.0)
         self._br_speed_slider = ttk.Scale(
             speed_slider_row, from_=0.25, to=20.0,
             orient='horizontal', variable=self._br_speed_mult,
@@ -22648,6 +22648,21 @@ class PerssonModelGUI_V2:
             orient='horizontal', variable=self._br_egg_k_var,
             command=self._on_egg_k_slider)
         self._br_egg_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+
+        # ── Ellipse shape power (superellipse exponent) slider ──
+        ellipse_row = ttk.Frame(sec5); ellipse_row.pack(fill=tk.X, pady=1)
+        self._br_ellipse_power_label_var = tk.StringVar(
+            value=f"타원 형상 (n): {self._ELLIPSE_POWER:.1f}")
+        ttk.Label(ellipse_row, textvariable=self._br_ellipse_power_label_var,
+                  font=self.FONTS['small']).pack(side=tk.LEFT, padx=4)
+        self._br_ellipse_power_var = tk.DoubleVar(value=self._ELLIPSE_POWER)
+        self._br_ellipse_power_slider = ttk.Scale(
+            ellipse_row, from_=1.0, to=6.0,
+            orient='horizontal', variable=self._br_ellipse_power_var,
+            command=self._on_ellipse_power_slider)
+        self._br_ellipse_power_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+        ttk.Label(ellipse_row, text="n<2 뾰족 | n=2 타원 | n>2 사각",
+                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
         # Internal playback state
         self._brush_frames = []
@@ -23236,27 +23251,27 @@ class PerssonModelGUI_V2:
 
         xx, yy = np.meshgrid(x_arr, y_arr, indexing='ij')  # (Nx, Ny)
 
+        # Superellipse boundary: |2x/L|^n + |2y/W|^n <= 1
+        se_n = self._ELLIPSE_POWER
+        se_r = np.abs(2 * xx / L) ** se_n + np.abs(2 * yy / W) ** se_n
+
         if ptype == 'uniform':
             p_map = np.ones((Nx, Ny))
         elif ptype == 'elliptic':
-            r2 = (2 * xx / L) ** 2 + (2 * yy / W) ** 2
-            p_map = np.sqrt(np.clip(1 - r2, 0, None))
+            p_map = np.sqrt(np.clip(1 - se_r ** (2.0 / se_n), 0, None))
         elif ptype == 'dual_peak':
             # Dual-peak distribution: two humps at high/low width sides
-            # Peaks along lateral (width) axis — top and bottom of contact patch
-            lon_env = np.clip(1 - (2 * xx / L) ** 2, 0, None)  # longitudinal envelope
-            y_norm = 2 * yy / W  # normalized y: -1 to +1
-            peak_pos = 0.40  # peak positions at ±40% of half-width
-            peak_width = 0.45  # width of each peak (sigma-like)
-            peak_high = np.exp(-((y_norm - peak_pos) / peak_width) ** 2)  # +y side
-            peak_low = np.exp(-((y_norm + peak_pos) / peak_width) ** 2)   # -y side
+            lon_env = np.clip(1 - np.abs(2 * xx / L) ** se_n, 0, None)
+            y_norm = 2 * yy / W
+            peak_pos = 0.40
+            peak_width = 0.45
+            peak_high = np.exp(-((y_norm - peak_pos) / peak_width) ** 2)
+            peak_low = np.exp(-((y_norm + peak_pos) / peak_width) ** 2)
             p_map = (peak_high + peak_low) * lon_env
-            # Zero outside ellipse
-            r2 = (2 * xx / L) ** 2 + (2 * yy / W) ** 2
-            p_map *= (r2 <= 1.0)
+            p_map *= (se_r <= 1.0)
         else:  # parabolic
-            p_map = np.clip(1 - (2 * xx / L) ** 2, 0, None) * \
-                    np.clip(1 - (2 * yy / W) ** 2, 0, None)
+            p_map = np.clip(1 - np.abs(2 * xx / L) ** se_n, 0, None) * \
+                    np.clip(1 - np.abs(2 * yy / W) ** se_n, 0, None)
 
         # Apply asymmetric weighting based on driving mode
         # Rolling direction: right-to-left (-x). Leading edge at -x, trailing at +x.
@@ -23283,6 +23298,7 @@ class PerssonModelGUI_V2:
     _EGG_K_MAX = 0.35   # max asymmetry at SA = 6°
     _EGG_SA_REF = 6.0    # reference SA for full deformation
     _EGG_NPTS = 120       # outline resolution
+    _ELLIPSE_POWER = 2.0  # superellipse exponent (2=ellipse, <2=diamond, >2=rectangle)
 
     @classmethod
     def _egg_outline(cls, sa_deg, half_L, half_W):
@@ -23295,11 +23311,16 @@ class PerssonModelGUI_V2:
         """
         sf = -np.clip(sa_deg / cls._EGG_SA_REF, -1, 1)
         k = sf * cls._EGG_K_MAX
+        n = cls._ELLIPSE_POWER
         theta = np.linspace(0, 2 * np.pi, cls._EGG_NPTS)
         cos_t = np.cos(theta)
         sin_t = np.sin(theta)
-        x_d = half_L * cos_t * (1.0 + k * sin_t)
-        y_d = half_W * sin_t
+        # Superellipse: |cos|^(2/n) * sign(cos), |sin|^(2/n) * sign(sin)
+        exp = 2.0 / n
+        cos_se = np.sign(cos_t) * np.abs(cos_t) ** exp
+        sin_se = np.sign(sin_t) * np.abs(sin_t) ** exp
+        x_d = half_L * cos_se * (1.0 + k * sin_se)
+        y_d = half_W * sin_se
         x_d -= np.mean(x_d)
         return np.column_stack([x_d, y_d])
 
@@ -23706,8 +23727,9 @@ class PerssonModelGUI_V2:
         xx_g, yy_g = np.meshgrid(x_arr, y_arr, indexing='ij')
         dA = dx * dy
 
-        # Elliptical contact mask (base — used when SA=0)
-        ellipse_mask = ((2 * xx_g / L)**2 + (2 * yy_g / W)**2) <= 1.0
+        # Superellipse contact mask (base — used when SA=0)
+        _se_n = self._ELLIPSE_POWER
+        ellipse_mask = (np.abs(2 * xx_g / L)**_se_n + np.abs(2 * yy_g / W)**_se_n) <= 1.0
 
         # ── Helper: deformed contact mask (rounded triangle) ──
         # At nonzero SA the patch deforms from ellipse toward isosceles
@@ -23824,6 +23846,7 @@ class PerssonModelGUI_V2:
         ky_node = ky / n_in_ellipse
 
         # Store frames
+        from scipy.ndimage import binary_dilation
         frames = []
         Fx_hist = np.zeros(n_frames)
         Fy_hist = np.zeros(n_frames)
@@ -23973,6 +23996,7 @@ class PerssonModelGUI_V2:
                 'F_friction': F_node_mag.copy(),
                 '_contact_mask': cmask,         # per-frame deformed mask
                 '_outline_verts': outline_verts, # outline vertices (mm)
+                '_mask_fill': binary_dilation(cmask, iterations=2),  # pre-computed
             })
 
             # Progress
@@ -24387,11 +24411,16 @@ class PerssonModelGUI_V2:
         _outline1 = _add_contact_outline(ax1)
         self._br_outline_patches.append(_outline1)
         self._br_pm_stick.set_clip_path(_outline1)
-        # Direction arrow (single large arrow in center)
+        # Direction arrow: friction force direction (opposite to translational slip)
         self._br_stick_arrow = ax1.annotate(
             '', xy=(0, 0), xytext=(0, 0),
             arrowprops=dict(arrowstyle='->', color='white', lw=3, mutation_scale=18),
             zorder=6)
+        self._br_stick_arrow_label = ax1.text(
+            0, W_mm * 0.42, 'Friction Force', fontsize=6, ha='center',
+            va='bottom', color='white', fontweight='bold',
+            bbox=dict(boxstyle='round,pad=0.15', facecolor='black', alpha=0.5),
+            zorder=7)
         # Rolling direction arrow (green, longitudinal, permanent)
         # Tire rolls in -x direction (left). Arrow placed at bottom of patch.
         _roll_arrow_y = -W_mm * 0.55
@@ -24574,13 +24603,15 @@ class PerssonModelGUI_V2:
         f = self._brush_frames[idx]
         # Use per-frame deformed mask (falls back to ellipse for old data)
         mask = f.get('_contact_mask', self._brush_ellipse_mask)
-        # Use pre-computed dilated mask if available, otherwise compute
-        _cached_key = id(mask)
-        if getattr(self, '_br_mask_fill_cache_key', None) != _cached_key:
-            from scipy.ndimage import binary_dilation
-            self._br_mask_fill_cached = binary_dilation(mask, iterations=2)
-            self._br_mask_fill_cache_key = _cached_key
-        mask_fill = self._br_mask_fill_cached
+        # Use pre-computed dilated mask (fast path) or compute on demand
+        mask_fill = f.get('_mask_fill', None)
+        if mask_fill is None:
+            _cached_key = id(mask)
+            if getattr(self, '_br_mask_fill_cache_key', None) != _cached_key:
+                from scipy.ndimage import binary_dilation
+                self._br_mask_fill_cached = binary_dilation(mask, iterations=2)
+                self._br_mask_fill_cache_key = _cached_key
+            mask_fill = self._br_mask_fill_cached
 
         # Update frame label
         t_val = f['t']
@@ -24606,26 +24637,24 @@ class PerssonModelGUI_V2:
         is_sl = f['is_sliding'].astype(float).copy()
         is_sl[~mask_fill] = np.nan
         self._br_pm_stick.set_array(is_sl.T.ravel())
-        # Update direction arrow
-        v_rx = f.get('v_slip_x', None)
-        v_ry = f.get('v_slip_y', None)
+        # Update direction arrow (friction force = opposite of translational slip)
+        v_tx = f.get('v_trans_x', None)
+        v_ty = f.get('v_trans_y', None)
         L_mm = self._brush_L_mm
         W_mm = self._brush_W_mm
-        if v_rx is not None and v_ry is not None:
-            # Use mean slip velocity of SLIDING nodes only for arrow direction
-            # Arrow points OPPOSITE to sliding velocity (= friction force direction)
-            # This makes the arrow point opposite to the slip angle, which is
-            # the direction the road pushes back on the rubber (reaction force)
+        if v_tx is not None and v_ty is not None:
+            # Use translational slip only (no spin) for cleaner arrow direction
             sliding_mask = f['is_sliding'] & mask
             if np.any(sliding_mask):
-                mean_vx = np.mean(v_rx[sliding_mask])
-                mean_vy = np.mean(v_ry[sliding_mask])
+                mean_vx = np.mean(v_tx[sliding_mask])
+                mean_vy = np.mean(v_ty[sliding_mask])
             else:
-                mean_vx = np.mean(v_rx[mask]) if np.any(mask) else 0
-                mean_vy = np.mean(v_ry[mask]) if np.any(mask) else 0
+                mean_vx = np.mean(v_tx[mask]) if np.any(mask) else 0
+                mean_vy = np.mean(v_ty[mask]) if np.any(mask) else 0
             arrow_mag = np.sqrt(mean_vx**2 + mean_vy**2)
             if arrow_mag > 1e-10:
                 arrow_scale = L_mm * 0.3
+                # Arrow points opposite to slip = friction force direction
                 dx_a = -arrow_scale * mean_vx / arrow_mag
                 dy_a = -arrow_scale * mean_vy / arrow_mag
                 self._br_stick_arrow.xy = (dx_a, dy_a)
@@ -24687,8 +24716,8 @@ class PerssonModelGUI_V2:
                 poly.set_xy(new_verts)
 
         # ── Steering wheel & tire animation update (left panel) ──
-        # Only update every 3rd frame during playback for performance
-        _skip_aux = getattr(self, '_brush_playing', False) and (idx % 3 != 0)
+        # Skip during fast playback to maximize main canvas FPS
+        _skip_aux = getattr(self, '_brush_playing', False) and (idx % 6 != 0)
         if not _skip_aux:
             self._update_left_steering_wheel(f['SA'])
             if hasattr(self, '_tire_ax'):
@@ -24723,6 +24752,7 @@ class PerssonModelGUI_V2:
         if not self._brush_frames:
             return
         self._brush_playing = True
+        self._br_frame_accum = 0.0
         self._brush_animate()
 
     def _brush_pause(self):
@@ -24760,30 +24790,51 @@ class PerssonModelGUI_V2:
                 poly.set_xy(new_verts)
             self.canvas_brush.draw_idle()
 
+    def _on_ellipse_power_slider(self, value=None):
+        """Update superellipse exponent from slider (live preview)."""
+        n = self._br_ellipse_power_var.get()
+        type(self)._ELLIPSE_POWER = n
+        self._br_ellipse_power_label_var.set(f"타원 형상 (n): {n:.1f}")
+        # Live-update outline on current frame
+        if self._brush_frames and hasattr(self, '_br_outline_patches'):
+            f = self._brush_frames[self._brush_frame_idx]
+            L_mm = self._brush_L_mm
+            W_mm = self._brush_W_mm
+            new_verts = self._egg_outline(f['SA'], L_mm / 2, W_mm / 2)
+            for poly in self._br_outline_patches:
+                poly.set_xy(new_verts)
+            self.canvas_brush.draw_idle()
+
     def _brush_animate(self):
-        """Advance frames using continuous speed multiplier for smooth playback."""
+        """Advance frames — optimized for ProMotion-like smoothness."""
         if not self._brush_playing or not self._brush_frames:
             return
 
         mult = getattr(self, '_br_speed_mult', None)
         speed = mult.get() if mult is not None else 1.0
 
-        # Constant short delay; vary frame_skip for speed
-        delay_ms = 8
-        frame_skip = max(1, int(round(speed)))
+        # Fractional accumulator for smooth sub-frame speed control
+        acc = getattr(self, '_br_frame_accum', 0.0) + speed
+        frame_skip = int(acc)
+        self._br_frame_accum = acc - frame_skip
+        if frame_skip < 1:
+            # Not enough accumulated — schedule next tick without advancing
+            self._brush_play_after_id = self.root.after(1, self._brush_animate)
+            return
 
         self._brush_frame_idx += frame_skip
         n = len(self._brush_frames)
         if self._brush_frame_idx >= n:
             self._brush_frame_idx = 0  # loop
 
-        # Update slider only every 4th frame to reduce overhead
-        if self._brush_frame_idx % 4 == 0:
+        # Update time slider infrequently to reduce widget overhead
+        if self._brush_frame_idx % 8 == 0:
             self.br_time_slider.set(self._brush_frame_idx)
 
         self._brush_show_frame(self._brush_frame_idx)
 
-        self._brush_play_after_id = self.root.after(delay_ms, self._brush_animate)
+        # Minimal delay — let rendering be the natural frame pacer
+        self._brush_play_after_id = self.root.after(1, self._brush_animate)
 
     # ── 2D Brush: Plot update (legacy, for backward compat) ──
 
