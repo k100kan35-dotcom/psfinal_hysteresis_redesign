@@ -23722,7 +23722,7 @@ class PerssonModelGUI_V2:
             Delegates to _egg_outline (single source of truth) so that
             the data mask and the display outline always match exactly.
             """
-            verts = TireFrictionApp._egg_outline(sa_deg_local, L / 2, W / 2)
+            verts = self._egg_outline(sa_deg_local, L / 2, W / 2)
             path = _MplPath(verts)
             pts = np.column_stack([xx_g.ravel(), yy_g.ravel()])
             mask = path.contains_points(pts).reshape(xx_g.shape)
