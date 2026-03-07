@@ -24136,12 +24136,22 @@ class PerssonModelGUI_V2:
                                           va='center', fontweight='bold', color='#BBBBBB')
         self._steer_right_label = ax.text(1.3, 0, 'R', fontsize=14, ha='center',
                                            va='center', fontweight='bold', color='#BBBBBB')
-        self._steer_canvas.draw()
-        self._steer_blit_bg = self._steer_canvas.copy_from_bbox(
-            self._steer_fig.bbox)
         self._steer_dynamic = list(self._steer_spoke_lines) + [
             self._steer_sa_label, self._steer_left_label,
             self._steer_right_label]
+        # Hide dynamic → draw clean background → cache → restore
+        for a in self._steer_dynamic:
+            a.set_visible(False)
+        self._steer_canvas.draw()
+        self._steer_blit_bg = self._steer_canvas.copy_from_bbox(
+            self._steer_fig.bbox)
+        for a in self._steer_dynamic:
+            a.set_visible(True)
+
+        # Steering angle visual arc (drawn during update)
+        self._steer_arc, = ax.plot([], [], '-', color='#FF6600', lw=3,
+                                    alpha=0.8, zorder=5)
+        self._steer_dynamic.append(self._steer_arc)
 
     def _update_left_steering_wheel(self, sa_deg):
         """Update the left-panel steering wheel rotation.
@@ -24157,14 +24167,26 @@ class PerssonModelGUI_V2:
             self._steer_spoke_lines[i].set_data([0, 0.85 * np.cos(a)],
                                                  [0, 0.85 * np.sin(a)])
         self._steer_sa_label.set_text(f'SA={sa_deg:+.1f}°')
+
+        # Steering arc: colored arc showing rotation amount
+        if abs(sa_deg) > 0.2 and hasattr(self, '_steer_arc'):
+            arc_r = 0.65
+            a_start = np.pi / 2
+            a_end = np.pi / 2 + steer_rad
+            t_arc = np.linspace(a_start, a_end, 30)
+            arc_color = '#F44336' if sa_deg > 0 else '#2196F3'
+            self._steer_arc.set_data(arc_r * np.cos(t_arc), arc_r * np.sin(t_arc))
+            self._steer_arc.set_color(arc_color)
+            self._steer_arc.set_visible(True)
+        elif hasattr(self, '_steer_arc'):
+            self._steer_arc.set_visible(False)
+
         if sa_deg > 0.5:
-            # Right turn: highlight R
             self._steer_right_label.set_color('#F44336')
             self._steer_right_label.set_fontsize(16)
             self._steer_left_label.set_color('#CCCCCC')
             self._steer_left_label.set_fontsize(14)
         elif sa_deg < -0.5:
-            # Left turn: highlight L
             self._steer_left_label.set_color('#2196F3')
             self._steer_left_label.set_fontsize(16)
             self._steer_right_label.set_color('#CCCCCC')
@@ -24231,76 +24253,93 @@ class PerssonModelGUI_V2:
             self._road_side_dashes_R.append(rd)
         self._road_phase = 0.0
 
-        # ── Car body (simple top-down silhouette) ──
-        # Main body: rounded rectangle
-        car_w = 2.2   # full width
-        car_h = 4.4   # full length
-        self._car_body = FancyBboxPatch(
-            (-car_w / 2, -car_h / 2), car_w, car_h,
-            boxstyle="round,pad=0.25", facecolor='#1565C0',
-            edgecolor='#0D47A1', linewidth=1.5, zorder=5, alpha=0.9)
+        # ── Car body (Polygon for proper rotation) — compact size ──
+        car_w = 1.6   # full width (smaller)
+        car_h = 3.2   # full length (smaller)
+        hw, hh = car_w / 2, car_h / 2
+        # Rounded-ish car shape: front tapers, rear is wider
+        self._car_body_base = np.array([
+            (-hw, -hh + 0.2), (-hw, hh - 0.5),
+            (-hw + 0.2, hh - 0.15), (-hw * 0.6, hh),  # front-left taper
+            (hw * 0.6, hh), (hw - 0.2, hh - 0.15),     # front-right taper
+            (hw, hh - 0.5), (hw, -hh + 0.2),
+            (hw - 0.15, -hh), (-hw + 0.15, -hh),        # rear
+        ])
+        self._car_body = MplPoly(self._car_body_base, closed=True,
+                                  facecolor='#1565C0', edgecolor='#0D47A1',
+                                  linewidth=2.0, zorder=5, alpha=0.92)
         ax.add_patch(self._car_body)
 
         # Windshield (front trapezoid)
-        ws_verts = [(-0.7, 0.8), (0.7, 0.8), (0.55, 1.5), (-0.55, 1.5)]
-        self._car_windshield = MplPoly(ws_verts, closed=True,
-                                        facecolor='#90CAF9', edgecolor='#1565C0',
+        self._ws_base = np.array([
+            (-0.50, 0.55), (0.50, 0.55), (0.38, 1.1), (-0.38, 1.1)])
+        self._car_windshield = MplPoly(self._ws_base, closed=True,
+                                        facecolor='#90CAF9', edgecolor='#0D47A1',
                                         linewidth=1, zorder=6, alpha=0.8)
         ax.add_patch(self._car_windshield)
 
         # Rear window
-        rw_verts = [(-0.65, -0.8), (0.65, -0.8), (0.5, -1.4), (-0.5, -1.4)]
-        self._car_rearwindow = MplPoly(rw_verts, closed=True,
-                                        facecolor='#90CAF9', edgecolor='#1565C0',
+        self._rw_base = np.array([
+            (-0.45, -0.55), (0.45, -0.55), (0.35, -1.05), (-0.35, -1.05)])
+        self._car_rearwindow = MplPoly(self._rw_base, closed=True,
+                                        facecolor='#90CAF9', edgecolor='#0D47A1',
                                         linewidth=1, zorder=6, alpha=0.7)
         ax.add_patch(self._car_rearwindow)
 
-        # Headlights (two small yellow rectangles at front)
-        for hx in [-0.75, 0.75]:
-            hl = Rectangle((hx - 0.15, 1.85), 0.3, 0.15,
-                           facecolor='#FFE082', edgecolor='#FFC107',
-                           linewidth=0.8, zorder=6)
-            ax.add_patch(hl)
-
-        # Tail lights (two small red rectangles at rear)
-        for tx in [-0.75, 0.75]:
-            tl = Rectangle((tx - 0.15, -2.0), 0.3, 0.12,
-                           facecolor='#EF5350', edgecolor='#C62828',
-                           linewidth=0.8, zorder=6)
-            ax.add_patch(tl)
+        # Headlights + tail lights as polygons (rotatable)
+        self._hl_base = []
+        self._hl_patches = []
+        for hx in [-0.55, 0.55]:
+            verts = np.array([(hx - 0.1, hh - 0.15), (hx + 0.1, hh - 0.15),
+                              (hx + 0.1, hh - 0.02), (hx - 0.1, hh - 0.02)])
+            p = MplPoly(verts, closed=True, facecolor='#FFE082',
+                        edgecolor='#FFC107', linewidth=0.6, zorder=6)
+            ax.add_patch(p)
+            self._hl_base.append(verts)
+            self._hl_patches.append(p)
+        self._tl_base = []
+        self._tl_patches = []
+        for tx in [-0.55, 0.55]:
+            verts = np.array([(tx - 0.1, -hh), (tx + 0.1, -hh),
+                              (tx + 0.1, -hh + 0.1), (tx - 0.1, -hh + 0.1)])
+            p = MplPoly(verts, closed=True, facecolor='#EF5350',
+                        edgecolor='#C62828', linewidth=0.6, zorder=6)
+            ax.add_patch(p)
+            self._tl_base.append(verts)
+            self._tl_patches.append(p)
 
         self._car_w = car_w
         self._car_h = car_h
 
-        # ── 4 Tires (small rounded rectangles at corners) ──
-        tw = 0.35  # tire width
-        th = 0.75  # tire height
+        # ── 4 Tires (Polygon rectangles at corners) ──
+        tw = 0.28  # tire width
+        th = 0.60  # tire height
         self._tire_w = tw
         self._tire_h = th
-        # Positions: (x_center, y_center) relative to car center
-        # FL, FR, RL, RR
-        wb = 1.6   # half-wheelbase (front-rear distance / 2)
-        tk_x = car_w / 2 + tw * 0.05  # tire x offset (just outside body)
+        wb = 1.2   # half-wheelbase
+        tk_x = hw + tw * 0.3  # tire x offset (just outside body)
         tire_positions = [
-            (-tk_x, wb), (tk_x, wb),   # front-left, front-right
-            (-tk_x, -wb), (tk_x, -wb),  # rear-left, rear-right
+            (-tk_x, wb), (tk_x, wb),   # FL, FR
+            (-tk_x, -wb), (tk_x, -wb),  # RL, RR
         ]
         self._tire_patches = []
         self._tire_positions = tire_positions
-        self._tire_tread_lines = []  # tread marks per tire
+        self._tire_base_verts = []
+        self._tire_tread_lines = []
         for (tx, ty) in tire_positions:
-            tp = FancyBboxPatch(
-                (tx - tw / 2, ty - th / 2), tw, th,
-                boxstyle="round,pad=0.04", facecolor='#1A1A1A',
-                edgecolor='#444444', linewidth=1.2, zorder=8)
+            verts = np.array([
+                (tx - tw / 2, ty - th / 2), (tx + tw / 2, ty - th / 2),
+                (tx + tw / 2, ty + th / 2), (tx - tw / 2, ty + th / 2)])
+            tp = MplPoly(verts, closed=True, facecolor='#1A1A1A',
+                         edgecolor='#555555', linewidth=1.0, zorder=8)
             ax.add_patch(tp)
             self._tire_patches.append(tp)
-            # 3 tread marks per tire
+            self._tire_base_verts.append(verts.copy())
             treads = []
             for j in range(3):
-                yoff = ty - th / 2 + 0.12 + j * (th - 0.24) / 2
-                ln, = ax.plot([tx - tw / 2 + 0.04, tx + tw / 2 - 0.04],
-                              [yoff, yoff], '-', color='#3A3A3A', lw=0.8, zorder=9)
+                yoff = ty - th / 2 + 0.10 + j * (th - 0.20) / 2
+                ln, = ax.plot([tx - tw / 2 + 0.03, tx + tw / 2 - 0.03],
+                              [yoff, yoff], '-', color='#3A3A3A', lw=0.7, zorder=9)
                 treads.append(ln)
             self._tire_tread_lines.append(treads)
 
@@ -24352,17 +24391,18 @@ class PerssonModelGUI_V2:
 
         self._tire_rotation_deg = 0.0
 
-        # Full draw once, then cache background for blit
-        self._tire_canvas.draw()
-        self._tire_blit_bg = self._tire_canvas.copy_from_bbox(
-            self._tire_fig.bbox)
+        # Collect dynamic artists
         self._tire_dynamic = [
             self._car_body, self._car_windshield, self._car_rearwindow,
+        ]
+        self._tire_dynamic.extend(self._hl_patches)
+        self._tire_dynamic.extend(self._tl_patches)
+        self._tire_dynamic.extend([
             self._tire_Fy_arrow, self._tire_Fy_label,
             self._tire_Fx_arrow, self._tire_Fx_label,
             self._tire_sa_arc, self._tire_sa_label,
             self._tire_speed_label,
-        ]
+        ])
         self._tire_dynamic.extend(self._tire_patches)
         for treads in self._tire_tread_lines:
             self._tire_dynamic.extend(treads)
@@ -24370,11 +24410,21 @@ class PerssonModelGUI_V2:
         self._tire_dynamic.extend(self._road_side_dashes_L)
         self._tire_dynamic.extend(self._road_side_dashes_R)
 
+        # Hide dynamic → draw clean background → cache → restore
+        _vis = []
+        for a in self._tire_dynamic:
+            _vis.append(a.get_visible())
+            a.set_visible(False)
+        self._tire_canvas.draw()
+        self._tire_blit_bg = self._tire_canvas.copy_from_bbox(
+            self._tire_fig.bbox)
+        for a, v in zip(self._tire_dynamic, _vis):
+            a.set_visible(v)
+
     def _update_tire_animation(self, sa_deg, Fy, Fz, Fx=0.0):
-        """Racing game: car + 4 tires, treadmill road, turning + forces."""
+        """Racing game: car + 4 tires, treadmill road, front-wheel steering."""
         tw = self._tire_w
         th = self._tire_h
-        car_w = self._car_w
         car_h = self._car_h
 
         # ── 1) Treadmill road scroll ──
@@ -24393,116 +24443,127 @@ class PerssonModelGUI_V2:
             self._road_side_dashes_R[i].set_data([2.6, 2.6], [y0, y0 + 0.4])
             self._road_side_dashes_L[i].set_data([0, 0], [y0, y0 + 0.3])
 
-        # ── 2) Car yaw: smooth interpolation ──
-        target_rot = -sa_deg * 1.5  # amplify for visual drama
-        alpha_smooth = 0.22
-        self._tire_rotation_deg += alpha_smooth * (target_rot - self._tire_rotation_deg)
-        rot_rad = np.radians(self._tire_rotation_deg)
-        cos_r = np.cos(rot_rad)
-        sin_r = np.sin(rot_rad)
+        # ── 2) Car yaw from front-wheel steering (bicycle model) ──
+        # Front wheels steer → car body follows with delay
+        steer_angle = -sa_deg  # steering input
+        target_yaw = steer_angle * 0.8  # car yaw is fraction of steer
+        alpha_smooth = 0.18
+        self._tire_rotation_deg += alpha_smooth * (target_yaw - self._tire_rotation_deg)
+        yaw_rad = np.radians(self._tire_rotation_deg)
+        cos_r = np.cos(yaw_rad)
+        sin_r = np.sin(yaw_rad)
 
-        def _rot(x, y):
+        def _rot(pts):
+            """Rotate Nx2 array of points around origin."""
+            R = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
+            return pts @ R.T
+
+        def _rot1(x, y):
             return x * cos_r - y * sin_r, x * sin_r + y * cos_r
 
-        # Lateral drift
-        sa_norm = np.clip(sa_deg / 8.0, -1, 1)
-        lat_shift = -sa_norm * 0.8
+        # Lateral drift (from cornering force, not steering directly)
+        fy_norm = np.clip(Fy / max(Fz, 1.0), -1, 1) if Fz > 0 else 0
+        lat_shift = fy_norm * 0.5
         cx, cy = lat_shift, 0.0
 
-        # Car body position (can't truly rotate FancyBboxPatch — shift only)
-        self._car_body.set_x(-car_w / 2 + cx)
-        self._car_body.set_y(-car_h / 2 + cy)
+        # ── 3) Rotate all car body polygons ──
+        body_rot = _rot(self._car_body_base) + [cx, cy]
+        self._car_body.set_xy(body_rot)
+        self._car_windshield.set_xy(_rot(self._ws_base) + [cx, cy])
+        self._car_rearwindow.set_xy(_rot(self._rw_base) + [cx, cy])
+        for base, patch in zip(self._hl_base, self._hl_patches):
+            patch.set_xy(_rot(base) + [cx, cy])
+        for base, patch in zip(self._tl_base, self._tl_patches):
+            patch.set_xy(_rot(base) + [cx, cy])
 
-        # Windshield / rear window — update polygon vertices
-        ws_base = [(-0.7, 0.8), (0.7, 0.8), (0.55, 1.5), (-0.55, 1.5)]
-        rw_base = [(-0.65, -0.8), (0.65, -0.8), (0.5, -1.4), (-0.5, -1.4)]
-        ws_rot = [(_rot(x, y)[0] + cx, _rot(x, y)[1] + cy) for x, y in ws_base]
-        rw_rot = [(_rot(x, y)[0] + cx, _rot(x, y)[1] + cy) for x, y in rw_base]
-        self._car_windshield.set_xy(ws_rot)
-        self._car_rearwindow.set_xy(rw_rot)
-
-        # ── 3) Front tires: steer with SA, rear tires: fixed ──
-        # Front tire extra rotation = slip angle
-        front_steer_rad = rot_rad + np.radians(-sa_deg * 0.5)
-        cos_fs = np.cos(front_steer_rad)
-        sin_fs = np.sin(front_steer_rad)
-
-        def _rot_front(x, y):
-            return x * cos_fs - y * sin_fs, x * sin_fs + y * cos_fs
-
+        # ── 4) Tires: front steer, rear fixed to body ──
+        front_steer_extra = np.radians(-sa_deg * 0.6)
         self._tire_tread_phase += 0.18
-        tread_spacing_t = (th - 0.24) / 2
+        tread_spacing_t = (th - 0.20) / 2
 
         for ti, (tx0, ty0) in enumerate(self._tire_positions):
             is_front = ti < 2
-            # Tire center in rotated car frame
-            rx, ry = _rot(tx0, ty0)
+            # Tire center in car-rotated frame
+            rx, ry = _rot1(tx0, ty0)
             tcx, tcy = rx + cx, ry + cy
 
-            # Update tire patch position
-            self._tire_patches[ti].set_x(tcx - tw / 2)
-            self._tire_patches[ti].set_y(tcy - th / 2)
+            # For front tires, add extra steer rotation to the tire polygon
+            if is_front:
+                t_rad = yaw_rad + front_steer_extra
+            else:
+                t_rad = yaw_rad
+            cos_t = np.cos(t_rad)
+            sin_t = np.sin(t_rad)
 
-            # Tread marks with rolling animation
+            # Tire rectangle vertices (local to tire center)
+            local_v = self._tire_base_verts[ti] - [tx0, ty0]
+            R_t = np.array([[cos_t, -sin_t], [sin_t, cos_t]])
+            rotated_v = local_v @ R_t.T + [tcx, tcy]
+            self._tire_patches[ti].set_xy(rotated_v)
+
+            # Tread marks
             phase_off = (self._tire_tread_phase * tread_spacing_t) % tread_spacing_t
             for j, ln in enumerate(self._tire_tread_lines[ti]):
-                yoff = -th / 2 + 0.12 + j * tread_spacing_t + phase_off
-                if yoff > th / 2 - 0.08:
-                    yoff -= (th - 0.24) + tread_spacing_t
-                ln.set_data([tcx - tw / 2 + 0.04, tcx + tw / 2 - 0.04],
-                            [tcy + yoff, tcy + yoff])
+                yoff = -th / 2 + 0.10 + j * tread_spacing_t + phase_off
+                if yoff > th / 2 - 0.06:
+                    yoff -= (th - 0.20) + tread_spacing_t
+                # Tread line endpoints in local tire frame, then rotate
+                p1 = np.array([-tw / 2 + 0.03, yoff])
+                p2 = np.array([tw / 2 - 0.03, yoff])
+                rp1 = R_t @ p1 + [tcx, tcy]
+                rp2 = R_t @ p2 + [tcx, tcy]
+                ln.set_data([rp1[0], rp2[0]], [rp1[1], rp2[1]])
 
-        # ── 4) SA arc at front of car ──
+        # ── 5) SA arc at front of car ──
         if abs(sa_deg) > 0.3:
-            arc_r = 2.5
-            front_y = car_h / 2 + 0.3
-            arc_cx, arc_cy = _rot(0, front_y)
-            arc_cx += cx; arc_cy += cy
+            front_y = car_h / 2 + 0.2
+            arc_cx_r, arc_cy_r = _rot1(0, front_y)
+            ac_x, ac_y = arc_cx_r + cx, arc_cy_r + cy
+            arc_r = 1.2
             a_start = np.pi / 2
-            a_end = np.pi / 2 - rot_rad
+            a_end = np.pi / 2 - yaw_rad
             t_arc = np.linspace(a_start, a_end, 20)
-            self._tire_sa_arc.set_data(
-                arc_r * np.cos(t_arc) * 0.6 + arc_cx,
-                arc_r * np.sin(t_arc) * 0.6 + arc_cy)
+            self._tire_sa_arc.set_data(arc_r * np.cos(t_arc) + ac_x,
+                                        arc_r * np.sin(t_arc) + ac_y)
             self._tire_sa_arc.set_visible(True)
             mid_a = (a_start + a_end) / 2
             self._tire_sa_label.set_position(
-                (arc_r * 0.75 * np.cos(mid_a) + arc_cx,
-                 arc_r * 0.75 * np.sin(mid_a) + arc_cy))
+                ((arc_r + 0.2) * np.cos(mid_a) + ac_x,
+                 (arc_r + 0.2) * np.sin(mid_a) + ac_y))
             self._tire_sa_label.set_text(f'{sa_deg:+.1f}°')
             self._tire_sa_label.set_visible(True)
         else:
             self._tire_sa_arc.set_visible(False)
             self._tire_sa_label.set_visible(False)
 
-        # ── 5) Lateral force arrow (from car center, perpendicular) ──
+        # ── 6) Lateral force arrow ──
         if abs(Fy) > 10 and Fz > 0:
             mu_y = Fy / max(Fz, 1.0)
-            arrow_len = np.clip(abs(mu_y) * 2.0, 0.3, 2.0)
-            px, py = _rot(np.sign(Fy) * arrow_len, 0)
+            arrow_len = np.clip(abs(mu_y) * 1.8, 0.25, 1.8)
+            px, py = _rot1(np.sign(Fy) * arrow_len, 0)
             self._tire_Fy_arrow.xy = (cx + px, cy + py)
             self._tire_Fy_arrow.set_position((cx, cy))
             self._tire_Fy_arrow.set_visible(True)
             self._tire_Fy_label.set_position(
-                (cx + px * 1.15, cy + py * 1.15 + 0.2))
+                (cx + px * 1.15, cy + py * 1.15 + 0.15))
             self._tire_Fy_label.set_text(f'Fy {Fy:+.0f}N')
             self._tire_Fy_label.set_visible(True)
         else:
             self._tire_Fy_arrow.set_visible(False)
             self._tire_Fy_label.set_visible(False)
 
-        # ── 6) Longitudinal force arrow ──
+        # ── 7) Longitudinal force arrow ──
         if abs(Fx) > 10 and Fz > 0:
             mu_x = Fx / max(Fz, 1.0)
-            fx_len = np.clip(abs(mu_x) * 1.8, 0.3, 1.8)
-            fwd_x, fwd_y = _rot(0, np.sign(Fx) * fx_len)
-            base_y_off = car_h / 2 + 0.2
-            bx, by = _rot(0, base_y_off * np.sign(Fx))
+            fx_len = np.clip(abs(mu_x) * 1.5, 0.25, 1.5)
+            fwd_x, fwd_y = _rot1(0, np.sign(Fx) * fx_len)
+            boff = car_h / 2 + 0.15
+            bx, by = _rot1(0, boff * np.sign(Fx))
             self._tire_Fx_arrow.xy = (cx + bx + fwd_x, cy + by + fwd_y)
             self._tire_Fx_arrow.set_position((cx + bx, cy + by))
             self._tire_Fx_arrow.set_visible(True)
             self._tire_Fx_label.set_position(
-                (cx + bx + fwd_x + 0.2, cy + by + fwd_y))
+                (cx + bx + fwd_x + 0.15, cy + by + fwd_y))
             self._tire_Fx_label.set_text(f'Fx {Fx:+.0f}N')
             self._tire_Fx_label.set_visible(True)
         else:
@@ -24805,11 +24866,8 @@ class PerssonModelGUI_V2:
                     self._br_final_ax_positions[ax_name] = ax.get_position().frozen()
 
         self._br_artists_ready = True
-        self.canvas_brush.draw()  # full draw once to establish layout
 
-        # ── Blit setup: cache static background, list dynamic artists ──
-        self._br_blit_bg = self.canvas_brush.copy_from_bbox(
-            self.fig_brush.bbox)
+        # ── Blit setup: list dynamic artists, then cache CLEAN background ──
         self._br_dynamic_artists = [
             self._br_pm_stick, self._br_pm_pres, self._br_pm_temp,
             self._br_pm_fric, self._br_quiver_speed,
@@ -24826,6 +24884,17 @@ class PerssonModelGUI_V2:
             a = getattr(self, attr, None)
             if a is not None:
                 self._br_dynamic_artists.append(a)
+
+        # Hide all dynamic artists → draw clean background → cache → restore
+        _vis_states = []
+        for a in self._br_dynamic_artists:
+            _vis_states.append(a.get_visible())
+            a.set_visible(False)
+        self.canvas_brush.draw()
+        self._br_blit_bg = self.canvas_brush.copy_from_bbox(
+            self.fig_brush.bbox)
+        for a, vis in zip(self._br_dynamic_artists, _vis_states):
+            a.set_visible(vis)
         self._br_use_blit = True
 
     # ── 2D Brush: Frame display ──
@@ -25046,11 +25115,19 @@ class PerssonModelGUI_V2:
                 pm.set_clip_path(poly)
             except Exception:
                 pass
-        # Full redraw + recapture blit background
-        self.canvas_brush.draw()
+        # Recapture clean blit background (hide dynamic → draw → cache → show)
         if getattr(self, '_br_use_blit', False):
+            _vis = []
+            for a in self._br_dynamic_artists:
+                _vis.append(a.get_visible())
+                a.set_visible(False)
+            self.canvas_brush.draw()
             self._br_blit_bg = self.canvas_brush.copy_from_bbox(
                 self.fig_brush.bbox)
+            for a, v in zip(self._br_dynamic_artists, _vis):
+                a.set_visible(v)
+        else:
+            self.canvas_brush.draw()
 
     def _on_egg_k_slider(self, value=None):
         """Update egg shape constant from slider (live preview on current frame)."""
