@@ -709,6 +709,7 @@ class PerssonModelGUI_V2:
             ('tab_cold_hot_branch', 'Cold & Hot Branch',  self._create_cold_hot_branch_tab),
             ('tab_friction_map',    'Friction Map',       self._create_friction_map_tab),
             ('tab_2d_brush',        '2D Brush Model',     self._create_2d_brush_tab),
+            ('tab_track_sim',       'Track Simulation',   self._create_track_simulation_tab),
             ('tab_ve_advisor',      '점탄성 설계',        self._create_ve_advisor_tab),
             ('tab_strain_map',      'Strain Map',         self._create_strain_map_tab),
             ('tab_results',         '계산 과정',           self._create_results_tab),
@@ -25379,6 +25380,994 @@ class PerssonModelGUI_V2:
             self._show_status(f"2D Brush CSV 저장 완료: {filepath}", 'success')
         except Exception as e:
             messagebox.showerror("오류", f"CSV 저장 실패:\n{str(e)}")
+
+
+    # ================================================================
+    # ====  Track Simulation (영암 서킷 랩타임 시뮬레이션) Tab  ====
+    # ================================================================
+
+    def _create_track_simulation_tab(self, parent):
+        """Create Track Simulation tab – Yeongam F1 circuit lap simulation.
+
+        Uses 2D Brush Model parameters (tire, vehicle) to simulate a full lap
+        around the Korean International Circuit (5.615 km, 18 turns).
+        Playback shows the car traversing the track with real-time telemetry.
+        """
+        import numpy as np
+        from matplotlib.figure import Figure as _Fig
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg as _FCA
+        from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+
+        layout = self._create_tab_layout(parent, toolbar_buttons=[
+            ("랩 시뮬레이션 실행", self._run_track_simulation, 'Accent.TButton'),
+        ])
+        left_panel = layout['content']
+
+        # ── Track data storage ──
+        self._track_sim_data = None
+        self._track_playing = False
+        self._track_frame_idx = 0
+        self._track_play_after_id = None
+
+        # ── 1) 트랙 정보 ──
+        sec1 = self._create_section(left_panel, "1) 트랙 정보 – 영암 F1 서킷")
+        info_text = (
+            "Korean International Circuit (영암)\n"
+            "총 길이: 5.615 km  |  18 코너\n"
+            "최장 직선: 1.2 km (T18→T1)\n"
+            "최고속도 구간: ~320 km/h\n"
+            "Sector 1: T1-T5 (고속)\n"
+            "Sector 2: T6-T12 (기술 구간)\n"
+            "Sector 3: T13-T18 (중속 굴곡)"
+        )
+        ttk.Label(sec1, text=info_text, font=self.FONTS['small'],
+                  foreground='#1565C0', justify='left').pack(anchor='w', padx=4, pady=2)
+
+        # Turn detail (scrollable list)
+        turn_frame = ttk.Frame(sec1)
+        turn_frame.pack(fill=tk.X, padx=4, pady=2)
+        turn_info = [
+            ("T1", "Medium R", "직선 끝 braking"),
+            ("T2", "Medium L", "transition"),
+            ("T3", "Hairpin L", "강한 braking"),
+            ("T4", "Fast R", "가속 구간"),
+            ("T5", "Medium R", "exit acceleration"),
+            ("T6", "Left", "sector entry"),
+            ("T7", "Right", "medium"),
+            ("T8", "Right", "long radius"),
+            ("T9", "Left", "medium"),
+            ("T10", "Right", "braking"),
+            ("T11", "Left", "technical"),
+            ("T12", "Right", "slow"),
+            ("T13", "Left", "slow"),
+            ("T14", "Right", "medium"),
+            ("T15", "Left", "S sequence"),
+            ("T16", "Right", "throttle mod."),
+            ("T17", "Left", "exit"),
+            ("T18", "Right", "main straight"),
+        ]
+        header = ttk.Frame(turn_frame)
+        header.pack(fill=tk.X)
+        ttk.Label(header, text="Turn", font=self.FONTS['small'], width=5,
+                  foreground='#0369A1').pack(side=tk.LEFT)
+        ttk.Label(header, text="Type", font=self.FONTS['small'], width=10,
+                  foreground='#0369A1').pack(side=tk.LEFT)
+        ttk.Label(header, text="Feature", font=self.FONTS['small'], width=18,
+                  foreground='#0369A1').pack(side=tk.LEFT)
+        for tn, tt, tf in turn_info:
+            r = ttk.Frame(turn_frame); r.pack(fill=tk.X)
+            ttk.Label(r, text=tn, font=self.FONTS['small'], width=5).pack(side=tk.LEFT)
+            ttk.Label(r, text=tt, font=self.FONTS['small'], width=10).pack(side=tk.LEFT)
+            ttk.Label(r, text=tf, font=self.FONTS['small'], width=18,
+                      foreground='#64748B').pack(side=tk.LEFT)
+
+        # ── 2) 차량 파라미터 ──
+        sec2 = self._create_section(left_panel, "2) 차량 파라미터")
+
+        row = ttk.Frame(sec2); row.pack(fill=tk.X, pady=1)
+        ttk.Label(row, text="차량 질량 m:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ts_mass_var = tk.StringVar(value="720")
+        ttk.Entry(row, textvariable=self.ts_mass_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row, text="kg", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row = ttk.Frame(sec2); row.pack(fill=tk.X, pady=1)
+        ttk.Label(row, text="최대 엔진 출력:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ts_power_var = tk.StringVar(value="750")
+        ttk.Entry(row, textvariable=self.ts_power_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row, text="hp", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row = ttk.Frame(sec2); row.pack(fill=tk.X, pady=1)
+        ttk.Label(row, text="Cd·A (공기저항):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ts_cda_var = tk.StringVar(value="1.2")
+        ttk.Entry(row, textvariable=self.ts_cda_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row, text="m²", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row = ttk.Frame(sec2); row.pack(fill=tk.X, pady=1)
+        ttk.Label(row, text="다운포스 Cl·A:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ts_cla_var = tk.StringVar(value="3.5")
+        ttk.Entry(row, textvariable=self.ts_cla_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row, text="m²", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row = ttk.Frame(sec2); row.pack(fill=tk.X, pady=1)
+        ttk.Label(row, text="타이어 마찰 계수 μ:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ts_mu_var = tk.StringVar(value="1.5")
+        ttk.Entry(row, textvariable=self.ts_mu_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row, text="(Brush 탭 연동 가능)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        row = ttk.Frame(sec2); row.pack(fill=tk.X, pady=1)
+        ttk.Label(row, text="브레이크 감속 max:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ts_brake_g_var = tk.StringVar(value="5.0")
+        ttk.Entry(row, textvariable=self.ts_brake_g_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row, text="g", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        # Sync from Brush tab
+        sync_row = ttk.Frame(sec2); sync_row.pack(fill=tk.X, pady=2)
+        ttk.Button(sync_row, text="Brush 탭 μ 동기화",
+                   command=self._sync_track_mu_from_brush, width=18).pack(side=tk.LEFT, padx=2)
+        self.ts_sync_label = tk.StringVar(value="")
+        ttk.Label(sync_row, textvariable=self.ts_sync_label,
+                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=4)
+
+        # ── 3) 실행 & 재생 ──
+        sec3 = self._create_section(left_panel, "3) 실행 & 재생")
+
+        calc_row = ttk.Frame(sec3); calc_row.pack(fill=tk.X, pady=2)
+        self.ts_run_btn = ttk.Button(calc_row, text="▶ 랩 시뮬레이션 실행",
+                                      command=self._run_track_simulation, width=22,
+                                      style='Accent.TButton')
+        self.ts_run_btn.pack(side=tk.LEFT, padx=2)
+        self.ts_progress_var = tk.IntVar()
+        self.ts_progress_bar = ttk.Progressbar(calc_row, variable=self.ts_progress_var,
+                                                maximum=100, length=120)
+        self.ts_progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        # Playback controls
+        play_row = ttk.Frame(sec3); play_row.pack(fill=tk.X, pady=4)
+        self.ts_play_btn = ttk.Button(play_row, text="▶", width=3,
+                                       command=self._track_play)
+        self.ts_play_btn.pack(side=tk.LEFT, padx=1)
+        self.ts_pause_btn = ttk.Button(play_row, text="⏸", width=3,
+                                        command=self._track_pause)
+        self.ts_pause_btn.pack(side=tk.LEFT, padx=1)
+        self.ts_reset_btn = ttk.Button(play_row, text="⏮", width=3,
+                                        command=self._track_reset)
+        self.ts_reset_btn.pack(side=tk.LEFT, padx=1)
+
+        self.ts_frame_label_var = tk.StringVar(value="t = 0.00 s  |  0.00 km/h")
+        ttk.Label(play_row, textvariable=self.ts_frame_label_var,
+                  font=self.FONTS['small'], foreground='#0369A1').pack(side=tk.LEFT, padx=6)
+
+        # Speed slider
+        speed_row = ttk.Frame(sec3); speed_row.pack(fill=tk.X, pady=1)
+        self._ts_speed_label_var = tk.StringVar(value="재생 속도: 2.0x")
+        ttk.Label(speed_row, textvariable=self._ts_speed_label_var,
+                  font=self.FONTS['small']).pack(side=tk.LEFT, padx=4)
+        self._ts_speed_mult = tk.DoubleVar(value=2.0)
+        self._ts_speed_slider = ttk.Scale(
+            speed_row, from_=0.5, to=10.0,
+            orient='horizontal', variable=self._ts_speed_mult,
+            command=self._on_track_speed_slider)
+        self._ts_speed_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+
+        # Time slider
+        slider_row = ttk.Frame(sec3); slider_row.pack(fill=tk.X, pady=2)
+        self.ts_time_slider = ttk.Scale(slider_row, from_=0, to=100,
+                                         orient='horizontal',
+                                         command=self._on_track_slider_change)
+        self.ts_time_slider.pack(fill=tk.X, padx=4)
+
+        # ── 4) 결과 요약 ──
+        sec4 = self._create_section(left_panel, "4) 랩타임 결과")
+        self.ts_result_text = tk.Text(sec4, height=12, font=('Consolas', 9),
+                                       bg='#F8FAFC', relief='flat', wrap='word',
+                                       state='disabled')
+        self.ts_result_text.pack(fill=tk.X, padx=4, pady=2)
+
+        # ============== Right Panel: Track Map + Telemetry ==============
+        right_panel = layout['right']
+
+        self.ts_right_notebook = ttk.Notebook(right_panel)
+        self.ts_right_notebook.pack(fill=tk.BOTH, expand=True)
+
+        # ── Sub-tab 1: Track Map (main animation) ──
+        map_tab = ttk.Frame(self.ts_right_notebook)
+        self.ts_right_notebook.add(map_tab, text='  트랙 맵  ')
+
+        self.fig_track = _Fig(figsize=(12, 9), dpi=100, facecolor='#1A1A2E')
+        self.ax_track = self.fig_track.add_axes([0.02, 0.02, 0.96, 0.96])
+        self.ax_track.set_aspect('equal')
+        self.ax_track.axis('off')
+        self.fig_track.patch.set_facecolor('#1A1A2E')
+        self.ax_track.set_facecolor('#1A1A2E')
+
+        self.canvas_track = _FCA(self.fig_track, map_tab)
+        self.canvas_track.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        toolbar_track = NavigationToolbar2Tk(self.canvas_track, map_tab)
+        toolbar_track.update()
+
+        # ── Sub-tab 2: Telemetry plots ──
+        telem_tab = ttk.Frame(self.ts_right_notebook)
+        self.ts_right_notebook.add(telem_tab, text='  텔레메트리  ')
+
+        from matplotlib.gridspec import GridSpec
+        self.fig_telem = _Fig(figsize=(14, 9), dpi=100)
+        gs = GridSpec(4, 1, figure=self.fig_telem, hspace=0.35,
+                      left=0.08, right=0.95, top=0.95, bottom=0.06)
+
+        self.ax_telem_speed = self.fig_telem.add_subplot(gs[0])
+        self.ax_telem_speed.set_ylabel('Speed [km/h]', fontsize=9)
+        self.ax_telem_speed.set_title('Lap Telemetry – 영암 서킷', fontsize=11, fontweight='bold')
+        self.ax_telem_speed.grid(True, alpha=0.3)
+
+        self.ax_telem_accel = self.fig_telem.add_subplot(gs[1], sharex=self.ax_telem_speed)
+        self.ax_telem_accel.set_ylabel('Accel [g]', fontsize=9)
+        self.ax_telem_accel.grid(True, alpha=0.3)
+
+        self.ax_telem_brake = self.fig_telem.add_subplot(gs[2], sharex=self.ax_telem_speed)
+        self.ax_telem_brake.set_ylabel('Throttle / Brake', fontsize=9)
+        self.ax_telem_brake.grid(True, alpha=0.3)
+
+        self.ax_telem_gear = self.fig_telem.add_subplot(gs[3], sharex=self.ax_telem_speed)
+        self.ax_telem_gear.set_xlabel('Distance [m]', fontsize=9)
+        self.ax_telem_gear.set_ylabel('Sector', fontsize=9)
+        self.ax_telem_gear.grid(True, alpha=0.3)
+
+        self.canvas_telem = _FCA(self.fig_telem, telem_tab)
+        self.canvas_telem.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        toolbar_telem = NavigationToolbar2Tk(self.canvas_telem, telem_tab)
+        toolbar_telem.update()
+
+        # Draw initial empty track
+        self._draw_yeongam_track()
+
+    # ── Yeongam circuit track geometry ──
+    def _get_yeongam_track_points(self):
+        """Generate the Korean International Circuit (Yeongam) track coordinates.
+
+        Returns arrays of (x, y) points tracing the circuit layout based on
+        the actual track map geometry with 18 turns.
+        Total length: 5.615 km.
+        """
+        import numpy as np
+
+        # Track points based on the Yeongam circuit layout (scaled, meters)
+        # Start/finish line is at bottom-right area
+        # Using waypoints derived from the actual circuit map
+        # The track runs clockwise from the start/finish
+
+        # Key reference points (approximate, scaled to real dimensions):
+        # Start/Finish: (900, 150)
+        # T1 apex: (950, 350)   - medium right after main straight
+        # T2 apex: (900, 500)   - medium left transition
+        # T3 apex: (450, 700)   - hairpin left (tight)
+        # T4-T5:   (700, 800)   - fast right, medium right
+        # T6:      (750, 950)   - left, sector 2 entry
+        # T7:      (550, 900)   - right
+        # T8:      (400, 950)   - right long radius
+        # T9:      (250, 850)   - left
+        # T10:     (300, 750)   - right braking
+        # T11:     (100, 650)   - left technical
+        # T12:     (150, 550)   - right slow
+        # T13:     (100, 350)   - left slow
+        # T14:     (250, 250)   - right medium
+        # T15:     (350, 200)   - left S-sequence
+        # T16:     (400, 150)   - right throttle
+        # T17:     (500, 180)   - left exit
+        # T18:     (600, 150)   - right onto main straight
+
+        # Build smooth track using cubic spline through control points
+        from scipy.interpolate import CubicSpline
+
+        # Control points tracing the Yeongam circuit (x, y in meters)
+        # Clockwise direction matching the actual layout
+        ctrl_x = np.array([
+            600, 700, 850, 950, 1000, 1050,  # Main straight → T1
+            1050, 1000, 950, 850,              # T1 → T2
+            750, 650, 550, 480,                # T2 → T3 (hairpin approach)
+            430, 400, 420, 480,                # T3 hairpin
+            550, 650, 780, 850, 900,           # T3 exit → T4 → T5 (fast section)
+            920, 880, 800, 720,                # T5 → T6
+            650, 580, 520, 480,                # T6 → T7
+            440, 400, 380, 360,                # T7 → T8 (long radius)
+            320, 280, 240, 200,                # T8 → T9
+            180, 160, 150, 160,                # T9 → T10
+            180, 200, 180, 140,                # T10 → T11
+            100, 80, 100, 140,                 # T11 → T12
+            170, 180, 160, 130,                # T12 → T13
+            100, 80, 100, 150,                 # T13 turn
+            200, 280, 350, 400,                # T13 exit → T14
+            430, 440, 420, 380,                # T14 → T15
+            340, 320, 340, 380,                # T15 → T16
+            420, 460, 500, 530,                # T16 → T17
+            540, 520, 530, 560,                # T17
+            580, 600,                           # T18 → Start/Finish
+        ])
+        ctrl_y = np.array([
+            150, 150, 150, 180, 250, 350,     # Main straight → T1
+            450, 530, 580, 620,                # T1 → T2
+            660, 680, 700, 720,                # T2 → T3 approach
+            750, 800, 840, 850,                # T3 hairpin
+            840, 820, 810, 830, 870,           # T3 exit → T4-T5
+            920, 960, 980, 980,                # T5 → T6
+            970, 960, 950, 960,                # T6 → T7
+            970, 960, 940, 920,                # T7 → T8
+            910, 890, 860, 830,                # T8 → T9
+            800, 770, 740, 720,                # T9 → T10
+            700, 670, 640, 620,                # T10 → T11
+            600, 570, 540, 520,                # T11 → T12
+            500, 470, 440, 420,                # T12 → T13
+            390, 360, 330, 310,                # T13
+            290, 270, 250, 230,                # T13 exit → T14
+            210, 190, 170, 160,                # T14 → T15
+            150, 140, 135, 140,                # T15 → T16
+            150, 155, 160, 165,                # T16 → T17
+            170, 168, 162, 158,                # T17
+            155, 150,                           # T18 → Start/Finish
+        ])
+
+        # Parametric spline
+        n_ctrl = len(ctrl_x)
+        t_ctrl = np.linspace(0, 1, n_ctrl)
+        n_points = 2000  # High resolution for smooth track
+
+        # Periodic (closed loop) spline
+        cs_x = CubicSpline(t_ctrl, ctrl_x, bc_type='periodic')
+        cs_y = CubicSpline(t_ctrl, ctrl_y, bc_type='periodic')
+
+        t_fine = np.linspace(0, 1, n_points, endpoint=False)
+        track_x = cs_x(t_fine)
+        track_y = cs_y(t_fine)
+
+        # Compute cumulative distance
+        dx = np.diff(track_x)
+        dy = np.diff(track_y)
+        ds = np.sqrt(dx**2 + dy**2)
+        cumul_dist = np.concatenate([[0], np.cumsum(ds)])
+
+        # Scale to actual track length (5615 m)
+        total_raw = cumul_dist[-1]
+        scale_factor = 5615.0 / total_raw
+        track_x *= scale_factor
+        track_y *= scale_factor
+        cumul_dist *= scale_factor
+
+        # Turn apex positions (fractional distance along track)
+        turn_fractions = np.array([
+            0.05,   # T1 - after main straight
+            0.10,   # T2
+            0.17,   # T3 - hairpin
+            0.24,   # T4
+            0.28,   # T5
+            0.34,   # T6
+            0.39,   # T7
+            0.44,   # T8
+            0.49,   # T9
+            0.53,   # T10
+            0.58,   # T11
+            0.63,   # T12
+            0.69,   # T13
+            0.75,   # T14
+            0.80,   # T15
+            0.85,   # T16
+            0.90,   # T17
+            0.95,   # T18
+        ])
+        turn_indices = (turn_fractions * (n_points - 1)).astype(int)
+
+        return {
+            'x': track_x, 'y': track_y,
+            'dist': cumul_dist,
+            'n_points': n_points,
+            'total_length': 5615.0,
+            'turn_fractions': turn_fractions,
+            'turn_indices': turn_indices,
+        }
+
+    def _get_turn_speed_limits(self):
+        """Get target cornering speed for each of the 18 turns (km/h).
+
+        Based on real Yeongam F1 data and turn characteristics.
+        """
+        return {
+            1:  160,   # Medium right – heavy braking from ~320
+            2:  140,   # Medium left – transition
+            3:   75,   # Hairpin left – very tight
+            4:  220,   # Fast right – acceleration zone
+            5:  180,   # Medium right – exit accel
+            6:  195,   # Left – sector 2 entry
+            7:  170,   # Right – medium
+            8:  190,   # Right – long radius
+            9:  155,   # Left – medium
+            10: 120,   # Right – braking zone
+            11: 100,   # Left – technical
+            12:  90,   # Right – slow
+            13:  85,   # Left – slow
+            14: 135,   # Right – medium
+            15: 110,   # Left – S sequence
+            16: 125,   # Right – throttle modulation
+            17: 115,   # Left – exit
+            18: 150,   # Right – onto main straight
+        }
+
+    def _draw_yeongam_track(self):
+        """Draw the Yeongam circuit on the track map axis."""
+        import numpy as np
+
+        ax = self.ax_track
+        ax.clear()
+        ax.set_facecolor('#1A1A2E')
+        ax.axis('off')
+
+        try:
+            track = self._get_yeongam_track_points()
+        except Exception:
+            ax.text(0.5, 0.5, "트랙 데이터 생성 오류", transform=ax.transAxes,
+                    ha='center', va='center', color='white', fontsize=14)
+            self.canvas_track.draw_idle()
+            return
+
+        tx, ty = track['x'], track['y']
+
+        # Draw track outline (wide grey line for road)
+        ax.plot(tx, ty, color='#404060', linewidth=18, solid_capstyle='round', zorder=1)
+        # Track centerline
+        ax.plot(tx, ty, color='#606090', linewidth=1.0, linestyle='--', alpha=0.5, zorder=2)
+
+        # Sector coloring
+        n = track['n_points']
+        # Sector 1: T1-T5 (high speed) - blue
+        s1_end = int(0.30 * n)
+        ax.plot(tx[:s1_end], ty[:s1_end], color='#1E90FF', linewidth=6, alpha=0.7, zorder=2)
+        # Sector 2: T6-T12 (technical) - orange
+        s2_end = int(0.65 * n)
+        ax.plot(tx[s1_end:s2_end], ty[s1_end:s2_end], color='#FF8C00', linewidth=6, alpha=0.7, zorder=2)
+        # Sector 3: T13-T18 (medium) - green
+        ax.plot(tx[s2_end:], ty[s2_end:], color='#32CD32', linewidth=6, alpha=0.7, zorder=2)
+
+        # Turn markers and labels
+        turn_idx = track['turn_indices']
+        for i, idx in enumerate(turn_idx):
+            turn_num = i + 1
+            ax.plot(tx[idx], ty[idx], 'o', color='white', markersize=6, zorder=5)
+            # Offset labels slightly
+            offset_x = 30
+            offset_y = 30
+            ax.annotate(f'T{turn_num}', (tx[idx], ty[idx]),
+                        xytext=(offset_x, offset_y), textcoords='offset points',
+                        color='white', fontsize=8, fontweight='bold',
+                        arrowprops=dict(arrowstyle='-', color='#FFFFFF80', lw=0.5),
+                        zorder=6)
+
+        # Start/Finish line
+        sf_idx = 0
+        ax.plot(tx[sf_idx], ty[sf_idx], 's', color='#FFD700', markersize=12, zorder=7)
+        ax.annotate('S/F', (tx[sf_idx], ty[sf_idx]),
+                    xytext=(15, -20), textcoords='offset points',
+                    color='#FFD700', fontsize=10, fontweight='bold', zorder=7)
+
+        # Title
+        ax.set_title('Korean International Circuit – 영암 (5.615 km)',
+                      color='white', fontsize=13, fontweight='bold', pad=10)
+
+        # Legend for sectors
+        from matplotlib.lines import Line2D
+        legend_elements = [
+            Line2D([0], [0], color='#1E90FF', lw=4, label='Sector 1 (고속)'),
+            Line2D([0], [0], color='#FF8C00', lw=4, label='Sector 2 (기술)'),
+            Line2D([0], [0], color='#32CD32', lw=4, label='Sector 3 (중속 굴곡)'),
+        ]
+        ax.legend(handles=legend_elements, loc='lower right', fontsize=9,
+                  facecolor='#2A2A4A', edgecolor='#606090', labelcolor='white')
+
+        ax.set_xlim(min(tx) - 80, max(tx) + 80)
+        ax.set_ylim(min(ty) - 80, max(ty) + 80)
+
+        self.canvas_track.draw_idle()
+
+    def _run_track_simulation(self):
+        """Run lap simulation using point-mass model with friction from Brush tab."""
+        import numpy as np
+        import threading
+
+        try:
+            mass = float(self.ts_mass_var.get())
+            power_hp = float(self.ts_power_var.get())
+            cda = float(self.ts_cda_var.get())
+            cla = float(self.ts_cla_var.get())
+            mu = float(self.ts_mu_var.get())
+            brake_g_max = float(self.ts_brake_g_var.get())
+        except ValueError:
+            from tkinter import messagebox
+            messagebox.showerror("오류", "차량 파라미터를 확인하세요.")
+            return
+
+        power_w = power_hp * 745.7  # hp → W
+        g = 9.81
+        rho = 1.225  # air density
+
+        track = self._get_yeongam_track_points()
+        turn_speeds = self._get_turn_speed_limits()
+
+        tx, ty = track['x'], track['y']
+        dist = track['dist']
+        n_pts = track['n_points']
+        total_len = track['total_length']
+
+        # Compute local curvature (1/radius)
+        dx = np.gradient(tx)
+        dy = np.gradient(ty)
+        ddx = np.gradient(dx)
+        ddy = np.gradient(dy)
+        curvature = np.abs(dx * ddy - dy * ddx) / (dx**2 + dy**2)**1.5
+        curvature = np.clip(curvature, 1e-6, None)
+        radius = 1.0 / curvature
+
+        # Step 1: Max cornering speed at each point (v² = μ·g·R with downforce)
+        # Including aero downforce: Fz_total = m·g + 0.5·ρ·Cl·A·v²
+        # Lateral: m·v²/R = μ·Fz_total
+        # → m·v²/R = μ·(m·g + 0.5·ρ·Cla·v²)
+        # → v²·(m/R - 0.5·ρ·μ·Cla) = μ·m·g
+        v_max_corner = np.zeros(n_pts)
+        for i in range(n_pts):
+            R = radius[i]
+            denom = mass / R - 0.5 * rho * mu * cla
+            if denom > 0:
+                v_max_corner[i] = np.sqrt(mu * mass * g / denom)
+            else:
+                v_max_corner[i] = 500.0 / 3.6  # effectively unlimited
+
+        # Apply turn speed constraints
+        turn_idx = track['turn_indices']
+        for i, idx in enumerate(turn_idx):
+            turn_num = i + 1
+            v_turn = turn_speeds[turn_num] / 3.6  # km/h → m/s
+            # Influence zone: ±50 points around apex
+            zone = 60
+            for j in range(max(0, idx - zone), min(n_pts, idx + zone)):
+                d = abs(j - idx)
+                # Smooth transition
+                blend = np.exp(-0.5 * (d / (zone * 0.4))**2)
+                v_limit = v_turn + (v_max_corner[j] - v_turn) * (1 - blend)
+                v_max_corner[j] = min(v_max_corner[j], v_limit)
+
+        # Cap max speed (320 km/h on straight)
+        v_max_straight = 320.0 / 3.6
+        v_max_corner = np.clip(v_max_corner, 0, v_max_straight)
+
+        # Step 2: Forward pass – acceleration limited
+        v_forward = np.zeros(n_pts)
+        v_forward[0] = min(v_max_corner[0], 150.0 / 3.6)  # start speed
+
+        for i in range(1, n_pts):
+            ds_i = dist[i] - dist[i - 1]
+            if ds_i <= 0:
+                v_forward[i] = v_forward[i - 1]
+                continue
+            v_cur = v_forward[i - 1]
+            # Max acceleration from engine (power limited)
+            if v_cur > 1.0:
+                f_engine = min(power_w / v_cur, mu * mass * g)
+            else:
+                f_engine = mu * mass * g
+            # Drag
+            f_drag = 0.5 * rho * cda * v_cur**2
+            a_net = (f_engine - f_drag) / mass
+            a_net = max(a_net, 0.5)  # minimum acceleration
+            v_new = np.sqrt(v_cur**2 + 2 * a_net * ds_i)
+            v_forward[i] = min(v_new, v_max_corner[i])
+
+        # Step 3: Backward pass – braking limited
+        v_backward = np.zeros(n_pts)
+        v_backward[-1] = v_forward[-1]
+
+        for i in range(n_pts - 2, -1, -1):
+            ds_i = dist[i + 1] - dist[i]
+            if ds_i <= 0:
+                v_backward[i] = v_backward[i + 1]
+                continue
+            v_cur = v_backward[i + 1]
+            # Max braking deceleration
+            a_brake = brake_g_max * g
+            v_new = np.sqrt(v_cur**2 + 2 * a_brake * ds_i)
+            v_backward[i] = min(v_new, v_max_corner[i])
+
+        # Step 4: Combine – take minimum
+        v_final = np.minimum(v_forward, v_backward)
+        v_final = np.clip(v_final, 10.0 / 3.6, v_max_straight)
+
+        # Compute lap time
+        dt_arr = np.zeros(n_pts - 1)
+        for i in range(n_pts - 1):
+            ds_i = dist[i + 1] - dist[i]
+            v_avg = 0.5 * (v_final[i] + v_final[i + 1])
+            if v_avg > 0.1:
+                dt_arr[i] = ds_i / v_avg
+            else:
+                dt_arr[i] = ds_i / 0.1
+        time_arr = np.concatenate([[0], np.cumsum(dt_arr)])
+        lap_time = time_arr[-1]
+
+        # Compute acceleration (longitudinal)
+        dv = np.gradient(v_final)
+        dt_grad = np.gradient(time_arr)
+        dt_grad[dt_grad == 0] = 1e-6
+        accel_g = dv / dt_grad / g
+
+        # Throttle/Brake signals
+        throttle = np.clip(accel_g, 0, None)
+        throttle = throttle / (throttle.max() + 1e-6)
+        brake_signal = np.clip(-accel_g, 0, None)
+        brake_signal = brake_signal / (brake_signal.max() + 1e-6)
+
+        # Sector times
+        s1_idx = int(0.30 * n_pts)
+        s2_idx = int(0.65 * n_pts)
+        sector1_time = time_arr[s1_idx] - time_arr[0]
+        sector2_time = time_arr[s2_idx] - time_arr[s1_idx]
+        sector3_time = time_arr[-1] - time_arr[s2_idx]
+
+        # Store results
+        self._track_sim_data = {
+            'track': track,
+            'v_final': v_final,
+            'v_kmh': v_final * 3.6,
+            'time': time_arr,
+            'dist': dist,
+            'accel_g': accel_g,
+            'throttle': throttle,
+            'brake': brake_signal,
+            'lap_time': lap_time,
+            'sector_times': [sector1_time, sector2_time, sector3_time],
+            'max_speed_kmh': np.max(v_final) * 3.6,
+            'min_speed_kmh': np.min(v_final) * 3.6,
+            'avg_speed_kmh': np.mean(v_final) * 3.6,
+        }
+
+        # Update progress
+        self.ts_progress_var.set(100)
+
+        # Update results text
+        self._update_track_results_text()
+
+        # Draw telemetry
+        self._draw_track_telemetry()
+
+        # Draw track with car at start
+        self._draw_yeongam_track()
+        self._track_frame_idx = 0
+        self._update_track_frame(0)
+
+        # Update slider range
+        self.ts_time_slider.configure(to=n_pts - 1)
+
+    def _update_track_results_text(self):
+        """Update the lap time results text widget."""
+        data = self._track_sim_data
+        if data is None:
+            return
+
+        lt = data['lap_time']
+        minutes = int(lt // 60)
+        seconds = lt % 60
+
+        text = (
+            f"═══ 랩타임 결과 ═══\n"
+            f"\n"
+            f"  총 랩타임:  {minutes}:{seconds:06.3f}\n"
+            f"\n"
+            f"  Sector 1:  {data['sector_times'][0]:.3f} s\n"
+            f"  Sector 2:  {data['sector_times'][1]:.3f} s\n"
+            f"  Sector 3:  {data['sector_times'][2]:.3f} s\n"
+            f"\n"
+            f"  최고 속도:  {data['max_speed_kmh']:.1f} km/h\n"
+            f"  최저 속도:  {data['min_speed_kmh']:.1f} km/h\n"
+            f"  평균 속도:  {data['avg_speed_kmh']:.1f} km/h\n"
+            f"\n"
+            f"  트랙 길이:  5.615 km\n"
+            f"  코너 수:    18\n"
+        )
+
+        self.ts_result_text.configure(state='normal')
+        self.ts_result_text.delete('1.0', tk.END)
+        self.ts_result_text.insert('1.0', text)
+        self.ts_result_text.configure(state='disabled')
+
+    def _draw_track_telemetry(self):
+        """Draw telemetry plots (speed, accel, throttle/brake)."""
+        import numpy as np
+        data = self._track_sim_data
+        if data is None:
+            return
+
+        dist = data['dist']
+        v_kmh = data['v_kmh']
+        accel = data['accel_g']
+        throttle = data['throttle']
+        brake = data['brake']
+        turn_idx = data['track']['turn_indices']
+
+        # Speed
+        self.ax_telem_speed.clear()
+        self.ax_telem_speed.fill_between(dist, v_kmh, alpha=0.3, color='#1E90FF')
+        self.ax_telem_speed.plot(dist, v_kmh, color='#1E90FF', linewidth=1.5)
+        self.ax_telem_speed.set_ylabel('Speed [km/h]', fontsize=9)
+        self.ax_telem_speed.set_title(
+            f"Lap Telemetry – 영암 서킷  |  "
+            f"Lap: {int(data['lap_time']//60)}:{data['lap_time']%60:06.3f}",
+            fontsize=11, fontweight='bold')
+        self.ax_telem_speed.grid(True, alpha=0.3)
+        # Turn markers on speed plot
+        for i, idx in enumerate(turn_idx):
+            self.ax_telem_speed.axvline(dist[idx], color='#FFD700', alpha=0.3, linewidth=0.5)
+            self.ax_telem_speed.text(dist[idx], v_kmh[idx] + 10, f'T{i+1}',
+                                      fontsize=6, ha='center', color='#FFD700', alpha=0.7)
+        self._ts_speed_marker_line = self.ax_telem_speed.axvline(
+            0, color='red', linewidth=1.5, alpha=0.8)
+
+        # Acceleration
+        self.ax_telem_accel.clear()
+        pos_accel = np.clip(accel, 0, None)
+        neg_accel = np.clip(accel, None, 0)
+        self.ax_telem_accel.fill_between(dist, pos_accel, alpha=0.4, color='#32CD32')
+        self.ax_telem_accel.fill_between(dist, neg_accel, alpha=0.4, color='#FF4444')
+        self.ax_telem_accel.plot(dist, accel, color='#333333', linewidth=0.5)
+        self.ax_telem_accel.set_ylabel('Accel [g]', fontsize=9)
+        self.ax_telem_accel.grid(True, alpha=0.3)
+        self.ax_telem_accel.axhline(0, color='white', linewidth=0.5)
+        self._ts_accel_marker_line = self.ax_telem_accel.axvline(
+            0, color='red', linewidth=1.5, alpha=0.8)
+
+        # Throttle / Brake
+        self.ax_telem_brake.clear()
+        self.ax_telem_brake.fill_between(dist, throttle, alpha=0.5, color='#32CD32',
+                                          label='Throttle')
+        self.ax_telem_brake.fill_between(dist, -brake, alpha=0.5, color='#FF4444',
+                                          label='Brake')
+        self.ax_telem_brake.set_ylabel('Throttle / Brake', fontsize=9)
+        self.ax_telem_brake.legend(fontsize=7, loc='upper right')
+        self.ax_telem_brake.grid(True, alpha=0.3)
+        self._ts_tb_marker_line = self.ax_telem_brake.axvline(
+            0, color='red', linewidth=1.5, alpha=0.8)
+
+        # Sector indicator
+        self.ax_telem_gear.clear()
+        n = len(dist)
+        s1_end = int(0.30 * n)
+        s2_end = int(0.65 * n)
+        sectors = np.ones(n)
+        sectors[s1_end:s2_end] = 2
+        sectors[s2_end:] = 3
+        self.ax_telem_gear.fill_between(dist[:s1_end], 0, 1, alpha=0.5, color='#1E90FF')
+        self.ax_telem_gear.fill_between(dist[s1_end:s2_end], 0, 1, alpha=0.5, color='#FF8C00')
+        self.ax_telem_gear.fill_between(dist[s2_end:], 0, 1, alpha=0.5, color='#32CD32')
+        self.ax_telem_gear.set_xlabel('Distance [m]', fontsize=9)
+        self.ax_telem_gear.set_ylabel('Sector', fontsize=9)
+        self.ax_telem_gear.set_yticks([0.5])
+        self.ax_telem_gear.set_yticklabels([''])
+        self.ax_telem_gear.text(dist[s1_end // 2], 0.5, 'S1', ha='center', va='center',
+                                 fontsize=10, fontweight='bold', color='white')
+        self.ax_telem_gear.text(dist[(s1_end + s2_end) // 2], 0.5, 'S2',
+                                 ha='center', va='center', fontsize=10,
+                                 fontweight='bold', color='white')
+        self.ax_telem_gear.text(dist[(s2_end + n) // 2], 0.5, 'S3',
+                                 ha='center', va='center', fontsize=10,
+                                 fontweight='bold', color='white')
+        self.ax_telem_gear.grid(True, alpha=0.3)
+        self._ts_sector_marker_line = self.ax_telem_gear.axvline(
+            0, color='red', linewidth=1.5, alpha=0.8)
+
+        self.canvas_telem.draw_idle()
+
+    def _update_track_frame(self, idx):
+        """Update car position on track map at given index."""
+        import numpy as np
+
+        data = self._track_sim_data
+        if data is None:
+            return
+
+        track = data['track']
+        tx, ty = track['x'], track['y']
+        n = track['n_points']
+        idx = int(idx) % n
+
+        v_kmh = data['v_kmh']
+        t_cur = data['time'][idx]
+        d_cur = data['dist'][idx]
+
+        # Redraw track base
+        ax = self.ax_track
+        ax.clear()
+        ax.set_facecolor('#1A1A2E')
+        ax.axis('off')
+
+        # Track road
+        ax.plot(tx, ty, color='#404060', linewidth=18, solid_capstyle='round', zorder=1)
+
+        # Color-coded speed overlay
+        # Split into segments colored by speed
+        from matplotlib.collections import LineCollection
+        points = np.array([tx, ty]).T.reshape(-1, 1, 2)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+        norm_speed = (v_kmh[:-1] - v_kmh.min()) / (v_kmh.max() - v_kmh.min() + 1e-6)
+        colors = np.zeros((len(norm_speed), 4))
+        for i, ns in enumerate(norm_speed):
+            if ns < 0.5:
+                # Red (slow) → Yellow (medium)
+                colors[i] = [1.0, ns * 2, 0.0, 0.8]
+            else:
+                # Yellow (medium) → Green (fast)
+                colors[i] = [1.0 - (ns - 0.5) * 2, 1.0, 0.0, 0.8]
+
+        lc = LineCollection(segments, colors=colors, linewidths=5, zorder=2)
+        ax.add_collection(lc)
+
+        # Turn markers
+        turn_idx_arr = track['turn_indices']
+        for i, tidx in enumerate(turn_idx_arr):
+            ax.plot(tx[tidx], ty[tidx], 'o', color='white', markersize=5, zorder=5)
+            ax.annotate(f'T{i+1}', (tx[tidx], ty[tidx]),
+                        xytext=(20, 15), textcoords='offset points',
+                        color='white', fontsize=7, fontweight='bold',
+                        arrowprops=dict(arrowstyle='-', color='#FFFFFF60', lw=0.5),
+                        zorder=6)
+
+        # Start/Finish
+        ax.plot(tx[0], ty[0], 's', color='#FFD700', markersize=10, zorder=7)
+
+        # ── Car marker ──
+        car_x, car_y = tx[idx], ty[idx]
+        # Direction arrow
+        next_idx = (idx + 5) % n
+        dx = tx[next_idx] - car_x
+        dy = ty[next_idx] - car_y
+        length = np.sqrt(dx**2 + dy**2)
+        if length > 0:
+            dx, dy = dx / length * 40, dy / length * 40
+
+        # Car body (bright dot)
+        ax.plot(car_x, car_y, 'o', color='#FF0000', markersize=14,
+                markeredgecolor='white', markeredgewidth=2, zorder=10)
+        ax.annotate('', xy=(car_x + dx, car_y + dy),
+                    xytext=(car_x, car_y),
+                    arrowprops=dict(arrowstyle='->', color='#FF0000', lw=2.5),
+                    zorder=10)
+
+        # Trail (last 80 points)
+        trail_len = 80
+        if idx >= trail_len:
+            trail_x = tx[idx - trail_len:idx + 1]
+            trail_y = ty[idx - trail_len:idx + 1]
+        else:
+            trail_x = np.concatenate([tx[-(trail_len - idx):], tx[:idx + 1]])
+            trail_y = np.concatenate([ty[-(trail_len - idx):], ty[:idx + 1]])
+        alphas = np.linspace(0.0, 0.6, len(trail_x))
+        for j in range(len(trail_x) - 1):
+            ax.plot([trail_x[j], trail_x[j + 1]], [trail_y[j], trail_y[j + 1]],
+                    color='#FF4444', alpha=alphas[j], linewidth=3, zorder=8)
+
+        # Speed HUD
+        minutes = int(t_cur // 60)
+        secs = t_cur % 60
+        ax.text(0.02, 0.98,
+                f"Speed: {v_kmh[idx]:.0f} km/h\n"
+                f"Time:  {minutes}:{secs:05.2f}\n"
+                f"Dist:  {d_cur:.0f} m",
+                transform=ax.transAxes, fontsize=12, fontweight='bold',
+                color='#00FF88', family='monospace',
+                verticalalignment='top',
+                bbox=dict(boxstyle='round,pad=0.5', facecolor='#000000CC',
+                          edgecolor='#00FF88', linewidth=1),
+                zorder=15)
+
+        # Lap time
+        lt = data['lap_time']
+        ax.text(0.98, 0.98,
+                f"LAP: {int(lt//60)}:{lt%60:06.3f}",
+                transform=ax.transAxes, fontsize=14, fontweight='bold',
+                color='#FFD700', family='monospace', ha='right', va='top',
+                bbox=dict(boxstyle='round,pad=0.4', facecolor='#000000CC',
+                          edgecolor='#FFD700', linewidth=1),
+                zorder=15)
+
+        ax.set_title('Korean International Circuit – 영암 (5.615 km)',
+                      color='white', fontsize=13, fontweight='bold', pad=10)
+
+        ax.set_xlim(min(tx) - 80, max(tx) + 80)
+        ax.set_ylim(min(ty) - 80, max(ty) + 80)
+
+        self.canvas_track.draw_idle()
+
+        # Update telemetry markers
+        try:
+            self._ts_speed_marker_line.set_xdata([d_cur, d_cur])
+            self._ts_accel_marker_line.set_xdata([d_cur, d_cur])
+            self._ts_tb_marker_line.set_xdata([d_cur, d_cur])
+            self._ts_sector_marker_line.set_xdata([d_cur, d_cur])
+            self.canvas_telem.draw_idle()
+        except Exception:
+            pass
+
+        # Update frame label
+        self.ts_frame_label_var.set(
+            f"t = {t_cur:.2f} s  |  {v_kmh[idx]:.0f} km/h  |  {d_cur:.0f} m")
+
+    def _track_play(self):
+        """Start track simulation playback."""
+        if self._track_sim_data is None:
+            from tkinter import messagebox
+            messagebox.showinfo("알림", "먼저 랩 시뮬레이션을 실행하세요.")
+            return
+        self._track_playing = True
+        self._track_animate_step()
+
+    def _track_animate_step(self):
+        """Single animation step for track playback."""
+        if not self._track_playing:
+            return
+        if self._track_sim_data is None:
+            return
+
+        n = self._track_sim_data['track']['n_points']
+        step = max(1, int(self._ts_speed_mult.get() * 5))
+        self._track_frame_idx = (self._track_frame_idx + step) % n
+
+        self._update_track_frame(self._track_frame_idx)
+        self.ts_time_slider.set(self._track_frame_idx)
+
+        # Schedule next frame (~30 FPS)
+        self._track_play_after_id = self.root.after(33, self._track_animate_step)
+
+    def _track_pause(self):
+        """Pause track playback."""
+        self._track_playing = False
+        if self._track_play_after_id is not None:
+            try:
+                self.root.after_cancel(self._track_play_after_id)
+            except Exception:
+                pass
+            self._track_play_after_id = None
+
+    def _track_reset(self):
+        """Reset track playback to start."""
+        self._track_pause()
+        self._track_frame_idx = 0
+        if self._track_sim_data is not None:
+            self._update_track_frame(0)
+            self.ts_time_slider.set(0)
+
+    def _on_track_speed_slider(self, val):
+        """Handle speed slider change."""
+        speed = self._ts_speed_mult.get()
+        self._ts_speed_label_var.set(f"재생 속도: {speed:.1f}x")
+
+    def _on_track_slider_change(self, val):
+        """Handle time slider scrub."""
+        if self._track_sim_data is None:
+            return
+        idx = int(float(val))
+        self._track_frame_idx = idx
+        self._update_track_frame(idx)
+
+    def _sync_track_mu_from_brush(self):
+        """Sync friction coefficient from 2D Brush Model tab results."""
+        try:
+            if self.brush_results is not None:
+                # Get peak friction from brush results
+                res = self.brush_results
+                if hasattr(res, 'get'):
+                    mu_peak = res.get('mu_peak', None)
+                    if mu_peak is not None:
+                        self.ts_mu_var.set(f"{mu_peak:.3f}")
+                        self.ts_sync_label.set(f"μ = {mu_peak:.3f} (Brush 탭)")
+                        return
+            # Fallback: try to get from friction scale
+            fs = float(self.br_friction_scale_var.get())
+            self.ts_mu_var.set(f"{fs * 2.0:.3f}")
+            self.ts_sync_label.set(f"μ ≈ {fs * 2.0:.3f} (마찰 감도 x2)")
+        except Exception:
+            self.ts_sync_label.set("동기화 실패")
 
 
     # ================================================================
