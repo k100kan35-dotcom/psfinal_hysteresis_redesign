@@ -23259,6 +23259,31 @@ class PerssonModelGUI_V2:
 
         return p_map, x_arr, y_arr, dx, dy
 
+    # ── Single source of truth for contact-patch egg shape ──
+    _EGG_K_MAX = 0.35   # max asymmetry at SA = 6°
+    _EGG_SA_REF = 6.0    # reference SA for full deformation
+    _EGG_NPTS = 120       # outline resolution
+
+    @staticmethod
+    def _egg_outline(sa_deg, half_L, half_W):
+        """Compute egg-shaped contact patch outline vertices.
+
+        Single source of truth — used by both _deformed_mask (data mask)
+        and outline drawing (contour display).
+
+        Returns (N, 2) array of (x, y) vertices.
+        """
+        cls = TireFrictionApp
+        sf = -np.clip(sa_deg / cls._EGG_SA_REF, -1, 1)
+        k = sf * cls._EGG_K_MAX
+        theta = np.linspace(0, 2 * np.pi, cls._EGG_NPTS)
+        cos_t = np.cos(theta)
+        sin_t = np.sin(theta)
+        x_d = half_L * cos_t * (1.0 + k * sin_t)
+        y_d = half_W * sin_t
+        x_d -= np.mean(x_d)
+        return np.column_stack([x_d, y_d])
+
     def _run_brush_simulation(self, mode='braking'):
         """Run the 2D brush model ODE integration.
 
@@ -23674,21 +23699,10 @@ class PerssonModelGUI_V2:
         def _deformed_mask(sa_deg_local):
             """Return (mask, outline_verts) for the given SA.
 
-            Uses egg parametrisation: x = a·cos(θ)·(1+k·sin(θ))
-            which naturally rounds BOTH tips (no cusp/point).
-            SA > 0 (right turn): wider at -y (loaded side), narrower at +y
-            SA < 0 (left turn): wider at +y (loaded side), narrower at -y
+            Delegates to _egg_outline (single source of truth) so that
+            the data mask and the display outline always match exactly.
             """
-            sf = -np.clip(sa_deg_local / 6.0, -1, 1)  # negate to match pressure
-            k = sf * 0.35  # egg asymmetry (0 = ellipse, ±0.35 = moderate egg)
-            theta = np.linspace(0, 2 * np.pi, 120)
-            cos_t = np.cos(theta)
-            sin_t = np.sin(theta)
-            # Egg shape: cos·(1+k·sin) gives natural rounding at both poles
-            x_d = (L / 2 * cos_t) * (1.0 + k * sin_t)
-            y_d = W / 2 * sin_t
-            x_d -= np.mean(x_d)
-            verts = np.column_stack([x_d, y_d])
+            verts = TireFrictionApp._egg_outline(sa_deg_local, L / 2, W / 2)
             path = _MplPath(verts)
             pts = np.column_stack([xx_g.ravel(), yy_g.ravel()])
             mask = path.contains_points(pts).reshape(xx_g.shape)
@@ -24648,17 +24662,8 @@ class PerssonModelGUI_V2:
                 # Convert from meters to mm for display
                 new_verts = outline_verts_m * 1000.0
             else:
-                # Fallback: recompute (for old frame data without stored verts)
-                sa_deg = f['SA']
-                sa_factor = -np.clip(sa_deg / 6.0, -1, 1)  # negated to match data
-                k = sa_factor * 0.35  # egg asymmetry
-                theta = np.linspace(0, 2 * np.pi, 120)
-                cos_t = np.cos(theta)
-                sin_t = np.sin(theta)
-                x_deformed = (L_mm / 2 * cos_t) * (1.0 + k * sin_t)
-                y_deformed = W_mm / 2 * sin_t
-                x_deformed -= np.mean(x_deformed)
-                new_verts = np.column_stack([x_deformed, y_deformed])
+                # Fallback: use shared _egg_outline (single source of truth)
+                new_verts = self._egg_outline(f['SA'], L_mm / 2, W_mm / 2)
             for poly in self._br_outline_patches:
                 poly.set_xy(new_verts)
 
