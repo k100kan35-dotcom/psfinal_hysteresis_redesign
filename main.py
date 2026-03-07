@@ -24719,12 +24719,20 @@ class PerssonModelGUI_V2:
         # ── Common helpers ──
         _cb_kw = dict(fraction=0.046, pad=0.04)
 
+        # Fixed axis extent so outline visually resizes when L/W change
+        _FIXED_AX_X_HALF = 140.0   # mm – covers footprint L up to ~400 mm
+        _FIXED_AX_Y_LOW  = -100.0  # mm
+        _FIXED_AX_Y_HIGH =  85.0   # mm
+
         def _setup_ax(ax, title, has_colorbar_space=False):
             ax.set_title(title, fontsize=9, fontweight='bold')
             ax.set_xlabel('length [mm]', fontsize=7)
             ax.set_ylabel('width [mm]', fontsize=7)
-            ax.set_xlim(-L_mm * 0.7, L_mm * 0.7)
-            ax.set_ylim(-W_mm * 0.85, W_mm * 0.75)
+            # Use fixed axis limits so that changing L / W visually
+            # resizes the outline + contour instead of only changing
+            # the axis tick numbers.
+            ax.set_xlim(-_FIXED_AX_X_HALF, _FIXED_AX_X_HALF)
+            ax.set_ylim(_FIXED_AX_Y_LOW, _FIXED_AX_Y_HIGH)
             ax.tick_params(labelsize=7)
 
         def _add_contact_outline(ax):
