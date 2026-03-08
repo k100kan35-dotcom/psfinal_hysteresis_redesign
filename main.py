@@ -26016,152 +26016,223 @@ class PerssonModelGUI_V2:
 
     # ── Pre-compute simplified brush model data (synced with 2D Brush tab) ──
     def _compute_track_brush_data(self, sa_arr, v_arr, Fz_arr, mu):
-        """Vectorized brush model for all track points.
+        """Brush model for all track points using Cold & Hot friction map LUT.
 
-        Uses the same parameters (L, W, Nx, Ny, friction scale, pressure type, etc.)
-        as the 2D Brush Model tab for consistent results.
+        Uses the ACTUAL friction map (cold/hot LUT) from Cold & Hot Branch tab,
+        and pressure distribution settings from the 2D Brush Model tab.
+        Same calculation logic as _run_brush_transient() for consistency.
+
         Returns dict of (n, nx, ny) arrays for contour plot display,
         plus per-point Fy from the brush model.
         """
         import numpy as np
+        from scipy.interpolate import interp1d
+
+        # ── Build Cold/Hot friction LUT from actual data ──
+        lut_cold, lut_hot = self._build_brush_lut()
+
+        # Cold→Hot transition distance
+        chr_ = self.cold_hot_results
+        T0_base = chr_.get('T0', 25.0)
+        try:
+            D_mm = float(self.br_D_macro_var.get())
+            s0 = 0.2 * D_mm * 1e-3
+        except (AttributeError, ValueError):
+            s0 = chr_.get('s0', 0.001)
+
+        # Temperature interpolator from Cold&Hot
+        dT_interp = interp1d(chr_['v'], chr_['delta_T'], kind='linear',
+                             bounds_error=False,
+                             fill_value=(chr_['delta_T'][0], chr_['delta_T'][-1]))
 
         # ── Read parameters from 2D Brush Model tab ──
         try:
             nx = int(self.br_Nx_var.get())
             ny = int(self.br_Ny_var.get())
-            L = float(self.br_L_var.get())    # footprint length (m)
-            W = float(self.br_W_var.get())    # footprint width (m)
+            L = float(self.br_L_var.get())
+            W = float(self.br_W_var.get())
+            Fz_brush = float(self.br_Fz_var.get())
+            kx = float(self.br_kx_var.get())
+            ky = float(self.br_ky_var.get())
             friction_scale = float(self.br_friction_scale_var.get())
+            vc_brush = float(self.br_vc_var.get())
         except (AttributeError, ValueError):
             nx, ny = 64, 64
             L, W = 0.15, 0.12
+            Fz_brush = 4000.0
+            kx, ky = 8e5, 6e5
             friction_scale = 0.5
+            vc_brush = 16.67
 
-        # Read pressure distribution type from 2D Brush tab
         try:
             ptype = self.br_pressure_type_var.get()
         except (AttributeError, ValueError):
             ptype = 'parabolic'
 
-        # For track simulation: use reduced resolution to keep memory manageable
+        # Reduced resolution for track simulation (2000 pts × nx × ny)
         max_grid = 32
         if nx > max_grid or ny > max_grid:
-            scale_factor = max_grid / max(nx, ny)
-            nx = max(int(nx * scale_factor), 8)
-            ny = max(int(ny * scale_factor), 8)
+            sf = max_grid / max(nx, ny)
+            nx = max(int(nx * sf), 8)
+            ny = max(int(ny * sf), 8)
 
         n = len(sa_arr)
-        a, b = L / 2.0, W / 2.0  # contact patch half-axes (m)
+        a, b = L / 2.0, W / 2.0
 
-        # Get superellipse power from 2D Brush tab
-        ellipse_power = getattr(self, '_ELLIPSE_POWER', 2.0)
+        se_n = getattr(self, '_ELLIPSE_POWER', 2.5)
         try:
-            ellipse_power = float(self._br_ellipse_power_var.get())
+            se_n = float(self._br_ellipse_power_var.get())
         except (AttributeError, ValueError):
             pass
 
-        x = np.linspace(-a, a, nx)
-        y = np.linspace(-b, b, ny)
+        x_arr = np.linspace(-a, a, nx)
+        y_arr = np.linspace(-b, b, ny)
         dx_g = L / max(nx - 1, 1)
         dy_g = W / max(ny - 1, 1)
         dA = dx_g * dy_g
-        xx, yy = np.meshgrid(x, y, indexing='ij')  # (nx, ny)
+        xx, yy = np.meshgrid(x_arr, y_arr, indexing='ij')  # (nx, ny)
 
-        # Superellipse mask (matching 2D Brush Model)
-        se_n = ellipse_power
         r_se = np.abs(xx / a)**se_n + np.abs(yy / b)**se_n
-        mask = r_se <= 1.0  # (nx, ny) superelliptical contact
+        mask = r_se <= 1.0
 
-        # ── Pressure distribution shape from 2D Brush tab ──
+        # ── Base pressure distribution (same as 2D Brush tab) ──
         if ptype == 'uniform':
-            p_shape = np.ones((nx, ny))
+            p_base = np.ones((nx, ny))
         elif ptype == 'elliptic':
-            p_shape = np.sqrt(np.clip(1 - r_se, 0, None))
+            p_base = np.sqrt(np.clip(1 - r_se, 0, None))
         elif ptype == 'dual_peak':
             lon_env = np.clip(1 - np.abs(2 * xx / L)**se_n, 0, None)
             y_norm = 2 * yy / W
-            peak_pos = 0.40
-            peak_width = 0.45
-            p_shape = (np.exp(-((y_norm - peak_pos) / peak_width)**2) +
-                       np.exp(-((y_norm + peak_pos) / peak_width)**2)) * lon_env
-            p_shape *= mask
-        else:  # parabolic (default)
-            p_shape = (np.clip(1 - np.abs(2 * xx / L)**se_n, 0, None) *
-                       np.clip(1 - np.abs(2 * yy / W)**se_n, 0, None))
+            pk_pos, pk_w = 0.40, 0.45
+            p_base = (np.exp(-((y_norm - pk_pos) / pk_w)**2) +
+                      np.exp(-((y_norm + pk_pos) / pk_w)**2)) * lon_env
+            p_base *= mask
+        else:  # parabolic
+            p_base = (np.clip(1 - np.abs(2 * xx / L)**se_n, 0, None) *
+                      np.clip(1 - np.abs(2 * yy / W)**se_n, 0, None))
 
-        # Normalize base shape so integral = 1 over contact area
-        p_shape_sum = np.sum(p_shape) * dA
-        if p_shape_sum > 0:
-            p_shape_norm = p_shape / p_shape_sum
-        else:
-            p_shape_norm = p_shape
+        # Contact time: rolling right-to-left, leading edge at -L/2
+        t_contact_1d = np.clip((xx + L / 2.0) / max(vc_brush, 0.01), 0, None)
+        t_contact = t_contact_1d  # (nx, ny)
 
-        xi = np.clip(a - xx, 0, None)  # distance from leading edge
+        # Per-node stiffness
+        n_in_mask = max(np.sum(mask), 1)
+        kx_node = kx / n_in_mask
+        ky_node = ky / n_in_mask
 
-        # Expand for broadcasting: (n, 1, 1)
-        sa_rad = np.radians(sa_arr)[:, None, None]
-        Fz_3d = Fz_arr[:, None, None]
-        v_3d = v_arr[:, None, None]
+        # Dual-peak components for SA-dependent asymmetry
+        _is_dual_peak = (ptype == 'dual_peak')
+        if _is_dual_peak:
+            lon_env_dp = np.clip(1 - np.abs(2 * xx / L)**se_n, 0, None)
+            y_norm_dp = 2 * yy / W
+            _peak_high = np.exp(-((y_norm_dp - 0.40) / 0.45)**2) * lon_env_dp
+            _peak_low = np.exp(-((y_norm_dp + 0.40) / 0.45)**2) * lon_env_dp
 
-        # Pressure (n, nx, ny) — using 2D Brush tab distribution type
-        # Normalized so that integral(pressure * dA) = Fz for each point
-        pressure = Fz_3d * p_shape_norm[None, :, :] * mask[None, :, :]
+        # ── Allocate output arrays ──
+        is_sliding_all = np.full((n, nx, ny), np.nan)
+        v_slide_all = np.full((n, nx, ny), np.nan)
+        pressure_bar_all = np.full((n, nx, ny), np.nan)
+        temperature_all = np.full((n, nx, ny), np.nan)
+        friction_all = np.full((n, nx, ny), np.nan)
+        Fy_brush = np.zeros(n)
 
-        # Bristle shear (same tread stiffness logic)
-        cp = 5e6  # tread stiffness (Pa/m)
-        delta = xi[None, :, :] * np.tan(sa_rad)
-        tau = cp * np.abs(delta)
-        tau_max = mu * friction_scale * pressure
+        # ── Per-frame computation (same logic as _run_brush_transient) ──
+        for fi in range(n):
+            sa_deg = sa_arr[fi]
+            vc = max(v_arr[fi], 0.5)
+            Fz_i = Fz_arr[fi]
+            alpha_rad = np.radians(sa_deg)
 
-        # Sliding state
-        is_sliding = (tau >= tau_max) & mask[None, :, :]
+            # Rim velocity (lateral slip from SA)
+            v_rim_y = vc * np.sin(alpha_rad)
+            v_rim_mag = abs(v_rim_y) + 1e-15
 
-        # Friction force density (lateral)
-        friction = np.where(is_sliding, tau_max, tau) * mask[None, :, :]
+            # Dynamic pressure map with SA-dependent lateral shift
+            sa_factor = -np.clip(sa_deg / 6.0, -1, 1)
+            if _is_dual_peak:
+                high_s = max(1.0 + 0.25 * sa_factor, 0.3)
+                low_s = max(1.0 - 0.25 * sa_factor, 0.3)
+                p_map = high_s * _peak_high + low_s * _peak_low
+            else:
+                p_map = p_base.copy()
+                lat_weight = 1.0 + 0.4 * sa_factor * (2 * yy / W)
+                p_map *= np.clip(lat_weight, 0.1, None)
 
-        # ── Compute Fy per track point by integrating lateral friction ──
-        # Fy = integral of (signed friction in y-direction) over contact patch
-        # Sign: friction opposes slip direction → negative SA → positive Fy
-        friction_signed = np.where(is_sliding, tau_max, tau) * np.sign(delta) * mask[None, :, :]
-        Fy_brush = -np.sum(friction_signed, axis=(1, 2)) * dA  # (n,)
+            p_map *= mask
+            p_total = np.sum(p_map) * dA
+            if p_total > 0:
+                p_map *= Fz_i / p_total
+            Fz_ij = p_map * dA
 
-        # Sliding speed
-        overshoot = np.clip(1.0 - tau_max / (tau + 1e-10), 0, 1)
-        v_slide = v_3d * np.abs(np.tan(sa_rad)) * overshoot * is_sliding
+            # Sliding distance for cold→hot blend
+            s_dist = v_rim_mag * t_contact
+            blend = np.exp(-s_dist / max(s0, 1e-10))
+            mu_cold_vals = lut_cold(np.full_like(t_contact, v_rim_mag))
+            mu_hot_vals = lut_hot(np.full_like(t_contact, v_rim_mag))
+            mu_eff = mu_cold_vals * blend + mu_hot_vals * (1.0 - blend)
 
-        # Temperature (simplified: base + friction heating)
-        T_base = 25.0
-        k_thermal = 500.0
-        temperature = T_base + friction * np.clip(np.abs(v_slide), 0, 50) / k_thermal
-        temperature *= mask[None, :, :]
-        temperature = np.where(mask[None, :, :], temperature, np.nan)
+            # Friction capacity per node
+            F_fric_max = mu_eff * Fz_ij * friction_scale
 
-        # Clean up for display
-        pressure_bar = pressure * 1e-5  # Pa → bar
-        pressure_bar = np.where(mask[None, :, :], pressure_bar, np.nan)
-        is_sliding_f = is_sliding.astype(float)
-        is_sliding_f = np.where(mask[None, :, :], is_sliding_f, np.nan)
-        v_slide_disp = np.where(mask[None, :, :], np.abs(v_slide), np.nan)
-        friction_disp = np.where(mask[None, :, :], friction * 1e-3, np.nan)  # kPa
+            # Stick deformation
+            uy_stick = v_rim_y * t_contact
+            Fspring_y = ky_node * uy_stick
+            F_spring_mag = np.abs(Fspring_y)
+
+            # Stick/slip classification
+            is_sliding = (F_spring_mag > F_fric_max) & mask
+
+            # Actual force per node
+            deform_dir_y = np.sign(uy_stick + 1e-20)
+            Fnode_y = np.where(is_sliding,
+                               F_fric_max * deform_dir_y,
+                               Fspring_y)
+            Fnode_y *= mask
+
+            # Total Fy
+            Fy_brush[fi] = np.sum(Fnode_y)
+
+            # Local slip velocity
+            scale = np.where(F_spring_mag > 1e-15,
+                             np.clip(F_fric_max / F_spring_mag, 0, 1), 1.0)
+            v_slip = v_rim_mag * (1.0 - scale)
+            v_slip = np.where(is_sliding, v_slip, 0.0) * mask
+
+            # Temperature from Cold&Hot flash temperature model
+            dT_local = dT_interp(np.clip(v_slip.ravel(), 0, None)).reshape(nx, ny)
+            p_mean = np.mean(p_map[mask]) if np.any(mask) else 1.0
+            p_ratio = p_map / max(p_mean, 1e-10)
+            t_max = np.max(t_contact) if np.max(t_contact) > 0 else 1.0
+            t_ratio = np.sqrt(t_contact / t_max)
+            T_contact = T0_base + dT_local * p_ratio * t_ratio
+            T_contact = T_contact * mask + T0_base * (~mask)
+
+            # Store for display
+            is_sliding_all[fi] = np.where(mask, is_sliding.astype(float), np.nan)
+            v_slide_all[fi] = np.where(mask, v_slip, np.nan)
+            pressure_bar_all[fi] = np.where(mask, p_map * 1e-5, np.nan)  # Pa→bar
+            temperature_all[fi] = np.where(mask, T_contact, np.nan)
+            F_node_mag = np.abs(Fnode_y) * mask
+            friction_all[fi] = np.where(mask, F_node_mag * 1e-3, np.nan)  # N→kN
 
         # Edge arrays for pcolormesh
-        dx_e = x[1] - x[0]; dy_e = y[1] - y[0]
-        x_edges = np.concatenate([x - dx_e / 2, [x[-1] + dx_e / 2]])
-        y_edges = np.concatenate([y - dy_e / 2, [y[-1] + dy_e / 2]])
+        dx_e = x_arr[1] - x_arr[0]; dy_e = y_arr[1] - y_arr[0]
+        x_edges = np.concatenate([x_arr - dx_e / 2, [x_arr[-1] + dx_e / 2]])
+        y_edges = np.concatenate([y_arr - dy_e / 2, [y_arr[-1] + dy_e / 2]])
 
         return {
-            'is_sliding': is_sliding_f,     # (n, nx, ny)
-            'v_slide': v_slide_disp,         # (n, nx, ny)
-            'pressure': pressure_bar,        # (n, nx, ny)
-            'temperature': temperature,      # (n, nx, ny)
-            'friction': friction_disp,        # (n, nx, ny)
-            'Fy_brush': Fy_brush,            # (n,) — brush model Fy
-            'x_edges': x_edges,              # (nx+1,)
-            'y_edges': y_edges,              # (ny+1,)
-            'mask': mask,                     # (nx, ny)
+            'is_sliding': is_sliding_all,    # (n, nx, ny)
+            'v_slide': v_slide_all,          # (n, nx, ny)
+            'pressure': pressure_bar_all,    # (n, nx, ny) in bar
+            'temperature': temperature_all,  # (n, nx, ny) in °C
+            'friction': friction_all,        # (n, nx, ny) in kN
+            'Fy_brush': Fy_brush,            # (n,) — brush model Fy [N]
+            'x_edges': x_edges,
+            'y_edges': y_edges,
+            'mask': mask,
             'nx': nx, 'ny': ny,
-            'half_L': a, 'half_W': b,        # contact patch dimensions
-            'pressure_type': ptype,          # distribution type used
+            'half_L': a, 'half_W': b,
+            'pressure_type': ptype,
         }
 
     # ── Initialize contour plot artists ──
@@ -26444,8 +26515,25 @@ class PerssonModelGUI_V2:
 
     # ── Simulation engine ──
     def _run_track_simulation(self):
-        """Run lap simulation + pre-compute brush data."""
+        """Run lap simulation + pre-compute brush data.
+
+        Requires Cold & Hot Branch friction map data (from earlier tabs).
+        """
         import numpy as np
+        from tkinter import messagebox
+
+        # ── Validate: Cold & Hot friction map must exist ──
+        if self.cold_hot_results is None:
+            messagebox.showerror(
+                "데이터 없음",
+                "Cold & Hot Branch 마찰맵 데이터가 없습니다.\n\n"
+                "Track Simulation을 실행하려면 먼저:\n"
+                "  1) μ_visc 계산 탭에서 μ_visc 계산\n"
+                "  2) μ_adh 계산 탭에서 μ_adh 계산\n"
+                "  3) Cold & Hot Branch 탭에서 마찰맵 계산\n"
+                "  4) 2D Brush Model 탭에서 시뮬레이션 실행\n\n"
+                "위 단계를 완료한 후 다시 실행하세요.")
+            return
 
         try:
             mass = float(self.ts_mass_var.get())
@@ -26455,7 +26543,6 @@ class PerssonModelGUI_V2:
             mu = float(self.ts_mu_var.get())
             brake_g_max = float(self.ts_brake_g_var.get())
         except ValueError:
-            from tkinter import messagebox
             messagebox.showerror("오류", "차량 파라미터를 확인하세요.")
             return
 
