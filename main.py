@@ -26665,6 +26665,9 @@ class PerssonModelGUI_V2:
         self._update_track_frame(0)
         self.ts_time_slider.configure(to=n_pts - 1)
 
+        # Auto-play at ~120 Hz after simulation completes
+        self._track_play()
+
     def _update_track_results_text(self):
         d = self._track_sim_data
         if d is None: return
