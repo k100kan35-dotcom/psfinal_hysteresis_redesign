@@ -10695,6 +10695,9 @@ class PerssonModelGUI_V2:
         ttk.Button(export_btn_frame, text="μ CSV", command=self._export_mu_visc_results, width=10).pack(side=tk.LEFT, padx=1)
         ttk.Button(export_btn_frame, text="f,g CSV", command=self._export_fg_curves, width=10).pack(side=tk.LEFT, padx=1)
         ttk.Button(export_btn_frame, text="μ+A/A0 CSV", command=self._export_mu_and_area_csv, width=12).pack(side=tk.LEFT, padx=1)
+        ttk.Button(export_btn_frame, text="그래프 저장",
+                   command=lambda: self._save_plot(self.fig_mu_visc, "mu_visc_plot"),
+                   width=10).pack(side=tk.LEFT, padx=1)
 
         # Reference data comparison section
         ref_frame = ttk.LabelFrame(results_frame, text="참조 데이터 비교", padding=3)
@@ -13180,8 +13183,8 @@ class PerssonModelGUI_V2:
                     self.ax_mu_v.axvline(x=1.0, color='green', linestyle='--', alpha=0.5, linewidth=1)
 
             # Plot reference μ_visc data: single active + multiple overlay datasets
-            ref_colors = ['#E53E3E', '#DD6B20', '#38A169', '#3182CE', '#805AD5',
-                          '#D53F8C', '#718096', '#D69E2E', '#00B5D8', '#9F7AEA']
+            ref_colors = ['#E6194B', '#3CB44B', '#4363D8', '#F58231', '#911EB4',
+                          '#42D4F4', '#F032E6', '#BFEF45', '#FABED4', '#469990']
             try:
                 if self.reference_mu_data is not None:
                     ref_v = self.reference_mu_data['v']
@@ -13322,6 +13325,10 @@ class PerssonModelGUI_V2:
             ax_twin.set_ylim(0, cumulative_max * 1.2)
 
             self.fig_mu_visc.subplots_adjust(left=0.12, right=0.90, top=0.96, bottom=0.08, hspace=0.50, wspace=0.38)
+
+            # Enable interactive legend (click to toggle line visibility)
+            self._setup_interactive_legends()
+
             self.canvas_mu_visc.draw()
 
             # Auto-register graph data for friction results
@@ -13344,6 +13351,37 @@ class PerssonModelGUI_V2:
                              ha='center', va='center', transform=self.ax_mu_v.transAxes)
             self.canvas_mu_visc.draw()
 
+    def _setup_interactive_legends(self):
+        """Set up click-to-toggle visibility on legends for all mu_visc subplots."""
+        # Disconnect previous handler if any
+        if hasattr(self, '_legend_pick_cid') and self._legend_pick_cid is not None:
+            self.fig_mu_visc.canvas.mpl_disconnect(self._legend_pick_cid)
+
+        # Build mapping: legend line -> plot line for each axis
+        self._legend_line_map = {}
+        for ax in [self.ax_mu_v, self.ax_mu_cumulative, self.ax_ps]:
+            legend = ax.get_legend()
+            if legend is None:
+                continue
+            lines = ax.get_lines()
+            legend_lines = legend.get_lines()
+            for leg_line, orig_line in zip(legend_lines, lines):
+                leg_line.set_picker(8)  # 8pt tolerance
+                self._legend_line_map[leg_line] = orig_line
+
+        def _on_pick(event):
+            leg_line = event.artist
+            if leg_line not in self._legend_line_map:
+                return
+            orig_line = self._legend_line_map[leg_line]
+            visible = not orig_line.get_visible()
+            orig_line.set_visible(visible)
+            # Dim legend entry for hidden lines
+            leg_line.set_alpha(1.0 if visible else 0.2)
+            self.fig_mu_visc.canvas.draw_idle()
+
+        self._legend_pick_cid = self.fig_mu_visc.canvas.mpl_connect('pick_event', _on_pick)
+
     def _toggle_reference_mu(self):
         """Toggle reference μ_visc display and redraw plot."""
         if self.mu_visc_results is not None:
@@ -13357,8 +13395,8 @@ class PerssonModelGUI_V2:
         if not hasattr(self, 'plotted_ref_datasets') or not self.plotted_ref_datasets:
             return
         try:
-            ref_colors = ['#E53E3E', '#DD6B20', '#38A169', '#3182CE', '#805AD5',
-                          '#D53F8C', '#718096', '#D69E2E', '#00B5D8', '#9F7AEA']
+            ref_colors = ['#E6194B', '#3CB44B', '#4363D8', '#F58231', '#911EB4',
+                          '#42D4F4', '#F032E6', '#BFEF45', '#FABED4', '#469990']
             # Clear and re-plot on mu_v and mu_cumulative axes
             self.ax_mu_v.clear()
             self.ax_mu_v.set_title('μ_visc(v) 곡선', fontweight='bold', fontsize=11)
