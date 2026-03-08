@@ -26634,6 +26634,39 @@ class PerssonModelGUI_V2:
         power_w = power_hp * 745.7
         g = 9.81; rho = 1.225
 
+        # ── Build velocity-dependent friction from Cold & Hot Branch data ──
+        lut_cold, lut_hot = self._build_brush_lut()
+        chr_ = self.cold_hot_results
+        try:
+            D_mm = float(self.br_D_macro_var.get())
+            _s0 = 0.2 * D_mm * 1e-3
+        except (AttributeError, ValueError):
+            _s0 = chr_.get('s0', 0.001)
+        try:
+            _L_fp = float(self.br_L_var.get())
+            _fscale = float(self.br_friction_scale_var.get())
+        except (AttributeError, ValueError):
+            _L_fp = 0.15
+            _fscale = 0.5
+
+        def mu_eff_at_v(v_arr):
+            """Effective macro friction coefficient at given speed(s).
+
+            Blends cold/hot friction using average contact-patch sliding
+            distance, then applies friction_scale for macro grip level.
+            """
+            v_q = np.atleast_1d(np.asarray(v_arr, dtype=float))
+            mu_c = lut_cold(v_q)
+            mu_h = lut_hot(v_q)
+            # Representative sliding speed at grip limit ≈ 10% of vehicle speed
+            v_slide_rep = 0.1 * v_q
+            t_max = _L_fp / np.clip(v_q, 0.5, None)
+            s_max = v_slide_rep * t_max
+            ratio = s_max / max(_s0, 1e-10)
+            avg_blend = np.where(ratio > 1e-6,
+                                 (1.0 - np.exp(-ratio)) / ratio, 1.0)
+            return (mu_c * avg_blend + mu_h * (1.0 - avg_blend)) * _fscale
+
         track = self._get_yeongam_track_points()
         turn_speeds = self._get_turn_speed_limits()
         tx, ty = track['x'], track['y']
@@ -26643,12 +26676,15 @@ class PerssonModelGUI_V2:
         curvature = np.clip(np.abs(signed_curv), 1e-6, None)
         radius = 1.0 / curvature
 
-        # Max cornering speed
-        v_max_corner = np.zeros(n_pts)
-        for i in range(n_pts):
-            R = radius[i]
-            denom = mass / R - 0.5 * rho * mu * cla
-            v_max_corner[i] = np.sqrt(mu * mass * g / denom) if denom > 0 else 500 / 3.6
+        # Max cornering speed (velocity-dependent friction from compound data)
+        # Iterative solve: mu depends on v and v depends on mu
+        v_max_corner = np.full(n_pts, 100 / 3.6)  # initial guess
+        for _ in range(4):
+            mu_arr = mu_eff_at_v(v_max_corner)
+            denom = mass / radius - 0.5 * rho * mu_arr * cla
+            valid = denom > 0
+            v_max_corner[valid] = np.sqrt(mu_arr[valid] * mass * g / denom[valid])
+            v_max_corner[~valid] = 500 / 3.6
 
         turn_idx = track['turn_indices']
         for i, idx in enumerate(turn_idx):
@@ -26669,7 +26705,8 @@ class PerssonModelGUI_V2:
             ds_i = dist[i] - dist[i - 1]
             if ds_i <= 0: v_fwd[i] = v_fwd[i - 1]; continue
             v_c = v_fwd[i - 1]
-            f_eng = min(power_w / max(v_c, 1), mu * mass * g)
+            mu_v = float(mu_eff_at_v(v_c))
+            f_eng = min(power_w / max(v_c, 1), mu_v * mass * g)
             a_net = max((f_eng - 0.5 * rho * cda * v_c**2) / mass, 0.5)
             v_fwd[i] = min(np.sqrt(v_c**2 + 2 * a_net * ds_i), v_max_corner[i])
 
@@ -26712,6 +26749,9 @@ class PerssonModelGUI_V2:
         sector_times = [time_arr[s1i], time_arr[s2i] - time_arr[s1i],
                         time_arr[-1] - time_arr[s2i]]
 
+        # Compute effective mu profile along the lap
+        mu_profile = mu_eff_at_v(v_final)
+
         self.ts_progress_var.set(50)
         self.root.update_idletasks()
 
@@ -26734,6 +26774,10 @@ class PerssonModelGUI_V2:
             'max_speed_kmh': np.max(v_final) * 3.6,
             'min_speed_kmh': np.min(v_final) * 3.6,
             'avg_speed_kmh': np.mean(v_final) * 3.6,
+            'mu_profile': mu_profile,
+            'mu_avg': float(np.mean(mu_profile)),
+            'mu_min': float(np.min(mu_profile)),
+            'mu_max': float(np.max(mu_profile)),
             'brush_data': brush_data,
         }
 
@@ -26778,6 +26822,9 @@ class PerssonModelGUI_V2:
             f"  최고 속도:  {d['max_speed_kmh']:.1f} km/h\n"
             f"  최저 속도:  {d['min_speed_kmh']:.1f} km/h\n"
             f"  평균 속도:  {d['avg_speed_kmh']:.1f} km/h\n\n"
+            f"  ── 컴파운드 마찰 ──\n"
+            f"  μ_eff 평균:  {d.get('mu_avg', 0):.3f}\n"
+            f"  μ_eff 범위:  {d.get('mu_min', 0):.3f} – {d.get('mu_max', 0):.3f}\n\n"
             f"  트랙 길이:  5.615 km  |  18 코너\n"
             f"{brush_info}"
         )
