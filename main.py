@@ -26704,8 +26704,8 @@ class PerssonModelGUI_V2:
             sa_raw = np.degrees(np.arctan2(lat_a, g)) * 0.8
             sa_arr[i] = -np.sign(signed_curv[i]) * min(sa_raw, 25.0)
 
-        # Fz (including downforce)
-        Fz_arr = mass * g + 0.5 * rho * cla * v_final**2
+        # Fz per tire (total vehicle weight + downforce, divided by 4 tires)
+        Fz_arr = (mass * g + 0.5 * rho * cla * v_final**2) / 4.0
 
         # Sector times
         s1i, s2i = int(0.32 * n_pts), int(0.62 * n_pts)
@@ -26886,20 +26886,17 @@ class PerssonModelGUI_V2:
             self._ts_pm_fric.set_array(bd['friction'][idx].T.ravel())
 
             # Update friction direction arrow on stick/slip contour
+            # Must match quiver direction: slip = (sin(SA), cos(SA)),
+            # friction = opposite = (-sin(SA), -cos(SA))
             if hasattr(self, '_ts_stick_arrow_line'):
                 half_L = bd.get('half_L', 0.075)
-                half_W = bd.get('half_W', 0.06)
                 L_mm_a = half_L * 2 * 1000
-                W_mm_a = half_W * 2 * 1000
                 sa_rad = np.radians(sa_cur)
-                # Friction force direction = opposite of lateral slip velocity
-                # v_rim_y = vc * sin(SA), friction arrow = (0, -sign(v_rim_y))
-                arrow_mag = abs(np.sin(sa_rad))
-                if arrow_mag > 1e-4:
+                if abs(sa_cur) > 0.2:
                     arrow_scale = L_mm_a * 0.3
                     # Arrow points opposite to slip (friction force direction)
-                    dx_a = -arrow_scale * np.sin(sa_rad) / max(arrow_mag, 1e-10)
-                    dy_a = 0.0  # lateral-only in this brush model
+                    dx_a = -arrow_scale * np.sin(sa_rad)
+                    dy_a = -arrow_scale * np.cos(sa_rad)
                     self._ts_stick_arrow_line.set_data([0, dx_a], [0, dy_a])
                     self._ts_stick_arrow_line.set_visible(True)
                     angle_deg = np.degrees(np.arctan2(dy_a, dx_a))
