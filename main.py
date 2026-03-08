@@ -25558,11 +25558,11 @@ class PerssonModelGUI_V2:
         center_pane = ttk.PanedWindow(center, orient=tk.HORIZONTAL)
         center_pane.pack(fill=tk.BOTH, expand=True)
 
-        # Left side: Track Map (full height)
+        # Left side: Track Map (full height, constrained width)
         map_frame = ttk.Frame(center_pane)
-        center_pane.add(map_frame, weight=4)
+        center_pane.add(map_frame, weight=3)
 
-        self.fig_track = _Fig(figsize=(7, 7), dpi=100, facecolor='#1A1A2E')
+        self.fig_track = _Fig(figsize=(5, 8), dpi=100, facecolor='#1A1A2E')
         self.ax_track = self.fig_track.add_axes([0.02, 0.02, 0.96, 0.96])
         self.ax_track.set_aspect('equal')
         self.ax_track.axis('off')
@@ -25573,7 +25573,7 @@ class PerssonModelGUI_V2:
 
         # Right side: Steering wheel + Fy plots + 5 contour plots (vertical stack)
         right_plots = ttk.Frame(center_pane)
-        center_pane.add(right_plots, weight=5)
+        center_pane.add(right_plots, weight=6)
 
         # ── Steering wheel (top, compact) ──
         steer_frame = ttk.Frame(right_plots)
@@ -26089,7 +26089,7 @@ class PerssonModelGUI_V2:
 
     # ── Initialize contour plot artists ──
     def _init_track_contour_artists(self):
-        """Create pcolormesh + SA/Fy plot artists and cache blit background.
+        """Create pcolormesh + SA/Fy plot artists (direct draw, no blit).
 
         Uses egg-shaped contact patch outline (matching 2D Brush Model)
         and proper axis limits synced with footprint dimensions.
@@ -26227,25 +26227,11 @@ class PerssonModelGUI_V2:
             xe, ye, bd['friction'][0].T, cmap=f_cmap, norm=f_norm,
             shading='flat', zorder=1)
 
-        # Collect dynamic artists (include outline patches for per-frame SA update)
-        self._ts_contour_dynamic = [
-            self._ts_cursor_fy_sa, self._ts_marker_fy_sa,
-            self._ts_cursor_fy_dist,
-            self._ts_pm_stick, self._ts_pm_speed, self._ts_pm_press,
-            self._ts_pm_temp, self._ts_pm_fric,
-        ]
-        self._ts_contour_dynamic.extend(self._ts_outline_patches)
-
-        # Cache blit background
-        for a in self._ts_contour_dynamic:
-            a.set_visible(False)
+        # No blit for contour figure — use robust direct draw approach.
+        # Blit backgrounds become stale on resize / re-init and cause graphs to appear empty.
+        self._ts_use_blit = False
+        self._ts_contour_blit_bg = None
         self._ts_contour_canvas.draw()
-        self._ts_contour_blit_bg = self._ts_contour_canvas.copy_from_bbox(
-            self._ts_contour_fig.bbox)
-        for a in self._ts_contour_dynamic:
-            a.set_visible(True)
-
-        self._ts_use_blit = True
 
     # ── Simulation engine ──
     def _run_track_simulation(self):
@@ -26415,7 +26401,7 @@ class PerssonModelGUI_V2:
 
     # ── Blit-based frame update (120 Hz capable) ──
     def _update_track_frame(self, idx):
-        """Fast blit-based frame update for track map + contour plots."""
+        """Frame update: blit for track map, direct draw for contour/graph plots."""
         import numpy as np
 
         d = self._track_sim_data
@@ -26489,8 +26475,11 @@ class PerssonModelGUI_V2:
         else:
             self.canvas_track.draw_idle()
 
-        # ══ Contour/graph blit update ══
-        if self._ts_use_blit and self._ts_contour_blit_bg is not None:
+        # ══ Contour/graph update (direct draw — robust, no blit) ══
+        _playing = getattr(self, '_track_playing', False)
+        # Throttle contour updates during playback for performance
+        _do_contour = (not _playing) or (idx % 3 == 0)
+        if _do_contour and hasattr(self, '_ts_cursor_fy_sa'):
             bd = d['brush_data']
 
             # Update SA/Fy cursor + marker
@@ -26516,18 +26505,9 @@ class PerssonModelGUI_V2:
                 for poly in self._ts_outline_patches:
                     poly.set_xy(verts_m)
 
-            canvas_c = self._ts_contour_canvas
-            canvas_c.restore_region(self._ts_contour_blit_bg)
-            for artist in self._ts_contour_dynamic:
-                try:
-                    artist.axes.draw_artist(artist)
-                except Exception:
-                    pass
-            canvas_c.blit(self._ts_contour_fig.bbox)
-            canvas_c.flush_events()
+            self._ts_contour_canvas.draw_idle()
 
         # ══ Steering wheel + tire (lower frequency) ══
-        _playing = getattr(self, '_track_playing', False)
         if not _playing or idx % 4 == 0:
             self._update_track_steering_wheel(sa_cur)
         if not _playing or idx % 2 == 0:
@@ -26571,8 +26551,8 @@ class PerssonModelGUI_V2:
 
         self._update_track_frame(self._track_frame_idx)
 
-        # Minimal delay — let rendering be the natural frame pacer
-        self._track_play_after_id = self.root.after(1, self._track_animate_step)
+        # ~60 FPS target with draw_idle for contour + blit for track map
+        self._track_play_after_id = self.root.after(8, self._track_animate_step)
 
     def _track_pause(self):
         self._track_playing = False
