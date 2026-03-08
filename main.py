@@ -11621,6 +11621,9 @@ class PerssonModelGUI_V2:
             status_str = f"T={T_target}°C, aT={aT:.2e} (Tref={T_ref}°C)"
             self.mu_aT_status_var.set(status_str)
 
+            # Sync G(q,v) tab temperature to match μ_visc target temperature
+            self.temperature_var.set(str(T_target))
+
             # Now recalculate G(q,v) with shifted material
             self.g_calc_status_var.set(f"G(q,v) 재계산 시작...")
             self.root.update_idletasks()
@@ -11658,7 +11661,11 @@ class PerssonModelGUI_V2:
 
             # Get parameters from Tab 3 settings
             sigma_0 = float(self.sigma_0_var.get()) * 1e6  # MPa to Pa
-            temperature = float(self.temperature_var.get())
+            # Use shifted target temperature if available, otherwise fall back to Tab 3
+            if hasattr(self, 'current_temp_shift') and self.current_temp_shift is not None:
+                temperature = self.current_temp_shift['T_target']
+            else:
+                temperature = float(self.temperature_var.get())
             poisson = float(self.poisson_var.get())
             n_q = int(self.n_q_var.get())
             n_phi = int(self.n_phi_var.get())
