@@ -24763,9 +24763,9 @@ class PerssonModelGUI_V2:
         # ── Common helpers ──
         _cb_kw = dict(fraction=0.046, pad=0.04)
 
-        # Axis extent: proportional to footprint with small margin
-        # This ensures contour fills the visible area without white gaps
-        _AX_MARGIN = 1.20  # 20% margin around footprint
+        # Axis extent: proportional to footprint with generous margin
+        # Larger margin makes the footprint appear smaller and more readable
+        _AX_MARGIN = 1.60  # 60% margin around footprint
         _AX_X_HALF = L_mm / 2 * _AX_MARGIN
         _AX_Y_HALF = W_mm / 2 * _AX_MARGIN
 
@@ -25288,7 +25288,7 @@ class PerssonModelGUI_V2:
             return
         if L_new <= 0 or W_new <= 0:
             return
-        margin = 1.20
+        margin = 1.60
         xh = L_new / 2 * margin
         yh = W_new / 2 * margin
         for ax_name in ('ax_br_stick', 'ax_br_speed', 'ax_br_pres',
@@ -25560,9 +25560,9 @@ class PerssonModelGUI_V2:
 
         # Left side: Track Map (full height)
         map_frame = ttk.Frame(center_pane)
-        center_pane.add(map_frame, weight=5)
+        center_pane.add(map_frame, weight=4)
 
-        self.fig_track = _Fig(figsize=(8, 8), dpi=100, facecolor='#1A1A2E')
+        self.fig_track = _Fig(figsize=(7, 7), dpi=100, facecolor='#1A1A2E')
         self.ax_track = self.fig_track.add_axes([0.02, 0.02, 0.96, 0.96])
         self.ax_track.set_aspect('equal')
         self.ax_track.axis('off')
@@ -25573,7 +25573,7 @@ class PerssonModelGUI_V2:
 
         # Right side: Steering wheel + Fy plots + 5 contour plots (vertical stack)
         right_plots = ttk.Frame(center_pane)
-        center_pane.add(right_plots, weight=4)
+        center_pane.add(right_plots, weight=5)
 
         # ── Steering wheel (top, compact) ──
         steer_frame = ttk.Frame(right_plots)
@@ -26110,8 +26110,20 @@ class PerssonModelGUI_V2:
         ax_fy.clear()
         sa_arr = d['sa_deg']
         Fy_arr = d['Fy']
-        # Overlay 2D Brush model Fy-SA reference curve if available
-        if getattr(self, '_brush_frames', None) and len(self._brush_frames) > 2:
+        # Overlay 2D Brush model Fy-SA curve directly from cornering analysis
+        # Priority 1: Use brush_results from cornering sweep (most accurate)
+        # Priority 2: Use transient frame data as fallback
+        _brush_curve_plotted = False
+        if getattr(self, 'brush_results', None) is not None:
+            br = self.brush_results
+            if br.get('mode') == 'cornering' and 'sweep' in br and 'Fy' in br:
+                br_sa_deg = br['sweep']  # already in degrees for cornering
+                br_fy = br['Fy']
+                sort_idx = np.argsort(br_sa_deg)
+                ax_fy.plot(br_sa_deg[sort_idx], br_fy[sort_idx], '-', color='#FF6B6B',
+                           lw=2.5, alpha=0.85, label='2D Brush Model')
+                _brush_curve_plotted = True
+        if not _brush_curve_plotted and getattr(self, '_brush_frames', None) and len(self._brush_frames) > 2:
             br_sa = np.array([fr['SA'] for fr in self._brush_frames])
             br_fy = np.array([fr['Fy'] for fr in self._brush_frames])
             sort_idx = np.argsort(br_sa)
@@ -26140,9 +26152,8 @@ class PerssonModelGUI_V2:
         self._ts_cursor_fy_dist = ax_fd.axvline(x=0, color='red', lw=1.5, alpha=0.8)
 
         # ── Contact patch outline using egg shape (matching 2D Brush Model) ──
-        # Axis limits: match exactly the footprint range (no extra margin)
-        # to prevent white gaps between contour fill and outline
-        ax_margin = 1.15  # slight margin for outline visibility
+        # Axis limits: generous margin matching 2D Brush tab
+        ax_margin = 1.60  # match 2D Brush tab margin for consistency
 
         self._ts_outline_patches = []
 
@@ -26216,13 +26227,14 @@ class PerssonModelGUI_V2:
             xe, ye, bd['friction'][0].T, cmap=f_cmap, norm=f_norm,
             shading='flat', zorder=1)
 
-        # Collect dynamic artists
+        # Collect dynamic artists (include outline patches for per-frame SA update)
         self._ts_contour_dynamic = [
             self._ts_cursor_fy_sa, self._ts_marker_fy_sa,
             self._ts_cursor_fy_dist,
             self._ts_pm_stick, self._ts_pm_speed, self._ts_pm_press,
             self._ts_pm_temp, self._ts_pm_fric,
         ]
+        self._ts_contour_dynamic.extend(self._ts_outline_patches)
 
         # Cache blit background
         for a in self._ts_contour_dynamic:
@@ -26494,6 +26506,15 @@ class PerssonModelGUI_V2:
             self._ts_pm_press.set_array(bd['pressure'][idx].T.ravel())
             self._ts_pm_temp.set_array(bd['temperature'][idx].T.ravel())
             self._ts_pm_fric.set_array(bd['friction'][idx].T.ravel())
+
+            # Update outline patches based on current SA (matching 2D Brush tab)
+            if hasattr(self, '_ts_outline_patches') and self._ts_outline_patches:
+                half_L = bd.get('half_L', 0.075)
+                half_W = bd.get('half_W', 0.06)
+                verts_mm = self._egg_outline(sa_cur, half_L * 1000, half_W * 1000)
+                verts_m = verts_mm / 1000.0
+                for poly in self._ts_outline_patches:
+                    poly.set_xy(verts_m)
 
             canvas_c = self._ts_contour_canvas
             canvas_c.restore_region(self._ts_contour_blit_bg)
