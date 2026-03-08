@@ -21335,7 +21335,10 @@ class PerssonModelGUI_V2:
                 return
 
             self.fm_progress_var.set(0)
-            self.fm_status_label.config(text="Sweep 격자 생성 중...")
+            try:
+                self.fm_status_label.config(text="Sweep 격자 생성 중...")
+            except Exception:
+                pass
             self.root.update()
 
             # ── Parse sweep grids ──
@@ -21834,8 +21837,11 @@ class PerssonModelGUI_V2:
                     cell_count += 1
                     progress = int(cell_count / total_cells * 90)
                     self.fm_progress_var.set(progress)
-                    self.fm_status_label.config(
-                        text=f"T={T0:.0f}°C, p0={p0_Pa/1e6:.2f} MPa ({cell_count}/{total_cells})")
+                    try:
+                        self.fm_status_label.config(
+                            text=f"T={T0:.0f}°C, p0={p0_Pa/1e6:.2f} MPa ({cell_count}/{total_cells})")
+                    except Exception:
+                        pass
                     self.root.update()
 
             # ── Store results ──
@@ -21859,7 +21865,10 @@ class PerssonModelGUI_V2:
 
             elapsed = _time.time() - t_start
             self.fm_progress_var.set(95)
-            self.fm_status_label.config(text="플롯 생성 중...")
+            try:
+                self.fm_status_label.config(text="플롯 생성 중...")
+            except Exception:
+                pass
             self.root.update()
 
             # ── Plot ──
@@ -21881,7 +21890,10 @@ class PerssonModelGUI_V2:
                 pass
 
             self.fm_progress_var.set(100)
-            self.fm_status_label.config(text=f"완료 ({elapsed:.1f}s)")
+            try:
+                self.fm_status_label.config(text=f"완료 ({elapsed:.1f}s)")
+            except Exception:
+                pass
             self._show_status(
                 f"Friction Map 생성 완료\n"
                 f"Grid: {n_T}×{n_p}×{n_v} = {n_T*n_p*n_v} cells\n"
@@ -21890,7 +21902,10 @@ class PerssonModelGUI_V2:
         except Exception as e:
             import traceback
             traceback.print_exc()
-            self.fm_status_label.config(text=f"오류: {str(e)}")
+            try:
+                self.fm_status_label.config(text=f"오류: {str(e)}")
+            except Exception:
+                pass
             self._show_status(f"Friction Map 생성 실패:\n{str(e)}", 'error')
 
     def _plot_friction_map(self):
@@ -24552,9 +24567,19 @@ class PerssonModelGUI_V2:
         self._tire_dynamic.extend(self._road_side_dashes_L)
         self._tire_dynamic.extend(self._road_side_dashes_R)
 
-        # Initial draw (no blit — use draw_idle for reliability)
-        self._tire_blit_bg = None
+        # Blit setup for smooth playback
+        for art in self._tire_dynamic:
+            art.set_animated(True)
         self._tire_canvas.draw()
+        self._tire_blit_bg = self._tire_canvas.copy_from_bbox(
+            self._tire_fig.bbox)
+        # Restore dynamic artists after background capture
+        for art in self._tire_dynamic:
+            try:
+                art.axes.draw_artist(art)
+            except Exception:
+                pass
+        self._tire_canvas.blit(self._tire_fig.bbox)
 
     def _update_tire_animation(self, sa_deg, Fy, Fz, Fx=0.0, vc=16.67):
         """Racing game: car + 4 tires, treadmill road, front-wheel steering."""
@@ -24722,8 +24747,17 @@ class PerssonModelGUI_V2:
         self._tire_speed_label.set_text(
             f'SA {sa_deg:+5.1f}°\nFy {Fy:+6.0f}N\nFx {Fx:+6.0f}N')
 
-        # Full redraw (small canvas — blit causes ghosting with Polygons)
-        self._tire_canvas.draw_idle()
+        # Fast blit render if available, else fallback to draw_idle
+        if self._tire_blit_bg is not None:
+            self._tire_canvas.restore_region(self._tire_blit_bg)
+            for art in self._tire_dynamic:
+                try:
+                    art.axes.draw_artist(art)
+                except Exception:
+                    pass
+            self._tire_canvas.blit(self._tire_fig.bbox)
+        else:
+            self._tire_canvas.draw_idle()
 
     # ── 2D Brush: Persistent artist initialization ──
 
@@ -25089,8 +25123,8 @@ class PerssonModelGUI_V2:
             self._br_marker_fx.set_data([t_val], [f['Fx']])
 
         # ── (1) sliding vs adhesion — update pcolormesh ──
-        is_sl = f['is_sliding'].astype(float).copy()
-        is_sl[~mask_fill] = np.nan
+        is_sl = f['is_sliding'].astype(float)
+        is_sl = np.where(mask_fill, is_sl, np.nan)
         self._br_pm_stick.set_array(is_sl.T.ravel())
         # Update direction arrow (friction force = opposite of translational slip)
         v_tx = f.get('v_trans_x', None)
@@ -25148,18 +25182,15 @@ class PerssonModelGUI_V2:
         self._br_quiver_speed.scale = max(sp_hi * 8.0, 0.1)
 
         # ── (3) contact pressure — update pcolormesh ──
-        p_bar = f['p_map'].copy() * 1e-5
-        p_bar[~mask_fill] = np.nan
+        p_bar = np.where(mask_fill, f['p_map'] * 1e-5, np.nan)
         self._br_pm_pres.set_array(p_bar.T.ravel())
 
         # ── (4) temperature — update pcolormesh (°C) ──
-        T_C = f['T_contact'].copy()
-        T_C[~mask_fill] = np.nan
+        T_C = np.where(mask_fill, f['T_contact'], np.nan)
         self._br_pm_temp.set_array(T_C.T.ravel())
 
         # ── (5) friction force — update pcolormesh ──
-        f_fric = f['F_friction'].copy()
-        f_fric[~mask_fill] = np.nan
+        f_fric = np.where(mask_fill, f['F_friction'], np.nan)
         self._br_pm_fric.set_array(f_fric.T.ravel())
 
         # ── Update contact patch outline based on SA ──
@@ -25208,7 +25239,9 @@ class PerssonModelGUI_V2:
                 except Exception:
                     pass
             canvas.blit(self.fig_brush.bbox)
-            canvas.flush_events()
+            # flush_events only every 4th frame to reduce overhead
+            if idx % 4 == 0:
+                canvas.flush_events()
         else:
             self.canvas_brush.draw_idle()
 
