@@ -53,12 +53,12 @@ matplotlib.rcParams.update({
     'axes.unicode_minus': False,       # ASCII 마이너스 (유니코드 − 깨짐 방지)
     'text.usetex': False,              # LaTeX 비활성화
     'mathtext.fontset': 'cm',  # 수식 폰트: Computer Modern (LaTeX 스타일, Cambria Math 유사)
-    'font.size': 9,
-    'axes.titlesize': 10,
-    'axes.labelsize': 9,
-    'xtick.labelsize': 8,
-    'ytick.labelsize': 8,
-    'legend.fontsize': 8,
+    'font.size': 12,
+    'axes.titlesize': 13,
+    'axes.labelsize': 12,
+    'xtick.labelsize': 11,
+    'ytick.labelsize': 11,
+    'legend.fontsize': 11,
     'legend.loc': 'best',              # 데이터 겹침 최소화
     'legend.framealpha': 0.85,         # 반투명 배경
     'legend.edgecolor': '#CCCCCC',     # 연한 테두리
@@ -206,15 +206,15 @@ class PerssonModelGUI_V2:
     # On high-DPI displays, the Tk scaling factor is reset in main() so that
     # these point sizes render at the same physical size on every machine.
     FONTS = {
-        'heading':   ('Segoe UI', 17, 'bold'),
-        'subheading':('Segoe UI', 15, 'bold'),
-        'body':      ('Segoe UI', 12),
-        'body_bold': ('Segoe UI', 12, 'bold'),
-        'small':     ('Segoe UI', 11),
-        'small_bold':('Segoe UI', 11, 'bold'),
-        'tiny':      ('Segoe UI', 10),
-        'mono':      ('Consolas', 12),
-        'mono_small':('Consolas', 11),
+        'heading':   ('Segoe UI', 20, 'bold'),
+        'subheading':('Segoe UI', 17, 'bold'),
+        'body':      ('Segoe UI', 14),
+        'body_bold': ('Segoe UI', 14, 'bold'),
+        'small':     ('Segoe UI', 13),
+        'small_bold':('Segoe UI', 13, 'bold'),
+        'tiny':      ('Segoe UI', 12),
+        'mono':      ('Consolas', 14),
+        'mono_small':('Consolas', 13),
     }
 
     # ── Standardised Dimensions (pixels, applied uniformly to every tab) ──
@@ -240,15 +240,15 @@ class PerssonModelGUI_V2:
 
     # ── Plot Font Size Constants (base sizes for 1600px window) ──
     PLOT_FONTS = {
-        'title': 10,          # subplot titles
-        'label': 9,           # axis labels (x, y)
-        'tick': 8,            # tick labels
-        'legend': 8,          # legend text
-        'suptitle': 11,       # figure suptitle
-        'annotation': 8,      # annotation text
-        'title_sm': 9,        # titles in dense grids (strain map, VE advisor)
-        'label_sm': 8,        # labels in dense grids
-        'legend_sm': 7,       # legends in dense grids
+        'title': 13,          # subplot titles
+        'label': 12,          # axis labels (x, y)
+        'tick': 11,           # tick labels
+        'legend': 11,         # legend text
+        'suptitle': 14,       # figure suptitle
+        'annotation': 11,     # annotation text
+        'title_sm': 12,       # titles in dense grids (strain map, VE advisor)
+        'label_sm': 11,       # labels in dense grids
+        'legend_sm': 10,      # legends in dense grids
     }
     _REFERENCE_WIDTH = 1600   # reference window width for font scaling
 
@@ -272,6 +272,9 @@ class PerssonModelGUI_V2:
 
         # Store DPI scale for any component that needs it
         self._dpi_scale = _get_system_dpi_scale()
+
+        # ── Load saved font/layout settings (before theme setup) ──
+        self._load_font_settings()
 
         # ── Apply modern theme ──
         self._splash_cb("테마 설정 중...", 5)
@@ -379,6 +382,99 @@ class PerssonModelGUI_V2:
         self._font_scale = 0.0          # force _rescale_all_fonts to run
         self._last_resize_width = self.root.winfo_width()
         self._rescale_all_fonts()
+
+    # ================================================================
+    #  FONT SETTINGS PERSISTENCE
+    # ================================================================
+    _FONT_SETTINGS_FILE = 'font_settings.json'
+
+    def _get_font_settings_path(self):
+        """Get path for font settings JSON file."""
+        return os.path.join(os.path.dirname(os.path.abspath(__file__)), self._FONT_SETTINGS_FILE)
+
+    def _load_font_settings(self):
+        """Load saved font settings from JSON file if it exists."""
+        path = self._get_font_settings_path()
+        if not os.path.exists(path):
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+
+            # Restore UI fonts
+            if 'ui_fonts' in cfg:
+                uf = cfg['ui_fonts']
+                family = uf.get('family', 'Segoe UI')
+                size = uf.get('size', 14)
+                mono_family = uf.get('mono_family', 'Consolas')
+                mono_size = uf.get('mono_size', size)
+                self.FONTS = {
+                    'heading':   (family, size + 6, 'bold'),
+                    'subheading':(family, size + 3, 'bold'),
+                    'body':      (family, size),
+                    'body_bold': (family, size, 'bold'),
+                    'small':     (family, size - 1),
+                    'small_bold':(family, size - 1, 'bold'),
+                    'tiny':      (family, size - 2),
+                    'mono':      (mono_family, mono_size),
+                    'mono_small':(mono_family, mono_size - 1),
+                }
+
+            # Restore plot fonts
+            if 'plot_fonts' in cfg:
+                pf = cfg['plot_fonts']
+                self.PLOT_FONTS = {
+                    'title':      pf.get('title', 13),
+                    'label':      pf.get('label', 12),
+                    'tick':       pf.get('tick', 11),
+                    'legend':     pf.get('legend', 11),
+                    'suptitle':   pf.get('suptitle', 14),
+                    'annotation': pf.get('annotation', 11),
+                    'title_sm':   pf.get('title_sm', 12),
+                    'label_sm':   pf.get('label_sm', 11),
+                    'legend_sm':  pf.get('legend_sm', 10),
+                }
+                # Update matplotlib rcParams
+                matplotlib.rcParams.update({
+                    'font.size':        self.PLOT_FONTS['label'],
+                    'axes.titlesize':   self.PLOT_FONTS['title'],
+                    'axes.labelsize':   self.PLOT_FONTS['label'],
+                    'xtick.labelsize':  self.PLOT_FONTS['tick'],
+                    'ytick.labelsize':  self.PLOT_FONTS['tick'],
+                    'legend.fontsize':  self.PLOT_FONTS['legend'],
+                    'figure.titlesize': self.PLOT_FONTS['suptitle'],
+                })
+
+            # Restore math font
+            if 'math_fontset' in cfg:
+                matplotlib.rcParams['mathtext.fontset'] = cfg['math_fontset']
+
+            # Restore panel width
+            if 'panel_width' in cfg:
+                self.DIMS['panel_width'] = cfg['panel_width']
+
+        except Exception:
+            pass  # Use defaults if loading fails
+
+    def _save_font_settings(self):
+        """Save current font settings to JSON file."""
+        cfg = {
+            'ui_fonts': {
+                'family': self.FONTS['body'][0],
+                'size': self.FONTS['body'][1],
+                'mono_family': self.FONTS['mono'][0],
+                'mono_size': self.FONTS['mono'][1],
+            },
+            'plot_fonts': dict(self.PLOT_FONTS),
+            'math_fontset': matplotlib.rcParams.get('mathtext.fontset', 'cm'),
+            'panel_width': self.DIMS['panel_width'],
+        }
+        try:
+            path = self._get_font_settings_path()
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
     # ================================================================
     #  THEME / STYLE  CONFIGURATION
@@ -644,7 +740,7 @@ class PerssonModelGUI_V2:
         # Settings menu
         settings_menu = tk.Menu(menubar, tearoff=0, **menu_cfg)
         menubar.add_cascade(label="  Settings  ", menu=settings_menu)
-        settings_menu.add_command(label="  레이아웃 설정...", command=self._open_layout_settings)
+        settings_menu.add_command(label="  글꼴 및 레이아웃 설정...", command=self._open_layout_settings)
         settings_menu.add_command(label="  초기변수 설정...", command=self._open_initial_var_settings)
         settings_menu.add_separator()
         settings_menu.add_command(label="  탭 표시/숨기기...", command=self._open_tab_visibility_settings)
@@ -839,7 +935,7 @@ class PerssonModelGUI_V2:
     def _rescale_all_fonts(self):
         """Rescale all plot fonts based on current window size."""
         self._resize_after_id = None
-        scale = max(0.65, min(1.4, self._last_resize_width / self._REFERENCE_WIDTH))
+        scale = max(0.7, min(1.5, self._last_resize_width / self._REFERENCE_WIDTH))
 
         if abs(scale - self._font_scale) < 0.05:
             return
@@ -847,24 +943,24 @@ class PerssonModelGUI_V2:
 
         # Update rcParams for any future plots
         for key, base_size in self._base_font_cfg.items():
-            matplotlib.rcParams[key] = max(8, round(base_size * scale))
+            matplotlib.rcParams[key] = max(9, round(base_size * scale))
 
         # Update all existing figures
         for fig_attr, fig, canvas in self._get_all_figures_and_canvases():
             for ax in fig.axes:
                 # Title
                 if ax.get_title():
-                    ax.title.set_fontsize(max(7, round(self.PLOT_FONTS['title'] * scale)))
+                    ax.title.set_fontsize(max(9, round(self.PLOT_FONTS['title'] * scale)))
                 # Axis labels
-                ax.xaxis.label.set_fontsize(max(8, round(self.PLOT_FONTS['label'] * scale)))
-                ax.yaxis.label.set_fontsize(max(8, round(self.PLOT_FONTS['label'] * scale)))
+                ax.xaxis.label.set_fontsize(max(9, round(self.PLOT_FONTS['label'] * scale)))
+                ax.yaxis.label.set_fontsize(max(9, round(self.PLOT_FONTS['label'] * scale)))
                 # Tick labels
-                ax.tick_params(labelsize=max(8, round(self.PLOT_FONTS['tick'] * scale)))
+                ax.tick_params(labelsize=max(9, round(self.PLOT_FONTS['tick'] * scale)))
                 # Legend
                 legend = ax.get_legend()
                 if legend:
                     for text in legend.get_texts():
-                        text.set_fontsize(max(7, round(self.PLOT_FONTS['legend'] * scale)))
+                        text.set_fontsize(max(8, round(self.PLOT_FONTS['legend'] * scale)))
             # Figure 크기를 위젯 실제 크기에 맞춤 (숨겨진 탭 제외)
             try:
                 widget = canvas.get_tk_widget()
@@ -7011,28 +7107,31 @@ class PerssonModelGUI_V2:
         ttk.Button(btn_frame, text="취소", command=dialog.destroy).pack(side=tk.RIGHT, padx=4)
 
     def _open_layout_settings(self):
-        """Open global layout settings control panel."""
+        """Open comprehensive font & layout settings control panel."""
         dialog = tk.Toplevel(self.root)
-        dialog.title("레이아웃 설정")
+        dialog.title("글꼴 및 레이아웃 제어판")
         dialog.resizable(True, True)
         dialog.transient(self.root)
         dialog.grab_set()
 
-        dlg_w, dlg_h = 700, 850
+        dlg_w, dlg_h = 780, 950
         x = self.root.winfo_x() + (self.root.winfo_width() - dlg_w) // 2
         y = self.root.winfo_y() + max(0, (self.root.winfo_height() - dlg_h) // 2)
         dialog.geometry(f"{dlg_w}x{dlg_h}+{x}+{y}")
-        dialog.minsize(600, 700)
+        dialog.minsize(650, 750)
 
         C = self.COLORS
 
         # Title
         title_frame = tk.Frame(dialog, bg=C['sidebar'], padx=12, pady=8)
         title_frame.pack(fill=tk.X)
-        tk.Label(title_frame, text="레이아웃 제어판", bg=C['sidebar'], fg='white',
+        tk.Label(title_frame, text="글꼴 및 레이아웃 제어판", bg=C['sidebar'], fg='white',
                  font=self.FONTS['subheading']).pack(anchor=tk.W)
+        tk.Label(title_frame, text="모든 UI 및 그래프 폰트를 개별적으로 제어합니다. 설정은 자동 저장됩니다.",
+                 bg=C['sidebar'], fg='#94A3B8',
+                 font=self.FONTS['small']).pack(anchor=tk.W)
 
-        # Scrollable content area to fit all settings
+        # Scrollable content area
         outer_frame = ttk.Frame(dialog)
         outer_frame.pack(fill=tk.BOTH, expand=True)
 
@@ -7049,60 +7148,139 @@ class PerssonModelGUI_V2:
             settings_canvas.itemconfig(_settings_cw, width=event.width)
         settings_canvas.bind('<Configure>', _on_settings_canvas_configure)
 
+        # Mouse wheel scrolling
+        def _on_mousewheel(event):
+            settings_canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+        settings_canvas.bind_all('<MouseWheel>', _on_mousewheel)
+
         settings_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         settings_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        # ── Section 1: Font Settings ──
-        font_frame = ttk.LabelFrame(content_frame, text="글꼴 설정", padding=10)
-        font_frame.pack(fill=tk.X, pady=(0, 10))
+        # ── Section 1: Global Font Scale (Quick Adjustment) ──
+        scale_frame = ttk.LabelFrame(content_frame, text="전체 글꼴 크기 (빠른 조절)", padding=10)
+        scale_frame.pack(fill=tk.X, pady=(0, 10))
+
+        global_scale_var = tk.DoubleVar(value=1.0)
+        scale_row = ttk.Frame(scale_frame)
+        scale_row.pack(fill=tk.X, pady=3)
+        ttk.Label(scale_row, text="전체 배율:", width=12).pack(side=tk.LEFT)
+
+        scale_slider = ttk.Scale(scale_row, from_=0.7, to=2.0, variable=global_scale_var,
+                                  orient=tk.HORIZONTAL, length=300)
+        scale_slider.pack(side=tk.LEFT, padx=5)
+        scale_label = ttk.Label(scale_row, text="1.0x", width=6, font=self.FONTS['body_bold'])
+        scale_label.pack(side=tk.LEFT, padx=5)
+
+        # Preset buttons for common scales
+        preset_row = ttk.Frame(scale_frame)
+        preset_row.pack(fill=tk.X, pady=3)
+        ttk.Label(preset_row, text="", width=12).pack(side=tk.LEFT)
+        for label, val in [("작게 (0.8x)", 0.8), ("보통 (1.0x)", 1.0),
+                           ("크게 (1.3x)", 1.3), ("매우 크게 (1.6x)", 1.6)]:
+            ttk.Button(preset_row, text=label,
+                       command=lambda v=val: global_scale_var.set(v)).pack(side=tk.LEFT, padx=3)
+
+        # ── Section 2: UI Font Settings (Detailed) ──
+        ui_font_frame = ttk.LabelFrame(content_frame, text="UI 글꼴 설정 (프로그램 인터페이스)", padding=10)
+        ui_font_frame.pack(fill=tk.X, pady=(0, 10))
 
         # UI Font Family
-        row1 = ttk.Frame(font_frame)
-        row1.pack(fill=tk.X, pady=3)
-        ttk.Label(row1, text="UI 글꼴:", width=15).pack(side=tk.LEFT)
+        row_family = ttk.Frame(ui_font_frame)
+        row_family.pack(fill=tk.X, pady=3)
+        ttk.Label(row_family, text="글꼴 패밀리:", width=18).pack(side=tk.LEFT)
         ui_font_var = tk.StringVar(value=self.FONTS['body'][0])
-        ui_font_combo = ttk.Combobox(row1, textvariable=ui_font_var, width=20,
-                                      values=['Segoe UI', 'Malgun Gothic', 'NanumGothic',
-                                              'Arial', 'Helvetica', 'Verdana', 'Consolas'])
-        ui_font_combo.pack(side=tk.LEFT, padx=5)
+        ttk.Combobox(row_family, textvariable=ui_font_var, width=20,
+                     values=['Segoe UI', 'Malgun Gothic', 'NanumGothic', 'NanumBarunGothic',
+                             'Arial', 'Helvetica', 'Verdana', 'Tahoma', 'Consolas']).pack(side=tk.LEFT, padx=5)
 
-        # UI Font Size
-        row2 = ttk.Frame(font_frame)
-        row2.pack(fill=tk.X, pady=3)
-        ttk.Label(row2, text="UI 글꼴 크기:", width=15).pack(side=tk.LEFT)
-        ui_size_var = tk.IntVar(value=self.FONTS['body'][1])
-        ui_size_spin = ttk.Spinbox(row2, from_=10, to=30, textvariable=ui_size_var, width=6)
-        ui_size_spin.pack(side=tk.LEFT, padx=5)
-        ttk.Label(row2, text="pt", font=self.FONTS['tiny']).pack(side=tk.LEFT)
-
-        # Plot Font Size
-        row3 = ttk.Frame(font_frame)
-        row3.pack(fill=tk.X, pady=3)
-        ttk.Label(row3, text="그래프 글꼴 크기:", width=15).pack(side=tk.LEFT)
-        plot_size_var = tk.IntVar(value=self.PLOT_FONTS['title'])
-        plot_size_spin = ttk.Spinbox(row3, from_=8, to=28, textvariable=plot_size_var, width=6)
-        plot_size_spin.pack(side=tk.LEFT, padx=5)
-        ttk.Label(row3, text="pt (title 기준)", font=self.FONTS['tiny']).pack(side=tk.LEFT)
-
-        # Mono Font
-        row4 = ttk.Frame(font_frame)
-        row4.pack(fill=tk.X, pady=3)
-        ttk.Label(row4, text="코드 글꼴:", width=15).pack(side=tk.LEFT)
+        # Mono Font Family
+        row_mono = ttk.Frame(ui_font_frame)
+        row_mono.pack(fill=tk.X, pady=3)
+        ttk.Label(row_mono, text="코드 글꼴:", width=18).pack(side=tk.LEFT)
         mono_font_var = tk.StringVar(value=self.FONTS['mono'][0])
-        mono_font_combo = ttk.Combobox(row4, textvariable=mono_font_var, width=20,
-                                        values=['Consolas', 'Courier New', 'Lucida Console',
-                                                'DejaVu Sans Mono', 'Source Code Pro'])
-        mono_font_combo.pack(side=tk.LEFT, padx=5)
+        ttk.Combobox(row_mono, textvariable=mono_font_var, width=20,
+                     values=['Consolas', 'Courier New', 'Lucida Console',
+                             'DejaVu Sans Mono', 'Source Code Pro', 'D2Coding']).pack(side=tk.LEFT, padx=5)
 
-        # ── Section 2: 프로그램 해상도 설정 ──
+        # UI Font Sizes - individual controls
+        ui_sizes = {}
+        ui_font_items = [
+            ('heading',    '제목 (Heading)',    self.FONTS['heading'][1],   12, 36),
+            ('subheading', '부제목 (Subheading)', self.FONTS['subheading'][1], 10, 30),
+            ('body',       '본문 (Body)',        self.FONTS['body'][1],      10, 28),
+            ('small',      '작은 글꼴 (Small)',  self.FONTS['small'][1],     8, 24),
+            ('tiny',       '최소 글꼴 (Tiny)',   self.FONTS['tiny'][1],      7, 22),
+            ('mono',       '코드 (Mono)',        self.FONTS['mono'][1],      8, 28),
+        ]
+
+        ttk.Separator(ui_font_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
+        ttk.Label(ui_font_frame, text="개별 크기 설정:", font=self.FONTS['small_bold']).pack(anchor=tk.W)
+
+        for key, label, default, min_v, max_v in ui_font_items:
+            row = ttk.Frame(ui_font_frame)
+            row.pack(fill=tk.X, pady=2)
+            ttk.Label(row, text=f"  {label}:", width=22).pack(side=tk.LEFT)
+            var = tk.IntVar(value=default)
+            ui_sizes[key] = var
+            ttk.Spinbox(row, from_=min_v, to=max_v, textvariable=var, width=5).pack(side=tk.LEFT, padx=5)
+            ttk.Label(row, text="pt").pack(side=tk.LEFT)
+            # Preview label
+            preview = tk.Label(row, text="가나다 ABC 123", font=(self.FONTS['body'][0], default))
+            preview.pack(side=tk.LEFT, padx=10)
+            # Update preview on change
+            def _update_preview(pv=preview, v=var, fvar=ui_font_var):
+                try:
+                    pv.configure(font=(fvar.get(), v.get()))
+                except Exception:
+                    pass
+            var.trace_add('write', lambda *a, up=_update_preview: up())
+            ui_font_var.trace_add('write', lambda *a, up=_update_preview: up())
+
+        # ── Section 3: Plot (Graph) Font Settings ──
+        plot_font_frame = ttk.LabelFrame(content_frame, text="그래프 글꼴 설정 (matplotlib 차트)", padding=10)
+        plot_font_frame.pack(fill=tk.X, pady=(0, 10))
+
+        plot_sizes = {}
+        plot_font_items = [
+            ('title',      '그래프 제목 (Title)',       self.PLOT_FONTS['title'],      8, 30),
+            ('label',      '축 레이블 (Axis Label)',    self.PLOT_FONTS['label'],      7, 28),
+            ('tick',       '눈금 숫자 (Tick Label)',    self.PLOT_FONTS['tick'],       6, 24),
+            ('legend',     '범례 (Legend)',             self.PLOT_FONTS['legend'],     6, 24),
+            ('suptitle',   '전체 제목 (Suptitle)',     self.PLOT_FONTS['suptitle'],   8, 32),
+            ('annotation', '주석 (Annotation)',        self.PLOT_FONTS['annotation'], 6, 24),
+            ('title_sm',   '소형 그래프 제목',          self.PLOT_FONTS['title_sm'],   6, 26),
+            ('label_sm',   '소형 그래프 레이블',        self.PLOT_FONTS['label_sm'],   5, 22),
+            ('legend_sm',  '소형 그래프 범례',          self.PLOT_FONTS['legend_sm'],  5, 20),
+        ]
+
+        for key, label, default, min_v, max_v in plot_font_items:
+            row = ttk.Frame(plot_font_frame)
+            row.pack(fill=tk.X, pady=2)
+            ttk.Label(row, text=f"  {label}:", width=24).pack(side=tk.LEFT)
+            var = tk.IntVar(value=default)
+            plot_sizes[key] = var
+            ttk.Spinbox(row, from_=min_v, to=max_v, textvariable=var, width=5).pack(side=tk.LEFT, padx=5)
+            ttk.Label(row, text="pt").pack(side=tk.LEFT)
+
+        # Math font
+        ttk.Separator(plot_font_frame, orient=tk.HORIZONTAL).pack(fill=tk.X, pady=6)
+        row_math = ttk.Frame(plot_font_frame)
+        row_math.pack(fill=tk.X, pady=3)
+        ttk.Label(row_math, text="  수식 폰트:", width=24).pack(side=tk.LEFT)
+        math_font_var = tk.StringVar(value=matplotlib.rcParams.get('mathtext.fontset', 'cm'))
+        ttk.Combobox(row_math, textvariable=math_font_var, width=16,
+                     values=['cm', 'stix', 'stixsans', 'dejavusans', 'dejavuserif']).pack(side=tk.LEFT, padx=5)
+        ttk.Label(row_math, text="(cm = Cambria Math 스타일)", font=self.FONTS['tiny'],
+                  foreground='#64748B').pack(side=tk.LEFT, padx=3)
+
+        # ── Section 4: 프로그램 해상도 설정 ──
         resolution_frame = ttk.LabelFrame(content_frame, text="프로그램 해상도", padding=10)
         resolution_frame.pack(fill=tk.X, pady=(0, 10))
 
-        # 해상도 프리셋
         RESOLUTION_PRESETS = {
-            'FHD (1920×1080)':    {'win_w': 1920, 'win_h': 1080, 'panel_w': 600},
-            'QHD (2560×1440)':    {'win_w': 2560, 'win_h': 1440, 'panel_w': 800},
-            '4K UHD (3840×2160)': {'win_w': 3840, 'win_h': 2160, 'panel_w': 1100},
+            'FHD (1920x1080)':    {'win_w': 1920, 'win_h': 1080, 'panel_w': 600},
+            'QHD (2560x1440)':    {'win_w': 2560, 'win_h': 1440, 'panel_w': 800},
+            '4K UHD (3840x2160)': {'win_w': 3840, 'win_h': 2160, 'panel_w': 1100},
             '사용자 지정':         None,
         }
 
@@ -7114,7 +7292,6 @@ class PerssonModelGUI_V2:
                                      values=list(RESOLUTION_PRESETS.keys()), state='readonly')
         preset_combo.pack(side=tk.LEFT, padx=5)
 
-        # 창 크기
         current_panel_width = self.DIMS['panel_width']
         win_w_var = tk.IntVar(value=self.root.winfo_width())
         win_h_var = tk.IntVar(value=self.root.winfo_height())
@@ -7123,14 +7300,11 @@ class PerssonModelGUI_V2:
         row_win = ttk.Frame(resolution_frame)
         row_win.pack(fill=tk.X, pady=3)
         ttk.Label(row_win, text="창 크기:", width=15).pack(side=tk.LEFT)
-        win_w_spin = ttk.Spinbox(row_win, from_=1000, to=5000, textvariable=win_w_var, width=6)
-        win_w_spin.pack(side=tk.LEFT, padx=2)
+        ttk.Spinbox(row_win, from_=1000, to=5000, textvariable=win_w_var, width=6).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_win, text="x").pack(side=tk.LEFT)
-        win_h_spin = ttk.Spinbox(row_win, from_=600, to=3000, textvariable=win_h_var, width=6)
-        win_h_spin.pack(side=tk.LEFT, padx=2)
+        ttk.Spinbox(row_win, from_=600, to=3000, textvariable=win_h_var, width=6).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_win, text="px", font=self.FONTS['tiny']).pack(side=tk.LEFT, padx=3)
 
-        # 컨트롤 패널 폭
         row_panel = ttk.Frame(resolution_frame)
         row_panel.pack(fill=tk.X, pady=3)
         ttk.Label(row_panel, text="컨트롤 패널 폭:", width=15).pack(side=tk.LEFT)
@@ -7144,7 +7318,6 @@ class PerssonModelGUI_V2:
             panel_width_label.config(text=f"{panel_width_var.get()}px")
         panel_width_var.trace_add('write', _update_panel_width_label)
 
-        # 전체화면 체크박스
         fullscreen_var = tk.BooleanVar(value=True)
         try:
             is_zoomed = (self.root.state() == 'zoomed')
@@ -7156,7 +7329,6 @@ class PerssonModelGUI_V2:
         ttk.Checkbutton(row_fs, text="시작 시 전체화면 (최대화)",
                          variable=fullscreen_var).pack(side=tk.LEFT)
 
-        # 프리셋 선택 시 자동 반영
         def _on_preset_change(event=None):
             sel = preset_var.get()
             vals = RESOLUTION_PRESETS.get(sel)
@@ -7166,87 +7338,86 @@ class PerssonModelGUI_V2:
                 panel_width_var.set(vals['panel_w'])
         preset_combo.bind('<<ComboboxSelected>>', _on_preset_change)
 
-        # 수동 변경 시 프리셋을 '사용자 지정'으로
         def _on_manual_change(*args):
             preset_var.set('사용자 지정')
         for var in (win_w_var, win_h_var, panel_width_var):
             var.trace_add('write', _on_manual_change)
 
-        # ── Section 4: Plot Theme ──
-        theme_frame = ttk.LabelFrame(content_frame, text="그래프 테마", padding=10)
-        theme_frame.pack(fill=tk.X, pady=(0, 10))
-
-        row7 = ttk.Frame(theme_frame)
-        row7.pack(fill=tk.X, pady=3)
-        ttk.Label(row7, text="수식 폰트:", width=15).pack(side=tk.LEFT)
-        math_font_var = tk.StringVar(value=matplotlib.rcParams.get('mathtext.fontset', 'dejavusans'))
-        math_combo = ttk.Combobox(row7, textvariable=math_font_var, width=20,
-                                   values=['cm', 'stix', 'stixsans', 'dejavusans', 'dejavuserif'])
-        math_combo.pack(side=tk.LEFT, padx=5)
-        ttk.Label(row7, text="(cm=Cambria Math \uc2a4\ud0c0\uc77c)", font=self.FONTS['tiny'],
-                  foreground='#64748B').pack(side=tk.LEFT, padx=3)
+        # ── Global scale change handler ──
+        def _on_global_scale_change(*args):
+            try:
+                s = global_scale_var.get()
+                scale_label.config(text=f"{s:.1f}x")
+                # Apply to all UI font sizes
+                base_ui = {'heading': 20, 'subheading': 17, 'body': 14,
+                           'small': 13, 'tiny': 12, 'mono': 14}
+                for key, base in base_ui.items():
+                    if key in ui_sizes:
+                        ui_sizes[key].set(max(8, round(base * s)))
+                # Apply to all plot font sizes
+                base_plot = {'title': 13, 'label': 12, 'tick': 11, 'legend': 11,
+                             'suptitle': 14, 'annotation': 11, 'title_sm': 12,
+                             'label_sm': 11, 'legend_sm': 10}
+                for key, base in base_plot.items():
+                    if key in plot_sizes:
+                        plot_sizes[key].set(max(6, round(base * s)))
+            except Exception:
+                pass
+        global_scale_var.trace_add('write', _on_global_scale_change)
 
         # ── Buttons ──
         btn_frame = ttk.Frame(dialog, padding=10)
         btn_frame.pack(fill=tk.X)
 
         def apply_settings():
-            """Apply all layout settings."""
+            """Apply all font & layout settings."""
             import tkinter.font as tkfont
 
-            # 1. Update FONTS dict
+            # Unbind mousewheel before destroying
+            settings_canvas.unbind_all('<MouseWheel>')
+
+            # 1. Update FONTS dict with individual sizes
             new_family = ui_font_var.get()
-            new_size = ui_size_var.get()
             mono_family = mono_font_var.get()
 
             self.FONTS = {
-                'heading':   (new_family, new_size + 5, 'bold'),
-                'subheading':(new_family, new_size + 3, 'bold'),
-                'body':      (new_family, new_size),
-                'body_bold': (new_family, new_size, 'bold'),
-                'small':     (new_family, new_size - 1),
-                'small_bold':(new_family, new_size - 1, 'bold'),
-                'tiny':      (new_family, new_size - 2),
-                'mono':      (mono_family, new_size),
-                'mono_small':(mono_family, new_size - 1),
+                'heading':   (new_family, ui_sizes['heading'].get(), 'bold'),
+                'subheading':(new_family, ui_sizes['subheading'].get(), 'bold'),
+                'body':      (new_family, ui_sizes['body'].get()),
+                'body_bold': (new_family, ui_sizes['body'].get(), 'bold'),
+                'small':     (new_family, ui_sizes['small'].get()),
+                'small_bold':(new_family, ui_sizes['small'].get(), 'bold'),
+                'tiny':      (new_family, ui_sizes['tiny'].get()),
+                'mono':      (mono_family, ui_sizes['mono'].get()),
+                'mono_small':(mono_family, max(8, ui_sizes['mono'].get() - 1)),
             }
 
             # Update tk default fonts
+            body_size = ui_sizes['body'].get()
+            mono_size = ui_sizes['mono'].get()
             for fname in ('TkDefaultFont', 'TkTextFont'):
                 try:
                     f = tkfont.nametofont(fname)
-                    f.configure(family=new_family, size=new_size)
+                    f.configure(family=new_family, size=body_size)
                 except Exception:
                     pass
             try:
                 f = tkfont.nametofont('TkFixedFont')
-                f.configure(family=mono_family, size=new_size)
+                f.configure(family=mono_family, size=mono_size)
             except Exception:
                 pass
 
-            # 2. Update plot font sizes
-            new_plot_title = plot_size_var.get()
-            scale = new_plot_title / 10.0  # 10 is default title size
-            self.PLOT_FONTS = {
-                'title': new_plot_title,
-                'label': max(8, round(13 * scale)),
-                'tick': max(8, round(12 * scale)),
-                'legend': max(8, round(12 * scale)),
-                'suptitle': max(10, round(16 * scale)),
-                'annotation': max(8, round(12 * scale)),
-                'title_sm': max(8, round(13 * scale)),
-                'label_sm': max(8, round(12 * scale)),
-                'legend_sm': max(7, round(10 * scale)),
-            }
+            # 2. Update PLOT_FONTS with individual sizes
+            self.PLOT_FONTS = {key: var.get() for key, var in plot_sizes.items()}
 
             # Update matplotlib rcParams
             matplotlib.rcParams.update({
-                'font.size': self.PLOT_FONTS['label'],
-                'axes.titlesize': self.PLOT_FONTS['title'],
-                'axes.labelsize': self.PLOT_FONTS['label'],
-                'xtick.labelsize': self.PLOT_FONTS['tick'],
-                'ytick.labelsize': self.PLOT_FONTS['tick'],
-                'legend.fontsize': self.PLOT_FONTS['legend'],
+                'font.size':        self.PLOT_FONTS['label'],
+                'axes.titlesize':   self.PLOT_FONTS['title'],
+                'axes.labelsize':   self.PLOT_FONTS['label'],
+                'xtick.labelsize':  self.PLOT_FONTS['tick'],
+                'ytick.labelsize':  self.PLOT_FONTS['tick'],
+                'legend.fontsize':  self.PLOT_FONTS['legend'],
                 'figure.titlesize': self.PLOT_FONTS['suptitle'],
                 'mathtext.fontset': math_font_var.get(),
             })
@@ -7262,11 +7433,9 @@ class PerssonModelGUI_V2:
                 'figure.titlesize': self.PLOT_FONTS['suptitle'],
             }
 
-            # 4. Update left panel width and apply to existing frames
+            # 4. Update left panel width
             new_panel_w = panel_width_var.get()
             self.DIMS['panel_width'] = new_panel_w
-
-            # Apply width to all existing left panel frames in notebook tabs
             for tab_id in self.notebook.tabs():
                 tab_widget = self.notebook.nametowidget(tab_id)
                 self._apply_panel_width_recursive(tab_widget, new_panel_w)
@@ -7288,39 +7457,60 @@ class PerssonModelGUI_V2:
                         self.root.attributes('-zoomed', False)
                     except tk.TclError:
                         pass
-                new_win_w = win_w_var.get()
-                new_win_h = win_h_var.get()
-                self.root.geometry(f"{new_win_w}x{new_win_h}")
+                self.root.geometry(f"{win_w_var.get()}x{win_h_var.get()}")
 
             # 6. Force geometry recalculation
             self.root.update_idletasks()
 
-            # 7. Re-apply theme with new fonts
+            # 7. Re-apply theme
             self._setup_modern_theme()
 
             # 8. Rescale all existing plot fonts
-            self._font_scale = 0  # force rescale
+            self._font_scale = 0
             self._rescale_all_fonts()
 
+            # 9. Save settings to file
+            self._save_font_settings()
+
             dialog.destroy()
-            self._show_status("레이아웃 설정이 적용되었습니다.\n일부 변경은 탭 전환 시 반영됩니다.", 'success')
+            self._show_status("글꼴 및 레이아웃 설정이 적용 및 저장되었습니다.", 'success')
 
         def reset_defaults():
             """Reset to default settings."""
+            global_scale_var.set(1.0)
             ui_font_var.set('Segoe UI')
-            ui_size_var.set(12)
-            plot_size_var.set(10)
             mono_font_var.set('Consolas')
+            ui_sizes['heading'].set(20)
+            ui_sizes['subheading'].set(17)
+            ui_sizes['body'].set(14)
+            ui_sizes['small'].set(13)
+            ui_sizes['tiny'].set(12)
+            ui_sizes['mono'].set(14)
+            plot_sizes['title'].set(13)
+            plot_sizes['label'].set(12)
+            plot_sizes['tick'].set(11)
+            plot_sizes['legend'].set(11)
+            plot_sizes['suptitle'].set(14)
+            plot_sizes['annotation'].set(11)
+            plot_sizes['title_sm'].set(12)
+            plot_sizes['label_sm'].set(11)
+            plot_sizes['legend_sm'].set(10)
+            math_font_var.set('cm')
             panel_width_var.set(700)
             win_w_var.set(1920)
             win_h_var.set(1080)
-            math_font_var.set('dejavusans')
             preset_var.set('사용자 지정')
             fullscreen_var.set(True)
 
-        ttk.Button(btn_frame, text="적용", command=apply_settings, width=12).pack(side=tk.RIGHT, padx=5)
+        def _on_dialog_close():
+            settings_canvas.unbind_all('<MouseWheel>')
+            dialog.destroy()
+
+        dialog.protocol("WM_DELETE_WINDOW", _on_dialog_close)
+
+        ttk.Button(btn_frame, text="적용 및 저장", command=apply_settings, width=14).pack(side=tk.RIGHT, padx=5)
         ttk.Button(btn_frame, text="초기화", command=reset_defaults, width=12).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_frame, text="취소", command=dialog.destroy, width=12).pack(side=tk.RIGHT, padx=5)
+        ttk.Button(btn_frame, text="취소", command=_on_dialog_close, width=12).pack(side=tk.RIGHT, padx=5)
 
     def _open_initial_var_settings(self):
         """Open comprehensive initial variable settings dialog."""
