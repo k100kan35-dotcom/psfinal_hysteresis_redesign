@@ -24261,13 +24261,36 @@ class PerssonModelGUI_V2:
         # Set animated flag on dynamic artists
         for art in self._steer_dynamic_artists:
             art.set_animated(True)
+        # Hide dynamic artists before capturing clean background
+        for art in self._steer_dynamic_artists:
+            art.set_visible(False)
         self._steer_canvas.draw()
         self._steer_blit_bg = self._steer_canvas.copy_from_bbox(
             self._steer_fig.bbox)
-        # Restore visibility after background capture
+        # Restore visibility and draw dynamic artists on top
         for art in self._steer_dynamic_artists:
-            art.set_animated(True)
+            art.set_visible(True)
             art.axes.draw_artist(art)
+        self._steer_canvas.blit(self._steer_fig.bbox)
+        # Resize handler to recapture blit background
+        self._steer_canvas.mpl_connect('resize_event',
+                                        lambda e: self._recapture_steer_blit_bg())
+
+    def _recapture_steer_blit_bg(self):
+        """Recapture steering wheel blit background after resize."""
+        if not hasattr(self, '_steer_dynamic_artists'):
+            return
+        for art in self._steer_dynamic_artists:
+            art.set_visible(False)
+        self._steer_canvas.draw()
+        self._steer_blit_bg = self._steer_canvas.copy_from_bbox(
+            self._steer_fig.bbox)
+        for art in self._steer_dynamic_artists:
+            art.set_visible(True)
+            try:
+                art.axes.draw_artist(art)
+            except Exception:
+                pass
         self._steer_canvas.blit(self._steer_fig.bbox)
 
     def _update_left_steering_wheel(self, sa_deg):
@@ -24570,11 +24593,35 @@ class PerssonModelGUI_V2:
         # Blit setup for smooth playback
         for art in self._tire_dynamic:
             art.set_animated(True)
+        # Hide dynamic artists before capturing clean background
+        for art in self._tire_dynamic:
+            art.set_visible(False)
         self._tire_canvas.draw()
         self._tire_blit_bg = self._tire_canvas.copy_from_bbox(
             self._tire_fig.bbox)
-        # Restore dynamic artists after background capture
+        # Restore visibility and draw dynamic artists on top
         for art in self._tire_dynamic:
+            art.set_visible(True)
+            try:
+                art.axes.draw_artist(art)
+            except Exception:
+                pass
+        self._tire_canvas.blit(self._tire_fig.bbox)
+        # Resize handler to recapture blit background
+        self._tire_canvas.mpl_connect('resize_event',
+                                       lambda e: self._recapture_tire_blit_bg())
+
+    def _recapture_tire_blit_bg(self):
+        """Recapture tire animation blit background after resize."""
+        if not hasattr(self, '_tire_dynamic'):
+            return
+        for art in self._tire_dynamic:
+            art.set_visible(False)
+        self._tire_canvas.draw()
+        self._tire_blit_bg = self._tire_canvas.copy_from_bbox(
+            self._tire_fig.bbox)
+        for art in self._tire_dynamic:
+            art.set_visible(True)
             try:
                 art.axes.draw_artist(art)
             except Exception:
