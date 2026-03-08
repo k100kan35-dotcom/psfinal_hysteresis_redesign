@@ -25558,11 +25558,12 @@ class PerssonModelGUI_V2:
         center_pane = ttk.PanedWindow(center, orient=tk.HORIZONTAL)
         center_pane.pack(fill=tk.BOTH, expand=True)
 
-        # Left side: Track Map (full height, constrained width)
-        map_frame = ttk.Frame(center_pane)
-        center_pane.add(map_frame, weight=3)
+        # Left side: Track Map (fixed width to avoid overlapping steering area)
+        map_frame = ttk.Frame(center_pane, width=420)
+        map_frame.pack_propagate(False)
+        center_pane.add(map_frame, weight=2)
 
-        self.fig_track = _Fig(figsize=(5, 8), dpi=100, facecolor='#1A1A2E')
+        self.fig_track = _Fig(figsize=(4, 8), dpi=100, facecolor='#1A1A2E')
         self.ax_track = self.fig_track.add_axes([0.02, 0.02, 0.96, 0.96])
         self.ax_track.set_aspect('equal')
         self.ax_track.axis('off')
@@ -25573,7 +25574,7 @@ class PerssonModelGUI_V2:
 
         # Right side: Steering wheel + Fy plots + 5 contour plots (vertical stack)
         right_plots = ttk.Frame(center_pane)
-        center_pane.add(right_plots, weight=6)
+        center_pane.add(right_plots, weight=7)
 
         # ── Steering wheel (top, compact) ──
         steer_frame = ttk.Frame(right_plots)
@@ -25609,36 +25610,47 @@ class PerssonModelGUI_V2:
         contour_frame = ttk.Frame(right_plots)
         contour_frame.pack(fill=tk.BOTH, expand=True, padx=2, pady=(0, 2))
 
-        self._ts_contour_fig = _Fig(figsize=(10, 7), dpi=100)
-        gs_c = GridSpec(2, 10, figure=self._ts_contour_fig,
-                        height_ratios=[1.0, 1.5],
-                        hspace=0.50, wspace=0.8,
-                        left=0.07, right=0.96, top=0.94, bottom=0.06)
+        # Match 2D Brush tab figure/GridSpec style exactly
+        self._ts_contour_fig = _Fig(figsize=(14, 10), dpi=100)
+        gs_c = GridSpec(2, 20, figure=self._ts_contour_fig,
+                        height_ratios=[4, 5],
+                        hspace=0.40, wspace=1.2,
+                        left=0.05, right=0.97, top=0.96, bottom=0.06)
 
-        # Row 0: SA vs Fy + Fy vs Distance
-        self._ts_ax_fy_sa = self._ts_contour_fig.add_subplot(gs_c[0, :5])
+        # Row 0: SA vs Fy (left half) + Fy vs Distance (right half)
+        self._ts_ax_fy_sa = self._ts_contour_fig.add_subplot(gs_c[0, :10])
         self._ts_ax_fy_sa.set_title('Fy vs Slip Angle', fontsize=9, fontweight='bold')
         self._ts_ax_fy_sa.set_xlabel('SA [deg]', fontsize=8)
         self._ts_ax_fy_sa.set_ylabel('Fy [N]', fontsize=8)
         self._ts_ax_fy_sa.grid(True, alpha=0.3)
 
-        self._ts_ax_fy_dist = self._ts_contour_fig.add_subplot(gs_c[0, 5:])
+        self._ts_ax_fy_dist = self._ts_contour_fig.add_subplot(gs_c[0, 10:])
         self._ts_ax_fy_dist.set_title('Fy vs Distance', fontsize=9, fontweight='bold')
         self._ts_ax_fy_dist.set_xlabel('Distance [m]', fontsize=8)
         self._ts_ax_fy_dist.set_ylabel('Fy [N]', fontsize=8)
         self._ts_ax_fy_dist.grid(True, alpha=0.3)
 
-        # Row 1: 5 contour plots
-        self._ts_ax_stick = self._ts_contour_fig.add_subplot(gs_c[1, 0:2])
-        self._ts_ax_stick.set_title('Adhesion / Sliding', fontsize=8, fontweight='bold')
-        self._ts_ax_speed = self._ts_contour_fig.add_subplot(gs_c[1, 2:4])
-        self._ts_ax_speed.set_title('Sliding Speed', fontsize=8, fontweight='bold')
-        self._ts_ax_press = self._ts_contour_fig.add_subplot(gs_c[1, 4:6])
-        self._ts_ax_press.set_title('Contact Pressure', fontsize=8, fontweight='bold')
-        self._ts_ax_temp = self._ts_contour_fig.add_subplot(gs_c[1, 6:8])
-        self._ts_ax_temp.set_title('Temperature', fontsize=8, fontweight='bold')
-        self._ts_ax_fric = self._ts_contour_fig.add_subplot(gs_c[1, 8:10])
-        self._ts_ax_fric.set_title('Friction Force', fontsize=8, fontweight='bold')
+        # Row 1: 5 contour plots (no set_aspect='equal' for uniform sizing — match 2D Brush)
+        self._ts_ax_stick = self._ts_contour_fig.add_subplot(gs_c[1, 0:4])
+        self._ts_ax_stick.set_title('Adhesion / Sliding', fontsize=9, fontweight='bold')
+        self._ts_ax_stick.set_xlabel('x [m]', fontsize=8)
+        self._ts_ax_stick.set_ylabel('y [m]', fontsize=8)
+        self._ts_ax_speed = self._ts_contour_fig.add_subplot(gs_c[1, 4:8])
+        self._ts_ax_speed.set_title('Sliding Speed', fontsize=9, fontweight='bold')
+        self._ts_ax_speed.set_xlabel('x [m]', fontsize=8)
+        self._ts_ax_speed.set_ylabel('y [m]', fontsize=8)
+        self._ts_ax_press = self._ts_contour_fig.add_subplot(gs_c[1, 8:12])
+        self._ts_ax_press.set_title('Contact Pressure', fontsize=9, fontweight='bold')
+        self._ts_ax_press.set_xlabel('x [m]', fontsize=8)
+        self._ts_ax_press.set_ylabel('y [m]', fontsize=8)
+        self._ts_ax_temp = self._ts_contour_fig.add_subplot(gs_c[1, 12:16])
+        self._ts_ax_temp.set_title('Temperature', fontsize=9, fontweight='bold')
+        self._ts_ax_temp.set_xlabel('x [m]', fontsize=8)
+        self._ts_ax_temp.set_ylabel('y [m]', fontsize=8)
+        self._ts_ax_fric = self._ts_contour_fig.add_subplot(gs_c[1, 16:20])
+        self._ts_ax_fric.set_title('Friction Force', fontsize=9, fontweight='bold')
+        self._ts_ax_fric.set_xlabel('x [m]', fontsize=8)
+        self._ts_ax_fric.set_ylabel('y [m]', fontsize=8)
 
         self._ts_contour_canvas = _FCA(self._ts_contour_fig, contour_frame)
         self._ts_contour_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
@@ -26159,11 +26171,11 @@ class PerssonModelGUI_V2:
 
         def _setup_contour_ax(ax, title):
             ax.clear()
-            ax.set_aspect('equal')
-            ax.set_title(title, fontsize=8, fontweight='bold')
+            # NO set_aspect('equal') — match 2D Brush tab for uniform sizing
+            ax.set_title(title, fontsize=9, fontweight='bold')
             ax.set_xlabel('x [m]', fontsize=7)
             ax.set_ylabel('y [m]', fontsize=7)
-            ax.tick_params(labelsize=6)
+            ax.tick_params(labelsize=7)
             # Set axis limits to match footprint dimensions exactly
             ax.set_xlim(-half_L * ax_margin, half_L * ax_margin)
             ax.set_ylim(-half_W * ax_margin, half_W * ax_margin)
