@@ -26631,10 +26631,28 @@ class PerssonModelGUI_V2:
         cb_f.set_ticks(fric_centers[::2])
         cb_f.set_ticklabels([f'{v:.1e}' for v in fric_centers[::2]])
 
-        # Robust direct draw (no blit for contour)
-        self._ts_use_blit = False
-        self._ts_contour_blit_bg = None
+        # ── Blit setup: list dynamic artists, then cache CLEAN background ──
+        # (Matching 2D Brush tab approach exactly for 120 Hz contour playback)
+        self._ts_contour_dynamic = [
+            self._ts_pm_stick, self._ts_pm_press, self._ts_pm_temp,
+            self._ts_pm_fric, self._ts_quiver_speed,
+            self._ts_stick_arrow_line, self._ts_stick_arrow_head,
+            self._ts_stick_arrow_label,
+        ]
+        # Outlines
+        self._ts_contour_dynamic.extend(self._ts_outline_patches)
+
+        # Hide all dynamic artists → draw clean background → cache → restore
+        _vis_states = []
+        for a in self._ts_contour_dynamic:
+            _vis_states.append(a.get_visible())
+            a.set_visible(False)
         self._ts_contour_canvas.draw()
+        self._ts_contour_blit_bg = self._ts_contour_canvas.copy_from_bbox(
+            self._ts_contour_fig.bbox)
+        for a, vis in zip(self._ts_contour_dynamic, _vis_states):
+            a.set_visible(vis)
+        self._ts_use_blit = True
 
     # ── Simulation engine ──
     def _run_track_simulation(self):
@@ -26947,11 +26965,10 @@ class PerssonModelGUI_V2:
         else:
             self.canvas_track.draw_idle()
 
-        # ══ Contour/graph update (direct draw — robust, no blit) ══
+        # ══ Contour/graph update (blit-based — matching 2D Brush tab for 120 Hz) ══
         _playing = getattr(self, '_track_playing', False)
-        # Throttle contour updates during playback (every 2nd frame for ~60Hz contour)
-        _do_contour = (not _playing) or (idx % 2 == 0)
-        if _do_contour and hasattr(self, '_ts_cursor_fy_sa'):
+
+        if hasattr(self, '_ts_cursor_fy_sa'):
             bd = d['brush_data']
 
             # Update SA/Fy cursor + marker
@@ -26961,25 +26978,23 @@ class PerssonModelGUI_V2:
             # Update Fy vs distance cursor
             self._ts_cursor_fy_dist.set_xdata([d_cur, d_cur])
 
-            # Fy graphs are on separate canvas now
-            self._ts_fy_canvas.draw_idle()
+            # Fy graphs are on separate canvas — throttle during playback
+            if not _playing or idx % 4 == 0:
+                self._ts_fy_canvas.draw_idle()
 
-            # Update contour pcolormesh (stick and sliding speed)
+            # ── Update contour pcolormesh arrays ──
             self._ts_pm_stick.set_array(bd['is_sliding'][idx].T.ravel())
             self._ts_pm_press.set_array(bd['pressure'][idx].T.ravel())
             self._ts_pm_temp.set_array(bd['temperature'][idx].T.ravel())
             self._ts_pm_fric.set_array(bd['friction'][idx].T.ravel())
 
-            # Update friction direction arrow on stick/slip contour
-            # Must match quiver direction: slip = (sin(SA), cos(SA)),
-            # friction = opposite = (-sin(SA), -cos(SA))
+            # ── Update friction direction arrow on stick/slip contour ──
             if hasattr(self, '_ts_stick_arrow_line'):
                 half_L = bd.get('half_L', 0.075)
                 L_mm_a = half_L * 2 * 1000
                 sa_rad = np.radians(sa_cur)
                 if abs(sa_cur) > 0.2:
                     arrow_scale = L_mm_a * 0.3
-                    # Arrow points opposite to slip (friction force direction)
                     dx_a = -arrow_scale * np.sin(sa_rad)
                     dy_a = -arrow_scale * np.cos(sa_rad)
                     self._ts_stick_arrow_line.set_data([0, dx_a], [0, dy_a])
@@ -26992,20 +27007,20 @@ class PerssonModelGUI_V2:
                     self._ts_stick_arrow_line.set_visible(False)
                     self._ts_stick_arrow_head.set_visible(False)
 
-            # Update quiver speed arrows
+            # ── Update quiver speed arrows (handle NaN properly) ──
             if hasattr(self, '_ts_quiver_speed'):
                 step_x, step_y = self._ts_speed_step
                 mask_q = self._ts_speed_mask_q
                 v_slide_frame = bd['v_slide'][idx]
-                # sliding speed as quiver: direction from SA, magnitude from v_slide
                 sa_rad = np.radians(sa_cur)
-                v_full = v_slide_frame[::step_x, ::step_y]
-                u_q = np.where(mask_q, v_full * np.sin(sa_rad), 0)
-                v_q = np.where(mask_q, v_full * np.cos(sa_rad), 0)
-                mag_q = np.where(mask_q, v_full, 0)
+                # Replace NaN with 0 before computation to prevent NaN propagation
+                v_full = np.nan_to_num(v_slide_frame[::step_x, ::step_y], nan=0.0)
+                u_q = np.where(mask_q, v_full * np.sin(sa_rad), 0.0)
+                v_q = np.where(mask_q, v_full * np.cos(sa_rad), 0.0)
+                mag_q = np.where(mask_q, v_full, 0.0)
                 self._ts_quiver_speed.set_UVC(u_q[mask_q], v_q[mask_q], mag_q[mask_q])
 
-            # Update outline patches + clip paths based on current SA (mm)
+            # ── Update outline patches + clip paths based on current SA ──
             if hasattr(self, '_ts_outline_patches') and self._ts_outline_patches:
                 half_L = bd.get('half_L', 0.075)
                 half_W = bd.get('half_W', 0.06)
@@ -27024,7 +27039,20 @@ class PerssonModelGUI_V2:
                     except Exception:
                         pass
 
-            self._ts_contour_canvas.draw_idle()
+            # ── Blit render contour canvas (matching 2D Brush tab) ──
+            if getattr(self, '_ts_use_blit', False) and self._ts_contour_blit_bg is not None:
+                c_canvas = self._ts_contour_canvas
+                c_canvas.restore_region(self._ts_contour_blit_bg)
+                for artist in self._ts_contour_dynamic:
+                    try:
+                        artist.axes.draw_artist(artist)
+                    except Exception:
+                        pass
+                c_canvas.blit(self._ts_contour_fig.bbox)
+                if idx % 4 == 0:
+                    c_canvas.flush_events()
+            else:
+                self._ts_contour_canvas.draw_idle()
 
         # ══ Steering wheel + tire (lower frequency) ══
         if not _playing or idx % 4 == 0:
@@ -27070,8 +27098,8 @@ class PerssonModelGUI_V2:
 
         self._update_track_frame(self._track_frame_idx)
 
-        # ~120 FPS target (8ms ≈ 125 FPS) with draw_idle for contour + blit for track map
-        self._track_play_after_id = self.root.after(8, self._track_animate_step)
+        # Minimal delay — let rendering be the natural frame pacer (matching 2D Brush tab)
+        self._track_play_after_id = self.root.after(1, self._track_animate_step)
 
     def _track_pause(self):
         self._track_playing = False
