@@ -22426,12 +22426,14 @@ class PerssonModelGUI_V2:
         self.br_L_var = tk.StringVar(value="0.15")
         ttk.Entry(row_L, textvariable=self.br_L_var, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_L, text="m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+        self.br_L_var.trace_add('write', lambda *_: self._on_footprint_change())
 
         row_W = ttk.Frame(sec1); row_W.pack(fill=tk.X, pady=1)
         ttk.Label(row_W, text="풋프린트 폭 W:", font=self.FONTS['body']).pack(side=tk.LEFT)
         self.br_W_var = tk.StringVar(value="0.12")
         ttk.Entry(row_W, textvariable=self.br_W_var, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_W, text="m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+        self.br_W_var.trace_add('write', lambda *_: self._on_footprint_change())
 
         row_Fz = ttk.Frame(sec1); row_Fz.pack(fill=tk.X, pady=1)
         ttk.Label(row_Fz, text="수직 하중 Fz:", font=self.FONTS['body']).pack(side=tk.LEFT)
@@ -23696,6 +23698,19 @@ class PerssonModelGUI_V2:
             self._brush_frame_idx = 0
             self._brush_show_frame(0)
 
+            # ── Sync track simulation if it has been run ──
+            if getattr(self, '_track_sim_data', None) is not None:
+                try:
+                    d = self._track_sim_data
+                    mu = float(self.ts_mu_var.get()) if hasattr(self, 'ts_mu_var') else 1.0
+                    brush_data = self._compute_track_brush_data(
+                        d['sa_deg'], d['v_final'], d['Fz'], mu)
+                    self._track_sim_data['brush_data'] = brush_data
+                    self._init_track_contour_artists()
+                    self._update_track_frame(getattr(self, '_track_frame_idx', 0))
+                except Exception:
+                    pass  # track sim not fully initialized yet
+
         except ValueError as e:
             self.br_calc_btn.config(state='normal')
             self._show_status(f"입력값 오류: {str(e)}", 'warning')
@@ -24845,11 +24860,12 @@ class PerssonModelGUI_V2:
                  fontsize=7, ha='center', va='top', color='#00C853',
                  fontweight='bold', zorder=7)
         # Legend
-        legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Stick'),
-                          Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Slip')]
+        legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Stick (부착)'),
+                          Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Slip (미끄럼)')]
         ax1.legend(handles=legend_patches, loc='upper right', fontsize=8,
                    framealpha=0.9, edgecolor='#999',
-                   bbox_to_anchor=(0.98, 0.98), borderaxespad=0)
+                   bbox_to_anchor=(0.98, 0.98), borderaxespad=0,
+                   handlelength=2.5, handletextpad=0.8, columnspacing=1.5)
         _setup_ax(ax1, 'sliding vs adhesion')
         # No dummy colorbar needed — inset colorbars don't steal axis space
 
@@ -25260,6 +25276,42 @@ class PerssonModelGUI_V2:
                 a.set_visible(v)
         else:
             self.canvas_brush.draw()
+
+    def _on_footprint_change(self):
+        """Live-update contour axes when footprint L/W is changed in UI."""
+        if not getattr(self, '_br_artists_ready', False):
+            return
+        try:
+            L_new = float(self.br_L_var.get()) * 1000  # m → mm
+            W_new = float(self.br_W_var.get()) * 1000
+        except (ValueError, AttributeError):
+            return
+        if L_new <= 0 or W_new <= 0:
+            return
+        margin = 1.20
+        xh = L_new / 2 * margin
+        yh = W_new / 2 * margin
+        for ax_name in ('ax_br_stick', 'ax_br_speed', 'ax_br_pres',
+                        'ax_br_temp', 'ax_br_fric'):
+            ax = getattr(self, ax_name, None)
+            if ax is not None:
+                ax.set_xlim(-xh, xh)
+                ax.set_ylim(-yh, yh)
+        if getattr(self, '_br_use_blit', False):
+            _vis = []
+            for a in self._br_dynamic_artists:
+                _vis.append(a.get_visible())
+                a.set_visible(False)
+            self.canvas_brush.draw()
+            self._br_blit_bg = self.canvas_brush.copy_from_bbox(
+                self.fig_brush.bbox)
+            for a, v in zip(self._br_dynamic_artists, _vis):
+                a.set_visible(v)
+            # Redraw current frame
+            if self._brush_frames:
+                self._brush_show_frame(self._brush_frame_idx)
+        else:
+            self.canvas_brush.draw_idle()
 
     def _on_egg_k_slider(self, value=None):
         """Update egg shape constant from slider (live preview on current frame)."""
@@ -25797,15 +25849,35 @@ class PerssonModelGUI_V2:
         tx, ty = track['x'], track['y']
         n = track['n_points']
 
-        # Static road surface
-        ax.plot(tx, ty, color='#404060', linewidth=22,
+        # Static road surface (thicker for better visibility)
+        ax.plot(tx, ty, color='#404060', linewidth=28,
                 solid_capstyle='round', zorder=1)
 
-        # Sector coloring
+        # Sector coloring (thicker to fill road surface)
         s1e, s2e = int(0.32 * n), int(0.62 * n)
-        ax.plot(tx[:s1e], ty[:s1e], color='#FFD700', lw=7, alpha=0.8, zorder=2)
-        ax.plot(tx[s1e:s2e], ty[s1e:s2e], color='#DC3545', lw=7, alpha=0.8, zorder=2)
-        ax.plot(tx[s2e:], ty[s2e:], color='#28A745', lw=7, alpha=0.8, zorder=2)
+        ax.plot(tx[:s1e], ty[:s1e], color='#FFD700', lw=10, alpha=0.8, zorder=2)
+        ax.plot(tx[s1e:s2e], ty[s1e:s2e], color='#DC3545', lw=10, alpha=0.8, zorder=2)
+        ax.plot(tx[s2e:], ty[s2e:], color='#28A745', lw=10, alpha=0.8, zorder=2)
+
+        # ── Heat/stress markers at high-curvature zones ──
+        signed_curv = track['signed_curvature']
+        abs_curv = np.abs(signed_curv)
+        # Normalize curvature for color mapping
+        curv_threshold = np.percentile(abs_curv, 75)  # top 25% curvature = hot zones
+        hot_mask = abs_curv > curv_threshold
+        if np.any(hot_mask):
+            # Color by curvature intensity: yellow → orange → red
+            from matplotlib.colors import Normalize
+            import matplotlib.cm as cm
+            norm_curv = Normalize(vmin=curv_threshold, vmax=np.max(abs_curv))
+            cmap_heat = cm.get_cmap('YlOrRd')
+            # Draw heat dots at high-curvature locations
+            hot_idx = np.where(hot_mask)[0]
+            # Subsample for performance (every 5th point in hot zones)
+            hot_idx = hot_idx[::5]
+            colors_heat = cmap_heat(norm_curv(abs_curv[hot_idx]))
+            ax.scatter(tx[hot_idx], ty[hot_idx], c=colors_heat, s=50,
+                       marker='o', alpha=0.7, zorder=3, edgecolors='none')
 
         # Turn markers
         for i, idx in enumerate(track['turn_indices']):
@@ -25850,8 +25922,13 @@ class PerssonModelGUI_V2:
         ax.legend(handles=legend_elements, loc='lower right', fontsize=9,
                   facecolor='#2A2A4A', edgecolor='#606090', labelcolor='white')
 
-        ax.set_xlim(min(tx) - 60, max(tx) + 60)
-        ax.set_ylim(min(ty) - 60, max(ty) + 60)
+        # Adaptive padding: 8% of track extent + extra for annotations
+        x_range = max(tx) - min(tx)
+        y_range = max(ty) - min(ty)
+        pad_x = max(x_range * 0.08, 80)
+        pad_y = max(y_range * 0.08, 80)
+        ax.set_xlim(min(tx) - pad_x, max(tx) + pad_x)
+        ax.set_ylim(min(ty) - pad_y, max(ty) + pad_y)
 
         # ── Dynamic artists for blit ──
         from matplotlib.collections import LineCollection
@@ -26033,10 +26110,18 @@ class PerssonModelGUI_V2:
         ax_fy.clear()
         sa_arr = d['sa_deg']
         Fy_arr = d['Fy']
-        ax_fy.plot(sa_arr, Fy_arr, 'b-', lw=1.2, alpha=0.6)
+        # Overlay 2D Brush model Fy-SA reference curve if available
+        if getattr(self, '_brush_frames', None) and len(self._brush_frames) > 2:
+            br_sa = np.array([fr['SA'] for fr in self._brush_frames])
+            br_fy = np.array([fr['Fy'] for fr in self._brush_frames])
+            sort_idx = np.argsort(br_sa)
+            ax_fy.plot(br_sa[sort_idx], br_fy[sort_idx], '-', color='#FF6B6B',
+                       lw=2.0, alpha=0.7, label='2D Brush Model')
+        ax_fy.plot(sa_arr, Fy_arr, 'b-', lw=1.2, alpha=0.6, label='Track Fy')
         ax_fy.set_xlabel('SA [deg]', fontsize=8)
         ax_fy.set_ylabel('Fy [N]', fontsize=8)
         ax_fy.set_title('Fy vs Slip Angle', fontsize=9, fontweight='bold')
+        ax_fy.legend(fontsize=7, loc='upper left')
         ax_fy.grid(True, alpha=0.3)
         self._ts_cursor_fy_sa = ax_fy.axvline(x=sa_arr[0], color='k', lw=1.2, alpha=0.7)
         self._ts_marker_fy_sa, = ax_fy.plot(sa_arr[0], Fy_arr[0], 'ro',
@@ -26231,13 +26316,16 @@ class PerssonModelGUI_V2:
         accel_g = dv / dt_grad / g
 
         # SA and Fy
+        # Sign convention (SAE): positive SA → right turn, negative SA → left turn
+        # signed_curv: positive → counter-clockwise (left turn on track)
+        # Therefore negate: left turn on track → negative SA → steering wheel turns left
         sa_arr = np.zeros(n_pts)
         for i in range(n_pts):
             lat_a = v_final[i]**2 * curvature[i]
             sa_raw = np.degrees(np.arctan2(lat_a, g)) * 0.8
-            sa_arr[i] = np.sign(signed_curv[i]) * min(sa_raw, 25.0)
+            sa_arr[i] = -np.sign(signed_curv[i]) * min(sa_raw, 25.0)
 
-        Fy_arr = mass * v_final**2 * signed_curv
+        Fy_arr = -mass * v_final**2 * signed_curv
 
         # Fz (including downforce)
         Fz_arr = mass * g + 0.5 * rho * cla * v_final**2
