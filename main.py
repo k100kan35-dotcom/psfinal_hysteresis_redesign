@@ -26069,12 +26069,7 @@ class PerssonModelGUI_V2:
         except (AttributeError, ValueError):
             ptype = 'parabolic'
 
-        # Reduced resolution for track simulation (2000 pts × nx × ny)
-        max_grid = 32
-        if nx > max_grid or ny > max_grid:
-            sf = max_grid / max(nx, ny)
-            nx = max(int(nx * sf), 8)
-            ny = max(int(ny * sf), 8)
+        # Use same resolution as 2D Brush tab (no down-sampling)
 
         n = len(sa_arr)
         a, b = L / 2.0, W / 2.0
@@ -26405,6 +26400,16 @@ class PerssonModelGUI_V2:
         self._ts_ax_stick.text(0, _roll_y - W_mm * 0.08, '\u2190 Rolling Dir.',
                  fontsize=7, ha='center', va='top', color='#00C853',
                  fontweight='bold', zorder=7)
+        # Friction direction arrow (white, matching 2D Brush tab)
+        self._ts_stick_arrow_line, = self._ts_ax_stick.plot(
+            [], [], '-', color='white', lw=3, zorder=6)
+        self._ts_stick_arrow_head, = self._ts_ax_stick.plot(
+            [], [], marker=(3, 0, 0), color='white', markersize=14,
+            linestyle='', zorder=6)
+        self._ts_stick_arrow_label = self._ts_ax_stick.text(
+            0, W_mm * 0.42, '', fontsize=6, ha='center',
+            va='bottom', color='white', fontweight='bold', zorder=7)
+        self._ts_stick_arrow_label.set_visible(False)
         # Legend (matching 2D Brush tab)
         legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Stick (\ubd80\ucc29)'),
                           Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Slip (\ubbf8\ub044\ub7ec)')]
@@ -26800,6 +26805,31 @@ class PerssonModelGUI_V2:
             self._ts_pm_temp.set_array(bd['temperature'][idx].T.ravel())
             self._ts_pm_fric.set_array(bd['friction'][idx].T.ravel())
 
+            # Update friction direction arrow on stick/slip contour
+            if hasattr(self, '_ts_stick_arrow_line'):
+                half_L = bd.get('half_L', 0.075)
+                half_W = bd.get('half_W', 0.06)
+                L_mm_a = half_L * 2 * 1000
+                W_mm_a = half_W * 2 * 1000
+                sa_rad = np.radians(sa_cur)
+                # Friction force direction = opposite of lateral slip velocity
+                # v_rim_y = vc * sin(SA), friction arrow = (0, -sign(v_rim_y))
+                arrow_mag = abs(np.sin(sa_rad))
+                if arrow_mag > 1e-4:
+                    arrow_scale = L_mm_a * 0.3
+                    # Arrow points opposite to slip (friction force direction)
+                    dx_a = -arrow_scale * np.sin(sa_rad) / max(arrow_mag, 1e-10)
+                    dy_a = 0.0  # lateral-only in this brush model
+                    self._ts_stick_arrow_line.set_data([0, dx_a], [0, dy_a])
+                    self._ts_stick_arrow_line.set_visible(True)
+                    angle_deg = np.degrees(np.arctan2(dy_a, dx_a))
+                    self._ts_stick_arrow_head.set_marker((3, 0, angle_deg - 90))
+                    self._ts_stick_arrow_head.set_data([dx_a], [dy_a])
+                    self._ts_stick_arrow_head.set_visible(True)
+                else:
+                    self._ts_stick_arrow_line.set_visible(False)
+                    self._ts_stick_arrow_head.set_visible(False)
+
             # Update quiver speed arrows
             if hasattr(self, '_ts_quiver_speed'):
                 step_x, step_y = self._ts_speed_step
@@ -26813,13 +26843,24 @@ class PerssonModelGUI_V2:
                 mag_q = np.where(mask_q, v_full, 0)
                 self._ts_quiver_speed.set_UVC(u_q[mask_q], v_q[mask_q], mag_q[mask_q])
 
-            # Update outline patches based on current SA (mm, matching 2D Brush tab)
+            # Update outline patches + clip paths based on current SA (mm)
             if hasattr(self, '_ts_outline_patches') and self._ts_outline_patches:
                 half_L = bd.get('half_L', 0.075)
                 half_W = bd.get('half_W', 0.06)
                 verts_mm = self._egg_outline(sa_cur, half_L * 1000, half_W * 1000)
                 for poly in self._ts_outline_patches:
                     poly.set_xy(verts_mm)
+                # Re-clip pcolormesh to updated outline (matching 2D Brush tab)
+                _pm_list = [self._ts_pm_stick, self._ts_pm_press,
+                            self._ts_pm_temp, self._ts_pm_fric]
+                _outline_list = [self._ts_outline_patches[i]
+                                 for i in (0, 2, 3, 4)
+                                 if i < len(self._ts_outline_patches)]
+                for pm, poly in zip(_pm_list, _outline_list):
+                    try:
+                        pm.set_clip_path(poly)
+                    except Exception:
+                        pass
 
             self._ts_contour_canvas.draw_idle()
 
