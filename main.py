@@ -25575,8 +25575,8 @@ class PerssonModelGUI_V2:
         map_frame = ttk.Frame(top_hpane)
         top_hpane.add(map_frame, weight=55)
 
-        self.fig_track = _Fig(figsize=(5, 5), dpi=100, facecolor='#1A1A2E')
-        self.ax_track = self.fig_track.add_axes([0.02, 0.02, 0.96, 0.96])
+        self.fig_track = _Fig(figsize=(4.5, 4.2), dpi=100, facecolor='#1A1A2E')
+        self.ax_track = self.fig_track.add_axes([0.01, 0.01, 0.98, 0.94])
         self.ax_track.set_aspect('equal')
         self.ax_track.axis('off')
         self.fig_track.patch.set_facecolor('#1A1A2E')
@@ -25591,7 +25591,7 @@ class PerssonModelGUI_V2:
         steer_inner = ttk.Frame(steer_car_frame)
         steer_inner.pack(fill=tk.BOTH, expand=True)
 
-        self._ts_steer_fig = _Fig(figsize=(2.4, 2.4), dpi=80, facecolor='#F8FAFC')
+        self._ts_steer_fig = _Fig(figsize=(2.2, 2.2), dpi=80, facecolor='#F8FAFC')
         self._ts_steer_ax = self._ts_steer_fig.add_axes([0.05, 0.05, 0.9, 0.9])
         self._ts_steer_ax.set_xlim(-1.5, 1.5)
         self._ts_steer_ax.set_ylim(-1.5, 1.5)
@@ -25600,7 +25600,7 @@ class PerssonModelGUI_V2:
         self._ts_steer_canvas = _FCA(self._ts_steer_fig, steer_inner)
         self._ts_steer_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2)
 
-        self._ts_tire_fig = _Fig(figsize=(2.0, 2.8), dpi=80, facecolor='#2D2D2D')
+        self._ts_tire_fig = _Fig(figsize=(1.8, 2.4), dpi=80, facecolor='#2D2D2D')
         self._ts_tire_ax = self._ts_tire_fig.add_axes([0.0, 0.0, 1.0, 1.0])
         self._ts_tire_ax.set_xlim(-3.0, 3.0)
         self._ts_tire_ax.set_ylim(-4.0, 4.0)
@@ -25625,10 +25625,10 @@ class PerssonModelGUI_V2:
         contour_frame = ttk.Frame(bot_hpane)
         bot_hpane.add(contour_frame, weight=55)
 
-        self._ts_contour_fig = _Fig(figsize=(14, 4), dpi=100)
+        self._ts_contour_fig = _Fig(figsize=(10, 3.2), dpi=100)
         gs_contour = GridSpec(1, 5, figure=self._ts_contour_fig,
-                              wspace=0.45,
-                              left=0.04, right=0.98, top=0.88, bottom=0.15)
+                              wspace=0.50,
+                              left=0.04, right=0.98, top=0.86, bottom=0.18)
 
         self._ts_ax_stick = self._ts_contour_fig.add_subplot(gs_contour[0, 0])
         self._ts_ax_speed = self._ts_contour_fig.add_subplot(gs_contour[0, 1])
@@ -25653,10 +25653,10 @@ class PerssonModelGUI_V2:
         fy_frame = ttk.Frame(bot_hpane)
         bot_hpane.add(fy_frame, weight=45)
 
-        self._ts_fy_fig = _Fig(figsize=(6, 4), dpi=100)
+        self._ts_fy_fig = _Fig(figsize=(4.5, 3.2), dpi=100)
         gs_fy = GridSpec(2, 1, figure=self._ts_fy_fig,
-                         hspace=0.45,
-                         left=0.12, right=0.95, top=0.93, bottom=0.10)
+                         hspace=0.50,
+                         left=0.15, right=0.95, top=0.92, bottom=0.12)
 
         self._ts_ax_fy_sa = self._ts_fy_fig.add_subplot(gs_fy[0, 0])
         self._ts_ax_fy_sa.set_title('Fy vs Slip Angle', fontsize=9, fontweight='bold')
@@ -25879,15 +25879,15 @@ class PerssonModelGUI_V2:
         tx, ty = track['x'], track['y']
         n = track['n_points']
 
-        # Static road surface (thicker for better visibility)
-        ax.plot(tx, ty, color='#404060', linewidth=28,
+        # Static road surface
+        ax.plot(tx, ty, color='#404060', linewidth=22,
                 solid_capstyle='round', zorder=1)
 
         # Sector coloring (thicker to fill road surface)
         s1e, s2e = int(0.32 * n), int(0.62 * n)
-        ax.plot(tx[:s1e], ty[:s1e], color='#FFD700', lw=10, alpha=0.8, zorder=2)
-        ax.plot(tx[s1e:s2e], ty[s1e:s2e], color='#DC3545', lw=10, alpha=0.8, zorder=2)
-        ax.plot(tx[s2e:], ty[s2e:], color='#28A745', lw=10, alpha=0.8, zorder=2)
+        ax.plot(tx[:s1e], ty[:s1e], color='#FFD700', lw=8, alpha=0.8, zorder=2)
+        ax.plot(tx[s1e:s2e], ty[s1e:s2e], color='#DC3545', lw=8, alpha=0.8, zorder=2)
+        ax.plot(tx[s2e:], ty[s2e:], color='#28A745', lw=8, alpha=0.8, zorder=2)
 
         # ── Heat/stress markers at high-curvature zones ──
         signed_curv = track['signed_curvature']
@@ -25906,13 +25906,13 @@ class PerssonModelGUI_V2:
             # Subsample for performance (every 5th point in hot zones)
             hot_idx = hot_idx[::5]
             colors_heat = cmap_heat(norm_curv(abs_curv[hot_idx]))
-            ax.scatter(tx[hot_idx], ty[hot_idx], c=colors_heat, s=50,
+            ax.scatter(tx[hot_idx], ty[hot_idx], c=colors_heat, s=30,
                        marker='o', alpha=0.7, zorder=3, edgecolors='none')
 
         # Turn markers
         for i, idx in enumerate(track['turn_indices']):
-            ax.plot(tx[idx], ty[idx], 'o', color='white', markersize=6,
-                    markeredgecolor='#333', markeredgewidth=1, zorder=5)
+            ax.plot(tx[idx], ty[idx], 'o', color='white', markersize=4,
+                    markeredgecolor='#333', markeredgewidth=0.8, zorder=5)
             ni = min(idx + 30, n - 1)
             dx = tx[ni] - tx[idx]; dy = ty[ni] - ty[idx]
             le = np.sqrt(dx**2 + dy**2)
@@ -25921,13 +25921,13 @@ class PerssonModelGUI_V2:
             else:
                 nx_v, ny_v = 0, 1
             ax.annotate(f'{i+1:02d}', (tx[idx], ty[idx]),
-                        xytext=(nx_v * 22 + 5, ny_v * 22 + 5),
+                        xytext=(nx_v * 16 + 3, ny_v * 16 + 3),
                         textcoords='offset points', color='white',
-                        fontsize=8, fontweight='bold', zorder=6)
+                        fontsize=6, fontweight='bold', zorder=6)
 
         # Start/Finish
-        ax.plot(tx[0], ty[0], 'o', color='#FFD700', markersize=14,
-                markeredgecolor='white', markeredgewidth=2, zorder=7)
+        ax.plot(tx[0], ty[0], 'o', color='#FFD700', markersize=10,
+                markeredgecolor='white', markeredgewidth=1.5, zorder=7)
         ax.annotate('Start', (tx[0], ty[0]), xytext=(15, -22),
                     textcoords='offset points', color='#FFD700',
                     fontsize=10, fontweight='bold', zorder=7)
@@ -25941,7 +25941,7 @@ class PerssonModelGUI_V2:
                                         lw=2, mutation_scale=18), zorder=4)
 
         ax.set_title('Korean International Circuit – 영암 (5.615 km)',
-                      color='white', fontsize=13, fontweight='bold', pad=10)
+                      color='white', fontsize=10, fontweight='bold', pad=4)
 
         from matplotlib.lines import Line2D
         legend_elements = [
@@ -25949,14 +25949,14 @@ class PerssonModelGUI_V2:
             Line2D([0], [0], color='#DC3545', lw=4, label='Sector 2 (기술)'),
             Line2D([0], [0], color='#28A745', lw=4, label='Sector 3 (중속 굴곡)'),
         ]
-        ax.legend(handles=legend_elements, loc='lower right', fontsize=9,
+        ax.legend(handles=legend_elements, loc='lower right', fontsize=7,
                   facecolor='#2A2A4A', edgecolor='#606090', labelcolor='white')
 
-        # Adaptive padding: 8% of track extent + extra for annotations
+        # Tight padding: minimal margin so track fills the available space
         x_range = max(tx) - min(tx)
         y_range = max(ty) - min(ty)
-        pad_x = max(x_range * 0.08, 80)
-        pad_y = max(y_range * 0.08, 80)
+        pad_x = max(x_range * 0.04, 40)
+        pad_y = max(y_range * 0.04, 40)
         ax.set_xlim(min(tx) - pad_x, max(tx) + pad_x)
         ax.set_ylim(min(ty) - pad_y, max(ty) + pad_y)
 
@@ -25964,8 +25964,8 @@ class PerssonModelGUI_V2:
         from matplotlib.collections import LineCollection
 
         # Car marker
-        self._ts_car_dot, = ax.plot([], [], 'o', color='#FF0000', markersize=14,
-                                     markeredgecolor='white', markeredgewidth=2,
+        self._ts_car_dot, = ax.plot([], [], 'o', color='#FF0000', markersize=10,
+                                     markeredgecolor='white', markeredgewidth=1.5,
                                      zorder=10)
         # Car direction arrow head
         self._ts_car_arrow, = ax.plot([], [], marker=(3, 0, 0), color='#FF0000',
@@ -25981,15 +25981,15 @@ class PerssonModelGUI_V2:
 
         # HUD text
         self._ts_hud_speed = ax.text(
-            0.02, 0.98, '', transform=ax.transAxes, fontsize=11,
+            0.02, 0.98, '', transform=ax.transAxes, fontsize=9,
             fontweight='bold', color='#00FF88', family='monospace', va='top',
-            bbox=dict(boxstyle='round,pad=0.5', facecolor='#000000CC',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='#000000CC',
                       edgecolor='#00FF88', lw=1), zorder=15)
         self._ts_hud_lap = ax.text(
-            0.98, 0.98, '', transform=ax.transAxes, fontsize=14,
+            0.98, 0.98, '', transform=ax.transAxes, fontsize=11,
             fontweight='bold', color='#FFD700', family='monospace',
             ha='right', va='top',
-            bbox=dict(boxstyle='round,pad=0.4', facecolor='#000000CC',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='#000000CC',
                       edgecolor='#FFD700', lw=1), zorder=15)
 
         # Collect dynamic artists
@@ -26011,9 +26011,10 @@ class PerssonModelGUI_V2:
     def _compute_track_brush_data(self, sa_arr, v_arr, Fz_arr, mu):
         """Vectorized brush model for all track points.
 
-        Uses the same parameters (L, W, Nx, Ny, friction scale, etc.)
+        Uses the same parameters (L, W, Nx, Ny, friction scale, pressure type, etc.)
         as the 2D Brush Model tab for consistent results.
-        Returns dict of (n, nx, ny) arrays for contour plot display.
+        Returns dict of (n, nx, ny) arrays for contour plot display,
+        plus per-point Fy from the brush model.
         """
         import numpy as np
 
@@ -26025,13 +26026,17 @@ class PerssonModelGUI_V2:
             W = float(self.br_W_var.get())    # footprint width (m)
             friction_scale = float(self.br_friction_scale_var.get())
         except (AttributeError, ValueError):
-            # Fallback defaults (matching 2D Brush defaults)
             nx, ny = 64, 64
             L, W = 0.15, 0.12
             friction_scale = 0.5
 
+        # Read pressure distribution type from 2D Brush tab
+        try:
+            ptype = self.br_pressure_type_var.get()
+        except (AttributeError, ValueError):
+            ptype = 'parabolic'
+
         # For track simulation: use reduced resolution to keep memory manageable
-        # (2000 points × nx × ny per field), but maintain aspect ratio
         max_grid = 32
         if nx > max_grid or ny > max_grid:
             scale_factor = max_grid / max(nx, ny)
@@ -26050,12 +26055,39 @@ class PerssonModelGUI_V2:
 
         x = np.linspace(-a, a, nx)
         y = np.linspace(-b, b, ny)
+        dx_g = L / max(nx - 1, 1)
+        dy_g = W / max(ny - 1, 1)
+        dA = dx_g * dy_g
         xx, yy = np.meshgrid(x, y, indexing='ij')  # (nx, ny)
 
         # Superellipse mask (matching 2D Brush Model)
-        r_se = np.abs(xx / a)**ellipse_power + np.abs(yy / b)**ellipse_power
+        se_n = ellipse_power
+        r_se = np.abs(xx / a)**se_n + np.abs(yy / b)**se_n
         mask = r_se <= 1.0  # (nx, ny) superelliptical contact
-        p_shape = np.sqrt(np.clip(1 - r_se, 0, None))  # Hertzian-like shape
+
+        # ── Pressure distribution shape from 2D Brush tab ──
+        if ptype == 'uniform':
+            p_shape = np.ones((nx, ny))
+        elif ptype == 'elliptic':
+            p_shape = np.sqrt(np.clip(1 - r_se, 0, None))
+        elif ptype == 'dual_peak':
+            lon_env = np.clip(1 - np.abs(2 * xx / L)**se_n, 0, None)
+            y_norm = 2 * yy / W
+            peak_pos = 0.40
+            peak_width = 0.45
+            p_shape = (np.exp(-((y_norm - peak_pos) / peak_width)**2) +
+                       np.exp(-((y_norm + peak_pos) / peak_width)**2)) * lon_env
+            p_shape *= mask
+        else:  # parabolic (default)
+            p_shape = (np.clip(1 - np.abs(2 * xx / L)**se_n, 0, None) *
+                       np.clip(1 - np.abs(2 * yy / W)**se_n, 0, None))
+
+        # Normalize base shape so integral = 1 over contact area
+        p_shape_sum = np.sum(p_shape) * dA
+        if p_shape_sum > 0:
+            p_shape_norm = p_shape / p_shape_sum
+        else:
+            p_shape_norm = p_shape
 
         xi = np.clip(a - xx, 0, None)  # distance from leading edge
 
@@ -26064,9 +26096,9 @@ class PerssonModelGUI_V2:
         Fz_3d = Fz_arr[:, None, None]
         v_3d = v_arr[:, None, None]
 
-        # Pressure (n, nx, ny) — matching 2D Brush Model Hertzian distribution
-        p0 = 3.0 * Fz_3d / (2.0 * np.pi * a * b + 1e-10)
-        pressure = p0 * p_shape[None, :, :] * mask[None, :, :]
+        # Pressure (n, nx, ny) — using 2D Brush tab distribution type
+        # Normalized so that integral(pressure * dA) = Fz for each point
+        pressure = Fz_3d * p_shape_norm[None, :, :] * mask[None, :, :]
 
         # Bristle shear (same tread stiffness logic)
         cp = 5e6  # tread stiffness (Pa/m)
@@ -26077,8 +26109,14 @@ class PerssonModelGUI_V2:
         # Sliding state
         is_sliding = (tau >= tau_max) & mask[None, :, :]
 
-        # Friction force
+        # Friction force density (lateral)
         friction = np.where(is_sliding, tau_max, tau) * mask[None, :, :]
+
+        # ── Compute Fy per track point by integrating lateral friction ──
+        # Fy = integral of (signed friction in y-direction) over contact patch
+        # Sign: friction opposes slip direction → negative SA → positive Fy
+        friction_signed = np.where(is_sliding, tau_max, tau) * np.sign(delta) * mask[None, :, :]
+        Fy_brush = -np.sum(friction_signed, axis=(1, 2)) * dA  # (n,)
 
         # Sliding speed
         overshoot = np.clip(1.0 - tau_max / (tau + 1e-10), 0, 1)
@@ -26110,11 +26148,13 @@ class PerssonModelGUI_V2:
             'pressure': pressure_bar,        # (n, nx, ny)
             'temperature': temperature,      # (n, nx, ny)
             'friction': friction_disp,        # (n, nx, ny)
+            'Fy_brush': Fy_brush,            # (n,) — brush model Fy
             'x_edges': x_edges,              # (nx+1,)
             'y_edges': y_edges,              # (ny+1,)
             'mask': mask,                     # (nx, ny)
             'nx': nx, 'ny': ny,
             'half_L': a, 'half_W': b,        # contact patch dimensions
+            'pressure_type': ptype,          # distribution type used
         }
 
     # ── Initialize contour plot artists ──
@@ -26167,7 +26207,9 @@ class PerssonModelGUI_V2:
             _brush_curve_plotted = True
         if not _brush_curve_plotted:
             # Generate theoretical brush model S-curve as envelope
-            sa_range = np.linspace(-6, 6, 200)
+            # Use SA range matching actual track data
+            sa_abs_max = max(abs(np.min(sa_arr)), abs(np.max(sa_arr)), 6.0)
+            sa_range = np.linspace(-sa_abs_max, sa_abs_max, 200)
             try:
                 Fz = float(self.br_Fz_var.get())
                 mu_val = float(self.br_friction_scale_var.get())
@@ -26176,7 +26218,7 @@ class PerssonModelGUI_V2:
                 mu_val = 0.5
             Fy_max = mu_val * Fz
             # Fiala/brush model characteristic: Fy = -Fy_max * (3*x - 3*x^2 + x^3) for |x|<=1
-            sa_crit = 6.0  # critical slip angle
+            sa_crit = max(sa_abs_max * 0.5, 6.0)  # critical slip angle
             x_norm = np.clip(sa_range / sa_crit, -1, 1)
             abs_x = np.abs(x_norm)
             fy_theo = -np.sign(x_norm) * Fy_max * np.where(
@@ -26192,6 +26234,16 @@ class PerssonModelGUI_V2:
         ax_fy.set_title('Fy vs Slip Angle', fontsize=9, fontweight='bold')
         ax_fy.legend(fontsize=7, loc='upper left')
         ax_fy.grid(True, alpha=0.3)
+        # Auto-scale Y axis to fit actual data range with 10% margin
+        all_fy_vals = Fy_arr[np.isfinite(Fy_arr)]
+        if len(all_fy_vals) > 0:
+            fy_min, fy_max = np.min(all_fy_vals), np.max(all_fy_vals)
+            fy_margin = max(abs(fy_max - fy_min) * 0.1, 100)
+            ax_fy.set_ylim(fy_min - fy_margin, fy_max + fy_margin)
+        # Set SA range to actual data range
+        sa_min, sa_max = np.min(sa_arr), np.max(sa_arr)
+        sa_margin = max(abs(sa_max - sa_min) * 0.1, 1)
+        ax_fy.set_xlim(sa_min - sa_margin, sa_max + sa_margin)
         self._ts_cursor_fy_sa = ax_fy.axvline(x=sa_arr[0], color='k', lw=1.2, alpha=0.7)
         self._ts_marker_fy_sa, = ax_fy.plot(sa_arr[0], Fy_arr[0], 'ro',
                                               markersize=8, zorder=5)
@@ -26206,6 +26258,9 @@ class PerssonModelGUI_V2:
         ax_fd.set_ylabel('Fy [N]', fontsize=8)
         ax_fd.set_title('Fy vs Distance', fontsize=9, fontweight='bold')
         ax_fd.grid(True, alpha=0.3)
+        # Auto-scale Y axis for Fy vs Distance too
+        if len(all_fy_vals) > 0:
+            ax_fd.set_ylim(fy_min - fy_margin, fy_max + fy_margin)
         self._ts_cursor_fy_dist = ax_fd.axvline(x=0, color='red', lw=1.5, alpha=0.8)
         self._ts_fy_canvas.draw()
 
@@ -26470,8 +26525,6 @@ class PerssonModelGUI_V2:
             sa_raw = np.degrees(np.arctan2(lat_a, g)) * 0.8
             sa_arr[i] = -np.sign(signed_curv[i]) * min(sa_raw, 25.0)
 
-        Fy_arr = -mass * v_final**2 * signed_curv
-
         # Fz (including downforce)
         Fz_arr = mass * g + 0.5 * rho * cla * v_final**2
 
@@ -26483,8 +26536,12 @@ class PerssonModelGUI_V2:
         self.ts_progress_var.set(50)
         self.root.update_idletasks()
 
-        # Pre-compute brush data (vectorized, fast)
+        # Pre-compute brush data (vectorized, fast) — uses 2D Brush tab pressure type
         brush_data = self._compute_track_brush_data(sa_arr, v_final, Fz_arr, mu)
+
+        # Use brush-model Fy (integrated from friction map + pressure distribution)
+        # instead of raw centripetal force, so Fy responds to SA and speed properly
+        Fy_arr = brush_data['Fy_brush']
 
         self._track_sim_data = {
             'track': track,
@@ -26526,6 +26583,7 @@ class PerssonModelGUI_V2:
                 f"\n  ── 2D Brush 연동 ──\n"
                 f"  격자: {bd.get('nx','?')}×{bd.get('ny','?')}\n"
                 f"  풋프린트: {bd.get('half_L',0)*2:.3f}×{bd.get('half_W',0)*2:.3f} m\n"
+                f"  압력 분포: {bd.get('pressure_type','?')}\n"
             )
         except Exception:
             pass
@@ -26624,8 +26682,8 @@ class PerssonModelGUI_V2:
 
         # ══ Contour/graph update (direct draw — robust, no blit) ══
         _playing = getattr(self, '_track_playing', False)
-        # Throttle contour updates during playback for performance
-        _do_contour = (not _playing) or (idx % 3 == 0)
+        # Throttle contour updates during playback (every 2nd frame for ~60Hz contour)
+        _do_contour = (not _playing) or (idx % 2 == 0)
         if _do_contour and hasattr(self, '_ts_cursor_fy_sa'):
             bd = d['brush_data']
 
@@ -26677,7 +26735,7 @@ class PerssonModelGUI_V2:
         # HUD labels
         self.ts_frame_label_var.set(
             f"t={t_cur:.2f}s | {v_kmh[idx]:.0f}km/h | {d_cur:.0f}m")
-        self._ts_hud_var.set(f"SA: {sa_cur:+.1f}°  |  Fy: {Fy_cur:+.0f}N")
+        self._ts_hud_var.set(f"SA: {sa_cur:+.1f}°  |  Fy: {Fy_cur:+.1f} N")
 
     # ── Playback: 120 Hz with fractional accumulator ──
     def _track_play(self):
@@ -26712,7 +26770,7 @@ class PerssonModelGUI_V2:
 
         self._update_track_frame(self._track_frame_idx)
 
-        # ~60 FPS target with draw_idle for contour + blit for track map
+        # ~120 FPS target (8ms ≈ 125 FPS) with draw_idle for contour + blit for track map
         self._track_play_after_id = self.root.after(8, self._track_animate_step)
 
     def _track_pause(self):
