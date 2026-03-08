@@ -22429,7 +22429,7 @@ class PerssonModelGUI_V2:
 
         row_W = ttk.Frame(sec1); row_W.pack(fill=tk.X, pady=1)
         ttk.Label(row_W, text="풋프린트 폭 W:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.br_W_var = tk.StringVar(value="0.08")
+        self.br_W_var = tk.StringVar(value="0.12")
         ttk.Entry(row_W, textvariable=self.br_W_var, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_W, text="m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
@@ -24719,20 +24719,19 @@ class PerssonModelGUI_V2:
         # ── Common helpers ──
         _cb_kw = dict(fraction=0.046, pad=0.04)
 
-        # Fixed axis extent so outline visually resizes when L/W change
-        _FIXED_AX_X_HALF = 140.0   # mm – covers footprint L up to ~400 mm
-        _FIXED_AX_Y_LOW  = -100.0  # mm
-        _FIXED_AX_Y_HIGH =  85.0   # mm
+        # Axis extent: proportional to footprint with small margin
+        # This ensures contour fills the visible area without white gaps
+        _AX_MARGIN = 1.20  # 20% margin around footprint
+        _AX_X_HALF = L_mm / 2 * _AX_MARGIN
+        _AX_Y_HALF = W_mm / 2 * _AX_MARGIN
 
         def _setup_ax(ax, title, has_colorbar_space=False):
             ax.set_title(title, fontsize=9, fontweight='bold')
             ax.set_xlabel('length [mm]', fontsize=7)
             ax.set_ylabel('width [mm]', fontsize=7)
-            # Use fixed axis limits so that changing L / W visually
-            # resizes the outline + contour instead of only changing
-            # the axis tick numbers.
-            ax.set_xlim(-_FIXED_AX_X_HALF, _FIXED_AX_X_HALF)
-            ax.set_ylim(_FIXED_AX_Y_LOW, _FIXED_AX_Y_HIGH)
+            # Use footprint-proportional axis limits to prevent white gaps
+            ax.set_xlim(-_AX_X_HALF, _AX_X_HALF)
+            ax.set_ylim(-_AX_Y_HALF, _AX_Y_HALF)
             ax.tick_params(labelsize=7)
 
         def _add_contact_outline(ax):
@@ -25472,19 +25471,18 @@ class PerssonModelGUI_V2:
                                       scroll_canvas.unbind_all('<Button-4>'),
                                       scroll_canvas.unbind_all('<Button-5>')))
 
-        # ── Center (track map top + contour/graph bottom) ──
+        # ── Center: Horizontal split — track map (left) | plots (right) ──
         center = ttk.Frame(main)
         center.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 4))
 
-        # Use PanedWindow for resizable split
-        center_pane = ttk.PanedWindow(center, orient=tk.VERTICAL)
+        center_pane = ttk.PanedWindow(center, orient=tk.HORIZONTAL)
         center_pane.pack(fill=tk.BOTH, expand=True)
 
-        # Top: Track Map
+        # Left side: Track Map (full height)
         map_frame = ttk.Frame(center_pane)
-        center_pane.add(map_frame, weight=3)
+        center_pane.add(map_frame, weight=5)
 
-        self.fig_track = _Fig(figsize=(10, 7), dpi=100, facecolor='#1A1A2E')
+        self.fig_track = _Fig(figsize=(8, 8), dpi=100, facecolor='#1A1A2E')
         self.ax_track = self.fig_track.add_axes([0.02, 0.02, 0.96, 0.96])
         self.ax_track.set_aspect('equal')
         self.ax_track.axis('off')
@@ -25493,74 +25491,77 @@ class PerssonModelGUI_V2:
         self.canvas_track = _FCA(self.fig_track, map_frame)
         self.canvas_track.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-        # Bottom: Contour/Graph figure (SA/Fy + 5 contour plots)
-        contour_frame = ttk.Frame(center_pane)
-        center_pane.add(contour_frame, weight=2)
+        # Right side: Steering wheel + Fy plots + 5 contour plots (vertical stack)
+        right_plots = ttk.Frame(center_pane)
+        center_pane.add(right_plots, weight=4)
 
-        self._ts_contour_fig = _Fig(figsize=(14, 5), dpi=100)
-        gs_c = GridSpec(2, 20, figure=self._ts_contour_fig,
-                        height_ratios=[1.0, 1.5],
-                        hspace=0.45, wspace=1.2,
-                        left=0.05, right=0.97, top=0.92, bottom=0.08)
+        # ── Steering wheel (top, compact) ──
+        steer_frame = ttk.Frame(right_plots)
+        steer_frame.pack(fill=tk.X, padx=2, pady=(2, 0))
 
-        # Row 0: SA vs Fy + Fy vs Distance
-        self._ts_ax_fy_sa = self._ts_contour_fig.add_subplot(gs_c[0, :10])
-        self._ts_ax_fy_sa.set_title('Fy vs Slip Angle', fontsize=9, fontweight='bold')
-        self._ts_ax_fy_sa.set_xlabel('SA [deg]', fontsize=8)
-        self._ts_ax_fy_sa.set_ylabel('Fy [N]', fontsize=8)
-        self._ts_ax_fy_sa.grid(True, alpha=0.3)
+        steer_inner = ttk.Frame(steer_frame)
+        steer_inner.pack(anchor='center')
 
-        self._ts_ax_fy_dist = self._ts_contour_fig.add_subplot(gs_c[0, 10:])
-        self._ts_ax_fy_dist.set_title('Fy vs Distance', fontsize=9, fontweight='bold')
-        self._ts_ax_fy_dist.set_xlabel('Distance [m]', fontsize=8)
-        self._ts_ax_fy_dist.set_ylabel('Fy [N]', fontsize=8)
-        self._ts_ax_fy_dist.grid(True, alpha=0.3)
-
-        # Row 1: 5 contour plots
-        self._ts_ax_stick = self._ts_contour_fig.add_subplot(gs_c[1, 0:4])
-        self._ts_ax_stick.set_title('Adhesion / Sliding', fontsize=8, fontweight='bold')
-        self._ts_ax_speed = self._ts_contour_fig.add_subplot(gs_c[1, 4:8])
-        self._ts_ax_speed.set_title('Sliding Speed', fontsize=8, fontweight='bold')
-        self._ts_ax_press = self._ts_contour_fig.add_subplot(gs_c[1, 8:12])
-        self._ts_ax_press.set_title('Contact Pressure', fontsize=8, fontweight='bold')
-        self._ts_ax_temp = self._ts_contour_fig.add_subplot(gs_c[1, 12:16])
-        self._ts_ax_temp.set_title('Temperature', fontsize=8, fontweight='bold')
-        self._ts_ax_fric = self._ts_contour_fig.add_subplot(gs_c[1, 16:20])
-        self._ts_ax_fric.set_title('Friction Force', fontsize=8, fontweight='bold')
-
-        self._ts_contour_canvas = _FCA(self._ts_contour_fig, contour_frame)
-        self._ts_contour_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-
-        # ── Right (steering + tire, fixed 320px) ──
-        right = ttk.Frame(main, width=320)
-        right.pack(side=tk.LEFT, fill=tk.Y)
-        right.pack_propagate(False)
-
-        ttk.Label(right, text="조향 핸들 / 타이어",
-                  font=self.FONTS['heading']).pack(pady=(4, 2))
-
-        self._ts_steer_fig = _Fig(figsize=(2.8, 2.8), dpi=80, facecolor='#F8FAFC')
+        self._ts_steer_fig = _Fig(figsize=(2.4, 2.4), dpi=80, facecolor='#F8FAFC')
         self._ts_steer_ax = self._ts_steer_fig.add_axes([0.05, 0.05, 0.9, 0.9])
         self._ts_steer_ax.set_xlim(-1.5, 1.5)
         self._ts_steer_ax.set_ylim(-1.5, 1.5)
         self._ts_steer_ax.set_aspect('equal')
         self._ts_steer_ax.axis('off')
-        self._ts_steer_canvas = _FCA(self._ts_steer_fig, right)
-        self._ts_steer_canvas.get_tk_widget().pack(fill=tk.X, padx=4, pady=2)
+        self._ts_steer_canvas = _FCA(self._ts_steer_fig, steer_inner)
+        self._ts_steer_canvas.get_tk_widget().pack(side=tk.LEFT, padx=2)
 
-        self._ts_tire_fig = _Fig(figsize=(2.8, 3.5), dpi=80, facecolor='#2D2D2D')
+        self._ts_tire_fig = _Fig(figsize=(2.0, 2.8), dpi=80, facecolor='#2D2D2D')
         self._ts_tire_ax = self._ts_tire_fig.add_axes([0.0, 0.0, 1.0, 1.0])
         self._ts_tire_ax.set_xlim(-3.0, 3.0)
         self._ts_tire_ax.set_ylim(-4.0, 4.0)
         self._ts_tire_ax.set_aspect('equal')
         self._ts_tire_ax.axis('off')
         self._ts_tire_fig.patch.set_facecolor('#2D2D2D')
-        self._ts_tire_canvas = _FCA(self._ts_tire_fig, right)
-        self._ts_tire_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True, padx=4, pady=2)
+        self._ts_tire_canvas = _FCA(self._ts_tire_fig, steer_inner)
+        self._ts_tire_canvas.get_tk_widget().pack(side=tk.LEFT, padx=2)
 
         self._ts_hud_var = tk.StringVar(value="SA: 0.0°  |  Fy: 0 N")
-        ttk.Label(right, textvariable=self._ts_hud_var,
-                  font=('Consolas', 9), foreground='#0369A1').pack(pady=2)
+        ttk.Label(steer_frame, textvariable=self._ts_hud_var,
+                  font=('Consolas', 9), foreground='#0369A1').pack(pady=1)
+
+        # ── Contour/Graph figure: Fy plots (row 0) + 5 contour plots (row 1) ──
+        contour_frame = ttk.Frame(right_plots)
+        contour_frame.pack(fill=tk.BOTH, expand=True, padx=2, pady=(0, 2))
+
+        self._ts_contour_fig = _Fig(figsize=(10, 7), dpi=100)
+        gs_c = GridSpec(2, 10, figure=self._ts_contour_fig,
+                        height_ratios=[1.0, 1.5],
+                        hspace=0.50, wspace=0.8,
+                        left=0.07, right=0.96, top=0.94, bottom=0.06)
+
+        # Row 0: SA vs Fy + Fy vs Distance
+        self._ts_ax_fy_sa = self._ts_contour_fig.add_subplot(gs_c[0, :5])
+        self._ts_ax_fy_sa.set_title('Fy vs Slip Angle', fontsize=9, fontweight='bold')
+        self._ts_ax_fy_sa.set_xlabel('SA [deg]', fontsize=8)
+        self._ts_ax_fy_sa.set_ylabel('Fy [N]', fontsize=8)
+        self._ts_ax_fy_sa.grid(True, alpha=0.3)
+
+        self._ts_ax_fy_dist = self._ts_contour_fig.add_subplot(gs_c[0, 5:])
+        self._ts_ax_fy_dist.set_title('Fy vs Distance', fontsize=9, fontweight='bold')
+        self._ts_ax_fy_dist.set_xlabel('Distance [m]', fontsize=8)
+        self._ts_ax_fy_dist.set_ylabel('Fy [N]', fontsize=8)
+        self._ts_ax_fy_dist.grid(True, alpha=0.3)
+
+        # Row 1: 5 contour plots
+        self._ts_ax_stick = self._ts_contour_fig.add_subplot(gs_c[1, 0:2])
+        self._ts_ax_stick.set_title('Adhesion / Sliding', fontsize=8, fontweight='bold')
+        self._ts_ax_speed = self._ts_contour_fig.add_subplot(gs_c[1, 2:4])
+        self._ts_ax_speed.set_title('Sliding Speed', fontsize=8, fontweight='bold')
+        self._ts_ax_press = self._ts_contour_fig.add_subplot(gs_c[1, 4:6])
+        self._ts_ax_press.set_title('Contact Pressure', fontsize=8, fontweight='bold')
+        self._ts_ax_temp = self._ts_contour_fig.add_subplot(gs_c[1, 6:8])
+        self._ts_ax_temp.set_title('Temperature', fontsize=8, fontweight='bold')
+        self._ts_ax_fric = self._ts_contour_fig.add_subplot(gs_c[1, 8:10])
+        self._ts_ax_fric.set_title('Friction Force', fontsize=8, fontweight='bold')
+
+        self._ts_contour_canvas = _FCA(self._ts_contour_fig, contour_frame)
+        self._ts_contour_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         # ===================== Left Panel Controls =====================
         sec1 = self._create_section(left_panel, "1) 트랙 정보 – 영암 F1 서킷")
@@ -25596,6 +25597,17 @@ class PerssonModelGUI_V2:
         self.ts_sync_label = tk.StringVar(value="")
         ttk.Label(sync_row, textvariable=self.ts_sync_label,
                   font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=4)
+
+        # ── 2D Brush Model sync info ──
+        sec_brush = self._create_section(left_panel, "2-1) 2D Brush 모델 연동")
+        self.ts_brush_info_var = tk.StringVar(
+            value="※ 2D Brush 탭의 Nx, Ny, 풋프린트,\n"
+                  "   마찰감도 계수 등을 자동 동기화합니다.")
+        ttk.Label(sec_brush, textvariable=self.ts_brush_info_var,
+                  font=self.FONTS['small'], foreground='#1565C0',
+                  justify='left').pack(anchor='w', padx=4, pady=2)
+        ttk.Button(sec_brush, text="Brush 설정 동기화 확인",
+                   command=self._show_track_brush_sync_info, width=22).pack(anchor='w', padx=4, pady=2)
 
         sec3 = self._create_section(left_panel, "3) 실행 & 재생")
         calc_row = ttk.Frame(sec3); calc_row.pack(fill=tk.X, pady=2)
@@ -25860,25 +25872,55 @@ class PerssonModelGUI_V2:
         for a in self._ts_map_dynamic:
             a.set_visible(True)
 
-    # ── Pre-compute simplified brush model data ──
+    # ── Pre-compute simplified brush model data (synced with 2D Brush tab) ──
     def _compute_track_brush_data(self, sa_arr, v_arr, Fz_arr, mu):
         """Vectorized brush model for all track points.
 
+        Uses the same parameters (L, W, Nx, Ny, friction scale, etc.)
+        as the 2D Brush Model tab for consistent results.
         Returns dict of (n, nx, ny) arrays for contour plot display.
         """
         import numpy as np
 
+        # ── Read parameters from 2D Brush Model tab ──
+        try:
+            nx = int(self.br_Nx_var.get())
+            ny = int(self.br_Ny_var.get())
+            L = float(self.br_L_var.get())    # footprint length (m)
+            W = float(self.br_W_var.get())    # footprint width (m)
+            friction_scale = float(self.br_friction_scale_var.get())
+        except (AttributeError, ValueError):
+            # Fallback defaults (matching 2D Brush defaults)
+            nx, ny = 64, 64
+            L, W = 0.15, 0.12
+            friction_scale = 0.5
+
+        # For track simulation: use reduced resolution to keep memory manageable
+        # (2000 points × nx × ny per field), but maintain aspect ratio
+        max_grid = 32
+        if nx > max_grid or ny > max_grid:
+            scale_factor = max_grid / max(nx, ny)
+            nx = max(int(nx * scale_factor), 8)
+            ny = max(int(ny * scale_factor), 8)
+
         n = len(sa_arr)
-        nx, ny = 20, 15
-        a, b = 0.08, 0.06  # contact patch half-axes (m)
+        a, b = L / 2.0, W / 2.0  # contact patch half-axes (m)
+
+        # Get superellipse power from 2D Brush tab
+        ellipse_power = getattr(self, '_ELLIPSE_POWER', 2.0)
+        try:
+            ellipse_power = float(self._br_ellipse_power_var.get())
+        except (AttributeError, ValueError):
+            pass
 
         x = np.linspace(-a, a, nx)
         y = np.linspace(-b, b, ny)
         xx, yy = np.meshgrid(x, y, indexing='ij')  # (nx, ny)
 
-        r2 = (xx / a)**2 + (yy / b)**2
-        mask = r2 <= 1.0  # (nx, ny) elliptical contact
-        p_shape = np.sqrt(np.clip(1 - r2, 0, None))  # Hertzian shape
+        # Superellipse mask (matching 2D Brush Model)
+        r_se = np.abs(xx / a)**ellipse_power + np.abs(yy / b)**ellipse_power
+        mask = r_se <= 1.0  # (nx, ny) superelliptical contact
+        p_shape = np.sqrt(np.clip(1 - r_se, 0, None))  # Hertzian-like shape
 
         xi = np.clip(a - xx, 0, None)  # distance from leading edge
 
@@ -25887,15 +25929,15 @@ class PerssonModelGUI_V2:
         Fz_3d = Fz_arr[:, None, None]
         v_3d = v_arr[:, None, None]
 
-        # Pressure (n, nx, ny)
+        # Pressure (n, nx, ny) — matching 2D Brush Model Hertzian distribution
         p0 = 3.0 * Fz_3d / (2.0 * np.pi * a * b + 1e-10)
         pressure = p0 * p_shape[None, :, :] * mask[None, :, :]
 
-        # Bristle shear
+        # Bristle shear (same tread stiffness logic)
         cp = 5e6  # tread stiffness (Pa/m)
         delta = xi[None, :, :] * np.tan(sa_rad)
         tau = cp * np.abs(delta)
-        tau_max = mu * pressure
+        tau_max = mu * friction_scale * pressure
 
         # Sliding state
         is_sliding = (tau >= tau_max) & mask[None, :, :]
@@ -25904,14 +25946,12 @@ class PerssonModelGUI_V2:
         friction = np.where(is_sliding, tau_max, tau) * mask[None, :, :]
 
         # Sliding speed
-        v_slide = np.zeros((n, nx, ny))
-        # In sliding zone: proportional to overshoot
         overshoot = np.clip(1.0 - tau_max / (tau + 1e-10), 0, 1)
         v_slide = v_3d * np.abs(np.tan(sa_rad)) * overshoot * is_sliding
 
         # Temperature (simplified: base + friction heating)
         T_base = 25.0
-        k_thermal = 500.0  # thermal conductivity proxy
+        k_thermal = 500.0
         temperature = T_base + friction * np.clip(np.abs(v_slide), 0, 50) / k_thermal
         temperature *= mask[None, :, :]
         temperature = np.where(mask[None, :, :], temperature, np.nan)
@@ -25939,19 +25979,26 @@ class PerssonModelGUI_V2:
             'y_edges': y_edges,              # (ny+1,)
             'mask': mask,                     # (nx, ny)
             'nx': nx, 'ny': ny,
+            'half_L': a, 'half_W': b,        # contact patch dimensions
         }
 
     # ── Initialize contour plot artists ──
     def _init_track_contour_artists(self):
-        """Create pcolormesh + SA/Fy plot artists and cache blit background."""
+        """Create pcolormesh + SA/Fy plot artists and cache blit background.
+
+        Uses egg-shaped contact patch outline (matching 2D Brush Model)
+        and proper axis limits synced with footprint dimensions.
+        """
         import numpy as np
         import matplotlib.pyplot as plt
         from matplotlib.colors import BoundaryNorm, ListedColormap
-        from matplotlib.patches import Ellipse
+        from matplotlib.patches import Polygon as MplPolygon
 
         d = self._track_sim_data
         bd = d['brush_data']
         xe, ye = bd['x_edges'], bd['y_edges']
+        half_L = bd.get('half_L', 0.075)
+        half_W = bd.get('half_W', 0.06)
 
         # ── SA vs Fy plot ──
         ax_fy = self._ts_ax_fy_sa
@@ -25979,8 +26026,12 @@ class PerssonModelGUI_V2:
         ax_fd.grid(True, alpha=0.3)
         self._ts_cursor_fy_dist = ax_fd.axvline(x=0, color='red', lw=1.5, alpha=0.8)
 
-        # ── Contact patch outline helper ──
-        a_cp, b_cp = 0.08, 0.06  # half-axes
+        # ── Contact patch outline using egg shape (matching 2D Brush Model) ──
+        # Axis limits: match exactly the footprint range (no extra margin)
+        # to prevent white gaps between contour fill and outline
+        ax_margin = 1.15  # slight margin for outline visibility
+
+        self._ts_outline_patches = []
 
         def _setup_contour_ax(ax, title):
             ax.clear()
@@ -25989,10 +26040,23 @@ class PerssonModelGUI_V2:
             ax.set_xlabel('x [m]', fontsize=7)
             ax.set_ylabel('y [m]', fontsize=7)
             ax.tick_params(labelsize=6)
-            ell = Ellipse((0, 0), 2 * a_cp, 2 * b_cp, fill=False,
-                          edgecolor='#333', lw=1.5, linestyle='--', zorder=5)
-            ax.add_patch(ell)
-            return ell
+            # Set axis limits to match footprint dimensions exactly
+            ax.set_xlim(-half_L * ax_margin, half_L * ax_margin)
+            ax.set_ylim(-half_W * ax_margin, half_W * ax_margin)
+            # Egg-shaped outline (same as 2D Brush Model)
+            if hasattr(self, '_egg_outline'):
+                verts_mm = self._egg_outline(0, half_L * 1000, half_W * 1000)
+                verts_m = verts_mm / 1000.0  # convert mm → m
+            else:
+                # Fallback: simple ellipse
+                theta = np.linspace(0, 2 * np.pi, 80)
+                verts_m = np.column_stack([half_L * np.cos(theta),
+                                            half_W * np.sin(theta)])
+            poly = MplPolygon(verts_m, closed=True, fill=False,
+                              edgecolor='#333', lw=1.5, linestyle='--', zorder=5)
+            ax.add_patch(poly)
+            self._ts_outline_patches.append(poly)
+            return poly
 
         # ── (1) Adhesion / Sliding ──
         _setup_contour_ax(self._ts_ax_stick, 'Adhesion / Sliding')
@@ -26193,6 +26257,17 @@ class PerssonModelGUI_V2:
         d = self._track_sim_data
         if d is None: return
         lt = d['lap_time']; m, s = int(lt // 60), lt % 60
+        bd = d.get('brush_data', {})
+        # Show synced 2D Brush parameters
+        brush_info = ""
+        try:
+            brush_info = (
+                f"\n  ── 2D Brush 연동 ──\n"
+                f"  격자: {bd.get('nx','?')}×{bd.get('ny','?')}\n"
+                f"  풋프린트: {bd.get('half_L',0)*2:.3f}×{bd.get('half_W',0)*2:.3f} m\n"
+            )
+        except Exception:
+            pass
         text = (
             f"═══ 랩타임 결과 ═══\n\n"
             f"  총 랩타임:  {m}:{s:06.3f}\n\n"
@@ -26203,6 +26278,7 @@ class PerssonModelGUI_V2:
             f"  최저 속도:  {d['min_speed_kmh']:.1f} km/h\n"
             f"  평균 속도:  {d['avg_speed_kmh']:.1f} km/h\n\n"
             f"  트랙 길이:  5.615 km  |  18 코너\n"
+            f"{brush_info}"
         )
         self.ts_result_text.configure(state='normal')
         self.ts_result_text.delete('1.0', tk.END)
@@ -26231,12 +26307,15 @@ class PerssonModelGUI_V2:
         # Car position
         self._ts_car_dot.set_data([tx[idx]], [ty[idx]])
 
-        # Direction arrow
-        ni = (idx + 8) % n
+        # Direction arrow — use more points for smoother direction estimate
+        ni = (idx + 15) % n
         dx = tx[ni] - tx[idx]; dy = ty[ni] - ty[idx]
         le = np.sqrt(dx**2 + dy**2)
         if le > 0:
-            angle = np.degrees(np.arctan2(dy, dx))
+            # marker(3,0,angle) draws triangle pointing UP rotated by angle degrees.
+            # arctan2 gives angle from +x axis. Subtract 90° to align triangle tip
+            # with the direction of travel.
+            angle = np.degrees(np.arctan2(dy, dx)) - 90
             self._ts_car_arrow.set_data([tx[idx] + dx / le * 30],
                                          [ty[idx] + dy / le * 30])
             self._ts_car_arrow.set_marker((3, 0, angle))
@@ -26397,6 +26476,24 @@ class PerssonModelGUI_V2:
             self.ts_sync_label.set(f"μ ≈ {fs * 2.0:.3f} (마찰 감도 x2)")
         except Exception:
             self.ts_sync_label.set("동기화 실패")
+
+    def _show_track_brush_sync_info(self):
+        """Display current 2D Brush Model parameters used by Track Simulation."""
+        try:
+            nx = self.br_Nx_var.get()
+            ny = self.br_Ny_var.get()
+            L = self.br_L_var.get()
+            W = self.br_W_var.get()
+            fs = self.br_friction_scale_var.get()
+            ep = getattr(self, '_br_ellipse_power_var', None)
+            ep_val = f"{ep.get():.1f}" if ep else "2.0"
+            self.ts_brush_info_var.set(
+                f"Nx={nx}, Ny={ny}\n"
+                f"L={L} m, W={W} m\n"
+                f"마찰 감도: {fs}\n"
+                f"타원 형상 (n): {ep_val}")
+        except Exception:
+            self.ts_brush_info_var.set("2D Brush 탭 파라미터 읽기 실패")
 
     # ── Steering wheel (track sim) ──
     def _init_track_steering_wheel(self):
