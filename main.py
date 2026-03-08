@@ -24210,9 +24210,28 @@ class PerssonModelGUI_V2:
                                            color='#BBBBBB', zorder=6)
         # Store base angles for hand positions
         self._steer_hand_base_angles = [np.radians(140), np.radians(40)]
-        # No blit — just full draw
-        self._steer_blit_bg = None
+
+        # ── Blit setup for smooth playback ──
+        # Collect all dynamic artists that change with SA
+        self._steer_dynamic_artists = [
+            self._steer_outer, self._steer_inner, self._steer_center,
+            *self._steer_spoke_lines,
+            self._steer_arc, self._steer_sa_label,
+            self._steer_left_label, self._steer_right_label,
+        ]
+        for h in self._steer_hands:
+            self._steer_dynamic_artists.append(h)
+        # Set animated flag on dynamic artists
+        for art in self._steer_dynamic_artists:
+            art.set_animated(True)
         self._steer_canvas.draw()
+        self._steer_blit_bg = self._steer_canvas.copy_from_bbox(
+            self._steer_fig.bbox)
+        # Restore visibility after background capture
+        for art in self._steer_dynamic_artists:
+            art.set_animated(True)
+            art.axes.draw_artist(art)
+        self._steer_canvas.blit(self._steer_fig.bbox)
 
     def _update_left_steering_wheel(self, sa_deg):
         """Update the left-panel steering wheel rotation.
@@ -24296,7 +24315,17 @@ class PerssonModelGUI_V2:
             self._steer_right_label.set_color('#BBBBBB')
             self._steer_right_label.set_fontsize(14)
 
-        self._steer_canvas.draw_idle()
+        # ── Fast blit render if available, else fallback to draw_idle ──
+        if self._steer_blit_bg is not None:
+            self._steer_canvas.restore_region(self._steer_blit_bg)
+            for art in self._steer_dynamic_artists:
+                try:
+                    art.axes.draw_artist(art)
+                except Exception:
+                    pass
+            self._steer_canvas.blit(self._steer_fig.bbox)
+        else:
+            self._steer_canvas.draw_idle()
 
     # ── 2D Brush: Tire animation (top-down rolling tire with lateral force) ──
 
@@ -25128,9 +25157,8 @@ class PerssonModelGUI_V2:
 
         # ── Steering wheel & tire animation update (left panel) ──
         _is_playing = getattr(self, '_brush_playing', False)
-        # Steering wheel: sparse update (low priority)
-        if not _is_playing or idx % 6 == 0:
-            self._update_left_steering_wheel(f['SA'])
+        # Steering wheel: update every frame (blit makes this fast enough)
+        self._update_left_steering_wheel(f['SA'])
         # Tire racing view: every 2nd frame for smooth treadmill feel
         if hasattr(self, '_tire_ax') and (not _is_playing or idx % 2 == 0):
             Fz = float(self.br_Fz_var.get()) if self.br_Fz_var.get() else 4000.0
