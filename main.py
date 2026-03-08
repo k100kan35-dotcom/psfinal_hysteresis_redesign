@@ -25480,9 +25480,10 @@ class PerssonModelGUI_V2:
     def _create_track_simulation_tab(self, parent):
         """Track Simulation tab — Yeongam F1 circuit.
 
-        3-column layout: left controls | center (track map + contour/SA plots) | right (steering + tire).
-        Blit-based 120 Hz playback with fractional accumulator.
-        SA/Fy graph + 5 contour plots update in real-time (exactly like 2D Brush tab).
+        2x2 grid layout (matching attachment 4):
+          Left-top: Track map | Right-top: Steering wheel + Car view
+          Left-bottom: 5 footprint contour plots | Right-bottom: Fy vs SA + Fy vs Distance
+        Contour plots match 2D Brush Model tab exactly (colormaps, colorbars, outlines, legends).
         """
         import numpy as np
         from matplotlib.figure import Figure as _Fig
@@ -25503,14 +25504,14 @@ class PerssonModelGUI_V2:
         self._ts_contour_blit_bg = None
         self._ts_use_blit = False
 
-        # ===================== 3-column layout =====================
+        # ===================== 2-column layout: controls | visualization =====================
         D = self.DIMS
         C = self.COLORS
 
         main = ttk.Frame(parent)
         main.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
 
-        # ── Left (fixed width, scrollable) ──
+        # ── Left (fixed width, scrollable controls) ──
         left = ttk.Frame(main, width=D['panel_width'])
         left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 4))
         left.pack_propagate(False)
@@ -25551,19 +25552,30 @@ class PerssonModelGUI_V2:
                                       scroll_canvas.unbind_all('<Button-4>'),
                                       scroll_canvas.unbind_all('<Button-5>')))
 
-        # ── Center: Horizontal split — track map (left) | plots (right) ──
-        center = ttk.Frame(main)
-        center.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 4))
+        # ── Right: 2×2 grid visualization area (attachment 4 layout) ──
+        # Layout:  Left col (~55%)         | Right col (~45%)
+        #          Track map (top ~55%)     | Steering+Car (top ~25%)
+        #                                   | Fy vs Slip Angle (mid ~40%)
+        #          Footprint contours (45%) | Fy vs Distance (bot ~35%)
+        viz = ttk.Frame(main)
+        viz.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        center_pane = ttk.PanedWindow(center, orient=tk.HORIZONTAL)
-        center_pane.pack(fill=tk.BOTH, expand=True)
+        # Use PanedWindow for vertical split (top / bottom)
+        viz_vpane = ttk.PanedWindow(viz, orient=tk.VERTICAL)
+        viz_vpane.pack(fill=tk.BOTH, expand=True)
 
-        # Left side: Track Map (fixed width to avoid overlapping steering area)
-        map_frame = ttk.Frame(center_pane, width=420)
-        map_frame.pack_propagate(False)
-        center_pane.add(map_frame, weight=2)
+        # ── Top row: Track map (left) | Steering+Car (right) ──
+        top_row = ttk.Frame(viz_vpane)
+        viz_vpane.add(top_row, weight=55)
 
-        self.fig_track = _Fig(figsize=(4, 8), dpi=100, facecolor='#1A1A2E')
+        top_hpane = ttk.PanedWindow(top_row, orient=tk.HORIZONTAL)
+        top_hpane.pack(fill=tk.BOTH, expand=True)
+
+        # Top-Left: Track Map
+        map_frame = ttk.Frame(top_hpane)
+        top_hpane.add(map_frame, weight=55)
+
+        self.fig_track = _Fig(figsize=(5, 5), dpi=100, facecolor='#1A1A2E')
         self.ax_track = self.fig_track.add_axes([0.02, 0.02, 0.96, 0.96])
         self.ax_track.set_aspect('equal')
         self.ax_track.axis('off')
@@ -25572,16 +25584,12 @@ class PerssonModelGUI_V2:
         self.canvas_track = _FCA(self.fig_track, map_frame)
         self.canvas_track.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-        # Right side: Steering wheel + Fy plots + 5 contour plots (vertical stack)
-        right_plots = ttk.Frame(center_pane)
-        center_pane.add(right_plots, weight=7)
+        # Top-Right: Steering wheel + Car view (vertical stack)
+        steer_car_frame = ttk.Frame(top_hpane)
+        top_hpane.add(steer_car_frame, weight=45)
 
-        # ── Steering wheel (top, compact) ──
-        steer_frame = ttk.Frame(right_plots)
-        steer_frame.pack(fill=tk.X, padx=2, pady=(2, 0))
-
-        steer_inner = ttk.Frame(steer_frame)
-        steer_inner.pack(anchor='center')
+        steer_inner = ttk.Frame(steer_car_frame)
+        steer_inner.pack(fill=tk.BOTH, expand=True)
 
         self._ts_steer_fig = _Fig(figsize=(2.4, 2.4), dpi=80, facecolor='#F8FAFC')
         self._ts_steer_ax = self._ts_steer_fig.add_axes([0.05, 0.05, 0.9, 0.9])
@@ -25590,7 +25598,7 @@ class PerssonModelGUI_V2:
         self._ts_steer_ax.set_aspect('equal')
         self._ts_steer_ax.axis('off')
         self._ts_steer_canvas = _FCA(self._ts_steer_fig, steer_inner)
-        self._ts_steer_canvas.get_tk_widget().pack(side=tk.LEFT, padx=2)
+        self._ts_steer_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2)
 
         self._ts_tire_fig = _Fig(figsize=(2.0, 2.8), dpi=80, facecolor='#2D2D2D')
         self._ts_tire_ax = self._ts_tire_fig.add_axes([0.0, 0.0, 1.0, 1.0])
@@ -25600,60 +25608,70 @@ class PerssonModelGUI_V2:
         self._ts_tire_ax.axis('off')
         self._ts_tire_fig.patch.set_facecolor('#2D2D2D')
         self._ts_tire_canvas = _FCA(self._ts_tire_fig, steer_inner)
-        self._ts_tire_canvas.get_tk_widget().pack(side=tk.LEFT, padx=2)
+        self._ts_tire_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2)
 
         self._ts_hud_var = tk.StringVar(value="SA: 0.0°  |  Fy: 0 N")
-        ttk.Label(steer_frame, textvariable=self._ts_hud_var,
+        ttk.Label(steer_car_frame, textvariable=self._ts_hud_var,
                   font=('Consolas', 9), foreground='#0369A1').pack(pady=1)
 
-        # ── Contour/Graph figure: Fy plots (row 0) + 5 contour plots (row 1) ──
-        contour_frame = ttk.Frame(right_plots)
-        contour_frame.pack(fill=tk.BOTH, expand=True, padx=2, pady=(0, 2))
+        # ── Bottom row: Footprint contours (left) | Fy graphs (right) ──
+        bot_row = ttk.Frame(viz_vpane)
+        viz_vpane.add(bot_row, weight=45)
 
-        # Match 2D Brush tab figure/GridSpec style exactly
-        self._ts_contour_fig = _Fig(figsize=(14, 10), dpi=100)
-        gs_c = GridSpec(2, 20, figure=self._ts_contour_fig,
-                        height_ratios=[4, 5],
-                        hspace=0.40, wspace=1.2,
-                        left=0.05, right=0.97, top=0.96, bottom=0.06)
+        bot_hpane = ttk.PanedWindow(bot_row, orient=tk.HORIZONTAL)
+        bot_hpane.pack(fill=tk.BOTH, expand=True)
 
-        # Row 0: SA vs Fy (left half) + Fy vs Distance (right half)
-        self._ts_ax_fy_sa = self._ts_contour_fig.add_subplot(gs_c[0, :10])
+        # Bottom-Left: 5 footprint contour plots (single figure, 1 row × 5 cols)
+        contour_frame = ttk.Frame(bot_hpane)
+        bot_hpane.add(contour_frame, weight=55)
+
+        self._ts_contour_fig = _Fig(figsize=(14, 4), dpi=100)
+        gs_contour = GridSpec(1, 5, figure=self._ts_contour_fig,
+                              wspace=0.45,
+                              left=0.04, right=0.98, top=0.88, bottom=0.15)
+
+        self._ts_ax_stick = self._ts_contour_fig.add_subplot(gs_contour[0, 0])
+        self._ts_ax_speed = self._ts_contour_fig.add_subplot(gs_contour[0, 1])
+        self._ts_ax_press = self._ts_contour_fig.add_subplot(gs_contour[0, 2])
+        self._ts_ax_temp = self._ts_contour_fig.add_subplot(gs_contour[0, 3])
+        self._ts_ax_fric = self._ts_contour_fig.add_subplot(gs_contour[0, 4])
+
+        for ax, title in [(self._ts_ax_stick, 'Adhesion / Sliding'),
+                           (self._ts_ax_speed, 'Sliding Speed'),
+                           (self._ts_ax_press, 'Contact Pressure [bar]'),
+                           (self._ts_ax_temp, 'Temperature [\u00b0C]'),
+                           (self._ts_ax_fric, 'Friction Force [kPa]')]:
+            ax.set_title(title, fontsize=9, fontweight='bold')
+            ax.set_xlabel('x [m]', fontsize=7)
+            ax.set_ylabel('y [m]', fontsize=7)
+            ax.tick_params(labelsize=6)
+
+        self._ts_contour_canvas = _FCA(self._ts_contour_fig, contour_frame)
+        self._ts_contour_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Bottom-Right: Fy vs Slip Angle (top) + Fy vs Distance (bottom)
+        fy_frame = ttk.Frame(bot_hpane)
+        bot_hpane.add(fy_frame, weight=45)
+
+        self._ts_fy_fig = _Fig(figsize=(6, 4), dpi=100)
+        gs_fy = GridSpec(2, 1, figure=self._ts_fy_fig,
+                         hspace=0.45,
+                         left=0.12, right=0.95, top=0.93, bottom=0.10)
+
+        self._ts_ax_fy_sa = self._ts_fy_fig.add_subplot(gs_fy[0, 0])
         self._ts_ax_fy_sa.set_title('Fy vs Slip Angle', fontsize=9, fontweight='bold')
         self._ts_ax_fy_sa.set_xlabel('SA [deg]', fontsize=8)
         self._ts_ax_fy_sa.set_ylabel('Fy [N]', fontsize=8)
         self._ts_ax_fy_sa.grid(True, alpha=0.3)
 
-        self._ts_ax_fy_dist = self._ts_contour_fig.add_subplot(gs_c[0, 10:])
+        self._ts_ax_fy_dist = self._ts_fy_fig.add_subplot(gs_fy[1, 0])
         self._ts_ax_fy_dist.set_title('Fy vs Distance', fontsize=9, fontweight='bold')
         self._ts_ax_fy_dist.set_xlabel('Distance [m]', fontsize=8)
         self._ts_ax_fy_dist.set_ylabel('Fy [N]', fontsize=8)
         self._ts_ax_fy_dist.grid(True, alpha=0.3)
 
-        # Row 1: 5 contour plots (no set_aspect='equal' for uniform sizing — match 2D Brush)
-        self._ts_ax_stick = self._ts_contour_fig.add_subplot(gs_c[1, 0:4])
-        self._ts_ax_stick.set_title('Adhesion / Sliding', fontsize=9, fontweight='bold')
-        self._ts_ax_stick.set_xlabel('x [m]', fontsize=8)
-        self._ts_ax_stick.set_ylabel('y [m]', fontsize=8)
-        self._ts_ax_speed = self._ts_contour_fig.add_subplot(gs_c[1, 4:8])
-        self._ts_ax_speed.set_title('Sliding Speed', fontsize=9, fontweight='bold')
-        self._ts_ax_speed.set_xlabel('x [m]', fontsize=8)
-        self._ts_ax_speed.set_ylabel('y [m]', fontsize=8)
-        self._ts_ax_press = self._ts_contour_fig.add_subplot(gs_c[1, 8:12])
-        self._ts_ax_press.set_title('Contact Pressure', fontsize=9, fontweight='bold')
-        self._ts_ax_press.set_xlabel('x [m]', fontsize=8)
-        self._ts_ax_press.set_ylabel('y [m]', fontsize=8)
-        self._ts_ax_temp = self._ts_contour_fig.add_subplot(gs_c[1, 12:16])
-        self._ts_ax_temp.set_title('Temperature', fontsize=9, fontweight='bold')
-        self._ts_ax_temp.set_xlabel('x [m]', fontsize=8)
-        self._ts_ax_temp.set_ylabel('y [m]', fontsize=8)
-        self._ts_ax_fric = self._ts_contour_fig.add_subplot(gs_c[1, 16:20])
-        self._ts_ax_fric.set_title('Friction Force', fontsize=9, fontweight='bold')
-        self._ts_ax_fric.set_xlabel('x [m]', fontsize=8)
-        self._ts_ax_fric.set_ylabel('y [m]', fontsize=8)
-
-        self._ts_contour_canvas = _FCA(self._ts_contour_fig, contour_frame)
-        self._ts_contour_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self._ts_fy_canvas = _FCA(self._ts_fy_fig, fy_frame)
+        self._ts_fy_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
         # ===================== Left Panel Controls =====================
         sec1 = self._create_section(left_panel, "1) 트랙 정보 – 영암 F1 서킷")
@@ -26101,35 +26119,40 @@ class PerssonModelGUI_V2:
 
     # ── Initialize contour plot artists ──
     def _init_track_contour_artists(self):
-        """Create pcolormesh + SA/Fy plot artists (direct draw, no blit).
+        """Create pcolormesh + SA/Fy plot artists matching 2D Brush Model tab exactly.
 
-        Uses egg-shaped contact patch outline (matching 2D Brush Model)
-        and proper axis limits synced with footprint dimensions.
+        Uses egg-shaped contact patch outline, inset colorbars, clip paths,
+        rolling direction arrows, LE/TE labels, legends — all synced from 2D Brush tab.
         """
         import numpy as np
         import matplotlib.pyplot as plt
         from matplotlib.colors import BoundaryNorm, ListedColormap
-        from matplotlib.patches import Polygon as MplPolygon
+        from matplotlib.patches import Polygon as MplPolygon, Patch
+        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 
         d = self._track_sim_data
         bd = d['brush_data']
         xe, ye = bd['x_edges'], bd['y_edges']
         half_L = bd.get('half_L', 0.075)
         half_W = bd.get('half_W', 0.06)
+        # Convert to mm for display (matching 2D Brush Model tab)
+        L_mm = half_L * 2 * 1000
+        W_mm = half_W * 2 * 1000
+        xe_mm = xe * 1000
+        ye_mm = ye * 1000
 
-        # ── SA vs Fy plot ──
+        # ── SA vs Fy plot (proper envelope curve like 2D Brush Model) ──
         ax_fy = self._ts_ax_fy_sa
         ax_fy.clear()
         sa_arr = d['sa_deg']
         Fy_arr = d['Fy']
-        # Overlay 2D Brush model Fy-SA curve directly from cornering analysis
-        # Priority 1: Use brush_results from cornering sweep (most accurate)
-        # Priority 2: Use transient frame data as fallback
+
+        # Overlay 2D Brush model Fy-SA envelope curve (smooth S-curve)
         _brush_curve_plotted = False
         if getattr(self, 'brush_results', None) is not None:
             br = self.brush_results
             if br.get('mode') == 'cornering' and 'sweep' in br and 'Fy' in br:
-                br_sa_deg = br['sweep']  # already in degrees for cornering
+                br_sa_deg = br['sweep']
                 br_fy = br['Fy']
                 sort_idx = np.argsort(br_sa_deg)
                 ax_fy.plot(br_sa_deg[sort_idx], br_fy[sort_idx], '-', color='#FF6B6B',
@@ -26141,6 +26164,28 @@ class PerssonModelGUI_V2:
             sort_idx = np.argsort(br_sa)
             ax_fy.plot(br_sa[sort_idx], br_fy[sort_idx], '-', color='#FF6B6B',
                        lw=2.0, alpha=0.7, label='2D Brush Model')
+            _brush_curve_plotted = True
+        if not _brush_curve_plotted:
+            # Generate theoretical brush model S-curve as envelope
+            sa_range = np.linspace(-6, 6, 200)
+            try:
+                Fz = float(self.br_Fz_var.get())
+                mu_val = float(self.br_friction_scale_var.get())
+            except (AttributeError, ValueError):
+                Fz = 3000.0
+                mu_val = 0.5
+            Fy_max = mu_val * Fz
+            # Fiala/brush model characteristic: Fy = -Fy_max * (3*x - 3*x^2 + x^3) for |x|<=1
+            sa_crit = 6.0  # critical slip angle
+            x_norm = np.clip(sa_range / sa_crit, -1, 1)
+            abs_x = np.abs(x_norm)
+            fy_theo = -np.sign(x_norm) * Fy_max * np.where(
+                abs_x < 1.0,
+                3 * abs_x - 3 * abs_x**2 + abs_x**3,
+                1.0)
+            ax_fy.plot(sa_range, fy_theo, '-', color='#FF6B6B',
+                       lw=2.5, alpha=0.85, label='2D Brush Model')
+
         ax_fy.plot(sa_arr, Fy_arr, 'b-', lw=1.2, alpha=0.6, label='Track Fy')
         ax_fy.set_xlabel('SA [deg]', fontsize=8)
         ax_fy.set_ylabel('Fy [N]', fontsize=8)
@@ -26162,85 +26207,175 @@ class PerssonModelGUI_V2:
         ax_fd.set_title('Fy vs Distance', fontsize=9, fontweight='bold')
         ax_fd.grid(True, alpha=0.3)
         self._ts_cursor_fy_dist = ax_fd.axvline(x=0, color='red', lw=1.5, alpha=0.8)
+        self._ts_fy_canvas.draw()
 
-        # ── Contact patch outline using egg shape (matching 2D Brush Model) ──
-        # Axis limits: generous margin matching 2D Brush tab
-        ax_margin = 1.60  # match 2D Brush tab margin for consistency
+        # ── Contact patch outline setup (matching 2D Brush Model exactly) ──
+        _AX_MARGIN = 1.60  # 60% margin around footprint (matches 2D Brush tab)
+        _AX_X_HALF = L_mm / 2 * _AX_MARGIN
+        _AX_Y_HALF = W_mm / 2 * _AX_MARGIN
+        n_levels = 8  # discrete levels (matching 2D Brush tab)
 
         self._ts_outline_patches = []
+        self._ts_cbar_axes = {}
 
-        def _setup_contour_ax(ax, title):
-            ax.clear()
-            # NO set_aspect('equal') — match 2D Brush tab for uniform sizing
-            ax.set_title(title, fontsize=9, fontweight='bold')
-            ax.set_xlabel('x [m]', fontsize=7)
-            ax.set_ylabel('y [m]', fontsize=7)
-            ax.tick_params(labelsize=7)
-            # Set axis limits to match footprint dimensions exactly
-            ax.set_xlim(-half_L * ax_margin, half_L * ax_margin)
-            ax.set_ylim(-half_W * ax_margin, half_W * ax_margin)
-            # Egg-shaped outline (same as 2D Brush Model)
+        def _add_contact_outline(ax):
+            """Add egg-shaped contact patch outline (matching 2D Brush tab)."""
             if hasattr(self, '_egg_outline'):
-                verts_mm = self._egg_outline(0, half_L * 1000, half_W * 1000)
-                verts_m = verts_mm / 1000.0  # convert mm → m
+                verts = self._egg_outline(0, L_mm / 2, W_mm / 2)
             else:
-                # Fallback: simple ellipse
                 theta = np.linspace(0, 2 * np.pi, 80)
-                verts_m = np.column_stack([half_L * np.cos(theta),
-                                            half_W * np.sin(theta)])
-            poly = MplPolygon(verts_m, closed=True, fill=False,
-                              edgecolor='#333', lw=1.5, linestyle='--', zorder=5)
+                verts = np.column_stack([L_mm / 2 * np.cos(theta),
+                                         W_mm / 2 * np.sin(theta)])
+            poly = MplPolygon(verts, closed=True, fill=False,
+                              edgecolor='k', linewidth=1.5, zorder=5)
             ax.add_patch(poly)
             self._ts_outline_patches.append(poly)
             return poly
 
-        # ── (1) Adhesion / Sliding ──
-        _setup_contour_ax(self._ts_ax_stick, 'Adhesion / Sliding')
+        def _setup_contour_ax(ax, title):
+            ax.clear()
+            ax.set_title(title, fontsize=9, fontweight='bold')
+            ax.set_xlabel('length [mm]', fontsize=7)
+            ax.set_ylabel('width [mm]', fontsize=7)
+            ax.set_xlim(-_AX_X_HALF, _AX_X_HALF)
+            ax.set_ylim(-_AX_Y_HALF, _AX_Y_HALF)
+            ax.tick_params(labelsize=6)
+
+        def _make_inset_cb(mappable, ax, key, label='', **extra_kw):
+            """Create inset colorbar (horizontal, bottom-right) matching 2D Brush tab."""
+            cax = inset_axes(ax, width="45%", height="4%",
+                             loc='lower right', borderpad=1.2)
+            cb = self._ts_contour_fig.colorbar(mappable, cax=cax,
+                                                orientation='horizontal', **extra_kw)
+            cb.ax.tick_params(labelsize=4.5, length=2, pad=1)
+            if label:
+                cb.set_label(label, fontsize=5.5)
+            self._ts_cbar_axes[key] = cax
+            return cb
+
+        # ── (1) Adhesion / Sliding (matching 2D Brush tab: blue=stick, red=slip) ──
+        _setup_contour_ax(self._ts_ax_stick, 'sliding vs adhesion')
         cmap_sa = ListedColormap(['#2196F3', '#F44336'])
         bounds_sa = [0, 0.5, 1.0]
         norm_sa = BoundaryNorm(bounds_sa, cmap_sa.N)
         init = bd['is_sliding'][0].T
         self._ts_pm_stick = self._ts_ax_stick.pcolormesh(
-            xe, ye, init, cmap=cmap_sa, norm=norm_sa, shading='flat', zorder=1)
+            xe_mm, ye_mm, init, cmap=cmap_sa, norm=norm_sa, shading='flat', zorder=1)
+        outline1 = _add_contact_outline(self._ts_ax_stick)
+        self._ts_pm_stick.set_clip_path(outline1)
+        # Rolling direction arrow (green, matching 2D Brush tab)
+        _roll_y = -W_mm * 0.55
+        self._ts_ax_stick.annotate('', xy=(-L_mm * 0.35, _roll_y),
+                     xytext=(L_mm * 0.35, _roll_y),
+                     arrowprops=dict(arrowstyle='->', color='#00C853', lw=2.5,
+                                     mutation_scale=16), zorder=7)
+        self._ts_ax_stick.text(0, _roll_y - W_mm * 0.08, '\u2190 Rolling Dir.',
+                 fontsize=7, ha='center', va='top', color='#00C853',
+                 fontweight='bold', zorder=7)
+        # Legend (matching 2D Brush tab)
+        legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Stick (\ubd80\ucc29)'),
+                          Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Slip (\ubbf8\ub044\ub7ec)')]
+        self._ts_ax_stick.legend(handles=legend_patches, loc='upper right', fontsize=7,
+                   framealpha=0.9, edgecolor='#999',
+                   bbox_to_anchor=(0.98, 0.98), borderaxespad=0,
+                   handlelength=2.5, handletextpad=0.8, columnspacing=1.5)
 
-        # ── (2) Sliding Speed ──
-        _setup_contour_ax(self._ts_ax_speed, 'Sliding Speed')
-        sp_max = np.nanmax(bd['v_slide']) or 1.0
-        sp_cmap = plt.cm.get_cmap('hot_r', 10)
-        sp_norm = BoundaryNorm(np.linspace(0, sp_max, 11), sp_cmap.N)
-        self._ts_pm_speed = self._ts_ax_speed.pcolormesh(
-            xe, ye, bd['v_slide'][0].T, cmap=sp_cmap, norm=sp_norm,
-            shading='flat', zorder=1)
+        # ── (2) Sliding Speed (quiver arrows matching 2D Brush tab) ──
+        _setup_contour_ax(self._ts_ax_speed, 'sliding speed')
+        self._ts_ax_speed.set_facecolor('#FFFFFF')
+        outline2 = _add_contact_outline(self._ts_ax_speed)
+        # Quiver grid
+        x_mm_arr = xe_mm[:-1] + np.diff(xe_mm) / 2
+        y_mm_arr = ye_mm[:-1] + np.diff(ye_mm) / 2
+        step_x = max(1, len(x_mm_arr) // 18)
+        step_y = max(1, len(y_mm_arr) // 9)
+        self._ts_speed_step = (step_x, step_y)
+        xx_q, yy_q = np.meshgrid(x_mm_arr[::step_x], y_mm_arr[::step_y], indexing='ij')
+        mask_q = bd['mask'][::step_x, ::step_y]
+        self._ts_speed_mask_q = mask_q
+        self._ts_speed_xx_q = xx_q
+        self._ts_speed_yy_q = yy_q
+        sp_max = max(np.nanmax(bd['v_slide']), 0.01)
+        sp_boundaries = np.linspace(0, sp_max, n_levels + 1)
+        sp_cmap = plt.cm.get_cmap('jet', n_levels)
+        sp_norm = BoundaryNorm(sp_boundaries, sp_cmap.N)
+        u_init = np.zeros_like(xx_q)
+        v_init = np.zeros_like(xx_q)
+        mag_init = np.zeros_like(xx_q)
+        self._ts_quiver_speed = self._ts_ax_speed.quiver(
+            xx_q[mask_q], yy_q[mask_q], u_init[mask_q], v_init[mask_q],
+            mag_init[mask_q],
+            cmap=sp_cmap, clim=(0, sp_max), norm=sp_norm,
+            scale=max(sp_max * 8.0, 0.1), headwidth=4, headlength=5, headaxislength=4,
+            linewidth=0.6, alpha=0.9, zorder=3)
+        cb_sp = _make_inset_cb(self._ts_quiver_speed, self._ts_ax_speed, 'speed', label='m/s')
+        sp_centers = 0.5 * (sp_boundaries[:-1] + sp_boundaries[1:])
+        cb_sp.set_ticks(sp_centers[::2])
+        cb_sp.set_ticklabels([f'{v:.1f}' for v in sp_centers[::2]])
 
-        # ── (3) Contact Pressure ──
-        _setup_contour_ax(self._ts_ax_press, 'Contact Pressure [bar]')
-        pr_max = np.nanmax(bd['pressure']) or 1.0
-        pr_cmap = plt.cm.get_cmap('jet', 10)
-        pr_norm = BoundaryNorm(np.linspace(0, pr_max, 11), pr_cmap.N)
+        # ── (3) Contact Pressure (pcolormesh with discrete jet levels) ──
+        _setup_contour_ax(self._ts_ax_press, 'contact pressure')
+        pr_max = max(np.nanmax(bd['pressure']), 0.01)
+        pr_boundaries = np.linspace(0, pr_max, n_levels + 1)
+        pr_cmap = plt.cm.get_cmap('jet', n_levels)
+        pr_norm = BoundaryNorm(pr_boundaries, pr_cmap.N)
         self._ts_pm_press = self._ts_ax_press.pcolormesh(
-            xe, ye, bd['pressure'][0].T, cmap=pr_cmap, norm=pr_norm,
+            xe_mm, ye_mm, bd['pressure'][0].T, cmap=pr_cmap, norm=pr_norm,
             shading='flat', zorder=1)
+        outline3 = _add_contact_outline(self._ts_ax_press)
+        self._ts_pm_press.set_clip_path(outline3)
+        cb_pr = _make_inset_cb(self._ts_pm_press, self._ts_ax_press, 'pressure', label='bar')
+        pr_centers = 0.5 * (pr_boundaries[:-1] + pr_boundaries[1:])
+        cb_pr.set_ticks(pr_centers[::2])
+        cb_pr.set_ticklabels([f'{v:.1f}' for v in pr_centers[::2]])
+        # Rolling direction arrow + LE/TE labels (matching 2D Brush tab)
+        _roll_y3 = -W_mm * 0.55
+        self._ts_ax_press.annotate('', xy=(-L_mm * 0.35, _roll_y3),
+                     xytext=(L_mm * 0.35, _roll_y3),
+                     arrowprops=dict(arrowstyle='->', color='#00C853', lw=2,
+                                     mutation_scale=14), zorder=7)
+        self._ts_ax_press.text(0, _roll_y3 - W_mm * 0.08, '\u2190 Rolling Dir.',
+                 fontsize=6, ha='center', va='top', color='#00C853',
+                 fontweight='bold', zorder=7)
+        self._ts_ax_press.text(-L_mm * 0.42, 0, 'LE', fontsize=7, ha='right', va='center',
+                 color='#333', fontweight='bold', fontstyle='italic', zorder=7)
+        self._ts_ax_press.text(L_mm * 0.42, 0, 'TE', fontsize=7, ha='left', va='center',
+                 color='#333', fontweight='bold', fontstyle='italic', zorder=7)
 
-        # ── (4) Temperature ──
-        _setup_contour_ax(self._ts_ax_temp, 'Temperature [°C]')
-        t_min = np.nanmin(bd['temperature']); t_max = np.nanmax(bd['temperature']) or 100
-        t_cmap = plt.cm.get_cmap('jet', 10)
-        t_norm = BoundaryNorm(np.linspace(t_min, t_max, 11), t_cmap.N)
+        # ── (4) Temperature (pcolormesh with discrete jet levels) ──
+        _setup_contour_ax(self._ts_ax_temp, 'temperature')
+        t_min = np.nanmin(bd['temperature'])
+        t_max = max(np.nanmax(bd['temperature']), t_min + 1)
+        t_boundaries = np.linspace(t_min, t_max, n_levels + 1)
+        t_cmap = plt.cm.get_cmap('jet', n_levels)
+        t_norm = BoundaryNorm(t_boundaries, t_cmap.N)
         self._ts_pm_temp = self._ts_ax_temp.pcolormesh(
-            xe, ye, bd['temperature'][0].T, cmap=t_cmap, norm=t_norm,
+            xe_mm, ye_mm, bd['temperature'][0].T, cmap=t_cmap, norm=t_norm,
             shading='flat', zorder=1)
+        outline4 = _add_contact_outline(self._ts_ax_temp)
+        self._ts_pm_temp.set_clip_path(outline4)
+        cb_t = _make_inset_cb(self._ts_pm_temp, self._ts_ax_temp, 'temperature', label='\u00b0C')
+        t_centers = 0.5 * (t_boundaries[:-1] + t_boundaries[1:])
+        cb_t.set_ticks(t_centers[::2])
+        cb_t.set_ticklabels([f'{v:.1f}' for v in t_centers[::2]])
 
-        # ── (5) Friction Force ──
-        _setup_contour_ax(self._ts_ax_fric, 'Friction Force [kPa]')
-        f_max = np.nanmax(bd['friction']) or 1.0
-        f_cmap = plt.cm.get_cmap('jet', 10)
-        f_norm = BoundaryNorm(np.linspace(0, f_max, 11), f_cmap.N)
+        # ── (5) Friction Force (pcolormesh with discrete jet levels) ──
+        _setup_contour_ax(self._ts_ax_fric, 'friction force')
+        f_max = max(np.nanmax(bd['friction']), 0.01)
+        fric_boundaries = np.linspace(0, f_max, n_levels + 1)
+        fric_cmap = plt.cm.get_cmap('jet', n_levels)
+        fric_norm = BoundaryNorm(fric_boundaries, fric_cmap.N)
         self._ts_pm_fric = self._ts_ax_fric.pcolormesh(
-            xe, ye, bd['friction'][0].T, cmap=f_cmap, norm=f_norm,
+            xe_mm, ye_mm, bd['friction'][0].T, cmap=fric_cmap, norm=fric_norm,
             shading='flat', zorder=1)
+        outline5 = _add_contact_outline(self._ts_ax_fric)
+        self._ts_pm_fric.set_clip_path(outline5)
+        cb_f = _make_inset_cb(self._ts_pm_fric, self._ts_ax_fric, 'friction', label='kPa')
+        fric_centers = 0.5 * (fric_boundaries[:-1] + fric_boundaries[1:])
+        cb_f.set_ticks(fric_centers[::2])
+        cb_f.set_ticklabels([f'{v:.1e}' for v in fric_centers[::2]])
 
-        # No blit for contour figure — use robust direct draw approach.
-        # Blit backgrounds become stale on resize / re-init and cause graphs to appear empty.
+        # Robust direct draw (no blit for contour)
         self._ts_use_blit = False
         self._ts_contour_blit_bg = None
         self._ts_contour_canvas.draw()
@@ -26501,21 +26636,35 @@ class PerssonModelGUI_V2:
             # Update Fy vs distance cursor
             self._ts_cursor_fy_dist.set_xdata([d_cur, d_cur])
 
-            # Update 5 contour pcolormesh
+            # Fy graphs are on separate canvas now
+            self._ts_fy_canvas.draw_idle()
+
+            # Update contour pcolormesh (stick and sliding speed)
             self._ts_pm_stick.set_array(bd['is_sliding'][idx].T.ravel())
-            self._ts_pm_speed.set_array(bd['v_slide'][idx].T.ravel())
             self._ts_pm_press.set_array(bd['pressure'][idx].T.ravel())
             self._ts_pm_temp.set_array(bd['temperature'][idx].T.ravel())
             self._ts_pm_fric.set_array(bd['friction'][idx].T.ravel())
 
-            # Update outline patches based on current SA (matching 2D Brush tab)
+            # Update quiver speed arrows
+            if hasattr(self, '_ts_quiver_speed'):
+                step_x, step_y = self._ts_speed_step
+                mask_q = self._ts_speed_mask_q
+                v_slide_frame = bd['v_slide'][idx]
+                # sliding speed as quiver: direction from SA, magnitude from v_slide
+                sa_rad = np.radians(sa_cur)
+                v_full = v_slide_frame[::step_x, ::step_y]
+                u_q = np.where(mask_q, v_full * np.sin(sa_rad), 0)
+                v_q = np.where(mask_q, v_full * np.cos(sa_rad), 0)
+                mag_q = np.where(mask_q, v_full, 0)
+                self._ts_quiver_speed.set_UVC(u_q[mask_q], v_q[mask_q], mag_q[mask_q])
+
+            # Update outline patches based on current SA (mm, matching 2D Brush tab)
             if hasattr(self, '_ts_outline_patches') and self._ts_outline_patches:
                 half_L = bd.get('half_L', 0.075)
                 half_W = bd.get('half_W', 0.06)
                 verts_mm = self._egg_outline(sa_cur, half_L * 1000, half_W * 1000)
-                verts_m = verts_mm / 1000.0
                 for poly in self._ts_outline_patches:
-                    poly.set_xy(verts_m)
+                    poly.set_xy(verts_mm)
 
             self._ts_contour_canvas.draw_idle()
 
