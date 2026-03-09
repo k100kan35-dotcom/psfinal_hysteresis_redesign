@@ -860,7 +860,10 @@ class PerssonModelGUI_V2:
                                     'canvas_mu_visc',
                                     'canvas_mu_adh',
                                     'canvas_integrand', 'canvas_strain_map',
-                                    'canvas_ve_advisor'):
+                                    'canvas_ve_advisor',
+                                    'canvas_track',
+                                    '_ts_steer_canvas', '_ts_tire_canvas',
+                                    '_ts_contour_canvas', '_ts_fy_canvas'):
                     canvas = getattr(self, canvas_attr, None)
                     if canvas is not None:
                         try:
@@ -25928,6 +25931,7 @@ class PerssonModelGUI_V2:
         # Use PanedWindow for vertical split (top / bottom)
         viz_vpane = ttk.PanedWindow(viz, orient=tk.VERTICAL)
         viz_vpane.pack(fill=tk.BOTH, expand=True)
+        self._ts_viz_vpane = viz_vpane  # keep ref for deferred sash update
 
         # ── Top row: Track map (left) | Steering+Car (right) ──
         top_row = ttk.Frame(viz_vpane)
@@ -25935,6 +25939,7 @@ class PerssonModelGUI_V2:
 
         top_hpane = ttk.PanedWindow(top_row, orient=tk.HORIZONTAL)
         top_hpane.pack(fill=tk.BOTH, expand=True)
+        self._ts_top_hpane = top_hpane
 
         # Top-Left: Track Map
         map_frame = ttk.Frame(top_hpane)
@@ -25985,6 +25990,7 @@ class PerssonModelGUI_V2:
 
         bot_hpane = ttk.PanedWindow(bot_row, orient=tk.HORIZONTAL)
         bot_hpane.pack(fill=tk.BOTH, expand=True)
+        self._ts_bot_hpane = bot_hpane
 
         # Bottom-Left: 5 footprint contour plots (single figure, 1 row × 5 cols)
         contour_frame = ttk.Frame(bot_hpane)
@@ -26037,6 +26043,60 @@ class PerssonModelGUI_V2:
 
         self._ts_fy_canvas = _FCA(self._ts_fy_fig, fy_frame)
         self._ts_fy_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # ── Deferred layout: force sash positions & figure sizes on first map ──
+        self._ts_layout_initialized = False
+
+        def _ts_force_layout(event=None):
+            """Force PanedWindow sash positions and redraw all figures."""
+            if self._ts_layout_initialized:
+                return
+            viz.update_idletasks()
+            vh = viz_vpane.winfo_height()
+            vw = viz_vpane.winfo_width()
+            if vh < 10 or vw < 10:
+                # Not mapped yet, retry
+                viz.after(100, _ts_force_layout)
+                return
+            self._ts_layout_initialized = True
+            # Set vertical sash: 55% top, 45% bottom
+            try:
+                viz_vpane.sashpos(0, int(vh * 0.55))
+            except Exception:
+                pass
+            # Set horizontal sashes
+            tw = top_hpane.winfo_width()
+            bw = bot_hpane.winfo_width()
+            if tw > 10:
+                try:
+                    top_hpane.sashpos(0, int(tw * 0.55))
+                except Exception:
+                    pass
+            if bw > 10:
+                try:
+                    bot_hpane.sashpos(0, int(bw * 0.55))
+                except Exception:
+                    pass
+            # Redraw all Track Sim figures after geometry settles
+            viz.after(50, _ts_redraw_all_figures)
+
+        def _ts_redraw_all_figures():
+            for cv in (self.canvas_track,
+                       self._ts_steer_canvas, self._ts_tire_canvas,
+                       self._ts_contour_canvas, self._ts_fy_canvas):
+                try:
+                    w = cv.get_tk_widget()
+                    ww, wh = w.winfo_width(), w.winfo_height()
+                    if ww > 1 and wh > 1:
+                        cv.figure.set_size_inches(
+                            ww / cv.figure.dpi, wh / cv.figure.dpi,
+                            forward=False)
+                    cv.draw_idle()
+                except Exception:
+                    pass
+
+        # Trigger on first <Map> of the viz frame (tab becomes visible)
+        viz.bind('<Map>', _ts_force_layout, add='+')
 
         # ===================== Left Panel Controls =====================
         sec1 = self._create_section(left_panel, "1) 트랙 정보 – 영암 F1 서킷")
