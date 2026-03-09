@@ -7048,44 +7048,81 @@ class PerssonModelGUI_V2:
         """Open dialog to show/hide tabs."""
         dialog = tk.Toplevel(self.root)
         dialog.title("탭 표시/숨기기")
-        dialog.resizable(False, False)
+        dialog.resizable(False, True)
         dialog.transient(self.root)
         dialog.grab_set()
 
-        dlg_w, dlg_h = 350, 500
-        x = self.root.winfo_x() + (self.root.winfo_width() - dlg_w) // 2
-        y = self.root.winfo_y() + max(0, (self.root.winfo_height() - dlg_h) // 2)
-        dialog.geometry(f"{dlg_w}x{dlg_h}+{x}+{y}")
-
         C = self.COLORS
 
+        # ── Title ──
         title_frame = tk.Frame(dialog, bg=C['sidebar'], padx=12, pady=8)
-        title_frame.pack(fill=tk.X)
+        title_frame.pack(side=tk.TOP, fill=tk.X)
         tk.Label(title_frame, text="탭 표시/숨기기 설정", bg=C['sidebar'], fg='white',
                  font=self.FONTS['subheading']).pack(anchor=tk.W)
         tk.Label(title_frame, text="체크 해제한 탭은 숨겨집니다.", bg=C['sidebar'], fg='#94A3B8',
                  font=self.FONTS['small']).pack(anchor=tk.W)
 
-        content = ttk.Frame(dialog, padding=10)
-        content.pack(fill=tk.BOTH, expand=True)
+        # ── Buttons (pack FIRST with side=BOTTOM so they always stay visible) ──
+        btn_frame = ttk.Frame(dialog, padding=10)
+        btn_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        ttk.Separator(dialog, orient='horizontal').pack(side=tk.BOTTOM, fill=tk.X)
+
+        # ── Scrollable checkbutton list ──
+        canvas = tk.Canvas(dialog, highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(dialog, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        inner = ttk.Frame(canvas, padding=10)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor='nw')
 
         for attr, label, _frame in self._all_tabs:
             var = self._tab_visible_vars[attr]
-            ttk.Checkbutton(content, text=label, variable=var).pack(anchor=tk.W, pady=2)
+            ttk.Checkbutton(inner, text=label, variable=var).pack(anchor=tk.W, pady=3)
 
-        btn_frame = ttk.Frame(dialog, padding=10)
-        btn_frame.pack(fill=tk.X)
+        def _on_inner_configure(event):
+            canvas.configure(scrollregion=canvas.bbox('all'))
+        inner.bind('<Configure>', _on_inner_configure)
 
+        def _on_canvas_configure(event):
+            canvas.itemconfig(inner_id, width=event.width)
+        canvas.bind('<Configure>', _on_canvas_configure)
+
+        # Mouse wheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+        def _on_mousewheel_linux(event):
+            if event.num == 4:
+                canvas.yview_scroll(-3, 'units')
+            elif event.num == 5:
+                canvas.yview_scroll(3, 'units')
+        canvas.bind('<MouseWheel>', _on_mousewheel)
+        canvas.bind('<Button-4>', _on_mousewheel_linux)
+        canvas.bind('<Button-5>', _on_mousewheel_linux)
+
+        # ── Save original state so Cancel can restore it ──
+        _saved_state = {attr: self._tab_visible_vars[attr].get()
+                        for attr, _l, _f in self._all_tabs}
+
+        # ── Apply / Cancel logic ──
         def _apply():
+            # First pass: hide unchecked tabs
+            for attr, label, frame in self._all_tabs:
+                if not self._tab_visible_vars[attr].get():
+                    try:
+                        self.notebook.hide(frame)
+                    except tk.TclError:
+                        pass
+            # Second pass: show checked tabs in correct order
             for attr, label, frame in self._all_tabs:
                 if self._tab_visible_vars[attr].get():
-                    # Show: re-add if currently hidden
                     try:
                         self.notebook.index(frame)
                     except tk.TclError:
-                        # Find correct position
+                        # Find correct insert position among currently visible tabs
                         desired_idx = next(i for i, (a, l, f) in enumerate(self._all_tabs) if a == attr)
-                        # Count visible tabs before this one
                         insert_pos = 0
                         for a2, l2, f2 in self._all_tabs[:desired_idx]:
                             if self._tab_visible_vars[a2].get():
@@ -7095,16 +7132,29 @@ class PerssonModelGUI_V2:
                                 except tk.TclError:
                                     pass
                         self.notebook.insert(insert_pos, frame, text=f'  {label}  ')
-                else:
-                    # Hide
-                    try:
-                        self.notebook.hide(frame)
-                    except tk.TclError:
-                        pass
+            dialog.destroy()
+
+        def _cancel():
+            # Restore original BooleanVar values
+            for attr, val in _saved_state.items():
+                self._tab_visible_vars[attr].set(val)
             dialog.destroy()
 
         ttk.Button(btn_frame, text="적용", command=_apply, style='Accent.TButton').pack(side=tk.RIGHT, padx=4)
-        ttk.Button(btn_frame, text="취소", command=dialog.destroy).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_frame, text="취소", command=_cancel).pack(side=tk.RIGHT, padx=4)
+
+        # ── Size & position (after widgets are built) ──
+        dialog.update_idletasks()
+        dlg_w = 370
+        n_tabs = len(self._all_tabs)
+        # Fit all items if possible, cap at 80% of screen height
+        desired_h = min(title_frame.winfo_reqheight() + n_tabs * 32 + 80,
+                        int(self.root.winfo_screenheight() * 0.8))
+        dlg_h = max(desired_h, 400)
+        x = self.root.winfo_x() + (self.root.winfo_width() - dlg_w) // 2
+        y = self.root.winfo_y() + max(0, (self.root.winfo_height() - dlg_h) // 2)
+        dialog.geometry(f"{dlg_w}x{dlg_h}+{x}+{y}")
+        dialog.minsize(dlg_w, 300)
 
     def _open_layout_settings(self):
         """Open comprehensive font & layout settings control panel."""
