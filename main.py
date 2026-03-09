@@ -5651,7 +5651,7 @@ class PerssonModelGUI_V2:
 
                 # Colour map for velocity-indexed curves (viridis for clarity)
                 _n_v_total = len(v_array)
-                _cmap = plt.get_cmap('viridis')
+                _cmap = plt.colormaps['viridis']
 
                 # ── Helper: apply modern axis styling ──
                 def _style_calc_ax(ax):
@@ -6091,7 +6091,7 @@ class PerssonModelGUI_V2:
         TITLE_PAD = 10
 
         # Plot 1: Multi-velocity G(q) curves (다중 속도 G(q) 곡선)
-        cmap = plt.get_cmap('viridis')
+        cmap = plt.colormaps['viridis']
         colors = [cmap(i / len(v)) for i in range(len(v))]
 
         for j, (v_val, color) in enumerate(zip(v, colors)):
@@ -6178,7 +6178,7 @@ class PerssonModelGUI_V2:
         q_indices = np.linspace(0, len(q_stress)-1, n_q_selected, dtype=int)
 
         # Create color map for wavenumbers (viridis - 같은 탭 다른 그래프와 색조 통일)
-        cmap_q = plt.get_cmap('viridis')
+        cmap_q = plt.colormaps['viridis']
         colors_q = [cmap_q(i / max(n_q_selected-1, 1)) for i in range(n_q_selected)]
 
         # σ0 주변으로 확대할 범위 계산 (최소 5개 파수가 보이도록)
@@ -9586,7 +9586,7 @@ class PerssonModelGUI_V2:
                 else:
                     v_indices = np.linspace(0, n_v_total - 1, n_curves, dtype=int).tolist()
 
-                cmap = __import__('matplotlib').cm.get_cmap('coolwarm', n_curves)
+                cmap = plt.colormaps['coolwarm'].resampled(n_curves)
                 for k, j_idx in enumerate(v_indices):
                     color = cmap(k / max(n_curves - 1, 1))
                     dT_curve = delta_T_profile[:, j_idx]
@@ -24203,8 +24203,9 @@ class PerssonModelGUI_V2:
             # Local slip velocity (spatial variation!):
             # Translational slip from rim velocity:
             #   Stick zone: v_slip = 0; Slip zone: excess above friction capacity
+            _safe_Fsp = np.where(F_spring_mag > 1e-15, F_spring_mag, 1.0)
             scale = np.where(F_spring_mag > 1e-15,
-                             np.clip(F_fric_max / F_spring_mag, 0, 1), 1.0)
+                             np.clip(F_fric_max / _safe_Fsp, 0, 1), 1.0)
             v_slip_trans = v_rim_mag * (1.0 - scale)
             v_slip_trans = np.where(is_sliding, v_slip_trans, 0.0)
             v_slip_trans *= cmask
@@ -25206,7 +25207,7 @@ class PerssonModelGUI_V2:
         sp_lo, sp_hi = gr['speed']
         # Discrete levels for speed (matching friction level count)
         sp_boundaries = np.linspace(sp_lo, max(sp_hi, 0.01), n_levels + 1)
-        sp_cmap = plt.cm.get_cmap('jet', n_levels)
+        sp_cmap = plt.colormaps['jet'].resampled(n_levels)
         sp_norm = BoundaryNorm(sp_boundaries, sp_cmap.N)
         # Flatten for masked quiver
         u_init = np.zeros_like(xx_q)
@@ -25230,7 +25231,7 @@ class PerssonModelGUI_V2:
         ax3.clear()
         pr_lo, pr_hi = gr['pressure']
         pr_boundaries = np.linspace(pr_lo, pr_hi, n_levels + 1)
-        pr_cmap = plt.cm.get_cmap('jet', n_levels)
+        pr_cmap = plt.colormaps['jet'].resampled(n_levels)
         pr_norm = BoundaryNorm(pr_boundaries, pr_cmap.N)
         self._br_pm_pres = ax3.pcolormesh(
             x_edges, y_edges, np.where(mask_fill, 0.0, np.nan).T,
@@ -25265,7 +25266,7 @@ class PerssonModelGUI_V2:
         ax4.clear()
         t_lo, t_hi = gr['temperature']
         t_boundaries = np.linspace(t_lo, t_hi, n_levels + 1)
-        t_cmap = plt.cm.get_cmap('jet', n_levels)
+        t_cmap = plt.colormaps['jet'].resampled(n_levels)
         t_norm = BoundaryNorm(t_boundaries, t_cmap.N)
         self._br_pm_temp = ax4.pcolormesh(
             x_edges, y_edges, np.where(mask_fill, 25.0, np.nan).T,
@@ -25285,7 +25286,7 @@ class PerssonModelGUI_V2:
         ax5.clear()
         f_lo, f_hi = gr['friction']
         fric_boundaries = np.linspace(f_lo, f_hi, n_levels + 1)
-        fric_cmap = plt.cm.get_cmap('jet', n_levels)
+        fric_cmap = plt.colormaps['jet'].resampled(n_levels)
         fric_norm = BoundaryNorm(fric_boundaries, fric_cmap.N)
         self._br_pm_fric = ax5.pcolormesh(
             x_edges, y_edges, np.where(mask_fill, 0.0, np.nan).T,
@@ -26215,7 +26216,7 @@ class PerssonModelGUI_V2:
             from matplotlib.colors import Normalize
             import matplotlib.cm as cm
             norm_curv = Normalize(vmin=curv_threshold, vmax=np.max(abs_curv))
-            cmap_heat = cm.get_cmap('YlOrRd')
+            cmap_heat = plt.colormaps['YlOrRd']
             # Draw heat dots at high-curvature locations
             hot_idx = np.where(hot_mask)[0]
             # Subsample for performance (every 5th point in hot zones)
@@ -26499,8 +26500,9 @@ class PerssonModelGUI_V2:
             Fy_brush[fi] = np.sum(Fnode_y)
 
             # Local slip velocity
+            _safe_Fsp = np.where(F_spring_mag > 1e-15, F_spring_mag, 1.0)
             scale = np.where(F_spring_mag > 1e-15,
-                             np.clip(F_fric_max / F_spring_mag, 0, 1), 1.0)
+                             np.clip(F_fric_max / _safe_Fsp, 0, 1), 1.0)
             v_slip = v_rim_mag * (1.0 - scale)
             v_slip = np.where(is_sliding, v_slip, 0.0) * mask
 
@@ -26751,7 +26753,7 @@ class PerssonModelGUI_V2:
         sp_max = max(np.nanmax(bd['v_slide']), 0.01)
         self._ts_global_sp_max = sp_max          # store for fixed quiver scale
         sp_boundaries = np.linspace(0, sp_max, n_levels + 1)
-        sp_cmap = plt.cm.get_cmap('jet', n_levels)
+        sp_cmap = plt.colormaps['jet'].resampled(n_levels)
         sp_norm = BoundaryNorm(sp_boundaries, sp_cmap.N)
         u_init = np.zeros_like(xx_q)
         v_init = np.zeros_like(xx_q)
@@ -26771,7 +26773,7 @@ class PerssonModelGUI_V2:
         _setup_contour_ax(self._ts_ax_press, 'contact pressure')
         pr_max = max(np.nanmax(bd['pressure']), 0.01)
         pr_boundaries = np.linspace(0, pr_max, n_levels + 1)
-        pr_cmap = plt.cm.get_cmap('jet', n_levels)
+        pr_cmap = plt.colormaps['jet'].resampled(n_levels)
         pr_norm = BoundaryNorm(pr_boundaries, pr_cmap.N)
         self._ts_pm_press = self._ts_ax_press.pcolormesh(
             xe_mm, ye_mm, bd['pressure'][0].T, cmap=pr_cmap, norm=pr_norm,
@@ -26801,7 +26803,7 @@ class PerssonModelGUI_V2:
         t_min = np.nanmin(bd['temperature'])
         t_max = max(np.nanmax(bd['temperature']), t_min + 1)
         t_boundaries = np.linspace(t_min, t_max, n_levels + 1)
-        t_cmap = plt.cm.get_cmap('jet', n_levels)
+        t_cmap = plt.colormaps['jet'].resampled(n_levels)
         t_norm = BoundaryNorm(t_boundaries, t_cmap.N)
         self._ts_pm_temp = self._ts_ax_temp.pcolormesh(
             xe_mm, ye_mm, bd['temperature'][0].T, cmap=t_cmap, norm=t_norm,
@@ -26817,7 +26819,7 @@ class PerssonModelGUI_V2:
         _setup_contour_ax(self._ts_ax_fric, 'friction force')
         f_max = max(np.nanmax(bd['friction']), 0.01)
         fric_boundaries = np.linspace(0, f_max, n_levels + 1)
-        fric_cmap = plt.cm.get_cmap('jet', n_levels)
+        fric_cmap = plt.colormaps['jet'].resampled(n_levels)
         fric_norm = BoundaryNorm(fric_boundaries, fric_cmap.N)
         self._ts_pm_fric = self._ts_ax_fric.pcolormesh(
             xe_mm, ye_mm, bd['friction'][0].T, cmap=fric_cmap, norm=fric_norm,
@@ -26959,7 +26961,7 @@ class PerssonModelGUI_V2:
             ds_i = dist[i] - dist[i - 1]
             if ds_i <= 0: v_fwd[i] = v_fwd[i - 1]; continue
             v_c = v_fwd[i - 1]
-            mu_v = float(mu_eff_at_v(v_c))
+            mu_v = float(np.asarray(mu_eff_at_v(v_c)).ravel()[0])
             f_eng = min(power_w / max(v_c, 1), mu_v * mass * g)
             a_net = max((f_eng - 0.5 * rho * cda * v_c**2) / mass, 0.5)
             v_fwd[i] = min(np.sqrt(v_c**2 + 2 * a_net * ds_i), v_max_corner[i])
