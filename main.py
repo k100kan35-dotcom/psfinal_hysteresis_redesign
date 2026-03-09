@@ -28534,26 +28534,49 @@ def main():
         except ImportError:
             pass
 
-    # ── Percentage text: above "NEXEN TIRE R&D" logo (bottom-right) ──
+    # ── Percentage text: centered above "NEXEN TIRE R&D" (bottom-right) ──
+    # "NEXEN TIRE R&D" in the splash image is centered around x≈725, y≈435
+    _nexen_center_x = 725
     _pct_text_id = _splash_canvas.create_text(
-        splash_w - 55, splash_h - 45,
+        _nexen_center_x, splash_h - 60,
         text="0%", anchor='s',
-        font=('Segoe UI', 20, 'bold italic'),
+        font=('Segoe UI', 18, 'bold italic'),
         fill='white')
 
     splash.update()
 
+    # ── Animated dots after percentage ──
+    _dot_counter = [0]  # mutable counter for closure
+    _dot_anim_id = [None]
+
+    def _animate_dots():
+        try:
+            _dot_counter[0] = (_dot_counter[0] + 1) % 4
+            dots = '.' * _dot_counter[0]
+            # Read current percentage from the text (strip old dots)
+            current = _splash_canvas.itemcget(_pct_text_id, 'text').rstrip('.')
+            _splash_canvas.itemconfig(_pct_text_id, text=f"{current}{dots}")
+            splash.update()
+            _dot_anim_id[0] = splash.after(400, _animate_dots)
+        except tk.TclError:
+            pass
+
+    _animate_dots()
+
     def _splash_update(msg, pct):
         try:
-            _splash_canvas.itemconfig(_pct_text_id, text=f"{int(pct)}%")
+            dots = '.' * (_dot_counter[0] % 4)
+            _splash_canvas.itemconfig(_pct_text_id, text=f"{int(pct)}%{dots}")
             splash.update()
         except tk.TclError:
             pass
 
     app = PerssonModelGUI_V2(root, splash_callback=_splash_update)
 
-    # Ensure 100% is visible on splash before closing
+    # Stop dot animation and show final state
     try:
+        if _dot_anim_id[0] is not None:
+            splash.after_cancel(_dot_anim_id[0])
         _splash_canvas.itemconfig(_pct_text_id, text="100%")
         splash.update()
         import time; time.sleep(0.5)
