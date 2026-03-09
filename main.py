@@ -28406,20 +28406,17 @@ def main():
             left = (new_w - splash_w) // 2
             top = (new_h - splash_h) // 2
             _pil_img = _pil_img.crop((left, top, left + splash_w, top + splash_h))
-            # Dark overlay (60% opacity) so white text is readable
-            _overlay = Image.new('RGBA', (splash_w, splash_h), (22, 22, 42, 153))
-            _pil_img = Image.alpha_composite(_pil_img, _overlay)
             _pil_final = _pil_img.convert('RGB')
             _splash_img_ref = ImageTk.PhotoImage(_pil_final)
             _splash_canvas.create_image(0, 0, anchor='nw', image=_splash_img_ref)
         except ImportError:
             pass
 
-    # ── Percentage text: white, large, italic, dead center ──
+    # ── Percentage text: white, small, italic, bottom-left ──
     _pct_text_id = _splash_canvas.create_text(
-        splash_w // 2, splash_h // 2,
-        text="0%", anchor='center',
-        font=('Segoe UI', 80, 'bold italic'),
+        15, splash_h - 15,
+        text="0%", anchor='sw',
+        font=('Segoe UI', 20, 'bold italic'),
         fill='white')
 
     splash.update()
