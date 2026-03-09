@@ -173,6 +173,9 @@ matplotlib.rcParams['figure.titleweight'] = 'bold'
 matplotlib.rcParams['figure.titlesize'] = 16
 
 
+from braking_simulation import bind_braking_simulation
+
+
 class PerssonModelGUI_V2:
     """Enhanced GUI for Persson friction model (Work Instruction v2.1)."""
 
@@ -805,6 +808,7 @@ class PerssonModelGUI_V2:
             ('tab_cold_hot_branch', 'Cold & Hot Branch',  self._create_cold_hot_branch_tab),
             ('tab_friction_map',    'Friction Map',       self._create_friction_map_tab),
             ('tab_2d_brush',        '2D Brush Model',     self._create_2d_brush_tab),
+            ('tab_braking_sim',     'Braking Simulation', self._create_braking_simulation_tab),
             ('tab_track_sim',       'Track Simulation',   self._create_track_simulation_tab),
             ('tab_ve_advisor',      '점탄성 설계',        self._create_ve_advisor_tab),
             ('tab_strain_map',      'Strain Map',         self._create_strain_map_tab),
@@ -28564,6 +28568,9 @@ def _get_system_dpi_scale():
     except Exception:
         pass
     return scale
+
+
+bind_braking_simulation(PerssonModelGUI_V2)
 
 
 def main():
