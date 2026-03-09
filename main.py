@@ -23948,20 +23948,12 @@ class PerssonModelGUI_V2:
             self._brush_frame_idx = 0
             self._brush_show_frame(0)
 
-            # ── Auto-sync μ from Brush → Track Simulation tab ──
-            if hasattr(self, 'ts_mu_var'):
-                try:
-                    self._sync_track_mu_from_brush()
-                except Exception:
-                    pass
-
             # ── Sync track simulation if it has been run ──
             if getattr(self, '_track_sim_data', None) is not None:
                 try:
                     d = self._track_sim_data
-                    mu = float(self.ts_mu_var.get()) if hasattr(self, 'ts_mu_var') else 1.0
                     brush_data = self._compute_track_brush_data(
-                        d['sa_deg'], d['v_final'], d['Fz'], mu)
+                        d['sa_deg'], d['v_final'], d['Fz'])
                     self._track_sim_data['brush_data'] = brush_data
                     self._init_track_contour_artists()
                     self._update_track_frame(getattr(self, '_track_frame_idx', 0))
@@ -26023,20 +26015,6 @@ class PerssonModelGUI_V2:
                 ttk.Label(row, text=unit, font=self.FONTS['small'],
                           foreground='#64748B').pack(side=tk.LEFT)
 
-        # ── 타이어 마찰 μ: Brush 모델에서 자동 동기화 (읽기 전용) ──
-        mu_row = ttk.Frame(sec2); mu_row.pack(fill=tk.X, pady=1)
-        ttk.Label(mu_row, text="타이어 마찰 μ:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.ts_mu_var = tk.StringVar(value="0.300")
-        self._ts_mu_entry = ttk.Entry(mu_row, textvariable=self.ts_mu_var, width=8,
-                                       state='readonly')
-        self._ts_mu_entry.pack(side=tk.LEFT, padx=2)
-
-        sync_row = ttk.Frame(sec2); sync_row.pack(fill=tk.X, pady=2)
-        ttk.Button(sync_row, text="Brush 탭 μ 동기화",
-                   command=self._sync_track_mu_from_brush, width=18).pack(side=tk.LEFT, padx=2)
-        self.ts_sync_label = tk.StringVar(value="μ ≈ 0.300 (마찰 감도 x2)")
-        ttk.Label(sync_row, textvariable=self.ts_sync_label,
-                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=4)
 
         # ── 2D Brush Model sync info ──
         sec_brush = self._create_section(left_panel, "2-1) 2D Brush 모델 연동")
@@ -26338,7 +26316,7 @@ class PerssonModelGUI_V2:
             a.set_visible(True)
 
     # ── Pre-compute simplified brush model data (synced with 2D Brush tab) ──
-    def _compute_track_brush_data(self, sa_arr, v_arr, Fz_arr, mu):
+    def _compute_track_brush_data(self, sa_arr, v_arr, Fz_arr):
         """Brush model for all track points using Cold & Hot friction map LUT.
 
         Uses the ACTUAL friction map (cold/hot LUT) from Cold & Hot Branch tab,
@@ -26895,7 +26873,6 @@ class PerssonModelGUI_V2:
             power_hp = float(self.ts_power_var.get())
             cda = float(self.ts_cda_var.get())
             cla = float(self.ts_cla_var.get())
-            mu = float(self.ts_mu_var.get())
             brake_g_max = float(self.ts_brake_g_var.get())
         except ValueError:
             messagebox.showerror("오류", "차량 파라미터를 확인하세요.")
@@ -27026,7 +27003,7 @@ class PerssonModelGUI_V2:
         self.root.update_idletasks()
 
         # Pre-compute brush data (vectorized, fast) — uses 2D Brush tab pressure type
-        brush_data = self._compute_track_brush_data(sa_arr, v_final, Fz_arr, mu)
+        brush_data = self._compute_track_brush_data(sa_arr, v_final, Fz_arr)
 
         # Use brush-model Fy (integrated from friction map + pressure distribution)
         # instead of raw centripetal force, so Fy responds to SA and speed properly
@@ -27100,7 +27077,7 @@ class PerssonModelGUI_V2:
                             time_arr[-1] - time_arr[s2i]]
             mu_profile = mu_profile_brush
             # Recompute brush data with refined speed profile
-            brush_data = self._compute_track_brush_data(sa_arr, v_final, Fz_arr, mu)
+            brush_data = self._compute_track_brush_data(sa_arr, v_final, Fz_arr)
             Fy_arr = brush_data['Fy_brush']
 
         self.ts_progress_var.set(90)
@@ -27425,32 +27402,6 @@ class PerssonModelGUI_V2:
         self._track_frame_idx = int(float(val))
         self._update_track_frame(self._track_frame_idx)
 
-    def _sync_track_mu_from_brush(self):
-        """Sync tire friction μ from 2D Brush model (auto-called on Transient run)."""
-        try:
-            mu_val = None
-            label_text = ""
-            if self.brush_results is not None:
-                res = self.brush_results
-                if hasattr(res, 'get'):
-                    mu_p = res.get('mu_peak', None)
-                    if mu_p is not None:
-                        mu_val = mu_p
-                        label_text = f"μ = {mu_p:.3f} (Brush 탭)"
-            if mu_val is None:
-                fs = float(self.br_friction_scale_var.get())
-                mu_val = fs * 2.0
-                label_text = f"μ ≈ {mu_val:.3f} (마찰 감도 x2)"
-            # Update readonly entry
-            entry = getattr(self, '_ts_mu_entry', None)
-            if entry is not None:
-                entry.config(state='normal')
-            self.ts_mu_var.set(f"{mu_val:.3f}")
-            if entry is not None:
-                entry.config(state='readonly')
-            self.ts_sync_label.set(label_text)
-        except Exception:
-            self.ts_sync_label.set("동기화 실패")
 
     def _show_track_brush_sync_info(self):
         """Display current 2D Brush Model parameters used by Track Simulation."""
