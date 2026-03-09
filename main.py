@@ -22179,6 +22179,11 @@ class PerssonModelGUI_V2:
                 f"Friction Map 생성 완료\n"
                 f"Grid: {n_T}×{n_p}×{n_v} = {n_T*n_p*n_v} cells\n"
                 f"소요 시간: {elapsed:.1f}s", 'success')
+            messagebox.showinfo(
+                "Friction Map 완료",
+                f"Friction Map 생성이 완료되었습니다.\n\n"
+                f"Grid: {n_T} × {n_p} × {n_v} = {n_T*n_p*n_v} cells\n"
+                f"소요 시간: {elapsed:.1f}초")
 
         except Exception as e:
             import traceback
