@@ -209,17 +209,23 @@ def _create_braking_simulation_tab(self, parent):
     fx_frame = ttk.Frame(bot_hpane)
     bot_hpane.add(fx_frame, weight=45)
 
-    self._bk_fx_fig = _Fig(figsize=(4.5, 3.2), dpi=100)
-    gs_fx = GridSpec(2, 1, figure=self._bk_fx_fig,
-                     hspace=0.50,
-                     left=0.15, right=0.95, top=0.92, bottom=0.12)
+    self._bk_fx_fig = _Fig(figsize=(4.5, 4.8), dpi=100)
+    gs_fx = GridSpec(3, 1, figure=self._bk_fx_fig,
+                     hspace=0.55,
+                     left=0.15, right=0.95, top=0.94, bottom=0.08)
     self._bk_ax_fx_sr = self._bk_fx_fig.add_subplot(gs_fx[0, 0])
     self._bk_ax_fx_sr.set_title('Fx vs Slip Ratio', fontsize=9, fontweight='bold')
     self._bk_ax_fx_sr.set_xlabel('SR [%]', fontsize=8)
     self._bk_ax_fx_sr.set_ylabel('Fx [N]', fontsize=8)
     self._bk_ax_fx_sr.grid(True, alpha=0.3)
 
-    self._bk_ax_fx_dist = self._bk_fx_fig.add_subplot(gs_fx[1, 0])
+    self._bk_ax_ke_dist = self._bk_fx_fig.add_subplot(gs_fx[1, 0])
+    self._bk_ax_ke_dist.set_title('Kinetic Energy vs Distance', fontsize=9, fontweight='bold')
+    self._bk_ax_ke_dist.set_xlabel('Distance [m]', fontsize=8)
+    self._bk_ax_ke_dist.set_ylabel('Energy [kJ]', fontsize=8)
+    self._bk_ax_ke_dist.grid(True, alpha=0.3)
+
+    self._bk_ax_fx_dist = self._bk_fx_fig.add_subplot(gs_fx[2, 0])
     self._bk_ax_fx_dist.set_title('Fx vs Distance', fontsize=9, fontweight='bold')
     self._bk_ax_fx_dist.set_xlabel('Distance [m]', fontsize=8)
     self._bk_ax_fx_dist.set_ylabel('Fx [N]', fontsize=8)
@@ -931,7 +937,12 @@ def _draw_braking_road_static(self):
 
 # ── Contour plot artists ──
 def _init_braking_contour_artists(self):
-    """Create contour pcolormesh + Fx/SR plot artists."""
+    """Create contour pcolormesh + Fx/SR/KE plot artists.
+
+    Matches Track Simulator style: egg-shaped contact patch outline,
+    clip paths, discrete jet colormaps, inset colorbars, blit-based
+    rendering for 120 Hz playback.
+    """
     import matplotlib.pyplot as plt
     from matplotlib.colors import BoundaryNorm, ListedColormap
     from matplotlib.patches import Polygon as MplPolygon, Patch
@@ -942,67 +953,189 @@ def _init_braking_contour_artists(self):
     xe, ye = bd['x_edges'], bd['y_edges']
     half_L = bd.get('half_L', 0.075)
     half_W = bd.get('half_W', 0.06)
+    L_mm = half_L * 2 * 1000
+    W_mm = half_W * 2 * 1000
     xe_mm = xe * 1000
     ye_mm = ye * 1000
 
-    frame0 = 0
+    n_levels = 8  # discrete levels (matching Track Simulator / 2D Brush tab)
+    _AX_MARGIN = 1.60
+    _AX_X_HALF = L_mm / 2 * _AX_MARGIN
+    _AX_Y_HALF = W_mm / 2 * _AX_MARGIN
+
     _axes = [self._bk_ax_stick, self._bk_ax_speed_c,
              self._bk_ax_press, self._bk_ax_temp, self._bk_ax_fric]
     for ax in _axes:
         ax.clear()
 
-    # Stick/Slip
-    ax0 = self._bk_ax_stick
-    ax0.set_title('Adhesion / Sliding', fontsize=9, fontweight='bold')
-    cmap_ss = ListedColormap(['#2196F3', '#F44336'])
-    bounds_ss = [-0.5, 0.5, 1.5]
-    norm_ss = BoundaryNorm(bounds_ss, cmap_ss.N)
-    self._bk_pm_stick = ax0.pcolormesh(
-        xe_mm, ye_mm, bd['is_sliding'][frame0].T,
-        cmap=cmap_ss, norm=norm_ss, shading='flat')
-    ax0.legend(handles=[Patch(fc='#2196F3', label='Stick'),
-                        Patch(fc='#F44336', label='Slip')],
-               fontsize=6, loc='upper right')
+    self._bk_outline_patches = []
+    self._bk_cbar_axes = {}
 
-    # Sliding Speed
-    ax1 = self._bk_ax_speed_c
-    ax1.set_title('Sliding Speed', fontsize=9, fontweight='bold')
-    self._bk_pm_speed = ax1.pcolormesh(
-        xe_mm, ye_mm, bd['v_slide'][frame0].T,
-        cmap='hot', shading='flat')
-    self._bk_contour_fig.colorbar(self._bk_pm_speed, ax=ax1, fraction=0.046, pad=0.04)
+    def _add_contact_outline(ax):
+        """Add egg-shaped contact patch outline (matching Track Simulator)."""
+        if hasattr(self, '_egg_outline'):
+            verts = self._egg_outline(0, L_mm / 2, W_mm / 2)
+        else:
+            theta = np.linspace(0, 2 * np.pi, 80)
+            verts = np.column_stack([L_mm / 2 * np.cos(theta),
+                                     W_mm / 2 * np.sin(theta)])
+        poly = MplPolygon(verts, closed=True, fill=False,
+                          edgecolor='k', linewidth=1.5, zorder=5)
+        ax.add_patch(poly)
+        self._bk_outline_patches.append(poly)
+        return poly
 
-    # Pressure
-    ax2 = self._bk_ax_press
-    ax2.set_title('Contact Pressure [bar]', fontsize=9, fontweight='bold')
-    self._bk_pm_press = ax2.pcolormesh(
-        xe_mm, ye_mm, bd['pressure'][frame0].T,
-        cmap='YlOrRd', shading='flat')
-    self._bk_contour_fig.colorbar(self._bk_pm_press, ax=ax2, fraction=0.046, pad=0.04)
-
-    # Temperature
-    ax3 = self._bk_ax_temp
-    ax3.set_title('Temperature [°C]', fontsize=9, fontweight='bold')
-    self._bk_pm_temp = ax3.pcolormesh(
-        xe_mm, ye_mm, bd['temperature'][frame0].T,
-        cmap='coolwarm', shading='flat')
-    self._bk_contour_fig.colorbar(self._bk_pm_temp, ax=ax3, fraction=0.046, pad=0.04)
-
-    # Friction Force
-    ax4 = self._bk_ax_fric
-    ax4.set_title('Friction Force [N/node]', fontsize=9, fontweight='bold')
-    self._bk_pm_fric = ax4.pcolormesh(
-        xe_mm, ye_mm, bd['friction'][frame0].T,
-        cmap='inferno', shading='flat')
-    self._bk_contour_fig.colorbar(self._bk_pm_fric, ax=ax4, fraction=0.046, pad=0.04)
-
-    for ax in _axes:
-        ax.set_xlabel('x [mm]', fontsize=7)
-        ax.set_ylabel('y [mm]', fontsize=7)
+    def _setup_contour_ax(ax, title):
+        ax.clear()
+        ax.set_title(title, fontsize=9, fontweight='bold')
+        ax.set_xlabel('length [mm]', fontsize=7)
+        ax.set_ylabel('width [mm]', fontsize=7)
+        ax.set_xlim(-_AX_X_HALF, _AX_X_HALF)
+        ax.set_ylim(-_AX_Y_HALF, _AX_Y_HALF)
         ax.tick_params(labelsize=6)
-        ax.set_aspect('equal')
 
-    self._bk_contour_canvas.draw_idle()
+    def _make_inset_cb(mappable, ax, key, label='', **extra_kw):
+        """Create inset colorbar (horizontal, bottom-right) matching Track Simulator."""
+        cax = inset_axes(ax, width="45%", height="4%",
+                         loc='lower right', borderpad=1.2)
+        cb = self._bk_contour_fig.colorbar(mappable, cax=cax,
+                                            orientation='horizontal', **extra_kw)
+        cb.ax.tick_params(labelsize=4.5, length=2, pad=1)
+        if label:
+            cb.set_label(label, fontsize=5.5)
+        self._bk_cbar_axes[key] = cax
+        return cb
+
+    # ── (1) Adhesion / Sliding (blue=stick, red=slip) ──
+    _setup_contour_ax(self._bk_ax_stick, 'sliding vs adhesion')
+    cmap_sa = ListedColormap(['#2196F3', '#F44336'])
+    bounds_sa = [0, 0.5, 1.0]
+    norm_sa = BoundaryNorm(bounds_sa, cmap_sa.N)
+    init = bd['is_sliding'][0].T
+    self._bk_pm_stick = self._bk_ax_stick.pcolormesh(
+        xe_mm, ye_mm, init, cmap=cmap_sa, norm=norm_sa, shading='flat', zorder=1)
+    outline1 = _add_contact_outline(self._bk_ax_stick)
+    self._bk_pm_stick.set_clip_path(outline1)
+    # Rolling direction arrow (green)
+    _roll_y = -W_mm * 0.55
+    self._bk_ax_stick.annotate('', xy=(-L_mm * 0.35, _roll_y),
+                 xytext=(L_mm * 0.35, _roll_y),
+                 arrowprops=dict(arrowstyle='->', color='#00C853', lw=2.5,
+                                 mutation_scale=16), zorder=7)
+    self._bk_ax_stick.text(0, _roll_y - W_mm * 0.08, '\u2190 Rolling Dir.',
+             fontsize=7, ha='center', va='top', color='#00C853',
+             fontweight='bold', zorder=7)
+    # Braking direction arrow (white, longitudinal)
+    self._bk_stick_arrow_line, = self._bk_ax_stick.plot(
+        [], [], '-', color='white', lw=3, zorder=6)
+    self._bk_stick_arrow_head, = self._bk_ax_stick.plot(
+        [], [], marker=(3, 0, 0), color='white', markersize=14,
+        linestyle='', zorder=6)
+    # Legend
+    legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Stick (\ubd80\ucc29)'),
+                      Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Slip (\ubbf8\ub044\ub7ec)')]
+    self._bk_ax_stick.legend(handles=legend_patches, loc='upper right', fontsize=7,
+               framealpha=0.9, edgecolor='#999',
+               bbox_to_anchor=(0.98, 0.98), borderaxespad=0,
+               handlelength=2.5, handletextpad=0.8, columnspacing=1.5)
+
+    # ── (2) Sliding Speed (pcolormesh with discrete jet levels) ──
+    _setup_contour_ax(self._bk_ax_speed_c, 'sliding speed')
+    sp_max = max(np.nanmax(bd['v_slide']), 0.01)
+    self._bk_global_sp_max = sp_max
+    sp_boundaries = np.linspace(0, sp_max, n_levels + 1)
+    sp_cmap = plt.colormaps['jet'].resampled(n_levels)
+    sp_norm = BoundaryNorm(sp_boundaries, sp_cmap.N)
+    self._bk_pm_speed = self._bk_ax_speed_c.pcolormesh(
+        xe_mm, ye_mm, bd['v_slide'][0].T, cmap=sp_cmap, norm=sp_norm,
+        shading='flat', zorder=1)
+    outline2 = _add_contact_outline(self._bk_ax_speed_c)
+    self._bk_pm_speed.set_clip_path(outline2)
+    cb_sp = _make_inset_cb(self._bk_pm_speed, self._bk_ax_speed_c, 'speed', label='m/s')
+    sp_centers = 0.5 * (sp_boundaries[:-1] + sp_boundaries[1:])
+    cb_sp.set_ticks(sp_centers[::2])
+    cb_sp.set_ticklabels([f'{v:.1f}' for v in sp_centers[::2]])
+
+    # ── (3) Contact Pressure (pcolormesh with discrete jet levels) ──
+    _setup_contour_ax(self._bk_ax_press, 'contact pressure')
+    pr_max = max(np.nanmax(bd['pressure']), 0.01)
+    pr_boundaries = np.linspace(0, pr_max, n_levels + 1)
+    pr_cmap = plt.colormaps['jet'].resampled(n_levels)
+    pr_norm = BoundaryNorm(pr_boundaries, pr_cmap.N)
+    self._bk_pm_press = self._bk_ax_press.pcolormesh(
+        xe_mm, ye_mm, bd['pressure'][0].T, cmap=pr_cmap, norm=pr_norm,
+        shading='flat', zorder=1)
+    outline3 = _add_contact_outline(self._bk_ax_press)
+    self._bk_pm_press.set_clip_path(outline3)
+    cb_pr = _make_inset_cb(self._bk_pm_press, self._bk_ax_press, 'pressure', label='bar')
+    pr_centers = 0.5 * (pr_boundaries[:-1] + pr_boundaries[1:])
+    cb_pr.set_ticks(pr_centers[::2])
+    cb_pr.set_ticklabels([f'{v:.1f}' for v in pr_centers[::2]])
+    # Rolling direction arrow + LE/TE labels
+    _roll_y3 = -W_mm * 0.55
+    self._bk_ax_press.annotate('', xy=(-L_mm * 0.35, _roll_y3),
+                 xytext=(L_mm * 0.35, _roll_y3),
+                 arrowprops=dict(arrowstyle='->', color='#00C853', lw=2,
+                                 mutation_scale=14), zorder=7)
+    self._bk_ax_press.text(0, _roll_y3 - W_mm * 0.08, '\u2190 Rolling Dir.',
+             fontsize=6, ha='center', va='top', color='#00C853',
+             fontweight='bold', zorder=7)
+    self._bk_ax_press.text(-L_mm * 0.42, 0, 'LE', fontsize=7, ha='right', va='center',
+             color='#333', fontweight='bold', fontstyle='italic', zorder=7)
+    self._bk_ax_press.text(L_mm * 0.42, 0, 'TE', fontsize=7, ha='left', va='center',
+             color='#333', fontweight='bold', fontstyle='italic', zorder=7)
+
+    # ── (4) Temperature (pcolormesh with discrete jet levels) ──
+    _setup_contour_ax(self._bk_ax_temp, 'temperature')
+    t_min = np.nanmin(bd['temperature'])
+    t_max = max(np.nanmax(bd['temperature']), t_min + 1)
+    t_boundaries = np.linspace(t_min, t_max, n_levels + 1)
+    t_cmap = plt.colormaps['jet'].resampled(n_levels)
+    t_norm = BoundaryNorm(t_boundaries, t_cmap.N)
+    self._bk_pm_temp = self._bk_ax_temp.pcolormesh(
+        xe_mm, ye_mm, bd['temperature'][0].T, cmap=t_cmap, norm=t_norm,
+        shading='flat', zorder=1)
+    outline4 = _add_contact_outline(self._bk_ax_temp)
+    self._bk_pm_temp.set_clip_path(outline4)
+    cb_t = _make_inset_cb(self._bk_pm_temp, self._bk_ax_temp, 'temperature', label='\u00b0C')
+    t_centers = 0.5 * (t_boundaries[:-1] + t_boundaries[1:])
+    cb_t.set_ticks(t_centers[::2])
+    cb_t.set_ticklabels([f'{v:.1f}' for v in t_centers[::2]])
+
+    # ── (5) Friction Force (pcolormesh with discrete jet levels) ──
+    _setup_contour_ax(self._bk_ax_fric, 'friction force')
+    f_max = max(np.nanmax(bd['friction']), 0.01)
+    fric_boundaries = np.linspace(0, f_max, n_levels + 1)
+    fric_cmap = plt.colormaps['jet'].resampled(n_levels)
+    fric_norm = BoundaryNorm(fric_boundaries, fric_cmap.N)
+    self._bk_pm_fric = self._bk_ax_fric.pcolormesh(
+        xe_mm, ye_mm, bd['friction'][0].T, cmap=fric_cmap, norm=fric_norm,
+        shading='flat', zorder=1)
+    outline5 = _add_contact_outline(self._bk_ax_fric)
+    self._bk_pm_fric.set_clip_path(outline5)
+    cb_f = _make_inset_cb(self._bk_pm_fric, self._bk_ax_fric, 'friction', label='N/node')
+    fric_centers = 0.5 * (fric_boundaries[:-1] + fric_boundaries[1:])
+    cb_f.set_ticks(fric_centers[::2])
+    cb_f.set_ticklabels([f'{v:.1e}' for v in fric_centers[::2]])
+
+    # ── Blit setup: list dynamic artists, then cache CLEAN background ──
+    self._bk_contour_dynamic = [
+        self._bk_pm_stick, self._bk_pm_speed, self._bk_pm_press,
+        self._bk_pm_temp, self._bk_pm_fric,
+        self._bk_stick_arrow_line, self._bk_stick_arrow_head,
+    ]
+    self._bk_contour_dynamic.extend(self._bk_outline_patches)
+
+    _vis_states = []
+    for a in self._bk_contour_dynamic:
+        _vis_states.append(a.get_visible())
+        a.set_visible(False)
+    self._bk_contour_canvas.draw()
+    self._bk_contour_blit_bg = self._bk_contour_canvas.copy_from_bbox(
+        self._bk_contour_fig.bbox)
+    for a, vis in zip(self._bk_contour_dynamic, _vis_states):
+        a.set_visible(vis)
+    self._bk_use_blit = True
 
     # ── Fx vs SR plot ──
     ax_sr = self._bk_ax_fx_sr
@@ -1015,6 +1148,31 @@ def _init_braking_contour_artists(self):
     ax_sr.legend(fontsize=7)
     self._bk_cursor_fx_sr = ax_sr.axvline(x=0, color='#FF6600', lw=1, ls='--')
     self._bk_marker_fx_sr, = ax_sr.plot([], [], 'o', color='#FF6600', markersize=6, zorder=5)
+
+    # ── Kinetic Energy vs Distance plot ──
+    ax_ke = self._bk_ax_ke_dist
+    ax_ke.clear()
+    v0_ms = d['v_kmh'][0] / 3.6
+    mass = float(self.bk_mass_var.get()) if hasattr(self, 'bk_mass_var') else 2000.0
+    KE_initial = 0.5 * mass * v0_ms**2
+    KE_arr = 0.5 * mass * (d['v_kmh'] / 3.6)**2
+    KE_dissipated = KE_initial - KE_arr
+
+    ax_ke.set_title('Kinetic Energy vs Distance', fontsize=9, fontweight='bold')
+    ax_ke.set_xlabel('Distance [m]', fontsize=8)
+    ax_ke.set_ylabel('Energy [kJ]', fontsize=8)
+    ax_ke.grid(True, alpha=0.3)
+    ax_ke.plot(d['dist'], KE_arr / 1000, '-', color='#1565C0', lw=1.5, label='KE remaining')
+    ax_ke.fill_between(d['dist'], KE_arr / 1000, KE_initial / 1000,
+                       alpha=0.3, color='#F44336', label='Dissipated')
+    ax_ke.plot(d['dist'], KE_dissipated / 1000, '-', color='#F44336', lw=1.2,
+               alpha=0.7, label='Cumul. dissipated')
+    ax_ke.axhline(y=KE_initial / 1000, color='#999', lw=0.8, ls=':', alpha=0.6)
+    ax_ke.text(d['dist'][-1] * 0.02, KE_initial / 1000 * 1.02,
+               f'KE\u2080 = {KE_initial/1000:.1f} kJ', fontsize=6, color='#666')
+    ax_ke.legend(fontsize=6, loc='center right')
+    ax_ke.set_ylim(0, KE_initial / 1000 * 1.15)
+    self._bk_cursor_ke_dist = ax_ke.axvline(x=0, color='#FF6600', lw=1, ls='--')
 
     # Fx vs Distance
     ax_fd = self._bk_ax_fx_dist
@@ -1155,52 +1313,89 @@ def _update_braking_frame(self, idx):
         self._bk_pedal_canvas.draw_idle()
 
     # ── Tire rotation ──
-    if v_cur > 1:
-        rot_speed = v_cur / 3.6 / self._bk_tire_R * 2.0  # rad/frame
-        # Adjust for slip ratio
-        wheel_factor = 1.0 + sr_cur / 100.0
-        self._bk_tire_rot_deg += np.degrees(rot_speed * wheel_factor) * 0.5
-    cy = self._bk_tire_center_y
-    R = self._bk_tire_R
-    base_angles = np.linspace(0, 2 * np.pi, 5, endpoint=False)
-    for i, sp in enumerate(self._bk_tire_spokes):
-        ang = base_angles[i] + np.radians(self._bk_tire_rot_deg)
-        sp.set_data([0, R * 0.8 * np.cos(ang)],
-                    [cy, cy + R * 0.8 * np.sin(ang)])
+    if hasattr(self, '_bk_tire_spokes') and self._bk_tire_spokes:
+        if v_cur > 1:
+            rot_speed = v_cur / 3.6 / self._bk_tire_R * 2.0  # rad/frame
+            # Adjust for slip ratio: wheel slower than car → spokes rotate slower
+            wheel_factor = 1.0 + sr_cur / 100.0
+            self._bk_tire_rot_deg += np.degrees(rot_speed * wheel_factor) * 0.5
+        cy = self._bk_tire_center_y
+        R = self._bk_tire_R
+        base_angles = np.linspace(0, 2 * np.pi, 5, endpoint=False)
+        for i, sp in enumerate(self._bk_tire_spokes):
+            ang = base_angles[i] + np.radians(self._bk_tire_rot_deg)
+            sp.set_data([0, R * 0.8 * np.cos(ang)],
+                        [cy, cy + R * 0.8 * np.sin(ang)])
 
-    # Contact patch
-    cp_w = 0.5
-    self._bk_contact_patch.set_data([-cp_w, cp_w], [-1.8, -1.8])
+        # Contact patch
+        cp_w = 0.5
+        self._bk_contact_patch.set_data([-cp_w, cp_w], [-1.8, -1.8])
 
-    # Lock-up indicator
-    if abs(sr_cur) > 80:
-        self._bk_lockup_text.set_text('LOCKED!')
-        self._bk_lockup_text.set_color('#F44336')
-    elif abs(sr_cur) > 30:
-        self._bk_lockup_text.set_text('HIGH SLIP')
-        self._bk_lockup_text.set_color('#FF9800')
-    else:
-        self._bk_lockup_text.set_text('')
+        # Lock-up indicator
+        if abs(sr_cur) > 80:
+            self._bk_lockup_text.set_text('LOCKED!')
+            self._bk_lockup_text.set_color('#F44336')
+        elif abs(sr_cur) > 30:
+            self._bk_lockup_text.set_text('HIGH SLIP')
+            self._bk_lockup_text.set_color('#FF9800')
+        else:
+            self._bk_lockup_text.set_text('')
 
-    if idx % 2 == 0:
+        # Always redraw tire canvas for smooth animation
         self._bk_tire_canvas.draw_idle()
+        self._bk_tire_canvas.flush_events()
 
     # ── Contour update ──
     bd = d['brush_data']
+    _playing = getattr(self, '_bk_playing', False)
+
     if hasattr(self, '_bk_pm_stick'):
         self._bk_pm_stick.set_array(bd['is_sliding'][idx].T.ravel())
+        self._bk_pm_speed.set_array(bd['v_slide'][idx].T.ravel())
         self._bk_pm_press.set_array(bd['pressure'][idx].T.ravel())
         self._bk_pm_temp.set_array(bd['temperature'][idx].T.ravel())
         self._bk_pm_fric.set_array(bd['friction'][idx].T.ravel())
-        if idx % 4 == 0:
-            self._bk_contour_canvas.draw_idle()
 
-    # ── Fx graphs cursor ──
+        # Braking direction arrow on stick/slip contour
+        if hasattr(self, '_bk_stick_arrow_line'):
+            half_L = bd.get('half_L', 0.075)
+            L_mm_a = half_L * 2 * 1000
+            if abs(sr_cur) > 1.0:
+                arrow_scale = L_mm_a * 0.3
+                dx_a = -arrow_scale  # braking → arrow points backward (rolling dir)
+                self._bk_stick_arrow_line.set_data([0, dx_a], [0, 0])
+                self._bk_stick_arrow_line.set_visible(True)
+                self._bk_stick_arrow_head.set_marker((3, 0, 180))
+                self._bk_stick_arrow_head.set_data([dx_a], [0])
+                self._bk_stick_arrow_head.set_visible(True)
+            else:
+                self._bk_stick_arrow_line.set_visible(False)
+                self._bk_stick_arrow_head.set_visible(False)
+
+        # Blit-based render for 120 Hz (matching Track Simulator)
+        if getattr(self, '_bk_use_blit', False) and self._bk_contour_blit_bg is not None:
+            c_canvas = self._bk_contour_canvas
+            c_canvas.restore_region(self._bk_contour_blit_bg)
+            for artist in self._bk_contour_dynamic:
+                try:
+                    artist.axes.draw_artist(artist)
+                except Exception:
+                    pass
+            c_canvas.blit(self._bk_contour_fig.bbox)
+            if idx % 4 == 0:
+                c_canvas.flush_events()
+        else:
+            if idx % 4 == 0:
+                self._bk_contour_canvas.draw_idle()
+
+    # ── Fx / KE graphs cursor ──
     if hasattr(self, '_bk_cursor_fx_sr'):
         self._bk_cursor_fx_sr.set_xdata([sr_cur, sr_cur])
         self._bk_marker_fx_sr.set_data([sr_cur], [fx_cur])
         self._bk_cursor_fx_dist.set_xdata([dist_cur, dist_cur])
-        if idx % 4 == 0:
+        if hasattr(self, '_bk_cursor_ke_dist'):
+            self._bk_cursor_ke_dist.set_xdata([dist_cur, dist_cur])
+        if not _playing or idx % 4 == 0:
             self._bk_fx_canvas.draw_idle()
 
     # ── HUD ──
