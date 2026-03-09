@@ -524,7 +524,7 @@ def _run_braking_simulation(self):
 
         # Wheel angular dynamics: I * alpha = -brake_torque + F_friction * R
         # F_friction opposes slip → if wheel slower, friction pulls wheel forward
-        F_friction_on_wheel = F_brake_max * np.sign(sr) if abs(sr) > 0.001 else 0.0
+        F_friction_on_wheel = -F_brake_max * np.sign(sr) if abs(sr) > 0.001 else 0.0
         omega = v_wheel / R_tire
         alpha = (-brake_torque + F_friction_on_wheel * R_tire) / (I_wheel + 1e-10)
         omega_new = omega + alpha * dt
@@ -601,7 +601,7 @@ def _run_braking_simulation(self):
             sr2 = np.clip(sr2, -1.0, 0.0)
             mu2 = float(mu_eff_at_v(max(abs(sr2) * v_c2, 0.01)))
             bt2 = brake_g_max * mass * g_acc * R_tire / 4.0
-            F_fw2 = mu2 * Fz2 * np.sign(sr2) if abs(sr2) > 0.001 else 0.0
+            F_fw2 = -mu2 * Fz2 * np.sign(sr2) if abs(sr2) > 0.001 else 0.0
             om2 = v_w2 / R_tire
             al2 = (-bt2 + F_fw2 * R_tire) / (I_wheel + 1e-10)
             om2 = max(om2 + al2 * dt, 0.0)
