@@ -28537,25 +28537,39 @@ def main():
     # ── Percentage text: centered above "NEXEN TIRE R&D" (bottom-right) ──
     # "NEXEN TIRE R&D" in the splash image is centered around x≈725, y≈435
     _nexen_center_x = 725
+    _pct_y = splash_h - 60
+    _pct_font = ('Segoe UI', 18, 'bold italic')
+
+    # Fixed percentage text (anchor='se' — right-aligned, doesn't shift)
     _pct_text_id = _splash_canvas.create_text(
-        _nexen_center_x, splash_h - 60,
+        _nexen_center_x, _pct_y,
         text="0%", anchor='s',
-        font=('Segoe UI', 18, 'bold italic'),
-        fill='white')
+        font=_pct_font, fill='white')
+
+    # Separate dots text (anchor='sw' — grows rightward from % end)
+    _dots_text_id = _splash_canvas.create_text(
+        _nexen_center_x, _pct_y,
+        text="", anchor='sw',
+        font=_pct_font, fill='white')
+
+    def _update_dots_position():
+        """Place dots right after the % text bounding box."""
+        bbox = _splash_canvas.bbox(_pct_text_id)
+        if bbox:
+            # bbox = (x1, y1, x2, y2); place dots at right edge, same baseline
+            _splash_canvas.coords(_dots_text_id, bbox[2] + 1, _pct_y)
 
     splash.update()
 
     # ── Animated dots after percentage ──
-    _dot_counter = [0]  # mutable counter for closure
+    _dot_counter = [0]
     _dot_anim_id = [None]
 
     def _animate_dots():
         try:
             _dot_counter[0] = (_dot_counter[0] + 1) % 4
             dots = '.' * _dot_counter[0]
-            # Read current percentage from the text (strip old dots)
-            current = _splash_canvas.itemcget(_pct_text_id, 'text').rstrip('.')
-            _splash_canvas.itemconfig(_pct_text_id, text=f"{current}{dots}")
+            _splash_canvas.itemconfig(_dots_text_id, text=dots)
             splash.update()
             _dot_anim_id[0] = splash.after(400, _animate_dots)
         except tk.TclError:
@@ -28565,8 +28579,8 @@ def main():
 
     def _splash_update(msg, pct):
         try:
-            dots = '.' * (_dot_counter[0] % 4)
-            _splash_canvas.itemconfig(_pct_text_id, text=f"{int(pct)}%{dots}")
+            _splash_canvas.itemconfig(_pct_text_id, text=f"{int(pct)}%")
+            _update_dots_position()
             splash.update()
         except tk.TclError:
             pass
@@ -28578,6 +28592,7 @@ def main():
         if _dot_anim_id[0] is not None:
             splash.after_cancel(_dot_anim_id[0])
         _splash_canvas.itemconfig(_pct_text_id, text="100%")
+        _splash_canvas.itemconfig(_dots_text_id, text="")
         splash.update()
         import time; time.sleep(0.5)
     except tk.TclError:
