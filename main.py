@@ -28484,10 +28484,10 @@ def main():
         except ImportError:
             pass
 
-    # ── Percentage text: white, small, italic, bottom-left ──
+    # ── Percentage text: above "NEXEN TIRE R&D" logo (bottom-right) ──
     _pct_text_id = _splash_canvas.create_text(
-        15, splash_h - 15,
-        text="0%", anchor='sw',
+        splash_w - 55, splash_h - 45,
+        text="0%", anchor='s',
         font=('Segoe UI', 20, 'bold italic'),
         fill='white')
 
