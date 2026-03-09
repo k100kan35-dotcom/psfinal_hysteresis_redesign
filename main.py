@@ -26749,6 +26749,7 @@ class PerssonModelGUI_V2:
         self._ts_speed_xx_q = xx_q
         self._ts_speed_yy_q = yy_q
         sp_max = max(np.nanmax(bd['v_slide']), 0.01)
+        self._ts_global_sp_max = sp_max          # store for fixed quiver scale
         sp_boundaries = np.linspace(0, sp_max, n_levels + 1)
         sp_cmap = plt.cm.get_cmap('jet', n_levels)
         sp_norm = BoundaryNorm(sp_boundaries, sp_cmap.N)
@@ -27297,10 +27298,12 @@ class PerssonModelGUI_V2:
                 v_q = np.where(mask_q, -v_full * np.cos(sa_rad), 0.0)
                 mag_q = np.where(mask_q, v_full, 0.0)
                 self._ts_quiver_speed.set_UVC(u_q[mask_q], v_q[mask_q], mag_q[mask_q])
-                # Dynamic scale: adapt to current frame's speed range for
-                # visible arrow length variation (matching 2D Brush tab)
-                frame_max = np.max(mag_q[mask_q]) if np.any(mask_q) else 0.01
-                self._ts_quiver_speed.scale = max(frame_max * 6.0, 0.1)
+                # Fixed global scale (matching 2D Brush tab): arrow length is
+                # proportional to local speed across all frames.  Using the
+                # global max ensures arrows shrink to zero on straights (SA≈0)
+                # and grow proportionally in corners.
+                sp_hi = getattr(self, '_ts_global_sp_max', 1.0)
+                self._ts_quiver_speed.scale = max(sp_hi * 8.0, 0.1)
 
             # ── Update outline patches + clip paths based on current SA ──
             if hasattr(self, '_ts_outline_patches') and self._ts_outline_patches:
