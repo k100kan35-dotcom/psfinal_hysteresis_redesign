@@ -22799,6 +22799,20 @@ class PerssonModelGUI_V2:
                      values=['dual_peak', 'parabolic', 'uniform', 'elliptic'],
                      state='readonly').pack(side=tk.LEFT, padx=2)
 
+        row_asym = ttk.Frame(sec2); row_asym.pack(fill=tk.X, pady=1)
+        ttk.Label(row_asym, text="비대칭 강도:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_asym_preset_var = tk.StringVar(value="보통")
+        self._ASYM_PRESETS = {
+            '강함': (0.55, 0.25),   # dramatic asymmetry
+            '보통': (0.35, 0.40),   # moderate (current default)
+            '약함': (0.15, 0.60),   # nearly symmetric
+        }
+        ttk.Combobox(row_asym, textvariable=self.br_asym_preset_var, width=8,
+                     values=list(self._ASYM_PRESETS.keys()),
+                     state='readonly').pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_asym, text="(dual_peak 전용)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
         row_drive = ttk.Frame(sec2); row_drive.pack(fill=tk.X, pady=1)
         ttk.Label(row_drive, text="주행 모드:", font=self.FONTS['body']).pack(side=tk.LEFT)
         self.br_driving_mode_var = tk.StringVar(value="Braking")
@@ -24136,8 +24150,9 @@ class PerssonModelGUI_V2:
                 # SA < 0 (left turn): load transfers to +y (high width side, 위)
                 # Both peaks ALWAYS exist — dominant peak grows, weaker peak
                 # shrinks smoothly but never disappears (floor = 0.15).
-                _ASYM_COEFF = 0.35   # asymmetry gain (reduced: both peaks always visible)
-                _ASYM_FLOOR = 0.40   # minimum scale — weaker peak stays substantial
+                _asym_preset = self._ASYM_PRESETS.get(
+                    self.br_asym_preset_var.get(), (0.35, 0.40))
+                _ASYM_COEFF, _ASYM_FLOOR = _asym_preset
                 high_scale = max(1.0 + _ASYM_COEFF * sa_factor, _ASYM_FLOOR)
                 low_scale  = max(1.0 - _ASYM_COEFF * sa_factor, _ASYM_FLOOR)
                 p = high_scale * _peak_high + low_scale * _peak_low
@@ -26563,8 +26578,11 @@ class PerssonModelGUI_V2:
             # Dynamic pressure map with SA-dependent lateral shift
             sa_factor = -np.clip(sa_deg / 6.0, -1, 1)
             if _is_dual_peak:
-                high_s = max(1.0 + 0.25 * sa_factor, 0.3)
-                low_s = max(1.0 - 0.25 * sa_factor, 0.3)
+                _asym_p = self._ASYM_PRESETS.get(
+                    self.br_asym_preset_var.get(), (0.35, 0.40))
+                _ac, _af = _asym_p
+                high_s = max(1.0 + _ac * sa_factor, _af)
+                low_s = max(1.0 - _ac * sa_factor, _af)
                 p_map = high_s * _peak_high + low_s * _peak_low
             else:
                 p_map = p_base.copy()
