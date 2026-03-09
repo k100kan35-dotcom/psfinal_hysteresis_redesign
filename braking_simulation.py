@@ -156,16 +156,28 @@ def _create_braking_simulation_tab(self, parent):
     self._bk_pedal_canvas = _FCA(self._bk_pedal_fig, pedal_inner)
     self._bk_pedal_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2)
 
-    # Tire side-view animation
-    self._bk_tire_fig = _Fig(figsize=(1.8, 2.4), dpi=80, facecolor='#2D2D2D')
-    self._bk_tire_ax = self._bk_tire_fig.add_axes([0.0, 0.0, 1.0, 1.0])
-    self._bk_tire_ax.set_xlim(-3.0, 3.0)
-    self._bk_tire_ax.set_ylim(-3.0, 3.0)
-    self._bk_tire_ax.set_aspect('equal')
-    self._bk_tire_ax.axis('off')
-    self._bk_tire_fig.patch.set_facecolor('#2D2D2D')
-    self._bk_tire_canvas = _FCA(self._bk_tire_fig, pedal_inner)
-    self._bk_tire_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2)
+    # ABS Logic Graph (replaces tire side-view)
+    self._bk_abs_fig = _Fig(figsize=(2.8, 2.8), dpi=80, facecolor='#F8FAFC')
+    gs_abs = GridSpec(2, 1, figure=self._bk_abs_fig,
+                      hspace=0.45,
+                      left=0.18, right=0.95, top=0.92, bottom=0.10)
+    self._bk_abs_ax_sr = self._bk_abs_fig.add_subplot(gs_abs[0, 0])
+    self._bk_abs_ax_sr.set_title('Slip Ratio & ABS', fontsize=9, fontweight='bold')
+    self._bk_abs_ax_sr.set_ylabel('|SR| [%]', fontsize=7)
+    self._bk_abs_ax_sr.tick_params(labelsize=6)
+    self._bk_abs_ax_sr.grid(True, alpha=0.3)
+
+    self._bk_abs_ax_bp = self._bk_abs_fig.add_subplot(gs_abs[1, 0])
+    self._bk_abs_ax_bp.set_title('Brake Pressure', fontsize=9, fontweight='bold')
+    self._bk_abs_ax_bp.set_xlabel('Time [s]', fontsize=7)
+    self._bk_abs_ax_bp.set_ylabel('Brake', fontsize=7)
+    self._bk_abs_ax_bp.tick_params(labelsize=6)
+    self._bk_abs_ax_bp.set_yticks([0, 1])
+    self._bk_abs_ax_bp.set_yticklabels(['OFF', 'ON'], fontsize=6)
+    self._bk_abs_ax_bp.grid(True, alpha=0.3)
+
+    self._bk_abs_canvas = _FCA(self._bk_abs_fig, pedal_inner)
+    self._bk_abs_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2)
 
     self._bk_hud_var = tk.StringVar(value="SR: 0.0%  |  Fx: 0 N")
     ttk.Label(pedal_tire_frame, textvariable=self._bk_hud_var,
@@ -263,7 +275,7 @@ def _create_braking_simulation_tab(self, parent):
 
     def _bk_redraw_all():
         for cv in (self._bk_road_canvas, self._bk_pedal_canvas,
-                   self._bk_tire_canvas, self._bk_contour_canvas,
+                   self._bk_abs_canvas, self._bk_contour_canvas,
                    self._bk_fx_canvas):
             try:
                 w = cv.get_tk_widget()
@@ -339,6 +351,50 @@ def _create_braking_simulation_tab(self, parent):
     ttk.Button(sec_brush, text="Brush 설정 동기화 확인",
                command=self._show_braking_brush_sync_info, width=22).pack(anchor='w', padx=4, pady=2)
 
+    # ── Pressure preset selector ──
+    sec_press = self._create_section(left_panel, "2-2) 접촉압력 프리셋")
+    pr_row1 = ttk.Frame(sec_press); pr_row1.pack(fill=tk.X, pady=1)
+    ttk.Label(pr_row1, text="압력 분포:", font=self.FONTS['body']).pack(side=tk.LEFT)
+    self.bk_pressure_type_var = tk.StringVar(value='braking_front')
+    _pressure_presets = [
+        ('parabolic', '포물선 (기본)'),
+        ('elliptic', '타원 (헤르츠)'),
+        ('uniform', '균일'),
+        ('dual_peak', '이중 피크'),
+        ('braking_front', '제동 전방편중'),
+    ]
+    _pr_combo = ttk.Combobox(pr_row1, textvariable=self.bk_pressure_type_var,
+                              values=[k for k, _ in _pressure_presets],
+                              state='readonly', width=14)
+    _pr_combo.pack(side=tk.LEFT, padx=2)
+
+    # Preset description label
+    self._bk_press_desc_var = tk.StringVar(value='제동 시 전방(리딩엣지) 압력 편중')
+    ttk.Label(sec_press, textvariable=self._bk_press_desc_var,
+              font=self.FONTS['small'], foreground='#64748B',
+              wraplength=200, justify='left').pack(anchor='w', padx=4, pady=1)
+
+    _desc_map = dict(_pressure_presets)
+    def _on_press_preset(event=None):
+        k = self.bk_pressure_type_var.get()
+        descs = {
+            'parabolic': '대칭 포물선 압력 분포 (정적 상태)',
+            'elliptic': '헤르츠 접촉이론 기반 타원형 분포',
+            'uniform': '균일한 압력 분포',
+            'dual_peak': '양측 피크 분포 (숄더 타이어)',
+            'braking_front': '제동 시 전방(리딩엣지) 압력 편중',
+        }
+        self._bk_press_desc_var.set(descs.get(k, k))
+    _pr_combo.bind('<<ComboboxSelected>>', _on_press_preset)
+
+    # Braking bias intensity
+    pr_row2 = ttk.Frame(sec_press); pr_row2.pack(fill=tk.X, pady=1)
+    ttk.Label(pr_row2, text="전방 편중 강도:", font=self.FONTS['body']).pack(side=tk.LEFT)
+    self.bk_braking_bias_var = tk.StringVar(value="0.5")
+    ttk.Entry(pr_row2, textvariable=self.bk_braking_bias_var, width=6).pack(side=tk.LEFT, padx=2)
+    ttk.Label(pr_row2, text="(0~1)", font=self.FONTS['small'],
+              foreground='#64748B').pack(side=tk.LEFT)
+
     # Execution & playback
     sec3 = self._create_section(left_panel, "3) 실행 & 재생")
     calc_row = ttk.Frame(sec3); calc_row.pack(fill=tk.X, pady=2)
@@ -383,7 +439,7 @@ def _create_braking_simulation_tab(self, parent):
 
     # Initialize visualizations
     self._init_braking_pedal_gauge()
-    self._init_braking_tire_animation()
+    self._init_braking_abs_graph()
     self._draw_braking_road_static()
 
 
@@ -454,7 +510,9 @@ def _run_braking_simulation(self):
         ratio = s_max / max(_s0, 1e-10)
         avg_blend = np.where(ratio > 1e-6,
                              (1.0 - np.exp(-ratio)) / ratio, 1.0)
-        return (mu_c * avg_blend + mu_h * (1.0 - avg_blend)) * _fscale
+        # NOTE: friction_scale is for brush-element tuning, NOT vehicle dynamics.
+        # Vehicle-level mu uses the raw Cold/Hot friction map values.
+        return mu_c * avg_blend + mu_h * (1.0 - avg_blend)
 
     # ── Time-stepping simulation ──
     max_steps = int(30.0 / dt)  # max 30 seconds
@@ -638,6 +696,7 @@ def _run_braking_simulation(self):
     self.bk_progress_var.set(100)
     self._update_braking_results_text()
     self._draw_braking_road_static()
+    self._init_braking_abs_graph()
     self._init_braking_contour_artists()
     self._bk_frame_idx = 0
     self._update_braking_frame(0)
@@ -686,10 +745,20 @@ def _compute_braking_brush_data(self, sr_arr_pct, v_arr, Fz_arr, T_amb):
         friction_scale = 0.5
         vc_brush = 16.67
 
+    # Read pressure preset from braking tab (overrides 2D brush tab)
     try:
-        ptype = self.br_pressure_type_var.get()
+        ptype = self.bk_pressure_type_var.get()
     except (AttributeError, ValueError):
-        ptype = 'parabolic'
+        try:
+            ptype = self.br_pressure_type_var.get()
+        except (AttributeError, ValueError):
+            ptype = 'parabolic'
+
+    try:
+        braking_bias = float(self.bk_braking_bias_var.get())
+        braking_bias = max(0.0, min(1.0, braking_bias))
+    except (AttributeError, ValueError):
+        braking_bias = 0.0
 
     n = len(sr_arr_pct)
     a, b = L / 2.0, W / 2.0
@@ -723,9 +792,24 @@ def _compute_braking_brush_data(self, sr_arr_pct, v_arr, Fz_arr, T_amb):
         p_base = (np.exp(-((y_norm - pk_pos) / pk_w)**2) +
                   np.exp(-((y_norm + pk_pos) / pk_w)**2)) * lon_env
         p_base *= mask
+    elif ptype == 'braking_front':
+        # Parabolic base with forward (leading-edge) bias
+        p_base = (np.clip(1 - np.abs(2 * xx / L)**se_n, 0, None) *
+                  np.clip(1 - np.abs(2 * yy / W)**se_n, 0, None))
+        # Leading edge is at -x (rolling direction ← , tire contacts road at -x first)
+        # Shift pressure toward leading edge: multiply by (1 + bias * (-x/a))
+        x_norm = xx / a  # -1 to +1
+        bias_mult = 1.0 + braking_bias * (-x_norm)
+        p_base *= np.clip(bias_mult, 0, None)
     else:  # parabolic
         p_base = (np.clip(1 - np.abs(2 * xx / L)**se_n, 0, None) *
                   np.clip(1 - np.abs(2 * yy / W)**se_n, 0, None))
+
+    # Apply forward bias to any non-braking_front presets if bias > 0
+    if ptype != 'braking_front' and braking_bias > 0:
+        x_norm = xx / a
+        bias_mult = 1.0 + braking_bias * (-x_norm)
+        p_base *= np.clip(bias_mult, 0, None)
 
     # Contact time (rolling)
     t_contact = np.clip((xx + L / 2.0) / max(vc_brush, 0.01), 0, None)
@@ -850,6 +934,39 @@ def _update_braking_results_text(self):
             f"  ({diff_pct:+.1f}%)\n"
             f"  제동 시간:    {d['stop_time_abs_off']:.3f} s\n"
         )
+
+    # ── ABS 제어 로직 테이블 ──
+    try:
+        sr_up = float(self.bk_sr_upper_var.get())
+        sr_lo = float(self.bk_sr_lower_var.get())
+        abs_hz = float(self.bk_abs_freq_var.get())
+    except (AttributeError, ValueError):
+        sr_up, sr_lo, abs_hz = 15.0, 8.0, 15.0
+    abs_period = 1.0 / abs_hz if abs_hz > 0 else 0.1
+
+    text += (
+        f"\n  ═══ ABS 제어 로직 ═══\n"
+        f"  ┌──────────────────────────────────┐\n"
+        f"  │ 파라미터       │ 값               │\n"
+        f"  ├──────────────────────────────────┤\n"
+        f"  │ SR 상한 (해제) │ {sr_up:>6.1f} %        │\n"
+        f"  │ SR 하한 (인가) │ {sr_lo:>6.1f} %        │\n"
+        f"  │ ABS 주파수     │ {abs_hz:>6.1f} Hz       │\n"
+        f"  │ ABS 주기       │ {abs_period*1000:>6.1f} ms       │\n"
+        f"  │ 해제 유지비    │ {0.3*100:>5.0f} %         │\n"
+        f"  └──────────────────────────────────┘\n"
+        f"\n"
+        f"  ── ABS 상태 천이 ──\n"
+        f"  ┌─────────────┬────────────┬───────────────┐\n"
+        f"  │ 현재 상태   │ 조건       │ 다음 상태     │\n"
+        f"  ├─────────────┼────────────┼───────────────┤\n"
+        f"  │ Brake ON    │|SR|>{sr_up:g}% │ Brake OFF     │\n"
+        f"  │ Brake OFF   │|SR|<{sr_lo:g}%  │ Brake ON      │\n"
+        f"  │ Brake OFF   │ t<{abs_period*0.3*1000:.0f}ms   │ Hold OFF      │\n"
+        f"  │ ABS OFF     │ (항상)     │ Brake ON      │\n"
+        f"  └─────────────┴────────────┴───────────────┘\n"
+    )
+
     bd = d.get('brush_data', {})
     text += (
         f"\n  ── 2D Brush 연동 ──\n"
@@ -1218,57 +1335,70 @@ def _init_braking_pedal_gauge(self):
     self._bk_pedal_canvas.draw()
 
 
-# ── Tire side-view animation ──
-def _init_braking_tire_animation(self):
-    from matplotlib.patches import Circle, Rectangle
-    ax = self._bk_tire_ax
-    ax.clear()
-    ax.set_xlim(-3.0, 3.0)
-    ax.set_ylim(-3.0, 3.0)
-    ax.set_aspect('equal')
-    ax.axis('off')
-    ax.set_facecolor('#3A3A3A')
+# ── ABS Logic Graph (replaces tire side-view) ──
+def _init_braking_abs_graph(self):
+    """Initialize or redraw the ABS logic graph with SR and brake state."""
+    d = self._bk_sim_data
 
-    # Road surface
-    ax.add_patch(Rectangle((-3, -2.8), 6, 1.0, facecolor='#555', zorder=0))
-    ax.plot([-3, 3], [-1.8, -1.8], '-', color='#888', lw=1, zorder=1)
+    ax_sr = self._bk_abs_ax_sr
+    ax_bp = self._bk_abs_ax_bp
+    ax_sr.clear()
+    ax_bp.clear()
 
-    # Tire (circle)
-    R = 1.5
-    self._bk_tire_R = R
-    theta = np.linspace(0, 2 * np.pi, 60)
-    ax.plot(R * np.cos(theta), R * np.sin(theta) + R - 1.8 + 0.05,
-            '-', color='#1A1A1A', lw=8, zorder=2)
-    ax.plot(R * np.cos(theta), R * np.sin(theta) + R - 1.8 + 0.05,
-            '-', color='#333', lw=5, zorder=3)
+    ax_sr.set_title('Slip Ratio & ABS', fontsize=9, fontweight='bold')
+    ax_sr.set_ylabel('|SR| [%]', fontsize=7)
+    ax_sr.tick_params(labelsize=6)
+    ax_sr.grid(True, alpha=0.3)
 
-    # Wheel hub
-    hub_r = 0.4
-    ax.plot(hub_r * np.cos(theta), hub_r * np.sin(theta) + R - 1.8 + 0.05,
-            '-', color='#AAA', lw=2, zorder=4)
-    ax.plot(0, R - 1.8 + 0.05, 'o', color='#AAA', markersize=5, zorder=5)
+    ax_bp.set_title('Brake Pressure', fontsize=9, fontweight='bold')
+    ax_bp.set_xlabel('Time [s]', fontsize=7)
+    ax_bp.set_ylabel('Brake', fontsize=7)
+    ax_bp.tick_params(labelsize=6)
+    ax_bp.set_yticks([0, 1])
+    ax_bp.set_yticklabels(['OFF', 'ON'], fontsize=6)
+    ax_bp.grid(True, alpha=0.3)
 
-    # Spoke lines (dynamic — will rotate)
-    self._bk_tire_center_y = R - 1.8 + 0.05
-    self._bk_tire_spokes = []
-    for ang_off in np.linspace(0, 2 * np.pi, 5, endpoint=False):
-        sp, = ax.plot([0, R * 0.8 * np.cos(ang_off)],
-                      [self._bk_tire_center_y,
-                       self._bk_tire_center_y + R * 0.8 * np.sin(ang_off)],
-                      '-', color='#888', lw=1.5, zorder=4)
-        self._bk_tire_spokes.append(sp)
+    if d is not None:
+        t = d['time']
+        sr_abs = np.abs(d['sr_pct'])
+        bp = d['brake_pressure']
 
-    # Contact patch highlight
-    self._bk_contact_patch, = ax.plot([], [], '-', color='#FF6600', lw=4, alpha=0.8, zorder=6)
+        # SR plot
+        ax_sr.plot(t, sr_abs, '-', color='#1565C0', lw=1.2, label='|SR|')
+        ax_sr.set_xlim(t[0], t[-1])
+        ax_sr.set_ylim(0, max(np.max(sr_abs) * 1.1, 20))
 
-    # Lock-up indicator
-    self._bk_lockup_text = ax.text(0, 2.5, '', fontsize=12, ha='center',
-                                    fontweight='bold', color='#F44336', zorder=10)
+        # ABS threshold lines
+        try:
+            sr_up = float(self.bk_sr_upper_var.get())
+            sr_lo = float(self.bk_sr_lower_var.get())
+        except (AttributeError, ValueError):
+            sr_up, sr_lo = 15.0, 8.0
+        ax_sr.axhline(y=sr_up, color='#F44336', lw=1.2, ls='--', alpha=0.8,
+                       label=f'SR upper ({sr_up}%)')
+        ax_sr.axhline(y=sr_lo, color='#4CAF50', lw=1.2, ls='--', alpha=0.8,
+                       label=f'SR lower ({sr_lo}%)')
+        # Shade optimal zone
+        ax_sr.axhspan(sr_lo, sr_up, alpha=0.08, color='#FF9800',
+                       label='ABS target zone')
+        ax_sr.legend(fontsize=5.5, loc='upper right')
 
-    ax.text(0, 2.8, 'Tire Side View', fontsize=9, ha='center', va='top',
-            fontweight='bold', color='#EEE', zorder=10)
+        # Brake pressure ON/OFF plot (step function)
+        ax_bp.fill_between(t, bp, step='post', alpha=0.4, color='#F44336')
+        ax_bp.step(t, bp, where='post', color='#F44336', lw=1.2)
+        ax_bp.set_xlim(t[0], t[-1])
+        ax_bp.set_ylim(-0.1, 1.3)
 
-    self._bk_tire_canvas.draw()
+        # Cursor lines (dynamic)
+        self._bk_abs_cursor_sr = ax_sr.axvline(x=0, color='#FF6600', lw=1.2,
+                                                 ls='--', alpha=0.8)
+        self._bk_abs_cursor_bp = ax_bp.axvline(x=0, color='#FF6600', lw=1.2,
+                                                 ls='--', alpha=0.8)
+        # SR marker dot
+        self._bk_abs_sr_marker, = ax_sr.plot([], [], 'o', color='#FF6600',
+                                               markersize=5, zorder=5)
+
+    self._bk_abs_canvas.draw_idle()
 
 
 # ── Frame update ──
@@ -1312,38 +1442,13 @@ def _update_braking_frame(self, idx):
     if idx % 4 == 0:
         self._bk_pedal_canvas.draw_idle()
 
-    # ── Tire rotation ──
-    if hasattr(self, '_bk_tire_spokes') and self._bk_tire_spokes:
-        if v_cur > 1:
-            rot_speed = v_cur / 3.6 / self._bk_tire_R * 2.0  # rad/frame
-            # Adjust for slip ratio: wheel slower than car → spokes rotate slower
-            wheel_factor = 1.0 + sr_cur / 100.0
-            self._bk_tire_rot_deg += np.degrees(rot_speed * wheel_factor) * 0.5
-        cy = self._bk_tire_center_y
-        R = self._bk_tire_R
-        base_angles = np.linspace(0, 2 * np.pi, 5, endpoint=False)
-        for i, sp in enumerate(self._bk_tire_spokes):
-            ang = base_angles[i] + np.radians(self._bk_tire_rot_deg)
-            sp.set_data([0, R * 0.8 * np.cos(ang)],
-                        [cy, cy + R * 0.8 * np.sin(ang)])
-
-        # Contact patch
-        cp_w = 0.5
-        self._bk_contact_patch.set_data([-cp_w, cp_w], [-1.8, -1.8])
-
-        # Lock-up indicator
-        if abs(sr_cur) > 80:
-            self._bk_lockup_text.set_text('LOCKED!')
-            self._bk_lockup_text.set_color('#F44336')
-        elif abs(sr_cur) > 30:
-            self._bk_lockup_text.set_text('HIGH SLIP')
-            self._bk_lockup_text.set_color('#FF9800')
-        else:
-            self._bk_lockup_text.set_text('')
-
-        # Always redraw tire canvas for smooth animation
-        self._bk_tire_canvas.draw_idle()
-        self._bk_tire_canvas.flush_events()
+    # ── ABS Logic Graph cursor update ──
+    if hasattr(self, '_bk_abs_cursor_sr'):
+        self._bk_abs_cursor_sr.set_xdata([t_cur, t_cur])
+        self._bk_abs_cursor_bp.set_xdata([t_cur, t_cur])
+        self._bk_abs_sr_marker.set_data([t_cur], [abs(sr_cur)])
+        if idx % 4 == 0:
+            self._bk_abs_canvas.draw_idle()
 
     # ── Contour update ──
     bd = d['brush_data']
@@ -1499,7 +1604,7 @@ def bind_braking_simulation(cls):
     cls._draw_braking_road_static = _draw_braking_road_static
     cls._init_braking_contour_artists = _init_braking_contour_artists
     cls._init_braking_pedal_gauge = _init_braking_pedal_gauge
-    cls._init_braking_tire_animation = _init_braking_tire_animation
+    cls._init_braking_abs_graph = _init_braking_abs_graph
     cls._update_braking_frame = _update_braking_frame
     cls._braking_play = _braking_play
     cls._braking_animate_step = _braking_animate_step
