@@ -23589,7 +23589,7 @@ class PerssonModelGUI_V2:
             # Dual-peak distribution: two humps at high/low width sides
             lon_env = np.clip(1 - np.abs(2 * xx / L) ** se_n, 0, None)
             y_norm = 2 * yy / W
-            peak_pos = 0.40
+            peak_pos = 0.55
             peak_width = 0.45
             peak_high = np.exp(-((y_norm - peak_pos) / peak_width) ** 2)
             peak_low = np.exp(-((y_norm + peak_pos) / peak_width) ** 2)
@@ -24097,7 +24097,7 @@ class PerssonModelGUI_V2:
         elif ptype == 'dual_peak':
             lon_env = np.clip(1 - np.abs(2 * xx_g / L)**_se_n, 0, None)
             y_norm = 2 * yy_g / W
-            peak_pos = 0.40
+            peak_pos = 0.55
             peak_width = 0.45
             p_base = (np.exp(-((y_norm + peak_pos) / peak_width)**2) +
                       np.exp(-((y_norm - peak_pos) / peak_width)**2)) * lon_env
@@ -24111,7 +24111,7 @@ class PerssonModelGUI_V2:
         if _is_dual_peak:
             lon_env_dp = np.clip(1 - np.abs(2 * xx_g / L)**_se_n, 0, None)
             y_norm_dp = 2 * yy_g / W
-            pk_pos = 0.40
+            pk_pos = 0.55
             pk_w = 0.45
             _peak_high = np.exp(-((y_norm_dp - pk_pos) / pk_w)**2) * lon_env_dp
             _peak_low = np.exp(-((y_norm_dp + pk_pos) / pk_w)**2) * lon_env_dp
@@ -24136,8 +24136,8 @@ class PerssonModelGUI_V2:
                 # SA < 0 (left turn): load transfers to +y (high width side, 위)
                 # Both peaks ALWAYS exist — dominant peak grows, weaker peak
                 # shrinks smoothly but never disappears (floor = 0.15).
-                _ASYM_COEFF = 0.70   # asymmetry gain (larger → more dramatic shift)
-                _ASYM_FLOOR = 0.15   # minimum scale — peak never vanishes
+                _ASYM_COEFF = 0.35   # asymmetry gain (reduced: both peaks always visible)
+                _ASYM_FLOOR = 0.40   # minimum scale — weaker peak stays substantial
                 high_scale = max(1.0 + _ASYM_COEFF * sa_factor, _ASYM_FLOOR)
                 low_scale  = max(1.0 - _ASYM_COEFF * sa_factor, _ASYM_FLOOR)
                 p = high_scale * _peak_high + low_scale * _peak_low
