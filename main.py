@@ -23948,6 +23948,13 @@ class PerssonModelGUI_V2:
             self._brush_frame_idx = 0
             self._brush_show_frame(0)
 
+            # ── Auto-sync μ from Brush → Track Simulation tab ──
+            if hasattr(self, 'ts_mu_var'):
+                try:
+                    self._sync_track_mu_from_brush()
+                except Exception:
+                    pass
+
             # ── Sync track simulation if it has been run ──
             if getattr(self, '_track_sim_data', None) is not None:
                 try:
@@ -26001,11 +26008,10 @@ class PerssonModelGUI_V2:
 
         sec2 = self._create_section(left_panel, "2) 차량 파라미터")
         for label, var_name, default, unit in [
-            ("차량 질량 m:", 'ts_mass_var', "720", "kg"),
+            ("차량 질량 m:", 'ts_mass_var', "2000", "kg"),
             ("최대 엔진 출력:", 'ts_power_var', "750", "hp"),
             ("Cd·A (공기저항):", 'ts_cda_var', "1.2", "m²"),
             ("다운포스 Cl·A:", 'ts_cla_var', "3.5", "m²"),
-            ("타이어 마찰 μ:", 'ts_mu_var', "1.5", ""),
             ("브레이크 감속:", 'ts_brake_g_var', "5.0", "g"),
         ]:
             row = ttk.Frame(sec2); row.pack(fill=tk.X, pady=1)
@@ -26017,10 +26023,18 @@ class PerssonModelGUI_V2:
                 ttk.Label(row, text=unit, font=self.FONTS['small'],
                           foreground='#64748B').pack(side=tk.LEFT)
 
+        # ── 타이어 마찰 μ: Brush 모델에서 자동 동기화 (읽기 전용) ──
+        mu_row = ttk.Frame(sec2); mu_row.pack(fill=tk.X, pady=1)
+        ttk.Label(mu_row, text="타이어 마찰 μ:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.ts_mu_var = tk.StringVar(value="0.300")
+        self._ts_mu_entry = ttk.Entry(mu_row, textvariable=self.ts_mu_var, width=8,
+                                       state='readonly')
+        self._ts_mu_entry.pack(side=tk.LEFT, padx=2)
+
         sync_row = ttk.Frame(sec2); sync_row.pack(fill=tk.X, pady=2)
         ttk.Button(sync_row, text="Brush 탭 μ 동기화",
                    command=self._sync_track_mu_from_brush, width=18).pack(side=tk.LEFT, padx=2)
-        self.ts_sync_label = tk.StringVar(value="")
+        self.ts_sync_label = tk.StringVar(value="μ ≈ 0.300 (마찰 감도 x2)")
         ttk.Label(sync_row, textvariable=self.ts_sync_label,
                   font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=4)
 
@@ -26762,7 +26776,7 @@ class PerssonModelGUI_V2:
             xx_q[mask_q], yy_q[mask_q], u_init[mask_q], v_init[mask_q],
             mag_init[mask_q],
             cmap=sp_cmap, clim=(0, sp_max), norm=sp_norm,
-            scale=max(sp_max * 8.0, 0.1), headwidth=4, headlength=5, headaxislength=4,
+            scale=max(sp_max * 5.0, 0.1), headwidth=4, headlength=5, headaxislength=4,
             linewidth=0.6, alpha=0.9, zorder=3)
         cb_sp = _make_inset_cb(self._ts_quiver_speed, self._ts_ax_speed, 'speed', label='m/s')
         sp_centers = 0.5 * (sp_boundaries[:-1] + sp_boundaries[1:])
@@ -27300,12 +27314,11 @@ class PerssonModelGUI_V2:
                 v_q = np.where(mask_q, -v_full * np.cos(sa_rad), 0.0)
                 mag_q = np.where(mask_q, v_full, 0.0)
                 self._ts_quiver_speed.set_UVC(u_q[mask_q], v_q[mask_q], mag_q[mask_q])
-                # Fixed global scale (matching 2D Brush tab): arrow length is
-                # proportional to local speed across all frames.  Using the
-                # global max ensures arrows shrink to zero on straights (SA≈0)
-                # and grow proportionally in corners.
-                sp_hi = getattr(self, '_ts_global_sp_max', 1.0)
-                self._ts_quiver_speed.scale = max(sp_hi * 8.0, 0.1)
+                # Per-frame scale: ensures arrows within each frame clearly show
+                # the gradient from stick/slip boundary (short) to trailing edge
+                # (long).  The longest arrow spans ~1/5 of the axes width.
+                sp_frame_max = float(np.max(v_full[mask_q])) if np.any(mask_q) else 1.0
+                self._ts_quiver_speed.scale = max(sp_frame_max * 5.0, 0.1)
 
             # ── Update outline patches + clip paths based on current SA ──
             if hasattr(self, '_ts_outline_patches') and self._ts_outline_patches:
@@ -27413,18 +27426,29 @@ class PerssonModelGUI_V2:
         self._update_track_frame(self._track_frame_idx)
 
     def _sync_track_mu_from_brush(self):
+        """Sync tire friction μ from 2D Brush model (auto-called on Transient run)."""
         try:
+            mu_val = None
+            label_text = ""
             if self.brush_results is not None:
                 res = self.brush_results
                 if hasattr(res, 'get'):
                     mu_p = res.get('mu_peak', None)
                     if mu_p is not None:
-                        self.ts_mu_var.set(f"{mu_p:.3f}")
-                        self.ts_sync_label.set(f"μ = {mu_p:.3f} (Brush 탭)")
-                        return
-            fs = float(self.br_friction_scale_var.get())
-            self.ts_mu_var.set(f"{fs * 2.0:.3f}")
-            self.ts_sync_label.set(f"μ ≈ {fs * 2.0:.3f} (마찰 감도 x2)")
+                        mu_val = mu_p
+                        label_text = f"μ = {mu_p:.3f} (Brush 탭)"
+            if mu_val is None:
+                fs = float(self.br_friction_scale_var.get())
+                mu_val = fs * 2.0
+                label_text = f"μ ≈ {mu_val:.3f} (마찰 감도 x2)"
+            # Update readonly entry
+            entry = getattr(self, '_ts_mu_entry', None)
+            if entry is not None:
+                entry.config(state='normal')
+            self.ts_mu_var.set(f"{mu_val:.3f}")
+            if entry is not None:
+                entry.config(state='readonly')
+            self.ts_sync_label.set(label_text)
         except Exception:
             self.ts_sync_label.set("동기화 실패")
 
