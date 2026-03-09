@@ -24134,9 +24134,13 @@ class PerssonModelGUI_V2:
                 # Dual-peak with SA-dependent asymmetry (width direction):
                 # SA > 0 (right turn): load transfers to -y (low width side, 아래)
                 # SA < 0 (left turn): load transfers to +y (high width side, 위)
-                high_scale = 1.0 + 0.25 * sa_factor   # +y peak grows slightly with SA
-                low_scale = 1.0 - 0.25 * sa_factor    # -y peak shrinks slightly with SA
-                p = max(high_scale, 0.3) * _peak_high + max(low_scale, 0.3) * _peak_low
+                # Both peaks ALWAYS exist — dominant peak grows, weaker peak
+                # shrinks smoothly but never disappears (floor = 0.15).
+                _ASYM_COEFF = 0.70   # asymmetry gain (larger → more dramatic shift)
+                _ASYM_FLOOR = 0.15   # minimum scale — peak never vanishes
+                high_scale = max(1.0 + _ASYM_COEFF * sa_factor, _ASYM_FLOOR)
+                low_scale  = max(1.0 - _ASYM_COEFF * sa_factor, _ASYM_FLOOR)
+                p = high_scale * _peak_high + low_scale * _peak_low
             else:
                 p = p_base.copy()
                 lat_weight = 1.0 + 0.4 * sa_factor * (2 * yy_g / W)
