@@ -25955,7 +25955,7 @@ class PerssonModelGUI_V2:
                            (self._ts_ax_speed, 'Sliding Speed'),
                            (self._ts_ax_press, 'Contact Pressure [bar]'),
                            (self._ts_ax_temp, 'Temperature [\u00b0C]'),
-                           (self._ts_ax_fric, 'Friction Force [kPa]')]:
+                           (self._ts_ax_fric, 'Friction Force [N/node]')]:
             ax.set_title(title, fontsize=9, fontweight='bold')
             ax.set_xlabel('x [m]', fontsize=7)
             ax.set_ylabel('y [m]', fontsize=7)
@@ -26335,6 +26335,7 @@ class PerssonModelGUI_V2:
         """
         import numpy as np
         from scipy.interpolate import interp1d
+        from scipy.ndimage import binary_dilation
 
         # ── Build Cold/Hot friction LUT from actual data ──
         lut_cold, lut_hot = self._build_brush_lut()
@@ -26397,6 +26398,8 @@ class PerssonModelGUI_V2:
 
         r_se = np.abs(xx / a)**se_n + np.abs(yy / b)**se_n
         mask = r_se <= 1.0
+        # Dilated mask for gap-free contour display (matches 2D Brush tab)
+        mask_fill = binary_dilation(mask, iterations=2)
 
         # ── Base pressure distribution (same as 2D Brush tab) ──
         if ptype == 'uniform':
@@ -26510,13 +26513,14 @@ class PerssonModelGUI_V2:
             T_contact = T0_base + dT_local * p_ratio * t_ratio
             T_contact = T_contact * mask + T0_base * (~mask)
 
-            # Store for display
-            is_sliding_all[fi] = np.where(mask, is_sliding.astype(float), np.nan)
-            v_slide_all[fi] = np.where(mask, v_slip, np.nan)
-            pressure_bar_all[fi] = np.where(mask, p_map * 1e-5, np.nan)  # Pa→bar
-            temperature_all[fi] = np.where(mask, T_contact, np.nan)
+            # Store for display — use mask_fill (dilated) to eliminate white gaps
+            # between outline and contour (matches 2D Brush tab approach)
+            is_sliding_all[fi] = np.where(mask_fill, is_sliding.astype(float), np.nan)
+            v_slide_all[fi] = np.where(mask_fill, v_slip, np.nan)
+            pressure_bar_all[fi] = np.where(mask_fill, p_map * 1e-5, np.nan)  # Pa→bar
+            temperature_all[fi] = np.where(mask_fill, T_contact, np.nan)
             F_node_mag = np.abs(Fnode_y) * mask
-            friction_all[fi] = np.where(mask, F_node_mag * 1e-3, np.nan)  # N→kN
+            friction_all[fi] = np.where(mask_fill, F_node_mag, np.nan)  # N/node (matches 2D Brush tab)
 
         # Edge arrays for pcolormesh
         dx_e = x_arr[1] - x_arr[0]; dy_e = y_arr[1] - y_arr[0]
@@ -26528,11 +26532,12 @@ class PerssonModelGUI_V2:
             'v_slide': v_slide_all,          # (n, nx, ny)
             'pressure': pressure_bar_all,    # (n, nx, ny) in bar
             'temperature': temperature_all,  # (n, nx, ny) in °C
-            'friction': friction_all,        # (n, nx, ny) in kN
+            'friction': friction_all,        # (n, nx, ny) in N/node
             'Fy_brush': Fy_brush,            # (n,) — brush model Fy [N]
             'x_edges': x_edges,
             'y_edges': y_edges,
             'mask': mask,
+            'mask_fill': mask_fill,          # dilated mask for gap-free display
             'nx': nx, 'ny': ny,
             'half_L': a, 'half_W': b,
             'pressure_type': ptype,
@@ -26737,7 +26742,9 @@ class PerssonModelGUI_V2:
         step_y = max(1, len(y_mm_arr) // 9)
         self._ts_speed_step = (step_x, step_y)
         xx_q, yy_q = np.meshgrid(x_mm_arr[::step_x], y_mm_arr[::step_y], indexing='ij')
-        mask_q = bd['mask'][::step_x, ::step_y]
+        # Use dilated mask for gap-free quiver display
+        _qmask_src = bd.get('mask_fill', bd['mask'])
+        mask_q = _qmask_src[::step_x, ::step_y]
         self._ts_speed_mask_q = mask_q
         self._ts_speed_xx_q = xx_q
         self._ts_speed_yy_q = yy_q
@@ -26816,7 +26823,7 @@ class PerssonModelGUI_V2:
             shading='flat', zorder=1)
         outline5 = _add_contact_outline(self._ts_ax_fric)
         self._ts_pm_fric.set_clip_path(outline5)
-        cb_f = _make_inset_cb(self._ts_pm_fric, self._ts_ax_fric, 'friction', label='kPa')
+        cb_f = _make_inset_cb(self._ts_pm_fric, self._ts_ax_fric, 'friction', label='N/node')
         fric_centers = 0.5 * (fric_boundaries[:-1] + fric_boundaries[1:])
         cb_f.set_ticks(fric_centers[::2])
         cb_f.set_ticklabels([f'{v:.1e}' for v in fric_centers[::2]])
@@ -27008,6 +27015,80 @@ class PerssonModelGUI_V2:
         # instead of raw centripetal force, so Fy responds to SA and speed properly
         Fy_arr = brush_data['Fy_brush']
 
+        # ── Refine lap time using 2D Brush model effective mu ──
+        # Extract effective lateral mu from brush model: mu_lat = |Fy_brush| / Fz
+        mu_brush_lat = np.abs(Fy_arr) / np.clip(Fz_arr, 1.0, None)
+        # Use the brush-derived mu for corner speed limits (2nd pass)
+        # This ensures the lap time reflects the brush model's stick/slip mechanics
+        _mu_brush_valid = mu_brush_lat[mu_brush_lat > 0.01]
+        if len(_mu_brush_valid) > 0:
+            # Build per-point effective mu: blend brush mu where cornering is active
+            mu_profile_brush = np.where(
+                np.abs(sa_arr) > 0.3, mu_brush_lat, mu_profile)
+            # Recompute corner speed with brush mu
+            v_max_corner2 = np.full(n_pts, 100 / 3.6)
+            for _ in range(3):
+                mu_arr2 = np.clip(mu_profile_brush, 0.05, 3.0)
+                denom2 = mass / radius - 0.5 * rho * mu_arr2 * cla
+                valid2 = denom2 > 0
+                v_max_corner2[valid2] = np.sqrt(mu_arr2[valid2] * mass * g / denom2[valid2])
+                v_max_corner2[~valid2] = 500 / 3.6
+            # Apply turn speed limits
+            for i_t, idx_t in enumerate(turn_idx):
+                v_turn = turn_speeds[i_t + 1] / 3.6
+                zone = 60
+                for j in range(max(0, idx_t - zone), min(n_pts, idx_t + zone)):
+                    d_j = abs(j - idx_t)
+                    blend_ = np.exp(-0.5 * (d_j / (zone * 0.4))**2)
+                    v_max_corner2[j] = min(v_max_corner2[j],
+                                           v_turn + (v_max_corner2[j] - v_turn) * (1 - blend_))
+            v_max_corner2 = np.clip(v_max_corner2, 0, 320 / 3.6)
+            # Forward pass with brush mu
+            v_fwd2 = np.zeros(n_pts)
+            v_fwd2[0] = min(v_max_corner2[0], 150 / 3.6)
+            for i in range(1, n_pts):
+                ds_i = dist[i] - dist[i - 1]
+                if ds_i <= 0: v_fwd2[i] = v_fwd2[i - 1]; continue
+                v_c = v_fwd2[i - 1]
+                mu_v2 = float(mu_profile_brush[i])
+                f_eng2 = min(power_w / max(v_c, 1), mu_v2 * mass * g)
+                a_net2 = max((f_eng2 - 0.5 * rho * cda * v_c**2) / mass, 0.5)
+                v_fwd2[i] = min(np.sqrt(v_c**2 + 2 * a_net2 * ds_i), v_max_corner2[i])
+            # Backward pass
+            v_bwd2 = np.zeros(n_pts); v_bwd2[-1] = v_fwd2[-1]
+            for i in range(n_pts - 2, -1, -1):
+                ds_i = dist[i + 1] - dist[i]
+                if ds_i <= 0: v_bwd2[i] = v_bwd2[i + 1]; continue
+                v_bwd2[i] = min(np.sqrt(v_bwd2[i + 1]**2 + 2 * brake_g_max * g * ds_i),
+                                v_max_corner2[i])
+            v_final = np.clip(np.minimum(v_fwd2, v_bwd2), 10 / 3.6, 320 / 3.6)
+            # Recompute derived quantities
+            dt_arr = np.zeros(n_pts - 1)
+            for i in range(n_pts - 1):
+                dt_arr[i] = (dist[i + 1] - dist[i]) / max(
+                    0.5 * (v_final[i] + v_final[i + 1]), 0.1)
+            time_arr = np.concatenate([[0], np.cumsum(dt_arr)])
+            lap_time = time_arr[-1]
+            dv = np.gradient(v_final); dt_grad = np.gradient(time_arr)
+            dt_grad[dt_grad == 0] = 1e-6
+            accel_g = dv / dt_grad / g
+            # Recompute SA with updated speeds
+            for i in range(n_pts):
+                lat_a = v_final[i]**2 * curvature[i]
+                sa_raw = np.degrees(np.arctan2(lat_a, g)) * 0.8
+                sa_arr[i] = -np.sign(signed_curv[i]) * min(sa_raw, 25.0)
+            Fz_arr = (mass * g + 0.5 * rho * cla * v_final**2) / 4.0
+            s1i, s2i = int(0.32 * n_pts), int(0.62 * n_pts)
+            sector_times = [time_arr[s1i], time_arr[s2i] - time_arr[s1i],
+                            time_arr[-1] - time_arr[s2i]]
+            mu_profile = mu_profile_brush
+            # Recompute brush data with refined speed profile
+            brush_data = self._compute_track_brush_data(sa_arr, v_final, Fz_arr, mu)
+            Fy_arr = brush_data['Fy_brush']
+
+        self.ts_progress_var.set(90)
+        self.root.update_idletasks()
+
         self._track_sim_data = {
             'track': track,
             'v_final': v_final, 'v_kmh': v_final * 3.6,
@@ -27179,14 +27260,19 @@ class PerssonModelGUI_V2:
             self._ts_pm_fric.set_array(bd['friction'][idx].T.ravel())
 
             # ── Update friction direction arrow on stick/slip contour ──
+            # Friction force opposes the lateral slip velocity:
+            #   SA > 0 (right turn) → slip in +y → friction in -y (arrow DOWN)
+            #   SA < 0 (left turn)  → slip in -y → friction in +y (arrow UP)
             if hasattr(self, '_ts_stick_arrow_line'):
                 half_L = bd.get('half_L', 0.075)
                 L_mm_a = half_L * 2 * 1000
-                sa_rad = np.radians(sa_cur)
                 if abs(sa_cur) > 0.2:
                     arrow_scale = L_mm_a * 0.3
-                    dx_a = -arrow_scale * np.sin(sa_rad)
-                    dy_a = -arrow_scale * np.cos(sa_rad)
+                    # Primary direction: lateral (opposing slip), with small
+                    # longitudinal component proportional to SA magnitude
+                    sa_norm = np.clip(sa_cur / 12.0, -1, 1)
+                    dx_a = -arrow_scale * 0.15 * sa_norm  # small longitudinal
+                    dy_a = -arrow_scale * np.sign(sa_cur)  # main lateral direction
                     self._ts_stick_arrow_line.set_data([0, dx_a], [0, dy_a])
                     self._ts_stick_arrow_line.set_visible(True)
                     angle_deg = np.degrees(np.arctan2(dy_a, dx_a))
@@ -27205,10 +27291,16 @@ class PerssonModelGUI_V2:
                 sa_rad = np.radians(sa_cur)
                 # Replace NaN with 0 before computation to prevent NaN propagation
                 v_full = np.nan_to_num(v_slide_frame[::step_x, ::step_y], nan=0.0)
-                u_q = np.where(mask_q, v_full * np.sin(sa_rad), 0.0)
-                v_q = np.where(mask_q, v_full * np.cos(sa_rad), 0.0)
+                # Arrow direction: friction force opposes slip velocity
+                # SA > 0 → slip in +y → arrows in -y; SA < 0 → arrows in +y
+                u_q = np.where(mask_q, -v_full * np.sin(sa_rad), 0.0)
+                v_q = np.where(mask_q, -v_full * np.cos(sa_rad), 0.0)
                 mag_q = np.where(mask_q, v_full, 0.0)
                 self._ts_quiver_speed.set_UVC(u_q[mask_q], v_q[mask_q], mag_q[mask_q])
+                # Dynamic scale: adapt to current frame's speed range for
+                # visible arrow length variation (matching 2D Brush tab)
+                frame_max = np.max(mag_q[mask_q]) if np.any(mask_q) else 0.01
+                self._ts_quiver_speed.scale = max(frame_max * 6.0, 0.1)
 
             # ── Update outline patches + clip paths based on current SA ──
             if hasattr(self, '_ts_outline_patches') and self._ts_outline_patches:
