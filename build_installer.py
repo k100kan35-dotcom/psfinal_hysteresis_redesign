@@ -26,7 +26,7 @@ import glob
 # 설정
 # =====================================================================
 APP_NAME = "NexenRubberFriction"
-APP_VERSION = "1.1.0"
+APP_VERSION = "3.0.0"
 MAIN_SCRIPT = "main.py"
 ISS_FILE = "installer.iss"
 OUTPUT_DIR = "installer_output"
@@ -91,6 +91,8 @@ HIDDEN_IMPORTS = [
     'persson_model.core.g_calculator', 'persson_model.core.master_curve',
     'persson_model.core.psd_from_profile', 'persson_model.core.psd_models',
     'persson_model.core.viscoelastic',
+    'persson_model.core.flash_temperature',
+    'braking_simulation',
     'persson_model.utils', 'persson_model.utils.data_loader',
     'persson_model.utils.numerical', 'persson_model.utils.output',
 ]
@@ -191,6 +193,9 @@ def step1_pyinstaller():
 
     if os.path.isfile('strain.py'):
         args.extend(['--add-data', f'strain.py{sep}.'])
+
+    if os.path.isfile('braking_simulation.py'):
+        args.extend(['--add-data', f'braking_simulation.py{sep}.'])
 
     # 빌드 실행
     PyInstaller.__main__.run(args)

@@ -264,20 +264,35 @@ class PerssonModelGUI_V2:
         self.root.configure(bg=self.COLORS['bg'])
         self.root.minsize(1200, 700)
 
-        # ── 항상 전체화면(최대화)으로 시작 ──
-        try:
-            self.root.state('zoomed')          # Windows
-        except tk.TclError:
-            try:
-                self.root.attributes('-zoomed', True)   # Linux (X11)
-            except tk.TclError:
-                pass  # fallback: 기본 geometry 사용
-
         # Store DPI scale for any component that needs it
         self._dpi_scale = _get_system_dpi_scale()
 
         # ── Load saved font/layout settings (before theme setup) ──
+        self._saved_window_cfg = None  # will be set by _load_font_settings if available
         self._load_font_settings()
+
+        # ── Apply saved window settings or default to fullscreen ──
+        wc = getattr(self, '_saved_window_cfg', None)
+        if wc is not None:
+            if wc.get('fullscreen', True):
+                try:
+                    self.root.state('zoomed')
+                except tk.TclError:
+                    try:
+                        self.root.attributes('-zoomed', True)
+                    except tk.TclError:
+                        pass
+            else:
+                self.root.geometry(f"{wc['width']}x{wc['height']}")
+        else:
+            # 기본값: 전체화면(최대화)으로 시작
+            try:
+                self.root.state('zoomed')
+            except tk.TclError:
+                try:
+                    self.root.attributes('-zoomed', True)
+                except tk.TclError:
+                    pass
 
         # ── Apply modern theme ──
         self._splash_cb("테마 설정 중...", 5)
@@ -456,6 +471,15 @@ class PerssonModelGUI_V2:
             if 'panel_width' in cfg:
                 self.DIMS['panel_width'] = cfg['panel_width']
 
+            # Restore window settings
+            if 'window' in cfg:
+                wc = cfg['window']
+                self._saved_window_cfg = {
+                    'width': wc.get('width', 1920),
+                    'height': wc.get('height', 1080),
+                    'fullscreen': wc.get('fullscreen', True),
+                }
+
         except Exception:
             pass  # Use defaults if loading fails
 
@@ -472,12 +496,53 @@ class PerssonModelGUI_V2:
             'math_fontset': matplotlib.rcParams.get('mathtext.fontset', 'cm'),
             'panel_width': self.DIMS['panel_width'],
         }
+        # Save window size & fullscreen state
+        try:
+            is_zoomed = (self.root.state() == 'zoomed')
+        except tk.TclError:
+            try:
+                is_zoomed = bool(self.root.attributes('-zoomed'))
+            except tk.TclError:
+                is_zoomed = False
+        cfg['window'] = {
+            'width': self.root.winfo_width(),
+            'height': self.root.winfo_height(),
+            'fullscreen': is_zoomed,
+        }
         try:
             path = self._get_font_settings_path()
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(cfg, f, ensure_ascii=False, indent=2)
         except Exception:
             pass
+
+    def _save_tab_visibility(self):
+        """Save tab visibility settings to JSON file."""
+        hidden_tabs = [attr for attr, _l, _f in self._all_tabs
+                       if not self._tab_visible_vars[attr].get()]
+        path = self._get_font_settings_path()
+        try:
+            cfg = {}
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+            cfg['hidden_tabs'] = hidden_tabs
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _load_tab_visibility(self):
+        """Load tab visibility settings from JSON file."""
+        path = self._get_font_settings_path()
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            return cfg.get('hidden_tabs', None)
+        except Exception:
+            return None
 
     # ================================================================
     #  THEME / STYLE  CONFIGURATION
@@ -821,7 +886,16 @@ class PerssonModelGUI_V2:
         ]
 
         # 기본 숨김 탭 목록
-        default_hidden = {'tab_ve_advisor', 'tab_integrand', 'tab_debug', 'tab_friction_factors'}
+        default_hidden = {'tab_braking_sim', 'tab_track_sim', 'tab_ve_advisor',
+                          'tab_results', 'tab_integrand',
+                          'tab_debug', 'tab_friction_factors'}
+
+        # 저장된 탭 표시 설정이 있으면 사용
+        saved_hidden = self._load_tab_visibility()
+        if saved_hidden is not None:
+            hidden_set = set(saved_hidden)
+        else:
+            hidden_set = default_hidden
 
         self._all_tabs = []  # (attr, label, frame) for visibility management
         self._tab_visible_vars = {}  # attr → BooleanVar
@@ -835,7 +909,7 @@ class PerssonModelGUI_V2:
             self.notebook.add(frame, text=f'  {label}  ')
             builder(frame)
             self._all_tabs.append((attr, label, frame))
-            visible = attr not in default_hidden
+            visible = attr not in hidden_set
             self._tab_visible_vars[attr] = tk.BooleanVar(value=visible)
             if not visible:
                 self.notebook.hide(frame)
@@ -7115,30 +7189,20 @@ class PerssonModelGUI_V2:
 
         # ── Apply / Cancel logic ──
         def _apply():
-            # First pass: hide unchecked tabs
+            # Hide ALL tabs first, then re-add only checked ones in order.
+            # (notebook.index() returns an index even for hidden tabs,
+            #  so the old approach of checking index() was unreliable.)
             for attr, label, frame in self._all_tabs:
-                if not self._tab_visible_vars[attr].get():
-                    try:
-                        self.notebook.hide(frame)
-                    except tk.TclError:
-                        pass
-            # Second pass: show checked tabs in correct order
+                try:
+                    self.notebook.hide(frame)
+                except tk.TclError:
+                    pass
+            # Re-add checked tabs in original order
             for attr, label, frame in self._all_tabs:
                 if self._tab_visible_vars[attr].get():
-                    try:
-                        self.notebook.index(frame)
-                    except tk.TclError:
-                        # Find correct insert position among currently visible tabs
-                        desired_idx = next(i for i, (a, l, f) in enumerate(self._all_tabs) if a == attr)
-                        insert_pos = 0
-                        for a2, l2, f2 in self._all_tabs[:desired_idx]:
-                            if self._tab_visible_vars[a2].get():
-                                try:
-                                    self.notebook.index(f2)
-                                    insert_pos += 1
-                                except tk.TclError:
-                                    pass
-                        self.notebook.insert(insert_pos, frame, text=f'  {label}  ')
+                    self.notebook.add(frame, text=f'  {label}  ')
+            # Save tab visibility to settings file
+            self._save_tab_visibility()
             dialog.destroy()
 
         def _cancel():
@@ -7522,9 +7586,18 @@ class PerssonModelGUI_V2:
             # 7. Re-apply theme
             self._setup_modern_theme()
 
-            # 8. Rescale all existing plot fonts
+            # 8. Update _last_resize_width to actual current width, then rescale fonts
+            self._last_resize_width = self.root.winfo_width()
             self._font_scale = 0
             self._rescale_all_fonts()
+
+            # 8b. Schedule a delayed rescale to catch geometry changes that
+            #     settle after update_idletasks (e.g. zoomed → normal transition)
+            def _delayed_rescale():
+                self._last_resize_width = self.root.winfo_width()
+                self._font_scale = 0
+                self._rescale_all_fonts()
+            self.root.after(300, _delayed_rescale)
 
             # 9. Save settings to file
             self._save_font_settings()

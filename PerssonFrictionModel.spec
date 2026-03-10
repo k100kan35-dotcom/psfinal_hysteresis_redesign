@@ -18,6 +18,8 @@ if os.path.isdir('preset_data'):
     project_datas.append(('preset_data', 'preset_data'))
 if os.path.isfile('strain.py'):
     project_datas.append(('strain.py', '.'))
+if os.path.isfile('braking_simulation.py'):
+    project_datas.append(('braking_simulation.py', '.'))
 
 a = Analysis(
     ['main.py'],
@@ -29,6 +31,10 @@ a = Analysis(
         'numpy', 'numpy.core',
         'scipy.integrate', 'scipy.interpolate', 'scipy.optimize',
         'scipy.signal', 'scipy.special',
+        # flash temperature
+        'persson_model.core.flash_temperature',
+        # braking simulation
+        'braking_simulation',
         # pandas (DMA/PSD 파일 로딩)
         'pandas', 'pandas.core',
         # tkinter
