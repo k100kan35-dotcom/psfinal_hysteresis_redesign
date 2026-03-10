@@ -73,6 +73,8 @@ HIDDEN_IMPORTS = [
     'numpy', 'numpy.core',
     'scipy.integrate', 'scipy.interpolate',
     'scipy.optimize', 'scipy.signal', 'scipy.special',
+    'scipy.stats', 'scipy.stats.qmc',
+    'scipy._lib', 'scipy._lib.messagestream',
     # pandas
     'pandas', 'pandas.core',
     # tkinter

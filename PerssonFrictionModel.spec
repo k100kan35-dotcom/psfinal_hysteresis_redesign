@@ -31,6 +31,8 @@ a = Analysis(
         'numpy', 'numpy.core',
         'scipy.integrate', 'scipy.interpolate', 'scipy.optimize',
         'scipy.signal', 'scipy.special',
+        'scipy.stats', 'scipy.stats.qmc',  # Sobol init for differential_evolution
+        'scipy._lib', 'scipy._lib.messagestream',
         # flash temperature
         'persson_model.core.flash_temperature',
         # braking simulation

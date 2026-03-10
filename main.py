@@ -260,9 +260,17 @@ class PerssonModelGUI_V2:
         self._splash_cb = splash_callback or (lambda msg, pct: None)
         self.root = root
         self.root.title("NEXEN Rubber Friction Modelling Program  v3.0")
-        self.root.geometry("1920x1040")
+
+        # ── Auto-fit to monitor resolution ──
+        scr_w = self.root.winfo_screenwidth()
+        scr_h = self.root.winfo_screenheight()
+        # Use 90% of screen as initial geometry (capped at 1920x1040)
+        init_w = min(scr_w, 1920)
+        init_h = min(scr_h - 40, 1040)  # 40px margin for taskbar
+        self.root.geometry(f"{init_w}x{init_h}")
+
         self.root.configure(bg=self.COLORS['bg'])
-        self.root.minsize(1200, 700)
+        self.root.minsize(min(1200, scr_w), min(700, scr_h - 40))
 
         # Store DPI scale for any component that needs it
         self._dpi_scale = _get_system_dpi_scale()
@@ -19931,18 +19939,36 @@ class PerssonModelGUI_V2:
                         f"{f'  현재 최적: {best_cost:.2e}' if best_cost < np.inf else ''}")
                     self.root.update()
                     try:
-                        res = differential_evolution(
-                            objective, bounds,
-                            seed=i_restart * 7 + 3,
-                            strategy=strategy,
-                            maxiter=2000,
-                            tol=1e-12,
-                            popsize=30,
-                            mutation=(0.5, 1.5),
-                            recombination=0.9,
-                            init='sobol' if i_restart % 2 == 0 else 'latinhypercube',
-                            polish=True,
-                            disp=False)
+                        # Sobol requires scipy.stats.qmc which may be missing
+                        # in PyInstaller builds. Fallback to latinhypercube.
+                        init_method = 'sobol' if i_restart % 2 == 0 else 'latinhypercube'
+                        try:
+                            res = differential_evolution(
+                                objective, bounds,
+                                seed=i_restart * 7 + 3,
+                                strategy=strategy,
+                                maxiter=2000,
+                                tol=1e-12,
+                                popsize=30,
+                                mutation=(0.5, 1.5),
+                                recombination=0.9,
+                                init=init_method,
+                                polish=True,
+                                disp=False)
+                        except (ImportError, TypeError):
+                            # sobol unavailable → retry with latinhypercube
+                            res = differential_evolution(
+                                objective, bounds,
+                                seed=i_restart * 7 + 3,
+                                strategy=strategy,
+                                maxiter=2000,
+                                tol=1e-12,
+                                popsize=30,
+                                mutation=(0.5, 1.5),
+                                recombination=0.9,
+                                init='latinhypercube',
+                                polish=True,
+                                disp=False)
                         if res.fun < best_cost:
                             best_cost = res.fun
                             best_result = res
