@@ -28760,6 +28760,23 @@ def main():
     splash.configure(bg='#16162a')
     splash.attributes('-topmost', True)
 
+    # ── Drag to move splash window ──
+    _drag_data = {'x': 0, 'y': 0}
+
+    def _on_drag_start(event):
+        _drag_data['x'] = event.x
+        _drag_data['y'] = event.y
+
+    def _on_drag_motion(event):
+        dx = event.x - _drag_data['x']
+        dy = event.y - _drag_data['y']
+        x = splash.winfo_x() + dx
+        y = splash.winfo_y() + dy
+        splash.geometry(f'+{x}+{y}')
+
+    splash.bind('<Button-1>', _on_drag_start)
+    splash.bind('<B1-Motion>', _on_drag_motion)
+
     # ── Load splash background image ──
     _script_dir = os.path.dirname(os.path.abspath(__file__))
     _splash_path = os.path.join(_script_dir, 'assets', 'splash_image.png')
@@ -28789,6 +28806,28 @@ def main():
             _splash_canvas.create_image(0, 0, anchor='nw', image=_splash_img_ref)
         except ImportError:
             pass
+
+    # ── Close button (top-right, subtle) ──
+    _close_btn = tk.Label(splash, text='\u00D7', font=('Segoe UI', 14),
+                          fg='#555555', bg='#16162a', cursor='hand2',
+                          padx=4, pady=0)
+    _close_btn.place(relx=1.0, x=-4, y=2, anchor='ne')
+    _close_btn.lift()  # ensure above canvas
+
+    def _on_close_enter(e):
+        _close_btn.config(fg='#cccccc')
+
+    def _on_close_leave(e):
+        _close_btn.config(fg='#555555')
+
+    def _on_close_click(e):
+        splash.destroy()
+        root.destroy()
+        import sys; sys.exit(0)
+
+    _close_btn.bind('<Enter>', _on_close_enter)
+    _close_btn.bind('<Leave>', _on_close_leave)
+    _close_btn.bind('<Button-1>', _on_close_click)
 
     # ── Percentage text: centered above "NEXEN TIRE R&D" (bottom-right) ──
     # "NEXEN TIRE R&D" in the splash image is centered around x≈725, y≈435
