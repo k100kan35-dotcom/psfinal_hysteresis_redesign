@@ -20035,8 +20035,14 @@ class PerssonModelGUI_V2:
                         if res.fun < best_cost:
                             best_cost = res.fun
                             best_result = res
-                    except Exception:
+                    except Exception as e_de:
+                        print(f"[AutoFit] DE trial {trial_count}/{total_trials} "
+                              f"({strategy}) failed: {e_de}")
                         continue
+
+            if best_result is None:
+                print("[AutoFit] WARNING: 모든 DE 시도 실패! Nelder-Mead만으로 진행합니다.")
+                print("[AutoFit] scipy.stats.qmc 또는 scipy._lib 누락 가능성 확인 필요")
 
             self.fit_status_var.set("로컬 최적화 (Nelder-Mead) 실행 중...")
             self.root.update()

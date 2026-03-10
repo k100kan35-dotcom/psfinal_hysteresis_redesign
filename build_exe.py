@@ -145,6 +145,10 @@ def build():
         '--hidden-import', 'scipy.optimize',
         '--hidden-import', 'scipy.signal',
         '--hidden-import', 'scipy.special',
+        '--hidden-import', 'scipy.stats',
+        '--hidden-import', 'scipy.stats.qmc',       # Sobol init for differential_evolution
+        '--hidden-import', 'scipy._lib',
+        '--hidden-import', 'scipy._lib.messagestream',
 
         # ===== hidden imports: pandas =====
         '--hidden-import', 'pandas',
