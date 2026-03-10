@@ -28749,10 +28749,14 @@ def main():
 
     root = tk.Tk()
 
-    # ── Detect system DPI scaling and adjust Tk scaling factor ──
+    # ── Neutralise OS DPI scaling so fonts/widgets render at 96-DPI size ──
+    # Without this, Tk uses the real DPI (e.g. 120 at 125% scaling) and
+    # renders everything proportionally larger.  By fixing the scaling
+    # factor to 96/72 we get consistent physical sizes on every display,
+    # exactly like strain.py does.
     dpi_scale = _get_system_dpi_scale()
-    if dpi_scale >= 1.5:
-        root.tk.call('tk', 'scaling', 1.25 * 96.0 / 72.0)
+    if dpi_scale > 1.05:
+        root.tk.call('tk', 'scaling', 96.0 / 72.0)
 
     # ── Splash screen ──
     root.withdraw()  # Hide main window completely during loading
@@ -28760,9 +28764,12 @@ def main():
 
     splash = tk.Toplevel()
     splash.overrideredirect(True)
-    splash_w, splash_h = 800, 450
     scr_w = splash.winfo_screenwidth()
     scr_h = splash.winfo_screenheight()
+    # Scale splash proportionally: ~42% of screen width (800/1920),
+    # so it looks the same relative size on any resolution/DPI.
+    splash_w = min(800, max(480, int(scr_w * 0.42)))
+    splash_h = int(splash_w * 450 / 800)  # maintain aspect ratio
     splash.geometry(f'{splash_w}x{splash_h}+{(scr_w-splash_w)//2}+{(scr_h-splash_h)//2}')
     splash.configure(bg='#16162a')
     splash.attributes('-topmost', True)
@@ -28837,9 +28844,9 @@ def main():
     _close_btn.bind('<Button-1>', _on_close_click)
 
     # ── Percentage text: centered above "NEXEN TIRE R&D" (bottom-right) ──
-    # "NEXEN TIRE R&D" in the splash image is centered around x≈725, y≈435
-    _nexen_center_x = 725
-    _pct_y = splash_h - 60
+    # Position scales with splash size (725/800 ≈ 0.906 of width)
+    _nexen_center_x = int(splash_w * 0.906)
+    _pct_y = splash_h - int(splash_h * 60 / 450)
     _pct_font = ('Segoe UI', 18, 'bold italic')
 
     # Fixed percentage text (anchor='se' — right-aligned, doesn't shift)
