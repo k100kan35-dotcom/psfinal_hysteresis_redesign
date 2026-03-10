@@ -20002,13 +20002,13 @@ class PerssonModelGUI_V2:
                         f"{f'  현재 최적: {best_cost:.2e}' if best_cost < np.inf else ''}")
                     self.root.update()
                     try:
-                        # Sobol requires scipy.stats.qmc which may be missing
-                        # in PyInstaller builds. Fallback to latinhypercube.
-                        init_method = 'sobol' if i_restart % 2 == 0 else 'latinhypercube'
+                        # Alternate sobol / latinhypercube per trial (not per restart)
+                        # so that n_restarts=1 still uses both init methods.
+                        init_method = 'sobol' if trial_count % 2 == 1 else 'latinhypercube'
                         try:
                             res = differential_evolution(
                                 objective, bounds,
-                                seed=i_restart * 7 + 3,
+                                seed=trial_count * 7 + 3,
                                 strategy=strategy,
                                 maxiter=2000,
                                 tol=1e-12,
@@ -20018,11 +20018,12 @@ class PerssonModelGUI_V2:
                                 init=init_method,
                                 polish=True,
                                 disp=False)
-                        except (ImportError, TypeError):
-                            # sobol unavailable → retry with latinhypercube
+                        except Exception:
+                            # sobol or qmc unavailable in PyInstaller →
+                            # retry with latinhypercube (always available)
                             res = differential_evolution(
                                 objective, bounds,
-                                seed=i_restart * 7 + 3,
+                                seed=trial_count * 7 + 3,
                                 strategy=strategy,
                                 maxiter=2000,
                                 tol=1e-12,
