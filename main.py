@@ -52,7 +52,7 @@ logging.getLogger('matplotlib.backends').setLevel(logging.ERROR)
 matplotlib.rcParams.update({
     'axes.unicode_minus': False,       # ASCII 마이너스 (유니코드 − 깨짐 방지)
     'text.usetex': False,              # LaTeX 비활성화
-    'mathtext.fontset': 'cm',  # 수식 폰트: Computer Modern (LaTeX 스타일, Cambria Math 유사)
+    'mathtext.fontset': 'dejavusans',  # 수식 폰트: DejaVu Sans (음수 지수 표기 완벽 지원)
     'font.size': 12,
     'axes.titlesize': 12,
     'axes.labelsize': 10,
@@ -223,7 +223,7 @@ class PerssonModelGUI_V2:
 
     # ── Standardised Dimensions (pixels, applied uniformly to every tab) ──
     DIMS = {
-        'panel_width':   550,     # Left control-panel width
+        'panel_width':   490,     # Left control-panel width
         'section_pad':   6,       # LabelFrame internal padding
         'section_gap_y': 3,       # Vertical gap between sections
         'row_gap_y':     2,       # Vertical gap between rows within a section
@@ -295,7 +295,7 @@ class PerssonModelGUI_V2:
             self.DIMS['btn_pady'] = max(2, int(4 * s))
             self.DIMS['toolbar_pady'] = max(1, int(3 * s))
             if eff_w < 1600:
-                self.DIMS['panel_width'] = max(400, int(550 * s))
+                self.DIMS['panel_width'] = max(400, int(490 * s))
 
         # ── Load saved layout settings (before theme setup) ──
         self._saved_window_cfg = None
@@ -999,6 +999,8 @@ class PerssonModelGUI_V2:
                                 hspace=0.55, wspace=0.40),
         'fig_ve_advisor':  dict(left=0.08, right=0.97, top=0.96, bottom=0.06,
                                 hspace=0.45),
+        'fig_cold_hot':    dict(left=0.10, right=0.90, top=0.96, bottom=0.08,
+                                hspace=0.50, wspace=0.40),
     }
 
     _ALL_FIG_CANVAS_PAIRS = [
@@ -1012,6 +1014,7 @@ class PerssonModelGUI_V2:
         ('fig_strain_map', 'canvas_strain_map'),
         ('fig_integrand', 'canvas_integrand'),
         ('fig_ve_advisor', 'canvas_ve_advisor'),
+        ('fig_cold_hot', 'canvas_cold_hot'),
     ]
 
     def _get_all_figures_and_canvases(self):
@@ -8528,9 +8531,7 @@ class PerssonModelGUI_V2:
 
         # Top-left: h'rms vs q
         self.ax_rms_slope = self.fig_rms.add_subplot(221)
-        self.ax_rms_slope.set_title("① h'rms ξ(q) — 누적 RMS 기울기\n"
-            "ξ²=2π∫k³C(k)dk  |  고파수일수록 기울기 기여 ↑",
-            fontweight='bold', fontsize=12, loc='left')
+        self.ax_rms_slope.set_title("① 누적 RMS 기울기 h'rms ξ(q)", fontweight='bold', fontsize=12)
         self.ax_rms_slope.set_xlabel('파수 q (1/m)', fontsize=10)
         self.ax_rms_slope.set_ylabel("ξ (h'rms slope)", fontsize=10)
         self.ax_rms_slope.set_xscale('log')
@@ -8539,9 +8540,7 @@ class PerssonModelGUI_V2:
 
         # Top-right: Local Strain vs q
         self.ax_local_strain = self.fig_rms.add_subplot(222)
-        self.ax_local_strain.set_title("② Local Strain ε(q) — 고무 국소 변형률\n"
-            "ε=factor×ξ  |  고파수 거칠기가 큰 변형 유발",
-            fontweight='bold', fontsize=12, loc='left')
+        self.ax_local_strain.set_title("② 국소 변형률 Local Strain ε(q)", fontweight='bold', fontsize=12)
         self.ax_local_strain.set_xlabel('파수 q (1/m)', fontsize=10)
         self.ax_local_strain.set_ylabel('ε (%)', fontsize=10)
         self.ax_local_strain.set_xscale('log')
@@ -8550,9 +8549,7 @@ class PerssonModelGUI_V2:
 
         # Bottom-left: RMS Height vs q
         self.ax_rms_height = self.fig_rms.add_subplot(223)
-        self.ax_rms_height.set_title("③ RMS Height h_rms(q) — 누적 RMS 높이\n"
-            "h²=2π∫kC(k)dk  |  저파수(큰 파장)가 높이 지배",
-            fontweight='bold', fontsize=12, loc='left')
+        self.ax_rms_height.set_title("③ 누적 RMS 높이 h_rms(q)", fontweight='bold', fontsize=12)
         self.ax_rms_height.set_xlabel('파수 q (1/m)', fontsize=10)
         self.ax_rms_height.set_ylabel('h_rms (μm)', fontsize=10)
         self.ax_rms_height.set_xscale('log')
@@ -8561,9 +8558,7 @@ class PerssonModelGUI_V2:
 
         # Bottom-right: PSD (for reference)
         self.ax_psd_ref = self.fig_rms.add_subplot(224)
-        self.ax_psd_ref.set_title("④ PSD C(q) — 표면 파워 스펙트럼\n"
-            "C(q)∝q^(-2-2H)  |  C↓이지만 k³C↑ → 기울기↑",
-            fontweight='bold', fontsize=12, loc='left')
+        self.ax_psd_ref.set_title("④ PSD C(q) 표면 파워 스펙트럼", fontweight='bold', fontsize=12)
         self.ax_psd_ref.set_xlabel('파수 q (1/m)', fontsize=10)
         self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=10)
         self.ax_psd_ref.set_xscale('log')
@@ -8704,10 +8699,7 @@ class PerssonModelGUI_V2:
         valid_xi = xi > 0
         if np.any(valid_xi):
             self.ax_rms_slope.loglog(q[valid_xi], xi[valid_xi], 'b-', linewidth=2)
-        self.ax_rms_slope.set_title(
-            "① h'rms ξ(q) — 누적 RMS 기울기\n"
-            "ξ²=2π∫k³C(k)dk  |  고파수일수록 기울기 기여 ↑",
-            fontweight='bold', fontsize=12, loc='left')
+        self.ax_rms_slope.set_title("① 누적 RMS 기울기 h'rms ξ(q)", fontweight='bold', fontsize=12)
         self.ax_rms_slope.set_xlabel('파수 q (1/m)', fontsize=10)
         self.ax_rms_slope.set_ylabel("ξ (h'rms slope)", fontsize=10)
         self.ax_rms_slope.grid(True, alpha=0.3)
@@ -8731,10 +8723,7 @@ class PerssonModelGUI_V2:
         valid_strain = strain > 0
         if np.any(valid_strain):
             self.ax_local_strain.loglog(q[valid_strain], strain[valid_strain]*100, 'r-', linewidth=2)
-        self.ax_local_strain.set_title(
-            "② Local Strain ε(q) — 고무 국소 변형률\n"
-            "ε=factor×ξ  |  고파수 거칠기가 큰 변형 유발",
-            fontweight='bold', fontsize=12, loc='left')
+        self.ax_local_strain.set_title("② 국소 변형률 Local Strain ε(q)", fontweight='bold', fontsize=12)
         self.ax_local_strain.set_xlabel('파수 q (1/m)', fontsize=10)
         self.ax_local_strain.set_ylabel('ε (%)', fontsize=10)
         self.ax_local_strain.grid(True, alpha=0.3)
@@ -8760,10 +8749,7 @@ class PerssonModelGUI_V2:
         valid_hrms = hrms > 0
         if np.any(valid_hrms):
             self.ax_rms_height.loglog(q[valid_hrms], hrms[valid_hrms]*1e6, 'g-', linewidth=2)
-        self.ax_rms_height.set_title(
-            "③ RMS Height h_rms(q) — 누적 RMS 높이\n"
-            "h²=2π∫kC(k)dk  |  저파수(큰 파장)가 높이 지배",
-            fontweight='bold', fontsize=12, loc='left')
+        self.ax_rms_height.set_title("③ 누적 RMS 높이 h_rms(q)", fontweight='bold', fontsize=12)
         self.ax_rms_height.set_xlabel('파수 q (1/m)', fontsize=10)
         self.ax_rms_height.set_ylabel('h_rms (μm)', fontsize=10)
         self.ax_rms_height.grid(True, alpha=0.3)
@@ -8796,10 +8782,7 @@ class PerssonModelGUI_V2:
             lines2, labels2 = ax2.get_legend_handles_labels()
             self.ax_psd_ref.legend(lines1 + lines2, labels1 + labels2,
                                    loc='upper right', fontsize=12)
-        self.ax_psd_ref.set_title(
-            "④ PSD C(q) vs k³C(k) — 기울기의 원인\n"
-            "C(q)↓ 이지만 k³C(k)↑ → h'rms가 고파수에서 증가!",
-            fontweight='bold', fontsize=12, loc='left')
+        self.ax_psd_ref.set_title("④ PSD C(q) vs k³C(k)", fontweight='bold', fontsize=12)
         self.ax_psd_ref.set_xlabel('파수 q (1/m)', fontsize=10)
         self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=10)
         self.ax_psd_ref.grid(True, alpha=0.3)
@@ -22678,59 +22661,72 @@ class PerssonModelGUI_V2:
         from matplotlib.gridspec import GridSpec
         self.fig_brush = Figure(figsize=(14, 10), dpi=100)
         gs = GridSpec(2, 20, figure=self.fig_brush, height_ratios=[1.8, 2.2],
-                      hspace=0.40, wspace=1.2,
-                      left=0.05, right=0.97, top=0.96, bottom=0.06)
+                      hspace=0.45, wspace=1.8,
+                      left=0.06, right=0.97, top=0.96, bottom=0.07)
 
         # Top row: 4 time-history / characteristic plots
+        _bf_title = 9
+        _bf_label = 8
+        _bf_tick = 7
+
         self.ax_br_input = self.fig_brush.add_subplot(gs[0, :5])
-        self.ax_br_input.set_xlabel('time [s]', fontsize=10)
-        self.ax_br_input.set_ylabel('slip', fontsize=10)
-        self.ax_br_input.set_title('SA / SR Input', fontsize=12, fontweight='bold')
+        self.ax_br_input.set_xlabel('time [s]', fontsize=_bf_label)
+        self.ax_br_input.set_ylabel('slip', fontsize=_bf_label)
+        self.ax_br_input.set_title('SA / SR Input', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_input.tick_params(labelsize=_bf_tick)
         self.ax_br_input.grid(True, alpha=0.3)
 
         self.ax_br_force_t = self.fig_brush.add_subplot(gs[0, 5:10])
-        self.ax_br_force_t.set_xlabel('time [s]', fontsize=10)
-        self.ax_br_force_t.set_ylabel('force [N]', fontsize=10)
-        self.ax_br_force_t.set_title('Fx / Fy Output', fontsize=12, fontweight='bold')
+        self.ax_br_force_t.set_xlabel('time [s]', fontsize=_bf_label)
+        self.ax_br_force_t.set_ylabel('force [N]', fontsize=_bf_label)
+        self.ax_br_force_t.set_title('Fx / Fy Output', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_force_t.tick_params(labelsize=_bf_tick)
         self.ax_br_force_t.grid(True, alpha=0.3)
 
         self.ax_br_fy_sa = self.fig_brush.add_subplot(gs[0, 10:15])
-        self.ax_br_fy_sa.set_xlabel('SA [deg]', fontsize=10)
-        self.ax_br_fy_sa.set_ylabel('Fy [N]', fontsize=10)
-        self.ax_br_fy_sa.set_title('Fy vs Slip Angle', fontsize=12, fontweight='bold')
+        self.ax_br_fy_sa.set_xlabel('SA [deg]', fontsize=_bf_label)
+        self.ax_br_fy_sa.set_ylabel('Fy [N]', fontsize=_bf_label)
+        self.ax_br_fy_sa.set_title('Fy vs Slip Angle', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_fy_sa.tick_params(labelsize=_bf_tick)
         self.ax_br_fy_sa.grid(True, alpha=0.3)
 
         self.ax_br_fx_sr = self.fig_brush.add_subplot(gs[0, 15:])
-        self.ax_br_fx_sr.set_xlabel('SR [%]', fontsize=10)
-        self.ax_br_fx_sr.set_ylabel('Fx [N]', fontsize=10)
-        self.ax_br_fx_sr.set_title('Fx vs Slip Ratio', fontsize=12, fontweight='bold')
+        self.ax_br_fx_sr.set_xlabel('SR [%]', fontsize=_bf_label)
+        self.ax_br_fx_sr.set_ylabel('Fx [N]', fontsize=_bf_label)
+        self.ax_br_fx_sr.set_title('Fx vs Slip Ratio', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_fx_sr.tick_params(labelsize=_bf_tick)
         self.ax_br_fx_sr.grid(True, alpha=0.3)
 
         # Bottom row: 5 contour plots (no set_aspect='equal' for uniform sizing)
         self.ax_br_stick = self.fig_brush.add_subplot(gs[1, 0:4])
-        self.ax_br_stick.set_title('sliding vs adhesion', fontsize=12, fontweight='bold')
-        self.ax_br_stick.set_xlabel('length [mm]', fontsize=10)
-        self.ax_br_stick.set_ylabel('width [mm]', fontsize=10)
+        self.ax_br_stick.set_title('sliding vs adhesion', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_stick.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_br_stick.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_br_stick.tick_params(labelsize=_bf_tick)
 
         self.ax_br_speed = self.fig_brush.add_subplot(gs[1, 4:8])
-        self.ax_br_speed.set_title('sliding speed', fontsize=12, fontweight='bold')
-        self.ax_br_speed.set_xlabel('length [mm]', fontsize=10)
-        self.ax_br_speed.set_ylabel('width [mm]', fontsize=10)
+        self.ax_br_speed.set_title('sliding speed', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_speed.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_br_speed.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_br_speed.tick_params(labelsize=_bf_tick)
 
         self.ax_br_pressure = self.fig_brush.add_subplot(gs[1, 8:12])
-        self.ax_br_pressure.set_title('contact pressure', fontsize=12, fontweight='bold')
-        self.ax_br_pressure.set_xlabel('length [mm]', fontsize=10)
-        self.ax_br_pressure.set_ylabel('width [mm]', fontsize=10)
+        self.ax_br_pressure.set_title('contact pressure', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_pressure.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_br_pressure.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_br_pressure.tick_params(labelsize=_bf_tick)
 
         self.ax_br_temperature = self.fig_brush.add_subplot(gs[1, 12:16])
-        self.ax_br_temperature.set_title('temperature', fontsize=12, fontweight='bold')
-        self.ax_br_temperature.set_xlabel('length [mm]', fontsize=10)
-        self.ax_br_temperature.set_ylabel('width [mm]', fontsize=10)
+        self.ax_br_temperature.set_title('temperature', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_temperature.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_br_temperature.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_br_temperature.tick_params(labelsize=_bf_tick)
 
         self.ax_br_friction = self.fig_brush.add_subplot(gs[1, 16:20])
-        self.ax_br_friction.set_title('friction force', fontsize=12, fontweight='bold')
-        self.ax_br_friction.set_xlabel('length [mm]', fontsize=10)
-        self.ax_br_friction.set_ylabel('width [mm]', fontsize=10)
+        self.ax_br_friction.set_title('friction force', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_friction.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_br_friction.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_br_friction.tick_params(labelsize=_bf_tick)
 
         self.canvas_brush = FigureCanvasTkAgg(self.fig_brush, plot_frame)
         self.canvas_brush.draw_idle()
@@ -24021,9 +24017,11 @@ class PerssonModelGUI_V2:
         ax_in.clear()
         ax_in.plot(t, self._brush_SA, 'r-', linewidth=1.5, label='SA [deg]')
         ax_in.plot(t, self._brush_SR, color='#E68A00', linewidth=1.5, label='SR [%]')
-        ax_in.set_xlabel('time [s]', fontsize=10)
-        ax_in.set_ylabel('slip', fontsize=10)
-        ax_in.legend(loc='upper right', fontsize=10, framealpha=0.9,
+        ax_in.set_title('SA / SR Input', fontsize=9, fontweight='bold')
+        ax_in.set_xlabel('time [s]', fontsize=8)
+        ax_in.set_ylabel('slip', fontsize=8)
+        ax_in.tick_params(labelsize=7)
+        ax_in.legend(loc='upper right', fontsize=7, framealpha=0.9,
                      bbox_to_anchor=(0.98, 0.98), borderaxespad=0)
         ax_in.grid(True, alpha=0.3)
         ax_in.set_xlim(t[0], t[-1])
@@ -24038,9 +24036,11 @@ class PerssonModelGUI_V2:
         ax_f.clear()
         ax_f.plot(t, self._brush_Fy_hist, 'r-', linewidth=1.5, label='Fy')
         ax_f.plot(t, self._brush_Fx_hist, color='#E68A00', linewidth=1.5, label='Fx')
-        ax_f.set_xlabel('time [s]', fontsize=10)
-        ax_f.set_ylabel('force [N]', fontsize=10)
-        ax_f.legend(loc='upper right', fontsize=10, framealpha=0.9,
+        ax_f.set_title('Fx / Fy Output', fontsize=9, fontweight='bold')
+        ax_f.set_xlabel('time [s]', fontsize=8)
+        ax_f.set_ylabel('force [N]', fontsize=8)
+        ax_f.tick_params(labelsize=7)
+        ax_f.legend(loc='upper right', fontsize=7, framealpha=0.9,
                     bbox_to_anchor=(0.98, 0.98), borderaxespad=0)
         ax_f.grid(True, alpha=0.3)
         ax_f.set_xlim(t[0], t[-1])
@@ -24054,9 +24054,10 @@ class PerssonModelGUI_V2:
         ax_fy = self.ax_br_fy_sa
         ax_fy.clear()
         ax_fy.plot(self._brush_SA, self._brush_Fy_hist, 'b-', linewidth=1.2, alpha=0.6)
-        ax_fy.set_xlabel('SA [deg]', fontsize=10)
-        ax_fy.set_ylabel('Fy [N]', fontsize=10)
-        ax_fy.set_title('Fy vs Slip Angle', fontsize=12, fontweight='bold')
+        ax_fy.set_xlabel('SA [deg]', fontsize=8)
+        ax_fy.set_ylabel('Fy [N]', fontsize=8)
+        ax_fy.tick_params(labelsize=7)
+        ax_fy.set_title('Fy vs Slip Angle', fontsize=9, fontweight='bold')
         ax_fy.grid(True, alpha=0.3)
         self._br_cursor_fy_sa = ax_fy.axvline(x=self._brush_SA[0], color='k',
                                                 linewidth=1.2, alpha=0.7)
@@ -24068,9 +24069,10 @@ class PerssonModelGUI_V2:
         ax_fx.clear()
         ax_fx.plot(self._brush_SR, self._brush_Fx_hist, color='#E68A00',
                    linewidth=1.2, alpha=0.6)
-        ax_fx.set_xlabel('SR [%]', fontsize=10)
-        ax_fx.set_ylabel('Fx [N]', fontsize=10)
-        ax_fx.set_title('Fx vs Slip Ratio', fontsize=12, fontweight='bold')
+        ax_fx.set_xlabel('SR [%]', fontsize=8)
+        ax_fx.set_ylabel('Fx [N]', fontsize=8)
+        ax_fx.tick_params(labelsize=7)
+        ax_fx.set_title('Fx vs Slip Ratio', fontsize=9, fontweight='bold')
         ax_fx.grid(True, alpha=0.3)
         self._br_cursor_fx_sr = ax_fx.axvline(x=self._brush_SR[0], color='k',
                                                 linewidth=1.2, alpha=0.7)
@@ -24773,13 +24775,13 @@ class PerssonModelGUI_V2:
         _AX_Y_HALF = W_mm / 2 * _AX_MARGIN
 
         def _setup_ax(ax, title, has_colorbar_space=False):
-            ax.set_title(title, fontsize=12, fontweight='bold')
-            ax.set_xlabel('length [mm]', fontsize=10)
-            ax.set_ylabel('width [mm]', fontsize=10)
+            ax.set_title(title, fontsize=9, fontweight='bold')
+            ax.set_xlabel('length [mm]', fontsize=8)
+            ax.set_ylabel('width [mm]', fontsize=8)
             # Use footprint-proportional axis limits to prevent white gaps
             ax.set_xlim(-_AX_X_HALF, _AX_X_HALF)
             ax.set_ylim(-_AX_Y_HALF, _AX_Y_HALF)
-            ax.tick_params(labelsize=10)
+            ax.tick_params(labelsize=7)
 
         def _add_contact_outline(ax):
             """Add a contact patch outline that can be updated per-frame.
@@ -25293,8 +25295,8 @@ class PerssonModelGUI_V2:
         margin = 1.60
         xh = L_new / 2 * margin
         yh = W_new / 2 * margin
-        for ax_name in ('ax_br_stick', 'ax_br_speed', 'ax_br_pres',
-                        'ax_br_temp', 'ax_br_fric'):
+        for ax_name in ('ax_br_stick', 'ax_br_speed', 'ax_br_pressure',
+                        'ax_br_temperature', 'ax_br_friction'):
             ax = getattr(self, ax_name, None)
             if ax is not None:
                 ax.set_xlim(-xh, xh)
