@@ -1070,7 +1070,7 @@ class App(tk.Tk):
 if __name__ == "__main__":
     import sys
 
-    # DPI: let Windows DPI virtualisation handle scaling (no SetProcessDpiAwareness).
+    # DPI awareness is set in main.py via manifest + SetProcessDpiAwareness.
     app = App()
 
     app.mainloop()

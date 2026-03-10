@@ -272,8 +272,8 @@ class PerssonModelGUI_V2:
         self.root.configure(bg=self.COLORS['bg'])
         self.root.minsize(min(1200, scr_w), min(700, scr_h - 40))
 
-        # Store DPI scale (always 1.0 — Windows DPI virtualisation handles scaling)
-        self._dpi_scale = 1.0
+        # Store DPI scale (System DPI Aware + Tk scaling forced to 1.0)
+        self._dpi_scale = _get_system_dpi_scale()
 
         # ── Auto-scale UI for low resolution monitors ──
         eff_h = scr_h
@@ -28737,21 +28737,37 @@ class PerssonModelGUI_V2:
 
 
 def _enable_dpi_awareness():
-    """No-op: DPI awareness is intentionally NOT set.
+    """Make the process System DPI Aware so Windows gives us real pixels.
 
-    Tkinter does not support per-monitor DPI changes.  When the process is
-    *not* DPI-aware, Windows applies automatic bitmap scaling (DPI
-    virtualisation) so the UI looks the same size on every monitor —
-    including when the window is dragged between displays with different
-    scaling percentages.  This is the only reliable way to prevent the
-    content from blowing up or shrinking when switching monitors.
+    With System DPI Awareness the app receives actual screen coordinates
+    instead of virtualised ones, preventing Windows from bitmap-upscaling
+    the entire UI (which makes everything look oversized on >100% displays).
+    We then force Tk scaling to 1.0 in main() so font point-sizes always
+    map to 96-DPI pixels.
     """
-    pass
+    try:
+        import ctypes
+        # 1 = PROCESS_SYSTEM_DPI_AWARE  (real pixels on primary monitor)
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
+    except Exception:
+        # Not on Windows, or shcore unavailable — silently ignore.
+        try:
+            import ctypes
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
 
 
 def _get_system_dpi_scale():
-    """Always returns 1.0 — DPI virtualisation handles scaling."""
-    return 1.0
+    """Return the system DPI scale factor (e.g. 1.25 for 125% scaling)."""
+    try:
+        import ctypes
+        hdc = ctypes.windll.user32.GetDC(0)
+        dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)  # LOGPIXELSX
+        ctypes.windll.user32.ReleaseDC(0, hdc)
+        return dpi / 96.0
+    except Exception:
+        return 1.0
 
 
 bind_braking_simulation(PerssonModelGUI_V2)
@@ -28764,8 +28780,10 @@ def main():
 
     root = tk.Tk()
 
-    # DPI handling: Windows DPI virtualisation takes care of scaling.
-    # Do NOT override Tk's default scaling — it matches the virtualised 96 DPI.
+    # Force Tk scaling to 1.0 so font point-sizes always map to 96-DPI
+    # pixels.  Without this, Tk would scale fonts by the system DPI factor
+    # (e.g. 1.25× on a 125% display), making everything too large.
+    root.tk.call('tk', 'scaling', 1.0)
 
     # ── Splash screen ──
     root.withdraw()  # Hide main window completely during loading
