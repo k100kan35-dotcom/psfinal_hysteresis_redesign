@@ -19,8 +19,8 @@
   "math_fontset": "cm",
   "panel_width": 600,
   "window": {
-    "width": 2880,
-    "height": 1620,
+    "width": 1920,
+    "height": 1080,
     "fullscreen": true
   }
 }
