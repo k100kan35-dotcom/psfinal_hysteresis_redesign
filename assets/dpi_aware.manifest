@@ -3,8 +3,12 @@
           xmlns:asmv3="urn:schemas-microsoft-com:asm.v3">
   <asmv3:application>
     <asmv3:windowsSettings>
-      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
-      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2,PerMonitor</dpiAwareness>
+      <!-- System DPI Aware: title bar and content scale uniformly.
+           This matches _enable_dpi_awareness() in main.py which calls
+           SetProcessDpiAwareness(1).  PerMonitorV2 causes a mismatch
+           where the OS scales the title bar differently from app content. -->
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">system</dpiAwareness>
     </asmv3:windowsSettings>
   </asmv3:application>
 </assembly>

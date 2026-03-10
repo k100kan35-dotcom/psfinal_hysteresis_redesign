@@ -1071,34 +1071,25 @@ if __name__ == "__main__":
     import sys
 
     # ── High-DPI awareness BEFORE any window creation (Windows 10+) ──
+    # Use System DPI Aware (1) for uniform title-bar / content scaling.
     if sys.platform == 'win32':
         try:
             from ctypes import windll
             try:
-                windll.shcore.SetProcessDpiAwareness(2)
+                windll.shcore.SetProcessDpiAwareness(1)  # System DPI Aware
             except Exception:
                 try:
-                    windll.shcore.SetProcessDpiAwareness(1)
-                except Exception:
                     windll.user32.SetProcessDPIAware()
+                except Exception:
+                    pass
         except Exception:
             pass
 
     app = App()
 
-    # ── Neutralise OS DPI scaling so fonts render at design size ──
-    if sys.platform == 'win32':
-        try:
-            from ctypes import windll
-            try:
-                dpi = windll.user32.GetDpiForSystem()
-            except Exception:
-                hdc = windll.user32.GetDC(0)
-                dpi = windll.gdi32.GetDeviceCaps(hdc, 88)
-                windll.user32.ReleaseDC(0, hdc)
-            if dpi / 96.0 > 1.05:
-                app.tk.call('tk', 'scaling', 96.0 / 72.0)
-        except Exception:
-            pass
+    # ── Chrome-like DPI normalisation ──
+    # Always force Tk scaling to 96/72 so that point sizes map to the same
+    # pixel sizes on every display regardless of Windows scaling percentage.
+    app.tk.call('tk', 'scaling', 96.0 / 72.0)
 
     app.mainloop()
