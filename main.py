@@ -321,6 +321,7 @@ class PerssonModelGUI_V2:
 
         # ── Load saved font/layout settings (before theme setup) ──
         self._saved_window_cfg = None  # will be set by _load_font_settings if available
+        self._global_font_scale = 1.0  # default; overridden by _load_font_settings
         self._load_font_settings()
 
         # ── Apply saved window settings or default to fullscreen ──
@@ -459,8 +460,30 @@ class PerssonModelGUI_V2:
     _FONT_SETTINGS_FILE = 'font_settings.json'
 
     def _get_font_settings_path(self):
-        """Get path for font settings JSON file."""
-        return os.path.join(os.path.dirname(os.path.abspath(__file__)), self._FONT_SETTINGS_FILE)
+        """Get path for font settings JSON file.
+
+        For frozen executables (PyInstaller), __file__ points to a temporary
+        extraction directory that is deleted between runs.  We therefore use
+        a persistent, writable location:
+          1. %APPDATA%/NexenRubberFriction/  (Windows)
+          2. ~/.config/NexenRubberFriction/  (Linux/Mac)
+          3. Fallback: directory containing the executable itself
+        For normal Python execution, use the script directory as before.
+        """
+        if getattr(sys, 'frozen', False):
+            # Frozen exe – use a stable, writable directory
+            if sys.platform == 'win32':
+                base = os.environ.get('APPDATA', '')
+                if base:
+                    cfg_dir = os.path.join(base, 'NexenRubberFriction')
+                else:
+                    cfg_dir = os.path.dirname(sys.executable)
+            else:
+                cfg_dir = os.path.join(os.path.expanduser('~'), '.config', 'NexenRubberFriction')
+            os.makedirs(cfg_dir, exist_ok=True)
+            return os.path.join(cfg_dir, self._FONT_SETTINGS_FILE)
+        else:
+            return os.path.join(os.path.dirname(os.path.abspath(__file__)), self._FONT_SETTINGS_FILE)
 
     def _load_font_settings(self):
         """Load saved font settings from JSON file if it exists."""
@@ -471,23 +494,31 @@ class PerssonModelGUI_V2:
             with open(path, 'r', encoding='utf-8') as f:
                 cfg = json.load(f)
 
+            # Restore global scale
+            self._global_font_scale = cfg.get('global_scale', 1.0)
+
             # Restore UI fonts
             if 'ui_fonts' in cfg:
                 uf = cfg['ui_fonts']
                 family = uf.get('family', 'Segoe UI')
-                size = uf.get('size', 14)
                 mono_family = uf.get('mono_family', 'Consolas')
-                mono_size = uf.get('mono_size', size)
+                # Prefer individual sizes; fall back to offset-based reconstruction
+                body_size = uf.get('body_size', uf.get('size', 14))
+                heading_size = uf.get('heading_size', body_size + 6)
+                subheading_size = uf.get('subheading_size', body_size + 3)
+                small_size = uf.get('small_size', body_size - 1)
+                tiny_size = uf.get('tiny_size', body_size - 2)
+                mono_size = uf.get('mono_size', body_size)
                 self.FONTS = {
-                    'heading':   (family, size + 6, 'bold'),
-                    'subheading':(family, size + 3, 'bold'),
-                    'body':      (family, size),
-                    'body_bold': (family, size, 'bold'),
-                    'small':     (family, size - 1),
-                    'small_bold':(family, size - 1, 'bold'),
-                    'tiny':      (family, size - 2),
+                    'heading':   (family, heading_size, 'bold'),
+                    'subheading':(family, subheading_size, 'bold'),
+                    'body':      (family, body_size),
+                    'body_bold': (family, body_size, 'bold'),
+                    'small':     (family, small_size),
+                    'small_bold':(family, small_size, 'bold'),
+                    'tiny':      (family, tiny_size),
                     'mono':      (mono_family, mono_size),
-                    'mono_small':(mono_family, mono_size - 1),
+                    'mono_small':(mono_family, max(8, mono_size - 1)),
                 }
 
             # Restore plot fonts
@@ -536,17 +567,30 @@ class PerssonModelGUI_V2:
             pass  # Use defaults if loading fails
 
     def _save_font_settings(self):
-        """Save current font settings to JSON file."""
+        """Save current font settings to JSON file.
+
+        Saves every individual font size so the exact user customisation
+        is restored on next launch (no offset-based reconstruction).
+        """
         cfg = {
             'ui_fonts': {
                 'family': self.FONTS['body'][0],
-                'size': self.FONTS['body'][1],
                 'mono_family': self.FONTS['mono'][0],
+                # Save every individual size
+                'heading_size': self.FONTS['heading'][1],
+                'subheading_size': self.FONTS['subheading'][1],
+                'body_size': self.FONTS['body'][1],
+                'small_size': self.FONTS['small'][1],
+                'tiny_size': self.FONTS['tiny'][1],
                 'mono_size': self.FONTS['mono'][1],
+                # Legacy key for backwards compat
+                'size': self.FONTS['body'][1],
             },
             'plot_fonts': dict(self.PLOT_FONTS),
             'math_fontset': matplotlib.rcParams.get('mathtext.fontset', 'cm'),
             'panel_width': self.DIMS['panel_width'],
+            'global_scale': getattr(self, '_global_font_scale', 1.0),
+            'dpi_scale': getattr(self, '_dpi_scale', 1.0),
         }
         # Save window size & fullscreen state
         try:
@@ -7352,7 +7396,7 @@ class PerssonModelGUI_V2:
         scale_frame = ttk.LabelFrame(content_frame, text="전체 글꼴 크기 (빠른 조절)", padding=10)
         scale_frame.pack(fill=tk.X, pady=(0, 10))
 
-        global_scale_var = tk.DoubleVar(value=1.0)
+        global_scale_var = tk.DoubleVar(value=getattr(self, '_global_font_scale', 1.0))
         scale_row = ttk.Frame(scale_frame)
         scale_row.pack(fill=tk.X, pady=3)
         ttk.Label(scale_row, text="전체 배율:", width=12).pack(side=tk.LEFT)
@@ -7360,7 +7404,8 @@ class PerssonModelGUI_V2:
         scale_slider = ttk.Scale(scale_row, from_=0.7, to=2.0, variable=global_scale_var,
                                   orient=tk.HORIZONTAL, length=300)
         scale_slider.pack(side=tk.LEFT, padx=5)
-        scale_label = ttk.Label(scale_row, text="1.0x", width=6, font=self.FONTS['body_bold'])
+        _init_scale = getattr(self, '_global_font_scale', 1.0)
+        scale_label = ttk.Label(scale_row, text=f"{_init_scale:.1f}x", width=6, font=self.FONTS['body_bold'])
         scale_label.pack(side=tk.LEFT, padx=5)
 
         # Preset buttons for common scales
@@ -7624,6 +7669,9 @@ class PerssonModelGUI_V2:
                 'legend.fontsize':  self.PLOT_FONTS['legend'],
                 'figure.titlesize': self.PLOT_FONTS['suptitle'],
             }
+
+            # 3b. Save global scale for persistence
+            self._global_font_scale = global_scale_var.get()
 
             # 4. Update left panel width
             new_panel_w = panel_width_var.get()
@@ -28749,14 +28797,16 @@ def main():
 
     root = tk.Tk()
 
-    # ── Neutralise OS DPI scaling so fonts/widgets render at 96-DPI size ──
-    # Without this, Tk uses the real DPI (e.g. 120 at 125% scaling) and
-    # renders everything proportionally larger.  By fixing the scaling
-    # factor to 96/72 we get consistent physical sizes on every display,
-    # exactly like strain.py does.
+    # ── Chrome-like DPI normalisation ──
+    # Goal: render every widget at the *same logical size* regardless of
+    # the Windows display-scaling percentage (100%, 125%, 150%, 200% …).
+    # Tk converts point sizes to pixels via its internal "scaling" factor
+    # (default = systemDPI / 72).  By always forcing it to 96/72 = 1.333
+    # we get 96-DPI rendering on every display, just like Chrome uses
+    # device-independent pixels.
     dpi_scale = _get_system_dpi_scale()
-    if dpi_scale > 1.05:
-        root.tk.call('tk', 'scaling', 96.0 / 72.0)
+    # Always normalise – even at 100% scaling this ensures consistency
+    root.tk.call('tk', 'scaling', 96.0 / 72.0)
 
     # ── Splash screen ──
     root.withdraw()  # Hide main window completely during loading

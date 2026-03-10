@@ -180,6 +180,7 @@ def step1_pyinstaller():
         '--noconsole',
         '--log-level', 'WARN',
         '--icon=assets/app_icon.ico',
+        '--manifest=assets/dpi_aware.manifest',
 
         # matplotlib 데이터 번들
         '--collect-data', 'matplotlib',
