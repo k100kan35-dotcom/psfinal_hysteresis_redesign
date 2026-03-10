@@ -286,7 +286,7 @@ class PerssonModelGUI_V2:
             s = self._ui_scale
             # --- DIMS 축소 ---
             self.DIMS['header_height'] = max(24, int(40 * s))
-            self.DIMS['log_height'] = max(60, int(135 * s * 0.7))   # 로그 더 공격적 축소
+            self.DIMS['log_height'] = max(90, int(135 * s))   # 로그 축소 (최소 90px 보장)
             self.DIMS['log_collapsed'] = max(16, int(22 * s))
             self.DIMS['statusbar_height'] = max(18, int(28 * s))
             self.DIMS['logo_height'] = max(30, int(60 * s))
@@ -5058,8 +5058,8 @@ class PerssonModelGUI_V2:
         """Create a compact activity-log panel at the bottom of the window."""
         C = self.COLORS
         D = self.DIMS
-        # 저해상도에서는 로그 패널을 접힌 상태로 시작
-        _start_collapsed = getattr(self, '_ui_scale', 1.0) < 0.95
+        # 로그 패널은 항상 펼친 상태로 시작 (진행상황 확인 용이)
+        _start_collapsed = False
         _init_h = D['log_collapsed'] if _start_collapsed else D['log_height']
         log_container = tk.Frame(self.root, bg=C['sidebar'],
                                  height=_init_h)
