@@ -1,0 +1,26 @@
+{
+  "ui_fonts": {
+    "family": "Segoe UI",
+    "size": 11,
+    "mono_family": "Consolas",
+    "mono_size": 11
+  },
+  "plot_fonts": {
+    "title": 10,
+    "label": 10,
+    "tick": 9,
+    "legend": 9,
+    "suptitle": 11,
+    "annotation": 9,
+    "title_sm": 10,
+    "label_sm": 9,
+    "legend_sm": 8
+  },
+  "math_fontset": "cm",
+  "panel_width": 600,
+  "window": {
+    "width": 2880,
+    "height": 1620,
+    "fullscreen": true
+  }
+}
