@@ -140,11 +140,19 @@ def kill_old_processes():
 
 
 def clean_build():
-    """이전 빌드 산출물을 정리합니다 (spec 파일 포함)."""
+    """이전 빌드 산출물을 정리합니다 (spec, __pycache__ 포함)."""
     # spec 파일 삭제 → PyInstaller가 항상 새로 생성하도록 강제
     for spec in glob.glob('*.spec'):
         print(f"  [CLEAN] Removing {spec}")
         os.remove(spec)
+
+    # __pycache__ 삭제 → 스테일 .pyc가 번들되는 것을 방지
+    for root, dirs, _ in os.walk('.'):
+        for d in dirs:
+            if d == '__pycache__':
+                cache_path = os.path.join(root, d)
+                print(f"  [CLEAN] Removing {cache_path}")
+                shutil.rmtree(cache_path, ignore_errors=True)
 
     for d in ['build', f'dist/{APP_NAME}']:
         if os.path.isdir(d):
