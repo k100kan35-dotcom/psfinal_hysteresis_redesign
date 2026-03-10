@@ -275,6 +275,50 @@ class PerssonModelGUI_V2:
         # Store DPI scale for any component that needs it
         self._dpi_scale = _get_system_dpi_scale()
 
+        # ── Auto-scale UI for low effective resolution ──
+        # DPI 스케일을 고려한 유효 해상도 기준으로 UI 축소
+        eff_h = scr_h / max(self._dpi_scale, 1.0)
+        eff_w = scr_w / max(self._dpi_scale, 1.0)
+        _REF_H = 1080  # 기준 해상도 높이
+        self._ui_scale = min(1.0, eff_h / _REF_H)
+
+        if self._ui_scale < 1.0:
+            s = self._ui_scale
+            # --- DIMS 축소 ---
+            self.DIMS['header_height'] = max(24, int(40 * s))
+            self.DIMS['log_height'] = max(60, int(135 * s * 0.7))   # 로그 더 공격적 축소
+            self.DIMS['log_collapsed'] = max(16, int(22 * s))
+            self.DIMS['statusbar_height'] = max(18, int(28 * s))
+            self.DIMS['logo_height'] = max(30, int(60 * s))
+            self.DIMS['section_pad'] = max(3, int(6 * s))
+            self.DIMS['section_gap_y'] = max(1, int(3 * s))
+            self.DIMS['row_gap_y'] = max(1, int(2 * s))
+            self.DIMS['btn_pady'] = max(2, int(4 * s))
+            self.DIMS['toolbar_pady'] = max(1, int(3 * s))
+            if eff_w < 1600:
+                self.DIMS['panel_width'] = max(500, int(700 * s))
+
+            # --- UI 폰트 축소 ---
+            family = self.FONTS['body'][0]
+            mono_family = self.FONTS['mono'][0]
+            base = max(10, int(14 * s))
+            mono_base = max(10, int(14 * s))
+            self.FONTS = {
+                'heading':    (family, base + 4, 'bold'),
+                'subheading': (family, base + 2, 'bold'),
+                'body':       (family, base),
+                'body_bold':  (family, base, 'bold'),
+                'small':      (family, max(9, base - 1)),
+                'small_bold': (family, max(9, base - 1), 'bold'),
+                'tiny':       (family, max(8, base - 2)),
+                'mono':       (mono_family, mono_base),
+                'mono_small': (mono_family, max(9, mono_base - 1)),
+            }
+
+            # --- 플롯 폰트 축소 ---
+            for key in self.PLOT_FONTS:
+                self.PLOT_FONTS[key] = max(8, int(self.PLOT_FONTS[key] * s))
+
         # ── Load saved font/layout settings (before theme setup) ──
         self._saved_window_cfg = None  # will be set by _load_font_settings if available
         self._load_font_settings()
@@ -607,11 +651,16 @@ class PerssonModelGUI_V2:
                         foreground=C['primary'], font=F['small_bold'])
 
         # ── TNotebook (Tabs) ──
+        _s = getattr(self, '_ui_scale', 1.0)
+        _tab_px = max(4, int(10 * _s))
+        _tab_py = max(2, int(4 * _s))
+        _tab_margins = [max(1, int(2 * _s)), max(2, int(4 * _s)),
+                        max(1, int(2 * _s)), 0]
         style.configure('TNotebook', background=C['bg'], borderwidth=0,
-                        tabmargins=[2, 4, 2, 0])
+                        tabmargins=_tab_margins)
         style.configure('TNotebook.Tab', background=C['tab_inactive'],
                         foreground=C['text_secondary'], font=F['small_bold'],
-                        padding=[10, 4], borderwidth=0)
+                        padding=[_tab_px, _tab_py], borderwidth=0)
         style.map('TNotebook.Tab',
                   background=[('selected', C['tab_active']),
                               ('active', C['highlight'])],
@@ -620,7 +669,9 @@ class PerssonModelGUI_V2:
                   expand=[('selected', [0, 0, 0, 2])])
 
         # ── TButton (Default) ──
-        style.configure('TButton', font=F['body'], padding=[8, 3],
+        _btn_px = max(4, int(8 * _s))
+        _btn_py = max(2, int(3 * _s))
+        style.configure('TButton', font=F['body'], padding=[_btn_px, _btn_py],
                         background=C['surface'], foreground=C['text'],
                         borderwidth=1, relief='raised', anchor='center')
         style.map('TButton',
@@ -629,9 +680,11 @@ class PerssonModelGUI_V2:
                   relief=[('pressed', 'sunken'), ('!pressed', 'raised')])
 
         # ── Accent.TButton (Primary action - blue) ──
+        _abtn_px = max(5, int(10 * _s))
+        _abtn_py = max(2, int(4 * _s))
         style.configure('Accent.TButton', font=F['body_bold'],
                         background=C['primary'], foreground=C['primary_fg'],
-                        padding=[10, 4], borderwidth=1, relief='raised')
+                        padding=[_abtn_px, _abtn_py], borderwidth=1, relief='raised')
         style.map('Accent.TButton',
                   background=[('pressed', '#0F172A'),
                               ('active', C['primary_hover']),
@@ -642,7 +695,7 @@ class PerssonModelGUI_V2:
         # ── Outline.TButton (Blue outline / border) ──
         style.configure('Outline.TButton', font=F['body_bold'],
                         background=C['surface'], foreground=C['primary'],
-                        padding=[10, 4], borderwidth=1, relief='solid',
+                        padding=[_abtn_px, _abtn_py], borderwidth=1, relief='solid',
                         bordercolor=C['primary'])
         style.map('Outline.TButton',
                   background=[('active', '#EBF5FF'),
@@ -652,7 +705,7 @@ class PerssonModelGUI_V2:
         # ── Success.TButton (Confirm - green) ──
         style.configure('Success.TButton', font=F['body_bold'],
                         background=C['success'], foreground=C['success_fg'],
-                        padding=[10, 4], borderwidth=1, relief='raised')
+                        padding=[_abtn_px, _abtn_py], borderwidth=1, relief='raised')
         style.map('Success.TButton',
                   background=[('pressed', '#064E3B'),
                               ('active', '#047857'),
@@ -663,7 +716,7 @@ class PerssonModelGUI_V2:
         # ── Danger.TButton (Warning action - red) ──
         style.configure('Danger.TButton', font=F['body_bold'],
                         background=C['danger'], foreground=C['danger_fg'],
-                        padding=[10, 4], borderwidth=1, relief='raised')
+                        padding=[_abtn_px, _abtn_py], borderwidth=1, relief='raised')
         style.map('Danger.TButton',
                   background=[('pressed', '#7F1D1D'),
                               ('active', '#B91C1C'),
@@ -672,34 +725,38 @@ class PerssonModelGUI_V2:
                   relief=[('pressed', 'sunken'), ('!pressed', 'raised')])
 
         # ── TEntry ──
+        _ent_px = max(2, int(4 * _s))
+        _ent_py = max(1, int(3 * _s))
         style.configure('TEntry', fieldbackground=C['input_bg'],
                         foreground=C['text'], font=F['body'],
-                        borderwidth=1, relief='solid', padding=[4, 3])
+                        borderwidth=1, relief='solid', padding=[_ent_px, _ent_py])
         style.map('TEntry',
                   fieldbackground=[('focus', '#F0F7FF'), ('readonly', C['bg'])],
                   bordercolor=[('focus', C['primary'])])
 
         # ── TCombobox ──
         style.configure('TCombobox', fieldbackground=C['input_bg'],
-                        foreground=C['text'], font=F['body'], padding=[4, 3])
+                        foreground=C['text'], font=F['body'], padding=[_ent_px, _ent_py])
         style.map('TCombobox',
                   fieldbackground=[('readonly', C['input_bg']),
                                    ('focus', '#F0F7FF')])
 
         # ── TCheckbutton / TRadiobutton ──
+        _ind_sz = max(12, int(16 * _s))
+        _chk_px = max(2, int(3 * _s))
         style.configure('TCheckbutton', background=C['bg'],
                         foreground=C['text'], font=F['body'],
-                        indicatorsize=16, padding=[3, 1])
+                        indicatorsize=_ind_sz, padding=[_chk_px, 1])
         style.configure('TRadiobutton', background=C['bg'],
                         foreground=C['text'], font=F['body'],
-                        indicatorsize=16, padding=[3, 1])
+                        indicatorsize=_ind_sz, padding=[_chk_px, 1])
         # Inside LabelFrames (surface bg)
         style.configure('Surface.TCheckbutton', background=C['surface'],
                         foreground=C['text'], font=F['body'],
-                        indicatorsize=16, padding=[3, 1])
+                        indicatorsize=_ind_sz, padding=[_chk_px, 1])
         style.configure('Surface.TRadiobutton', background=C['surface'],
                         foreground=C['text'], font=F['body'],
-                        indicatorsize=16, padding=[3, 1])
+                        indicatorsize=_ind_sz, padding=[_chk_px, 1])
 
         # ── Horizontal.TProgressbar ──
         style.configure('Horizontal.TProgressbar',
@@ -866,8 +923,9 @@ class PerssonModelGUI_V2:
         self._create_log_panel()
 
         # Create notebook (tabbed interface)
+        _nb_pad = 2 if getattr(self, '_ui_scale', 1.0) < 0.95 else 4
         self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=4, pady=(2, 0))
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=_nb_pad, pady=(1, 0))
 
         # ── Tab definitions ──
         tabs = [
@@ -908,13 +966,14 @@ class PerssonModelGUI_V2:
         self._all_tabs = []  # (attr, label, frame) for visibility management
         self._tab_visible_vars = {}  # attr → BooleanVar
 
+        _tab_sp = ' ' if getattr(self, '_ui_scale', 1.0) < 0.95 else '  '
         n_tabs = len(tabs)
         for i, (attr, label, builder) in enumerate(tabs):
             pct = 15 + int(65 * (i / n_tabs))  # 15% → 80%
             self._splash_cb(f"탭 생성: {label} ...", pct)
             frame = ttk.Frame(self.notebook)
             setattr(self, attr, frame)
-            self.notebook.add(frame, text=f'  {label}  ')
+            self.notebook.add(frame, text=f'{_tab_sp}{label}{_tab_sp}')
             builder(frame)
             self._all_tabs.append((attr, label, frame))
             visible = attr not in hidden_set
@@ -4999,9 +5058,12 @@ class PerssonModelGUI_V2:
         """Create a compact activity-log panel at the bottom of the window."""
         C = self.COLORS
         D = self.DIMS
+        # 저해상도에서는 로그 패널을 접힌 상태로 시작
+        _start_collapsed = getattr(self, '_ui_scale', 1.0) < 0.95
+        _init_h = D['log_collapsed'] if _start_collapsed else D['log_height']
         log_container = tk.Frame(self.root, bg=C['sidebar'],
-                                 height=D['log_height'])
-        log_container.pack(side=tk.BOTTOM, fill=tk.X, padx=4, pady=(2, 0))
+                                 height=_init_h)
+        log_container.pack(side=tk.BOTTOM, fill=tk.X, padx=4, pady=(1, 0))
         log_container.pack_propagate(False)
 
         # Title bar
@@ -5014,7 +5076,7 @@ class PerssonModelGUI_V2:
                  font=self.FONTS['small_bold']).pack(side=tk.LEFT, padx=6)
 
         # Toggle button to expand/collapse
-        self._log_expanded = True
+        self._log_expanded = not _start_collapsed
         self._log_container = log_container
 
         def _toggle_log():
@@ -5027,7 +5089,7 @@ class PerssonModelGUI_V2:
                 toggle_btn.config(text="\u25B2")
                 self._log_expanded = True
 
-        toggle_btn = tk.Button(title_bar, text="\u25B2", bg=C['sidebar'],
+        toggle_btn = tk.Button(title_bar, text=("\u25BC" if _start_collapsed else "\u25B2"), bg=C['sidebar'],
                                fg='#94A3B8', font=self.FONTS['tiny'], bd=0,
                                command=_toggle_log,
                                activebackground=C['sidebar'],
@@ -7206,9 +7268,10 @@ class PerssonModelGUI_V2:
                 except tk.TclError:
                     pass
             # Re-add checked tabs in original order
+            _tsp = ' ' if getattr(self, '_ui_scale', 1.0) < 0.95 else '  '
             for attr, label, frame in self._all_tabs:
                 if self._tab_visible_vars[attr].get():
-                    self.notebook.add(frame, text=f'  {label}  ')
+                    self.notebook.add(frame, text=f'{_tsp}{label}{_tsp}')
             # Save tab visibility to settings file
             self._save_tab_visibility()
             dialog.destroy()
