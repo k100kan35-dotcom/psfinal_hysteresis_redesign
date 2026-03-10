@@ -68,6 +68,28 @@ matplotlib.rcParams.update({
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from matplotlib.colors import LogNorm
+from matplotlib.ticker import FuncFormatter
+
+# ── 음수 지수 표기 글로벌 패치: $10^{-5}$ 형식으로 렌더링 ──
+def _superscript_log_formatter(val, pos=None):
+    """Log axis tick formatter: 10^n 형태의 깔끔한 위첨자 표기."""
+    if val <= 0:
+        return ''
+    exponent = int(np.round(np.log10(val)))
+    if abs(val - 10**exponent) / max(abs(val), 1e-300) < 0.01:
+        return f'$10^{{{exponent}}}$'
+    mantissa = val / (10**exponent)
+    if abs(mantissa - round(mantissa)) < 0.01:
+        return f'${int(round(mantissa))} \\times 10^{{{exponent}}}$'
+    return f'${mantissa:.1f} \\times 10^{{{exponent}}}$'
+
+# Monkey-patch LogScale to use our formatter for all log axes
+import matplotlib.scale as _mscale
+_orig_log_set_defaults = _mscale.LogScale.set_default_locators_and_formatters
+def _patched_log_set_defaults(self, axis):
+    _orig_log_set_defaults(self, axis)
+    axis.set_major_formatter(FuncFormatter(_superscript_log_formatter))
+_mscale.LogScale.set_default_locators_and_formatters = _patched_log_set_defaults
 from scipy.signal import savgol_filter
 from typing import Optional
 import io
@@ -999,8 +1021,8 @@ class PerssonModelGUI_V2:
                                 hspace=0.55, wspace=0.40),
         'fig_ve_advisor':  dict(left=0.08, right=0.97, top=0.96, bottom=0.06,
                                 hspace=0.45),
-        'fig_cold_hot':    dict(left=0.10, right=0.90, top=0.96, bottom=0.08,
-                                hspace=0.50, wspace=0.40),
+        'fig_cold_hot':    dict(left=0.10, right=0.88, top=0.92, bottom=0.08,
+                                hspace=0.40, wspace=0.45),
     }
 
     _ALL_FIG_CANVAS_PAIRS = [
@@ -8531,7 +8553,9 @@ class PerssonModelGUI_V2:
 
         # Top-left: h'rms vs q
         self.ax_rms_slope = self.fig_rms.add_subplot(221)
-        self.ax_rms_slope.set_title("① 누적 RMS 기울기 h'rms ξ(q)", fontweight='bold', fontsize=12)
+        self.ax_rms_slope.set_title("① h'rms ξ(q) — 누적 RMS 기울기\n"
+            "ξ²=2π∫k³C(k)dk  |  고파수일수록 기울기 기여 ↑",
+            fontweight='bold', fontsize=12, loc='left')
         self.ax_rms_slope.set_xlabel('파수 q (1/m)', fontsize=10)
         self.ax_rms_slope.set_ylabel("ξ (h'rms slope)", fontsize=10)
         self.ax_rms_slope.set_xscale('log')
@@ -8540,7 +8564,9 @@ class PerssonModelGUI_V2:
 
         # Top-right: Local Strain vs q
         self.ax_local_strain = self.fig_rms.add_subplot(222)
-        self.ax_local_strain.set_title("② 국소 변형률 Local Strain ε(q)", fontweight='bold', fontsize=12)
+        self.ax_local_strain.set_title("② Local Strain ε(q) — 고무 국소 변형률\n"
+            "ε=factor×ξ  |  고파수 거칠기가 큰 변형 유발",
+            fontweight='bold', fontsize=12, loc='left')
         self.ax_local_strain.set_xlabel('파수 q (1/m)', fontsize=10)
         self.ax_local_strain.set_ylabel('ε (%)', fontsize=10)
         self.ax_local_strain.set_xscale('log')
@@ -8549,7 +8575,9 @@ class PerssonModelGUI_V2:
 
         # Bottom-left: RMS Height vs q
         self.ax_rms_height = self.fig_rms.add_subplot(223)
-        self.ax_rms_height.set_title("③ 누적 RMS 높이 h_rms(q)", fontweight='bold', fontsize=12)
+        self.ax_rms_height.set_title("③ RMS Height h_rms(q) — 누적 RMS 높이\n"
+            "h²=2π∫kC(k)dk  |  저파수(큰 파장)가 높이 지배",
+            fontweight='bold', fontsize=12, loc='left')
         self.ax_rms_height.set_xlabel('파수 q (1/m)', fontsize=10)
         self.ax_rms_height.set_ylabel('h_rms (μm)', fontsize=10)
         self.ax_rms_height.set_xscale('log')
@@ -8558,7 +8586,9 @@ class PerssonModelGUI_V2:
 
         # Bottom-right: PSD (for reference)
         self.ax_psd_ref = self.fig_rms.add_subplot(224)
-        self.ax_psd_ref.set_title("④ PSD C(q) 표면 파워 스펙트럼", fontweight='bold', fontsize=12)
+        self.ax_psd_ref.set_title("④ PSD C(q) — 표면 파워 스펙트럼\n"
+            "C(q)∝q^(-2-2H)  |  C↓이지만 k³C↑ → 기울기↑",
+            fontweight='bold', fontsize=12, loc='left')
         self.ax_psd_ref.set_xlabel('파수 q (1/m)', fontsize=10)
         self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=10)
         self.ax_psd_ref.set_xscale('log')
@@ -8699,7 +8729,10 @@ class PerssonModelGUI_V2:
         valid_xi = xi > 0
         if np.any(valid_xi):
             self.ax_rms_slope.loglog(q[valid_xi], xi[valid_xi], 'b-', linewidth=2)
-        self.ax_rms_slope.set_title("① 누적 RMS 기울기 h'rms ξ(q)", fontweight='bold', fontsize=12)
+        self.ax_rms_slope.set_title(
+            "① h'rms ξ(q) — 누적 RMS 기울기\n"
+            "ξ²=2π∫k³C(k)dk  |  고파수일수록 기울기 기여 ↑",
+            fontweight='bold', fontsize=12, loc='left')
         self.ax_rms_slope.set_xlabel('파수 q (1/m)', fontsize=10)
         self.ax_rms_slope.set_ylabel("ξ (h'rms slope)", fontsize=10)
         self.ax_rms_slope.grid(True, alpha=0.3)
@@ -8723,7 +8756,10 @@ class PerssonModelGUI_V2:
         valid_strain = strain > 0
         if np.any(valid_strain):
             self.ax_local_strain.loglog(q[valid_strain], strain[valid_strain]*100, 'r-', linewidth=2)
-        self.ax_local_strain.set_title("② 국소 변형률 Local Strain ε(q)", fontweight='bold', fontsize=12)
+        self.ax_local_strain.set_title(
+            "② Local Strain ε(q) — 고무 국소 변형률\n"
+            "ε=factor×ξ  |  고파수 거칠기가 큰 변형 유발",
+            fontweight='bold', fontsize=12, loc='left')
         self.ax_local_strain.set_xlabel('파수 q (1/m)', fontsize=10)
         self.ax_local_strain.set_ylabel('ε (%)', fontsize=10)
         self.ax_local_strain.grid(True, alpha=0.3)
@@ -8749,7 +8785,10 @@ class PerssonModelGUI_V2:
         valid_hrms = hrms > 0
         if np.any(valid_hrms):
             self.ax_rms_height.loglog(q[valid_hrms], hrms[valid_hrms]*1e6, 'g-', linewidth=2)
-        self.ax_rms_height.set_title("③ 누적 RMS 높이 h_rms(q)", fontweight='bold', fontsize=12)
+        self.ax_rms_height.set_title(
+            "③ RMS Height h_rms(q) — 누적 RMS 높이\n"
+            "h²=2π∫kC(k)dk  |  저파수(큰 파장)가 높이 지배",
+            fontweight='bold', fontsize=12, loc='left')
         self.ax_rms_height.set_xlabel('파수 q (1/m)', fontsize=10)
         self.ax_rms_height.set_ylabel('h_rms (μm)', fontsize=10)
         self.ax_rms_height.grid(True, alpha=0.3)
@@ -8782,7 +8821,10 @@ class PerssonModelGUI_V2:
             lines2, labels2 = ax2.get_legend_handles_labels()
             self.ax_psd_ref.legend(lines1 + lines2, labels1 + labels2,
                                    loc='upper right', fontsize=12)
-        self.ax_psd_ref.set_title("④ PSD C(q) vs k³C(k)", fontweight='bold', fontsize=12)
+        self.ax_psd_ref.set_title(
+            "④ PSD C(q) vs k³C(k) — 기울기의 원인\n"
+            "C(q)↓ 이지만 k³C(k)↑ → h'rms가 고파수에서 증가!",
+            fontweight='bold', fontsize=12, loc='left')
         self.ax_psd_ref.set_xlabel('파수 q (1/m)', fontsize=10)
         self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=10)
         self.ax_psd_ref.grid(True, alpha=0.3)
@@ -20053,8 +20095,8 @@ class PerssonModelGUI_V2:
         self.ax_ch_total.set_xscale('log')
         self.ax_ch_total.grid(True, alpha=0.3)
 
-        self.fig_cold_hot.subplots_adjust(left=0.10, right=0.90, top=0.96, bottom=0.08,
-                                           hspace=0.50, wspace=0.40)
+        self.fig_cold_hot.subplots_adjust(left=0.10, right=0.88, top=0.92, bottom=0.08,
+                                           hspace=0.40, wspace=0.45)
 
         self.canvas_cold_hot = FigureCanvasTkAgg(self.fig_cold_hot, plot_frame)
         self.canvas_cold_hot.draw_idle()
@@ -22661,8 +22703,8 @@ class PerssonModelGUI_V2:
         from matplotlib.gridspec import GridSpec
         self.fig_brush = Figure(figsize=(14, 10), dpi=100)
         gs = GridSpec(2, 20, figure=self.fig_brush, height_ratios=[1.8, 2.2],
-                      hspace=0.45, wspace=1.8,
-                      left=0.06, right=0.97, top=0.96, bottom=0.07)
+                      hspace=0.50, wspace=2.5,
+                      left=0.06, right=0.97, top=0.93, bottom=0.07)
 
         # Top row: 4 time-history / characteristic plots
         _bf_title = 9
@@ -25292,6 +25334,11 @@ class PerssonModelGUI_V2:
             return
         if L_new <= 0 or W_new <= 0:
             return
+
+        # Update stored footprint dimensions so outline and axes stay in sync
+        self._brush_L_mm = L_new
+        self._brush_W_mm = W_new
+
         margin = 1.60
         xh = L_new / 2 * margin
         yh = W_new / 2 * margin
@@ -25301,6 +25348,14 @@ class PerssonModelGUI_V2:
             if ax is not None:
                 ax.set_xlim(-xh, xh)
                 ax.set_ylim(-yh, yh)
+
+        # Update outline polygons to preview new footprint shape
+        if hasattr(self, '_br_outline_patches') and self._brush_frames:
+            f = self._brush_frames[self._brush_frame_idx]
+            new_verts = self._egg_outline(f['SA'], L_new / 2, W_new / 2)
+            for poly in self._br_outline_patches:
+                poly.set_xy(new_verts)
+
         if getattr(self, '_br_use_blit', False):
             _vis = []
             for a in self._br_dynamic_artists:
