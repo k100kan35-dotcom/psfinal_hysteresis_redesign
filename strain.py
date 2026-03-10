@@ -1070,26 +1070,7 @@ class App(tk.Tk):
 if __name__ == "__main__":
     import sys
 
-    # ── High-DPI awareness BEFORE any window creation (Windows 10+) ──
-    # Use System DPI Aware (1) for uniform title-bar / content scaling.
-    if sys.platform == 'win32':
-        try:
-            from ctypes import windll
-            try:
-                windll.shcore.SetProcessDpiAwareness(1)  # System DPI Aware
-            except Exception:
-                try:
-                    windll.user32.SetProcessDPIAware()
-                except Exception:
-                    pass
-        except Exception:
-            pass
-
+    # DPI: let Windows DPI virtualisation handle scaling (no SetProcessDpiAwareness).
     app = App()
-
-    # ── Chrome-like DPI normalisation ──
-    # Always force Tk scaling to 96/72 so that point sizes map to the same
-    # pixel sizes on every display regardless of Windows scaling percentage.
-    app.tk.call('tk', 'scaling', 96.0 / 72.0)
 
     app.mainloop()

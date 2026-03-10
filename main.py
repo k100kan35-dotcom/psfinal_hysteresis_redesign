@@ -272,13 +272,12 @@ class PerssonModelGUI_V2:
         self.root.configure(bg=self.COLORS['bg'])
         self.root.minsize(min(1200, scr_w), min(700, scr_h - 40))
 
-        # Store DPI scale for any component that needs it
-        self._dpi_scale = _get_system_dpi_scale()
+        # Store DPI scale (always 1.0 — Windows DPI virtualisation handles scaling)
+        self._dpi_scale = 1.0
 
-        # ── Auto-scale UI for low effective resolution ──
-        # DPI 스케일을 고려한 유효 해상도 기준으로 UI 축소
-        eff_h = scr_h / max(self._dpi_scale, 1.0)
-        eff_w = scr_w / max(self._dpi_scale, 1.0)
+        # ── Auto-scale UI for low resolution monitors ──
+        eff_h = scr_h
+        eff_w = scr_w
         _REF_H = 1080  # 기준 해상도 높이
         self._ui_scale = min(1.0, eff_h / _REF_H)
 
@@ -28738,53 +28737,21 @@ class PerssonModelGUI_V2:
 
 
 def _enable_dpi_awareness():
-    """Enable DPI awareness BEFORE any window is created (Windows 10+).
+    """No-op: DPI awareness is intentionally NOT set.
 
-    System DPI Aware (1) is used so that the title bar (non-client area)
-    and application content scale uniformly.  Per-Monitor V2 (2) causes
-    a mismatch where the OS renders the title bar at system DPI while the
-    app content stays at a different scale, making the title bar appear
-    disproportionately large on standard FHD (1920x1080) displays.
+    Tkinter does not support per-monitor DPI changes.  When the process is
+    *not* DPI-aware, Windows applies automatic bitmap scaling (DPI
+    virtualisation) so the UI looks the same size on every monitor —
+    including when the window is dragged between displays with different
+    scaling percentages.  This is the only reliable way to prevent the
+    content from blowing up or shrinking when switching monitors.
     """
-    if sys.platform != 'win32':
-        return
-    try:
-        from ctypes import windll
-        # System DPI Aware – uniform scaling for title bar and content
-        try:
-            windll.shcore.SetProcessDpiAwareness(1)
-        except Exception:
-            # Legacy fallback (Windows Vista+)
-            try:
-                windll.user32.SetProcessDPIAware()
-            except Exception:
-                pass
-    except Exception:
-        pass
+    pass
 
 
 def _get_system_dpi_scale():
-    """Return the Windows display scaling factor (e.g. 1.0, 1.25, 1.5, 2.0).
-
-    Must be called AFTER _enable_dpi_awareness() and AFTER tk.Tk().
-    """
-    scale = 1.0
-    if sys.platform != 'win32':
-        return scale
-    try:
-        from ctypes import windll
-        # GetDpiForSystem requires Windows 10 1607+
-        try:
-            dpi = windll.user32.GetDpiForSystem()
-        except Exception:
-            # Fallback: use device caps
-            hdc = windll.user32.GetDC(0)
-            dpi = windll.gdi32.GetDeviceCaps(hdc, 88)  # LOGPIXELSX
-            windll.user32.ReleaseDC(0, hdc)
-        scale = dpi / 96.0
-    except Exception:
-        pass
-    return scale
+    """Always returns 1.0 — DPI virtualisation handles scaling."""
+    return 1.0
 
 
 bind_braking_simulation(PerssonModelGUI_V2)
@@ -28797,16 +28764,8 @@ def main():
 
     root = tk.Tk()
 
-    # ── Chrome-like DPI normalisation ──
-    # Goal: render every widget at the *same logical size* regardless of
-    # the Windows display-scaling percentage (100%, 125%, 150%, 200% …).
-    # Tk converts point sizes to pixels via its internal "scaling" factor
-    # (default = systemDPI / 72).  By always forcing it to 96/72 = 1.333
-    # we get 96-DPI rendering on every display, just like Chrome uses
-    # device-independent pixels.
-    dpi_scale = _get_system_dpi_scale()
-    # Always normalise – even at 100% scaling this ensures consistency
-    root.tk.call('tk', 'scaling', 96.0 / 72.0)
+    # DPI handling: Windows DPI virtualisation takes care of scaling.
+    # Do NOT override Tk's default scaling — it matches the virtualised 96 DPI.
 
     # ── Splash screen ──
     root.withdraw()  # Hide main window completely during loading
