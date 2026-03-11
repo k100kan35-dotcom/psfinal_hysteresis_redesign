@@ -245,7 +245,7 @@ class PerssonModelGUI_V2:
 
     # ── Standardised Dimensions (pixels, applied uniformly to every tab) ──
     DIMS = {
-        'panel_width':   470,     # Left control-panel width
+        'panel_width':   440,     # Left control-panel width
         'section_pad':   6,       # LabelFrame internal padding
         'section_gap_y': 3,       # Vertical gap between sections
         'row_gap_y':     2,       # Vertical gap between rows within a section
@@ -317,7 +317,7 @@ class PerssonModelGUI_V2:
             self.DIMS['btn_pady'] = max(2, int(4 * s))
             self.DIMS['toolbar_pady'] = max(1, int(3 * s))
             if eff_w < 1600:
-                self.DIMS['panel_width'] = max(400, int(470 * s))
+                self.DIMS['panel_width'] = max(400, int(440 * s))
 
         # ── Load saved layout settings (before theme setup) ──
         self._saved_window_cfg = None
