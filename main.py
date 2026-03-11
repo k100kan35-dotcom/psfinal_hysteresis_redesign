@@ -24860,12 +24860,12 @@ class PerssonModelGUI_V2:
                 cax.clear()
                 cb = self.fig_brush.colorbar(mappable, cax=cax, **extra_kw)
             else:
-                cax = inset_axes(ax, width="45%", height="4%",
-                                  loc='lower right', borderpad=1.2)
+                cax = inset_axes(ax, width="40%", height="3.5%",
+                                  loc='lower right', borderpad=1.5)
                 cb = self.fig_brush.colorbar(mappable, cax=cax,
                                               orientation='horizontal',
                                               **extra_kw)
-            cb.ax.tick_params(labelsize=10, length=2, pad=1)
+            cb.ax.tick_params(labelsize=7, length=2, pad=1)
             return cb
 
         # Build mesh edges for pcolormesh (needs N+1 edges for N centers)
@@ -24959,7 +24959,7 @@ class PerssonModelGUI_V2:
             scale=max(sp_hi * 8.0, 0.1), headwidth=4, headlength=5, headaxislength=4,
             linewidth=0.6, alpha=0.9, zorder=3)
         self._cb_br_speed = _make_cb(self._br_quiver_speed, ax2, 'speed')
-        self._cb_br_speed.set_label('m/s', fontsize=10.5)
+        self._cb_br_speed.set_label('m/s', fontsize=8)
         sp_centers = 0.5 * (sp_boundaries[:-1] + sp_boundaries[1:])
         self._cb_br_speed.set_ticks(sp_centers[::2])
         self._cb_br_speed.set_ticklabels([f'{v:.1f}' for v in sp_centers[::2]])
@@ -24979,7 +24979,7 @@ class PerssonModelGUI_V2:
         self._br_outline_patches.append(_outline3)
         self._br_pm_pres.set_clip_path(_outline3)
         self._cb_br_pres = _make_cb(self._br_pm_pres, ax3, 'pressure')
-        self._cb_br_pres.set_label('bar', fontsize=10.5)
+        self._cb_br_pres.set_label('bar', fontsize=8)
         pr_centers = 0.5 * (pr_boundaries[:-1] + pr_boundaries[1:])
         self._cb_br_pres.set_ticks(pr_centers[::2])
         self._cb_br_pres.set_ticklabels([f'{v:.1f}' for v in pr_centers[::2]])
@@ -24999,7 +24999,7 @@ class PerssonModelGUI_V2:
         self._br_outline_patches.append(_outline4)
         self._br_pm_temp.set_clip_path(_outline4)
         self._cb_br_temp = _make_cb(self._br_pm_temp, ax4, 'temperature')
-        self._cb_br_temp.set_label('\u00b0C', fontsize=10.5)
+        self._cb_br_temp.set_label('\u00b0C', fontsize=8)
         t_centers = 0.5 * (t_boundaries[:-1] + t_boundaries[1:])
         self._cb_br_temp.set_ticks(t_centers[::2])
         self._cb_br_temp.set_ticklabels([f'{v:.1f}' for v in t_centers[::2]])
@@ -25019,11 +25019,25 @@ class PerssonModelGUI_V2:
         self._br_outline_patches.append(_outline5)
         self._br_pm_fric.set_clip_path(_outline5)
         self._cb_br_fric = _make_cb(self._br_pm_fric, ax5, 'friction')
-        self._cb_br_fric.set_label('N/node', fontsize=10.5)
+        self._cb_br_fric.set_label('N/node', fontsize=8)
         fric_centers = 0.5 * (fric_boundaries[:-1] + fric_boundaries[1:])
         self._cb_br_fric.set_ticks(fric_centers[::2])
-        self._cb_br_fric.set_ticklabels([f'{v:.1e}' for v in fric_centers[::2]])
+        self._cb_br_fric.set_ticklabels([f'{v:.0e}' for v in fric_centers[::2]])
         _setup_ax(ax5, 'friction force')
+
+        # ── Real-time Fy / Fx text labels on friction force plot ──
+        self._br_fric_fy_text = ax5.text(
+            0.02, 0.98, '', transform=ax5.transAxes,
+            fontsize=10, fontweight='bold', color='#1565C0',
+            va='top', ha='left', zorder=10,
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
+                      edgecolor='#1565C0', alpha=0.85))
+        self._br_fric_fx_text = ax5.text(
+            0.02, 0.88, '', transform=ax5.transAxes,
+            fontsize=10, fontweight='bold', color='#C62828',
+            va='top', ha='left', zorder=10,
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
+                      edgecolor='#C62828', alpha=0.85))
 
         # ── Save colorbar axes for reuse on subsequent runs ──
         if not _reuse_cax:
@@ -25053,6 +25067,7 @@ class PerssonModelGUI_V2:
             self._br_pm_fric, self._br_quiver_speed,
             self._br_stick_arrow_line, self._br_stick_arrow_head,
             self._br_stick_arrow_label,
+            self._br_fric_fy_text, self._br_fric_fx_text,
         ]
         # Outlines
         self._br_dynamic_artists.extend(self._br_outline_patches)
@@ -25192,6 +25207,13 @@ class PerssonModelGUI_V2:
         # ── (5) friction force — update pcolormesh ──
         f_fric = np.where(mask_fill, f['F_friction'], np.nan)
         self._br_pm_fric.set_array(f_fric.T.ravel())
+
+        # ── Update real-time Fy / Fx text on friction force plot ──
+        if hasattr(self, '_br_fric_fy_text'):
+            _fy_val = f.get('Fy', 0.0)
+            _fx_val = f.get('Fx', 0.0)
+            self._br_fric_fy_text.set_text(f'Fy = {_fy_val:+.1f} N')
+            self._br_fric_fx_text.set_text(f'Fx = {_fx_val:+.1f} N')
 
         # ── Update contact patch outline based on SA ──
         # Uses pre-computed outline vertices (same geometry as data mask).
@@ -26479,13 +26501,13 @@ class PerssonModelGUI_V2:
 
         def _make_inset_cb(mappable, ax, key, label='', **extra_kw):
             """Create inset colorbar (horizontal, bottom-right) matching 2D Brush tab."""
-            cax = inset_axes(ax, width="45%", height="4%",
-                             loc='lower right', borderpad=1.2)
+            cax = inset_axes(ax, width="40%", height="3.5%",
+                             loc='lower right', borderpad=1.5)
             cb = self._ts_contour_fig.colorbar(mappable, cax=cax,
                                                 orientation='horizontal', **extra_kw)
-            cb.ax.tick_params(labelsize=10, length=2, pad=1)
+            cb.ax.tick_params(labelsize=7, length=2, pad=1)
             if label:
-                cb.set_label(label, fontsize=10.5)
+                cb.set_label(label, fontsize=8)
             self._ts_cbar_axes[key] = cax
             return cb
 
@@ -26622,7 +26644,7 @@ class PerssonModelGUI_V2:
         cb_f = _make_inset_cb(self._ts_pm_fric, self._ts_ax_fric, 'friction', label='N/node')
         fric_centers = 0.5 * (fric_boundaries[:-1] + fric_boundaries[1:])
         cb_f.set_ticks(fric_centers[::2])
-        cb_f.set_ticklabels([f'{v:.1e}' for v in fric_centers[::2]])
+        cb_f.set_ticklabels([f'{v:.0e}' for v in fric_centers[::2]])
 
         # ── Blit setup: list dynamic artists, then cache CLEAN background ──
         # (Matching 2D Brush tab approach exactly for 120 Hz contour playback)

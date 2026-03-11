@@ -1113,13 +1113,13 @@ def _init_braking_contour_artists(self):
 
     def _make_inset_cb(mappable, ax, key, label='', **extra_kw):
         """Create inset colorbar (horizontal, bottom-right) matching Track Simulator."""
-        cax = inset_axes(ax, width="45%", height="4%",
-                         loc='lower right', borderpad=1.2)
+        cax = inset_axes(ax, width="40%", height="3.5%",
+                         loc='lower right', borderpad=1.5)
         cb = self._bk_contour_fig.colorbar(mappable, cax=cax,
                                             orientation='horizontal', **extra_kw)
-        cb.ax.tick_params(labelsize=10, length=2, pad=1)
+        cb.ax.tick_params(labelsize=7, length=2, pad=1)
         if label:
-            cb.set_label(label, fontsize=10.5)
+            cb.set_label(label, fontsize=8)
         self._bk_cbar_axes[key] = cax
         return cb
 
@@ -1233,7 +1233,7 @@ def _init_braking_contour_artists(self):
     cb_f = _make_inset_cb(self._bk_pm_fric, self._bk_ax_fric, 'friction', label='N/node')
     fric_centers = 0.5 * (fric_boundaries[:-1] + fric_boundaries[1:])
     cb_f.set_ticks(fric_centers[::2])
-    cb_f.set_ticklabels([f'{v:.1e}' for v in fric_centers[::2]])
+    cb_f.set_ticklabels([f'{v:.0e}' for v in fric_centers[::2]])
 
     # ── Blit setup: list dynamic artists, then cache CLEAN background ──
     self._bk_contour_dynamic = [
