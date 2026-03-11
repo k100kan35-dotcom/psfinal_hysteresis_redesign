@@ -7426,6 +7426,49 @@ class PerssonModelGUI_V2:
                  font=('NanumGothic', 12, 'bold')).pack(anchor='w', padx=10)
 
         # ═══════════════════════════════════════════════════════
+        # 핵심 수식 요약 테이블
+        # ═══════════════════════════════════════════════════════
+        add_section_title('핵심 수식 요약표', bg_color='#7C3AED')
+
+        eq_summary_frame = tk.Frame(scrollable_frame, bg='white', padx=20, pady=6)
+        eq_summary_frame.pack(fill=tk.X, padx=10)
+        eq_summary_data = [
+            ('Section 0', '\u03c9 (진동 주파수)', '\u03c9 = q \u00b7 v \u00b7 cos\u03c6', '고무가 요철을 타고 넘으며 느끼는 주파수'),
+            ('Section 0', 'E* (유효 탄성률)', 'E* = E(\u03c9) / (1\u2212\u03bd\u00b2)', '평면 변형 보정된 복소 탄성률'),
+            ('Section 1', 'G(q) (탄성 에너지)', 'G = (1/8)\u222bq\u00b3C(q)|E*/\u03c3\u2080|\u00b2 dq d\u03c6', '거칠기에 의한 탄성 에너지 누적 (접촉 방해)'),
+            ('Section 1', 'P(q) (접촉 면적)', 'P = erf(1/(2\u221aG))', '파수 q까지의 실접촉 면적 비율'),
+            ('Section 1', 'S(q) (보정 계수)', 'S = \u03b3 + (1\u2212\u03b3)P\u00b2', '비접촉 영역 변형 참여 보정'),
+            ('Section 1', '\u03bc_visc (점탄성 마찰)', '\u03bc = (1/2)\u222bq\u00b3C(q)P\u00b7S\u00b7Im[E/\u03c3\u2080] dq d\u03c6', '거칠기 변형에 의한 에너지 소산 마찰'),
+            ('Section 2', 'h_rms (RMS 높이)', 'h\u00b2_rms = 2\u03c0\u222bk\u00b7C(k)dk', '표면 높이의 RMS (큰 파장 지배)'),
+            ('Section 2', "h'_rms = \u03be (RMS 기울기)", '\u03be\u00b2 = 2\u03c0\u222bk\u00b3\u00b7C(k)dk', '표면 경사의 RMS (짧은 파장 지배)'),
+            ('Section 2', '\u03b5(q) (국소 변형률)', '\u03b5 = \u03b1\u00b7\u03be (\u03b1\u22480.5)', '비선형 Payne 효과 보정에 사용'),
+            ('Section 3', '\u0394T (Flash Temp)', '\u0394T = \u03a3 \u03b4T(q_i), Greenwood 보간', '파수별 순차 누적 온도 상승'),
+            ('Section 3', 'a_T (WLF 시프트)', 'log a_T = \u2212C\u2081(T\u2212T_ref)/(C\u2082+(T\u2212T_ref))', '온도→주파수 시프트 (마찰 피드백)'),
+            ('Section 4', '\u03bc_adh (점착 마찰)', '\u03bc_adh = (\u03c4_f/p\u2080)\u00d7(A/A\u2080)', '표면 분자 점착에 의한 마찰'),
+            ('Section 4', '\u03c4_f (전단 응력)', '\u03c4_f = \u03c4_f0\u00b7exp[\u2212c(log v_eff/v\u2080*)\u00b2]', 'Gaussian 점착 전단 응력 마스터 커브'),
+            ('Section 4', '\u03bc_total (전체 마찰)', '\u03bc_total = \u03bc_visc + \u03bc_adh', '히스테리시스 + 점착 = 전체 건조 마찰'),
+        ]
+        for col_idx, header in enumerate(['섹션', '수식 이름', '핵심 수식 (간략)', '물리적 의미']):
+            lbl = tk.Label(eq_summary_frame, text=header, bg='#7C3AED', fg='white',
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
+            lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
+        for row_idx, (sec, name, formula, meaning) in enumerate(eq_summary_data, start=1):
+            bg = '#F5F3FF' if row_idx % 2 == 0 else 'white'
+            for col_idx, val in enumerate([sec, name, formula, meaning]):
+                weight = 'bold' if col_idx <= 1 else 'normal'
+                lbl = tk.Label(eq_summary_frame, text=val, bg=bg, fg='#1E293B',
+                               font=('NanumGothic', 11, weight), padx=10, pady=6, anchor='w',
+                               wraplength=400 if col_idx >= 2 else 200)
+                lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
+        eq_summary_frame.columnconfigure(0, weight=1)
+        eq_summary_frame.columnconfigure(1, weight=2)
+        eq_summary_frame.columnconfigure(2, weight=3)
+        eq_summary_frame.columnconfigure(3, weight=3)
+
+        add_text('  * 각 수식의 상세 유도 과정과 직관적 설명은 아래 각 섹션에서 확인할 수 있습니다.',
+                 font_size=11, fg='#64748B', pady=(4, 8))
+
+        # ═══════════════════════════════════════════════════════
         # Section 0: 기본 물리량 정의
         # ═══════════════════════════════════════════════════════
         add_section_title('0. 기본 물리량 정의')
@@ -7531,6 +7574,40 @@ class PerssonModelGUI_V2:
 
         add_separator()
 
+        # --- 기본 물리량 정리 테이블 ---
+        add_text('기본 물리량 정리:', bold=True, fg='#374151', pady=(10, 0))
+
+        phys_frame = tk.Frame(scrollable_frame, bg='white', padx=20, pady=6)
+        phys_frame.pack(fill=tk.X, padx=10)
+        phys_data = [
+            ('q', '[1/m]', '파수 (wavenumber)', '표면 거칠기의 공간 진동수. 클수록 미세 요철'),
+            ('v', '[m/s]', '슬라이딩 속도', '고무가 바닥 위를 미끄러지는 속도'),
+            ('\u03c6', '[rad]', '파수 벡터 각도', '슬라이딩 방향과 파수 벡터 사이각 (0~2\u03c0)'),
+            ('\u03c9', '[rad/s]', '각진동수', '\u03c9 = q\u00b7v\u00b7cos\u03c6. q\u2191 or v\u2191 \u2192 \u03c9\u2191'),
+            ("E'(\u03c9)", '[Pa]', '저장 탄성률', '탄성 에너지 저장 능력 (스프링 성분)'),
+            ("E''(\u03c9)", '[Pa]', '손실 탄성률', '에너지 열 소산 능력 (댐퍼 성분, 마찰 원인)'),
+            ('E*(\u03c9)', '[Pa]', '유효 탄성률', 'E/(1\u2212\u03bd\u00b2), 평면 변형 상태 보정'),
+            ('\u03bd', '[\u2212]', '푸아송 비', '고무 \u2248 0.5 (거의 비압축성)'),
+            ('\u03c3\u2080', '[Pa]', '공칭 접촉 압력', '하중/전체면적. 접촉 구동력'),
+        ]
+        for col_idx, header in enumerate(['기호', '단위', '이름', '물리적 의미']):
+            lbl = tk.Label(phys_frame, text=header, bg='#1B2A4A', fg='white',
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
+            lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
+        for row_idx, (sym, unit, name, meaning) in enumerate(phys_data, start=1):
+            bg = '#F1F5F9' if row_idx % 2 == 0 else 'white'
+            for col_idx, val in enumerate([sym, unit, name, meaning]):
+                weight = 'bold' if col_idx == 0 else 'normal'
+                lbl = tk.Label(phys_frame, text=val, bg=bg, fg='#1E293B',
+                               font=('NanumGothic', 11, weight), padx=10, pady=6, anchor='w',
+                               wraplength=400 if col_idx == 3 else 200)
+                lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
+        phys_frame.columnconfigure(0, weight=1)
+        phys_frame.columnconfigure(1, weight=1)
+        phys_frame.columnconfigure(2, weight=2)
+        phys_frame.columnconfigure(3, weight=4)
+
+        add_separator()
         add_text('유효 탄성률 (평면 변형 상태):', bold=True, pady=(10, 0))
         add_equation(r'$E^*(\omega) = \frac{E(\omega)}{1-\nu^2}$', fig_height=1.0)
         add_text('  E(\u03c9) = E\'(\u03c9) + iE\'\'(\u03c9) : DMA 실험에서 측정한 복소 탄성률', font_size=17, fg='#64748B')
@@ -16437,6 +16514,37 @@ class PerssonModelGUI_V2:
         # ═══════════════════════════════════════════════════════
         add_section_title('1. 입력 데이터')
 
+        # --- 입력 데이터 요약 테이블 ---
+        add_text('입력 데이터 종합 요약:', bold=True, fg='#374151', pady=(8, 0))
+
+        input_summary_frame = tk.Frame(scrollable_frame, bg='white', padx=20, pady=6)
+        input_summary_frame.pack(fill=tk.X, padx=10)
+        input_summary_data = [
+            ('DMA\n마스터 커브', "E'(\u03c9), E''(\u03c9)", '[Pa]', '점탄성 물성', '고무의 주파수별 저장/손실 탄성률.\n마찰 에너지 소산의 핵심 입력'),
+            ('PSD\n(표면 거칠기)', 'q, C(q)', '[1/m], [m\u2074]', '노면 거칠기', '파수별 거칠기 진폭.\n프랙탈 구조 → 넓은 q 범위'),
+            ('Strain Sweep\n(선택)', 'f(\u03b3), g(\u03b3)', '[\u2212]', '비선형 보정', "Payne 효과: 대변형 시 E', E'' 보정.\n미입력 시 선형 계산"),
+            ('WLF 시프트\n(Tab2 연동)', 'C\u2081, C\u2082, T_ref', '[\u2212], [\u00b0C], [\u00b0C]', '온도-주파수 변환', 'Flash Temp 시 마스터 커브 시프트에 사용'),
+            ('\u03bc_dry 실측\n(선택)', '\u03bc(v) 실험값', '[\u2212]', '\u03bc_adh 피팅', '\u03bc_adh 자동 피팅용 참조 데이터'),
+        ]
+        for col_idx, header in enumerate(['데이터 종류', '핵심 변수', '단위', '역할', '상세 설명']):
+            lbl = tk.Label(input_summary_frame, text=header, bg='#0E7490', fg='white',
+                           font=('NanumGothic', 12, 'bold'), padx=10, pady=7, anchor='center')
+            lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
+        for row_idx, (dtype, var, unit, role, desc) in enumerate(input_summary_data, start=1):
+            bg = '#ECFEFF' if row_idx % 2 == 0 else 'white'
+            for col_idx, val in enumerate([dtype, var, unit, role, desc]):
+                weight = 'bold' if col_idx == 0 else 'normal'
+                lbl = tk.Label(input_summary_frame, text=val, bg=bg, fg='#1E293B',
+                               font=('NanumGothic', 11, weight), padx=10, pady=6, anchor='w',
+                               justify=tk.LEFT, wraplength=350 if col_idx == 4 else 180)
+                lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
+        input_summary_frame.columnconfigure(0, weight=2)
+        input_summary_frame.columnconfigure(1, weight=2)
+        input_summary_frame.columnconfigure(2, weight=1)
+        input_summary_frame.columnconfigure(3, weight=2)
+        input_summary_frame.columnconfigure(4, weight=4)
+
+        add_separator()
         add_text('DMA 데이터 (재료 물성) — 고무의 점탄성 특성:', bold=True, pady=(8, 0))
         add_equation(r"$E(\omega) = E'(\omega) + i\,E''(\omega)$", fig_height=0.9)
         add_text('  \u03c9 : 각진동수 [rad/s] — 고무에 가해지는 진동의 빠르기', font_size=17, fg='#64748B')
@@ -16531,6 +16639,42 @@ class PerssonModelGUI_V2:
         # ═══════════════════════════════════════════════════════
         add_section_title('3. 중간 계산 변수')
 
+        # --- 중간 계산 변수 요약 테이블 ---
+        add_text('중간 계산 변수 종합 요약:', bold=True, fg='#374151', pady=(8, 0))
+
+        mid_var_frame = tk.Frame(scrollable_frame, bg='white', padx=20, pady=6)
+        mid_var_frame.pack(fill=tk.X, padx=10)
+        mid_var_data = [
+            ('G(q)', '[\u2212]', 'DMA + PSD + \u03c3\u2080', '탄성 에너지 누적 적분\n(접촉 방해 정도)'),
+            ('P(q)', '[0~1]', 'G(q)', '실접촉 면적 비율\nerf(1/(2\u221aG))'),
+            ('S(q)', '[\u2212]', 'P(q), \u03b3', '접촉 보정 계수\n\u03b3+(1\u2212\u03b3)P\u00b2'),
+            ('\u03be(q)', '[\u2212]', 'PSD C(q)', "RMS 기울기 = h'_rms\n(짧은 파장 지배)"),
+            ('\u03b5(q)', '[0~1]', '\u03be(q)', '국소 변형률 = 0.5\u00b7\u03be\n(비선형 보정 입력)'),
+            ("E'_eff, E''_eff", '[Pa]', "DMA + f(\u03b5), g(\u03b5)", "비선형 보정 탄성률\nE'\u00d7f(\u03b5), E''\u00d7g(\u03b5)"),
+            ('D_th', '[m\u00b2/s]', '\u03ba, \u03c1, C_v', '열확산도 = \u03ba/(\u03c1\u00b7C_v)'),
+            ('J_d, J_h', '[\u2212]', 'v, d(q), D_th', 'Peclet 수 (대류/전도 비율)'),
+            ('\u03b4T(q_i)', '[\u00b0C]', 'd\u03bc_i, v, P(q_i)', '파수별 Flash 온도 증분\n(Greenwood 보간식)'),
+            ('\u0394T(q)', '[\u00b0C]', '\u03a3\u03b4T(q_i)', '누적 온도 상승\n(q\u2080\u2192q\u2081 순차)'),
+            ('a_T(T)', '[\u2212]', 'WLF C\u2081,C\u2082 + \u0394T', 'WLF 시프트 팩터\n(온도\u2192주파수 변환)'),
+        ]
+        for col_idx, header in enumerate(['변수', '단위', '의존 입력', '물리적 의미 / 역할']):
+            lbl = tk.Label(mid_var_frame, text=header, bg='#B45309', fg='white',
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
+            lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
+        for row_idx, (var, unit, dep, meaning) in enumerate(mid_var_data, start=1):
+            bg = '#FFF7ED' if row_idx % 2 == 0 else 'white'
+            for col_idx, val in enumerate([var, unit, dep, meaning]):
+                weight = 'bold' if col_idx == 0 else 'normal'
+                lbl = tk.Label(mid_var_frame, text=val, bg=bg, fg='#1E293B',
+                               font=('NanumGothic', 11, weight), padx=10, pady=6, anchor='w',
+                               justify=tk.LEFT, wraplength=350 if col_idx == 3 else 200)
+                lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
+        mid_var_frame.columnconfigure(0, weight=2)
+        mid_var_frame.columnconfigure(1, weight=1)
+        mid_var_frame.columnconfigure(2, weight=2)
+        mid_var_frame.columnconfigure(3, weight=4)
+
+        add_separator()
         add_text('G(q) 계산 과정:', bold=True, pady=(8, 0))
         add_equation(r"$E^*(\omega) = E'(\omega) + i\,E''(\omega), \qquad \omega = q \cdot v \cdot \cos\phi$", fig_height=0.9)
         add_equation(
@@ -16680,6 +16824,38 @@ class PerssonModelGUI_V2:
         # ═══════════════════════════════════════════════════════
         add_section_title('5. 데이터 흐름도', bg_color='#7C3AED')
 
+        # --- 계산 단계별 흐름 요약 테이블 ---
+        add_text('계산 단계별 흐름 요약:', bold=True, fg='#374151', pady=(8, 0))
+
+        flow_frame = tk.Frame(scrollable_frame, bg='white', padx=20, pady=6)
+        flow_frame.pack(fill=tk.X, padx=10)
+        flow_data = [
+            ('\u2460 입력', "DMA(E',E''), PSD(q,C(q))", 'G(q), P(q), S(q)', '거칠기+물성 → 접촉 역학 기본량'),
+            ('\u2461 h\'_rms/\u03b5', 'PSD C(q)', '\u03be(q), \u03b5(q)', '표면 기울기 → 국소 변형률'),
+            ('\u2462 비선형 보정\n(선택)', 'Strain Sweep + \u03b5(q)', "E'_eff, E''_eff", 'Payne 효과 반영한 유효 탄성률'),
+            ('\u2463 \u03bc_visc\n(Cold)', 'G, P, S, Im[E_eff]', '\u03bc_cold(v)', '점탄성 마찰 (Flash OFF)'),
+            ('\u2464 Flash Temp\n(선택)', '\u03bc_cold, \u03ba, \u03c1, C_v', '\u0394T(q,v), \u03bc_hot(v)', 'Per-q 순차 누적 → 온도 보정 마찰'),
+            ('\u2465 \u03bc_adh\n(선택)', '\u03bc_dry 실측 + A/A\u2080', '\u03c4_f0, v\u2080*, c → \u03bc_adh', '점착 마찰 자동 피팅'),
+            ('\u2466 최종 합산', '\u03bc_visc + \u03bc_adh', '\u03bc_total(v)', '전체 건조 마찰 커브'),
+        ]
+        for col_idx, header in enumerate(['단계', '입력', '출력', '설명']):
+            lbl = tk.Label(flow_frame, text=header, bg='#7C3AED', fg='white',
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
+            lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
+        for row_idx, (step, inp, out, desc) in enumerate(flow_data, start=1):
+            bg = '#F5F3FF' if row_idx % 2 == 0 else 'white'
+            for col_idx, val in enumerate([step, inp, out, desc]):
+                weight = 'bold' if col_idx == 0 else 'normal'
+                lbl = tk.Label(flow_frame, text=val, bg=bg, fg='#1E293B',
+                               font=('NanumGothic', 11, weight), padx=10, pady=6, anchor='w',
+                               justify=tk.LEFT, wraplength=350 if col_idx >= 1 else 150)
+                lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
+        flow_frame.columnconfigure(0, weight=1)
+        flow_frame.columnconfigure(1, weight=3)
+        flow_frame.columnconfigure(2, weight=3)
+        flow_frame.columnconfigure(3, weight=3)
+
+        add_separator()
         add_text('DMA + PSD → Tab1(검증) → Tab2(설정) → Tab3(G, P 계산)', bold=True, pady=(8, 0))
         add_text('→ Tab4(h\'_rms, \u03b5 계산) → Tab5(\u03bc_visc 계산)', bold=True, pady=(0, 4))
         add_text('Strain Sweep → f(\u03b5), g(\u03b5) 함수 → 비선형 보정에 반영', bold=True, pady=(0, 4))
