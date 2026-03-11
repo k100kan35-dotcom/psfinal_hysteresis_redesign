@@ -4666,13 +4666,13 @@ class PerssonModelGUI_V2:
                 messagebox.showerror("오류", "프리셋 파일 형식이 올바르지 않습니다.")
                 return
 
-            # Apply q_max to the field
-            self.q_max_var.set(q_max_val)
-            # Apply q1 to the target q1 field
-            self.input_q1_var.set(q1_val)
-            # Switch to q1→h'rms mode
+            # Switch to q1→h'rms mode FIRST (enables q1 entry)
             self.hrms_q1_mode_var.set("q1_to_hrms")
             self._on_hrms_q1_mode_changed()
+            # Apply values AFTER entries are enabled
+            self.q_max_var.set(q_max_val)
+            self.input_q1_var.set(q1_val)
+            self.root.update_idletasks()
             # Auto-trigger q1→h'rms calculation
             try:
                 self._calculate_hrms_q1()
@@ -4706,7 +4706,13 @@ class PerssonModelGUI_V2:
     def _add_preset_surface_q1(self):
         """Save current q_max and q1 values as a preset."""
         q_max_val = self.q_max_var.get().strip()
-        q1_val = self.input_q1_var.get().strip()
+        # Use calculated q1 if available (covers mode 1: hrms→q1 case),
+        # otherwise fall back to the input field value
+        mode = self.hrms_q1_mode_var.get()
+        if mode == "hrms_to_q1" and hasattr(self, 'calculated_q1') and self.calculated_q1 is not None:
+            q1_val = f"{self.calculated_q1:.6e}"
+        else:
+            q1_val = self.input_q1_var.get().strip()
 
         if not q_max_val or not q1_val:
             self._show_status("q_max와 목표 q1 값을 먼저 입력하세요.", 'warning')
@@ -4831,6 +4837,8 @@ class PerssonModelGUI_V2:
                 self.calculated_hrms_var.set(f"{xi_verified:.4f} (검증)")
                 self.calculated_q1 = q1_calculated
                 self.target_xi = target_xi
+                # Sync input_q1_var so save preset captures the calculated q1
+                self.input_q1_var.set(f"{q1_calculated:.3e}")
 
                 self.status_var.set(f"계산 완료: ξ={target_xi:.4f} → q1={q1_calculated:.3e} (1/m)")
                 self._show_status(f"모드 1: h'rms (ξ) → q1 계산\n\n"
