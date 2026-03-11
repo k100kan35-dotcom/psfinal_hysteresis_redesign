@@ -967,6 +967,9 @@ class PerssonModelGUI_V2:
                                     'canvas_mu_adh',
                                     'canvas_integrand', 'canvas_strain_map',
                                     'canvas_ve_advisor',
+                                    'canvas_cold_hot',
+                                    'canvas_brush',
+                                    'canvas_fm_graph',
                                     'canvas_track',
                                     '_ts_steer_canvas', '_ts_tire_canvas',
                                     '_ts_contour_canvas', '_ts_fy_canvas'):
@@ -23668,6 +23671,9 @@ class PerssonModelGUI_V2:
             self._brush_frame_idx = 0
             self._brush_show_frame(0)
 
+            # Ensure footprint axes/outline match current L/W entry values
+            self._on_footprint_change()
+
             # ── Sync track simulation if it has been run ──
             if getattr(self, '_track_sim_data', None) is not None:
                 try:
@@ -24974,21 +24980,6 @@ class PerssonModelGUI_V2:
         pr_centers = 0.5 * (pr_boundaries[:-1] + pr_boundaries[1:])
         self._cb_br_pres.set_ticks(pr_centers[::2])
         self._cb_br_pres.set_ticklabels([f'{v:.1f}' for v in pr_centers[::2]])
-        # Rolling direction arrow on pressure plot
-        _roll_y3 = -W_mm * 0.55
-        ax3.annotate('', xy=(-L_mm * 0.35, _roll_y3),
-                     xytext=(L_mm * 0.35, _roll_y3),
-                     arrowprops=dict(arrowstyle='->', color='#00C853', lw=2,
-                                     mutation_scale=14),
-                     zorder=7)
-        ax3.text(0, _roll_y3 - W_mm * 0.08, '\u2190 Rolling Dir.',
-                 fontsize=12, ha='center', va='top', color='#00C853',
-                 fontweight='bold', zorder=7)
-        # Leading/trailing edge labels (rolling is right-to-left: LE at -x, TE at +x)
-        ax3.text(-L_mm * 0.42, 0, 'LE', fontsize=12, ha='right', va='center',
-                 color='#333', fontweight='bold', fontstyle='italic', zorder=7)
-        ax3.text(L_mm * 0.42, 0, 'TE', fontsize=12, ha='left', va='center',
-                 color='#333', fontweight='bold', fontstyle='italic', zorder=7)
         _setup_ax(ax3, 'contact pressure')
 
         # ── (4) temperature — pcolormesh with discrete levels ──
