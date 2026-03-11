@@ -2349,6 +2349,7 @@ class PerssonModelGUI_V2:
         filepath = filedialog.asksaveasfilename(
             title="PSD 데이터 저장",
             defaultextension=".csv",
+            initialfile=self._make_export_filename("psd_data"),
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
         )
 
@@ -4075,6 +4076,7 @@ class PerssonModelGUI_V2:
         filename = filedialog.asksaveasfilename(
             title="마스터 커브 저장",
             defaultextension=".csv",
+            initialfile=self._make_export_filename("master_curve"),
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
         )
 
@@ -6677,6 +6679,7 @@ class PerssonModelGUI_V2:
 
         filename = filedialog.asksaveasfilename(
             defaultextension=".csv",
+            initialfile=self._make_export_filename("results"),
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
         )
 
@@ -10130,7 +10133,7 @@ class PerssonModelGUI_V2:
                 title="배율별 ΔT CSV 저장",
                 defaultextension=".csv",
                 filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-                initialfile=f"flash_zeta_dT_profile.csv",
+                initialfile=self._make_export_filename("flash_zeta_dT_profile"),
                 parent=dialog
             )
             if not save_path:
@@ -10210,7 +10213,7 @@ class PerssonModelGUI_V2:
             title="검증 데이터 CSV 저장 (정품 + 계산)",
             defaultextension=".csv",
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-            initialfile=f"flash_verification_v{v_ref:.4f}.csv",
+            initialfile=self._make_export_filename(f"flash_verification_v{v_ref:.4f}"),
         )
         if not save_path:
             return
@@ -17264,6 +17267,7 @@ class PerssonModelGUI_V2:
             from tkinter import filedialog
             filepath = filedialog.asksaveasfilename(
                 defaultextension=".txt",
+                initialfile=self._make_export_filename("debug_log", ext=".txt"),
                 filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
                 title="디버그 로그 저장"
             )
@@ -19653,6 +19657,7 @@ class PerssonModelGUI_V2:
         filepath = filedialog.asksaveasfilename(
             title="실측 μ_dry 데이터 저장",
             defaultextension=".csv",
+            initialfile=self._make_export_filename("measured_mu_dry"),
             filetypes=[("CSV", "*.csv"), ("텍스트", "*.txt")]
         )
         if not filepath:
@@ -22786,6 +22791,7 @@ class PerssonModelGUI_V2:
         filepath = filedialog.asksaveasfilename(
             title="Friction Map LUT 저장",
             defaultextension=".csv",
+            initialfile=self._make_export_filename("friction_map_LUT"),
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
         )
         if not filepath:
@@ -22843,6 +22849,7 @@ class PerssonModelGUI_V2:
         filepath = filedialog.asksaveasfilename(
             title="3D Map 이미지 저장",
             defaultextension=f".{fmt}",
+            initialfile=self._make_export_filename("friction_map_3D", ext=f".{fmt}"),
             filetypes=[(f"{fmt.upper()} files", f"*.{fmt}"), ("All files", "*.*")]
         )
         if not filepath:
@@ -22868,6 +22875,7 @@ class PerssonModelGUI_V2:
         filepath = filedialog.asksaveasfilename(
             title="2D Graph 이미지 저장",
             defaultextension=f".{fmt}",
+            initialfile=self._make_export_filename("friction_map_2D", ext=f".{fmt}"),
             filetypes=[(f"{fmt.upper()} files", f"*.{fmt}"), ("All files", "*.*")]
         )
         if not filepath:
@@ -22908,6 +22916,7 @@ class PerssonModelGUI_V2:
         filepath = filedialog.asksaveasfilename(
             title=f"3D Map 개별 내보내기 ({branch}, p₀={p0_sel})",
             defaultextension=f".{fmt}",
+            initialfile=self._make_export_filename(f"friction_map_3D_{branch}_p{p0_sel:.2f}", ext=f".{fmt}"),
             filetypes=[(f"{fmt.upper()} files", f"*.{fmt}"), ("All files", "*.*")]
         )
         if not filepath:
@@ -26618,6 +26627,7 @@ class PerssonModelGUI_V2:
 
         filepath = filedialog.asksaveasfilename(
             defaultextension='.csv',
+            initialfile=self._make_export_filename("brush_model_2D"),
             filetypes=[('CSV files', '*.csv')],
             title='2D Brush Model 결과 내보내기')
         if not filepath:
