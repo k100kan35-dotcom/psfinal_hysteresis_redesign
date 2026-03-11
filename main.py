@@ -20169,6 +20169,10 @@ class PerssonModelGUI_V2:
         Hot hys: mu_visc_results['mu_hot']
         Hot adh: A_A0_hot × tau_f_hot(T_hot) / p0
                  tau_f_hot recalculated with Arrhenius aT' at T_hot
+
+        When T₀ or p₀ in the Cold & Hot tab differs from what was used
+        for μ_adh/μ_visc, automatically syncs the new values and
+        re-runs μ_adh (which cascades to μ_visc recalculation).
         """
         try:
             self.ch_calc_button.config(state='disabled')
@@ -20177,6 +20181,59 @@ class PerssonModelGUI_V2:
             self.root.update()
 
             from scipy.interpolate import interp1d
+
+            # ── Auto-sync: push Cold & Hot tab's T₀/p₀ to μ_adh tab ──
+            # μ_adh's _calculate_mu_adh() already has cascade logic to
+            # re-run temperature shift + μ_visc when T or p₀ changes.
+            ch_T0_str = self.ch_T0_var.get().strip()
+            ch_p0_str = self.ch_p0_var.get().strip()
+
+            need_recalc = False
+            reason_parts = []
+
+            if ch_T0_str and hasattr(self, 'adh_calc_temp_var'):
+                try:
+                    ch_T0 = float(ch_T0_str)
+                    adh_T = float(self.adh_calc_temp_var.get())
+                    if abs(ch_T0 - adh_T) > 0.01:
+                        need_recalc = True
+                        reason_parts.append(f"온도 {adh_T:.1f}→{ch_T0:.1f}°C")
+                except (ValueError, AttributeError):
+                    pass
+
+            if ch_p0_str and hasattr(self, 'adh_p0_var'):
+                try:
+                    ch_p0 = float(ch_p0_str)
+                    adh_p0 = float(self.adh_p0_var.get())
+                    if abs(ch_p0 - adh_p0) / max(adh_p0, 1e-10) > 0.001:
+                        need_recalc = True
+                        reason_parts.append(f"하중 {adh_p0:.4g}→{ch_p0:.4g} MPa")
+                except (ValueError, AttributeError):
+                    pass
+
+            if need_recalc:
+                reason_str = ", ".join(reason_parts)
+                self.status_var.set(
+                    f"기본조건 변경 감지 ({reason_str}): "
+                    f"μ_adh/μ_visc 재계산 중...")
+                self.root.update()
+
+                # Sync Cold & Hot tab values → μ_adh tab
+                self.adh_calc_temp_var.set(ch_T0_str)
+                self.adh_p0_var.set(ch_p0_str)
+
+                # Run μ_adh calculation (cascades to μ_visc recalc internally)
+                try:
+                    self._calculate_mu_adh()
+                except Exception as e_adh:
+                    print(f"μ_adh recalculation error: {e_adh}")
+
+                # Also sync adhesion params from μ_adh tab (in case they changed)
+                self._sync_cold_hot_adh_params()
+
+                self.status_var.set("Cold & Hot Branch 계산 계속...")
+                self.ch_progress_var.set(5)
+                self.root.update()
 
             # ── Validate: μ_visc results must exist ──
             if not hasattr(self, 'mu_visc_results') or self.mu_visc_results is None:
