@@ -21185,6 +21185,7 @@ class PerssonModelGUI_V2:
             ("시험 Run", self._test_run_pipeline, 'TButton'),
             ("Friction Map 생성", self._calculate_friction_map, 'Accent.TButton'),
             ("LUT 내보내기 (CSV)", self._export_friction_map_csv, 'TButton'),
+            ("전체 내보내기", self._export_fm_all, 'TButton'),
         ])
         left_panel = layout['content']
 
@@ -21314,6 +21315,65 @@ class PerssonModelGUI_V2:
         self.fm_result_text = tk.Text(sec4, height=12, font=('NanumGothicCoding', 12),
                                        wrap=tk.WORD, state=tk.DISABLED)
         self.fm_result_text.pack(fill=tk.BOTH, expand=True, pady=2)
+
+        # ── 5) 고해상도 내보내기 ──
+        sec5 = self._create_section(left_panel, "5) 고해상도 내보내기")
+
+        ttk.Label(sec5, text="이미지 해상도 600 DPI로 내보내기",
+                  font=self.FONTS['small'], foreground='#64748B').pack(anchor='w')
+
+        # Image format selector
+        row_fmt = ttk.Frame(sec5); row_fmt.pack(fill=tk.X, pady=(4, 2))
+        ttk.Label(row_fmt, text="포맷:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_export_img_fmt_var = tk.StringVar(value="PNG")
+        for fmt in ["PNG", "SVG", "PDF", "TIFF"]:
+            ttk.Radiobutton(row_fmt, text=fmt, variable=self.fm_export_img_fmt_var,
+                            value=fmt).pack(side=tk.LEFT, padx=3)
+
+        # DPI selector
+        row_dpi = ttk.Frame(sec5); row_dpi.pack(fill=tk.X, pady=1)
+        ttk.Label(row_dpi, text="DPI:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_export_dpi_var = tk.StringVar(value="600")
+        for dpi_val in ["300", "600", "1200"]:
+            ttk.Radiobutton(row_dpi, text=dpi_val, variable=self.fm_export_dpi_var,
+                            value=dpi_val).pack(side=tk.LEFT, padx=3)
+
+        # Individual export buttons
+        ttk.Label(sec5, text="── 개별 내보내기 ──", font=self.FONTS['body'],
+                  foreground='#0369A1').pack(anchor='w', pady=(6, 2))
+
+        row_ind = ttk.Frame(sec5); row_ind.pack(fill=tk.X, pady=1)
+        ttk.Button(row_ind, text="3D Map 이미지",
+                   command=self._export_fm_3d_image).pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_ind, text="2D Graph 이미지",
+                   command=self._export_fm_graph_image).pack(side=tk.LEFT, padx=2)
+
+        # Individual 3D subplot export
+        row_ind2 = ttk.Frame(sec5); row_ind2.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ind2, text="개별 3D:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_export_3d_pressure_var = tk.StringVar()
+        self.fm_export_3d_pressure_combo = ttk.Combobox(
+            row_ind2, textvariable=self.fm_export_3d_pressure_var,
+            width=10, state='readonly')
+        self.fm_export_3d_pressure_combo.pack(side=tk.LEFT, padx=2)
+        self.fm_export_3d_branch_var = tk.StringVar(value="cold")
+        ttk.Radiobutton(row_ind2, text="Cold", variable=self.fm_export_3d_branch_var,
+                        value="cold").pack(side=tk.LEFT, padx=2)
+        ttk.Radiobutton(row_ind2, text="Hot", variable=self.fm_export_3d_branch_var,
+                        value="hot").pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_ind2, text="내보내기",
+                   command=self._export_fm_individual_3d).pack(side=tk.LEFT, padx=2)
+
+        # Batch export
+        ttk.Label(sec5, text="── 전체 내보내기 ──", font=self.FONTS['body'],
+                  foreground='#0369A1').pack(anchor='w', pady=(6, 2))
+
+        row_all = ttk.Frame(sec5); row_all.pack(fill=tk.X, pady=1)
+        ttk.Button(row_all, text="전체 이미지 내보내기",
+                   command=self._export_fm_all_images,
+                   style='Accent.TButton').pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_all, text="전체 내보내기 (CSV + 이미지)",
+                   command=self._export_fm_all).pack(side=tk.LEFT, padx=2)
 
     def _create_fm_3d_toolbar(self, parent):
         """Create the data-selection toolbar for the 3D Map tab (at init time)."""
@@ -22350,6 +22410,11 @@ class PerssonModelGUI_V2:
                     self.fm_export_T_var.set(f"{T_array[len(T_array)//2]:.0f}")
                 if len(p0_array_MPa) > 0:
                     self.fm_export_p0_var.set(f"{p0_array_MPa[len(p0_array_MPa)//2]:.4g}")
+                # Update individual 3D export pressure combo
+                p0_vals = [f"{p:.4g}" for p in p0_array_MPa]
+                self.fm_export_3d_pressure_combo['values'] = p0_vals
+                if p0_vals:
+                    self.fm_export_3d_pressure_var.set(p0_vals[0])
             except Exception:
                 pass
 
@@ -22759,6 +22824,502 @@ class PerssonModelGUI_V2:
         except Exception as e:
             from tkinter import messagebox
             messagebox.showerror("오류", f"CSV 저장 실패:\n{str(e)}")
+
+    def _get_fm_export_settings(self):
+        """Return (dpi, format_ext) from the export UI settings."""
+        dpi = int(self.fm_export_dpi_var.get())
+        fmt = self.fm_export_img_fmt_var.get().lower()
+        return dpi, fmt
+
+    def _export_fm_3d_image(self):
+        """Export the entire 3D Map figure as a high-resolution image."""
+        from tkinter import filedialog
+
+        if not hasattr(self, '_fm_fig') or self._fm_fig is None:
+            self._show_status("3D Map이 없습니다. 먼저 Friction Map을 생성하세요.", 'warning')
+            return
+
+        dpi, fmt = self._get_fm_export_settings()
+        filepath = filedialog.asksaveasfilename(
+            title="3D Map 이미지 저장",
+            defaultextension=f".{fmt}",
+            filetypes=[(f"{fmt.upper()} files", f"*.{fmt}"), ("All files", "*.*")]
+        )
+        if not filepath:
+            return
+
+        try:
+            self._fm_fig.savefig(filepath, dpi=dpi, bbox_inches='tight',
+                                 facecolor='white', edgecolor='none')
+            self._show_status(f"3D Map 이미지 저장 완료 ({dpi} DPI): {filepath}", 'success')
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("오류", f"3D Map 이미지 저장 실패:\n{str(e)}")
+
+    def _export_fm_graph_image(self):
+        """Export the 2D Graph figure as a high-resolution image."""
+        from tkinter import filedialog
+
+        if not hasattr(self, 'fig_fm_graph') or self.fig_fm_graph is None:
+            self._show_status("2D Graph가 없습니다.", 'warning')
+            return
+
+        dpi, fmt = self._get_fm_export_settings()
+        filepath = filedialog.asksaveasfilename(
+            title="2D Graph 이미지 저장",
+            defaultextension=f".{fmt}",
+            filetypes=[(f"{fmt.upper()} files", f"*.{fmt}"), ("All files", "*.*")]
+        )
+        if not filepath:
+            return
+
+        try:
+            self.fig_fm_graph.savefig(filepath, dpi=dpi, bbox_inches='tight',
+                                      facecolor='white', edgecolor='none')
+            self._show_status(f"2D Graph 이미지 저장 완료 ({dpi} DPI): {filepath}", 'success')
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("오류", f"2D Graph 이미지 저장 실패:\n{str(e)}")
+
+    def _export_fm_individual_3d(self):
+        """Export a single 3D subplot (specific pressure + branch) as high-res image."""
+        from tkinter import filedialog
+        from matplotlib.figure import Figure
+
+        r = self.friction_map_results
+        if r is None:
+            self._show_status("Friction Map 결과가 없습니다.", 'warning')
+            return
+
+        p0_str = self.fm_export_3d_pressure_var.get()
+        if not p0_str:
+            self._show_status("내보낼 압력(p₀)을 선택하세요.", 'warning')
+            return
+
+        try:
+            p0_sel = float(p0_str)
+        except ValueError:
+            self._show_status("잘못된 압력 값입니다.", 'warning')
+            return
+
+        branch = self.fm_export_3d_branch_var.get()
+        dpi, fmt = self._get_fm_export_settings()
+
+        filepath = filedialog.asksaveasfilename(
+            title=f"3D Map 개별 내보내기 ({branch}, p₀={p0_sel})",
+            defaultextension=f".{fmt}",
+            filetypes=[(f"{fmt.upper()} files", f"*.{fmt}"), ("All files", "*.*")]
+        )
+        if not filepath:
+            return
+
+        try:
+            T_arr = r['T_array']
+            p0_arr = r['p0_array_MPa']
+            v_arr = r['v_array']
+            log_v = np.log10(v_arr)
+            i_p = int(np.argmin(np.abs(p0_arr - p0_sel)))
+            p0 = p0_arr[i_p]
+
+            data_type = self._fm_3d_data_var.get()
+            is_force = data_type.startswith('F_')
+            base_key = data_type.replace('F_', '', 1) if is_force else data_type
+
+            suffix = '_cold' if branch == 'cold' else '_hot'
+            if base_key in ('mu_total', 'total'):
+                lut_key = 'LUT_cold' if branch == 'cold' else 'LUT_hot'
+            elif base_key in ('mu_visc', 'visc'):
+                lut_key = f'LUT_mu_visc{suffix}'
+            elif base_key in ('mu_adh', 'adh'):
+                lut_key = f'LUT_mu_adh{suffix}'
+            else:
+                lut_key = f'LUT_{base_key}{suffix}'
+
+            Z = r.get(lut_key)
+            if Z is None:
+                self._show_status(f"데이터 '{lut_key}'를 찾을 수 없습니다.", 'warning')
+                return
+            Z_slice = Z[:, i_p, :].copy()
+            if data_type == 'tau_f':
+                Z_slice = Z_slice / 1e6
+            elif is_force:
+                Z_slice = Z_slice * p0
+
+            # Create standalone figure
+            fig = Figure(figsize=(8, 6), dpi=dpi, facecolor='white')
+            ax = fig.add_subplot(111, projection='3d')
+
+            T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
+
+            use_fine = len(T_arr) >= 2 and len(v_arr) >= 2
+            if use_fine:
+                from scipy.interpolate import RectBivariateSpline
+                T_fine = np.linspace(T_arr[0], T_arr[-1], 25)
+                log_v_fine = np.linspace(log_v[0], log_v[-1], 40)
+                T_mesh_f, V_mesh_f = np.meshgrid(T_fine, log_v_fine, indexing='ij')
+                try:
+                    sp = RectBivariateSpline(T_arr, log_v, Z_slice)
+                    Z_f = sp(T_fine, log_v_fine)
+                    ax.plot_surface(T_mesh_f, V_mesh_f, Z_f,
+                                    cmap='viridis' if branch == 'cold' else 'inferno',
+                                    alpha=0.85, rstride=1, cstride=1,
+                                    linewidth=0, antialiased=True)
+                except Exception:
+                    ax.plot_surface(T_mesh, V_mesh, Z_slice,
+                                    cmap='viridis' if branch == 'cold' else 'inferno',
+                                    alpha=0.85)
+            else:
+                ax.plot_surface(T_mesh, V_mesh, Z_slice,
+                                cmap='viridis' if branch == 'cold' else 'inferno',
+                                alpha=0.85)
+
+            z_labels = {'mu_total': r'$\mu_{total}$', 'mu_visc': r'$\mu_{hys}$',
+                        'mu_adh': r'$\mu_{adh}$', 'A_A0': 'A/A₀',
+                        'tau_f': r'$\tau_s$ (MPa)',
+                        'F_total': r'$F_{total}$ (MPa)', 'F_visc': r'$F_{hys}$ (MPa)',
+                        'F_adh': r'$F_{adh}$ (MPa)'}
+            z_label = z_labels.get(data_type, data_type)
+
+            ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=12, labelpad=8)
+            ax.set_ylabel(r'$\log_{10}(v)$', fontsize=12, labelpad=8)
+            ax.set_zlabel(z_label, fontsize=12, labelpad=8)
+            title_color = '#1565C0' if branch == 'cold' else '#C62828'
+            ax.set_title(f'{branch.capitalize()}  $p_0$={p0:.3g} MPa\n'
+                         f'{z_label}: {Z_slice.min():.4f} ~ {Z_slice.max():.4f}',
+                         fontsize=14, fontweight='bold', color=title_color)
+            ax.view_init(elev=25, azim=225)
+            ax.tick_params(labelsize=10)
+
+            v_asc = self._fm_3d_v_dir.get() == "asc"
+            T_asc = self._fm_3d_T_dir.get() == "asc"
+            if not v_asc:
+                ax.invert_yaxis()
+            if not T_asc:
+                ax.invert_xaxis()
+
+            fig.savefig(filepath, dpi=dpi, bbox_inches='tight',
+                        facecolor='white', edgecolor='none')
+            import matplotlib.pyplot as plt
+            plt.close(fig)
+
+            self._show_status(
+                f"개별 3D 이미지 저장 완료 ({dpi} DPI): {filepath}", 'success')
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("오류", f"개별 3D 이미지 저장 실패:\n{str(e)}")
+
+    def _export_fm_all_images(self):
+        """Export all friction map images (3D + 2D) to a folder at high resolution."""
+        from tkinter import filedialog
+        from matplotlib.figure import Figure
+        import os
+
+        r = self.friction_map_results
+        if r is None:
+            self._show_status("Friction Map 결과가 없습니다.", 'warning')
+            return
+
+        folder = filedialog.askdirectory(title="이미지 내보내기 폴더 선택")
+        if not folder:
+            return
+
+        dpi, fmt = self._get_fm_export_settings()
+        saved_files = []
+
+        try:
+            # 1) Export full 3D Map figure
+            if hasattr(self, '_fm_fig') and self._fm_fig is not None:
+                fp = os.path.join(folder, f"friction_map_3D_all.{fmt}")
+                self._fm_fig.savefig(fp, dpi=dpi, bbox_inches='tight',
+                                     facecolor='white', edgecolor='none')
+                saved_files.append(fp)
+
+            # 2) Export full 2D Graph figure
+            if hasattr(self, 'fig_fm_graph') and self.fig_fm_graph is not None:
+                fp = os.path.join(folder, f"friction_map_2D_graph.{fmt}")
+                self.fig_fm_graph.savefig(fp, dpi=dpi, bbox_inches='tight',
+                                          facecolor='white', edgecolor='none')
+                saved_files.append(fp)
+
+            # 3) Export individual 3D subplots per pressure × branch
+            T_arr = r['T_array']
+            p0_arr = r['p0_array_MPa']
+            v_arr = r['v_array']
+            log_v = np.log10(v_arr)
+            has_hot = r.get('use_flash', False)
+
+            data_type = self._fm_3d_data_var.get()
+            is_force = data_type.startswith('F_')
+            base_key = data_type.replace('F_', '', 1) if is_force else data_type
+
+            z_labels = {'mu_total': r'$\mu_{total}$', 'mu_visc': r'$\mu_{hys}$',
+                        'mu_adh': r'$\mu_{adh}$', 'A_A0': 'A/A₀',
+                        'tau_f': r'$\tau_s$ (MPa)',
+                        'F_total': r'$F_{total}$ (MPa)', 'F_visc': r'$F_{hys}$ (MPa)',
+                        'F_adh': r'$F_{adh}$ (MPa)'}
+            z_label = z_labels.get(data_type, data_type)
+
+            T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
+            use_fine = len(T_arr) >= 2 and len(v_arr) >= 2
+            if use_fine:
+                from scipy.interpolate import RectBivariateSpline
+                T_fine = np.linspace(T_arr[0], T_arr[-1], 25)
+                log_v_fine = np.linspace(log_v[0], log_v[-1], 40)
+                T_mesh_f, V_mesh_f = np.meshgrid(T_fine, log_v_fine, indexing='ij')
+
+            v_asc = self._fm_3d_v_dir.get() == "asc"
+            T_asc = self._fm_3d_T_dir.get() == "asc"
+
+            branches = ['cold']
+            if has_hot:
+                branches.append('hot')
+
+            for branch in branches:
+                for i_p, p0 in enumerate(p0_arr):
+                    suffix = '_cold' if branch == 'cold' else '_hot'
+                    if base_key in ('mu_total', 'total'):
+                        lut_key = 'LUT_cold' if branch == 'cold' else 'LUT_hot'
+                    elif base_key in ('mu_visc', 'visc'):
+                        lut_key = f'LUT_mu_visc{suffix}'
+                    elif base_key in ('mu_adh', 'adh'):
+                        lut_key = f'LUT_mu_adh{suffix}'
+                    else:
+                        lut_key = f'LUT_{base_key}{suffix}'
+
+                    Z = r.get(lut_key)
+                    if Z is None:
+                        continue
+                    Z_slice = Z[:, i_p, :].copy()
+                    if data_type == 'tau_f':
+                        Z_slice = Z_slice / 1e6
+                    elif is_force:
+                        Z_slice = Z_slice * p0
+
+                    fig = Figure(figsize=(8, 6), dpi=dpi, facecolor='white')
+                    ax = fig.add_subplot(111, projection='3d')
+
+                    cmap = 'viridis' if branch == 'cold' else 'inferno'
+                    if use_fine:
+                        try:
+                            sp = RectBivariateSpline(T_arr, log_v, Z_slice)
+                            Z_f = sp(T_fine, log_v_fine)
+                            ax.plot_surface(T_mesh_f, V_mesh_f, Z_f,
+                                            cmap=cmap, alpha=0.85, rstride=1, cstride=1,
+                                            linewidth=0, antialiased=True)
+                        except Exception:
+                            ax.plot_surface(T_mesh, V_mesh, Z_slice,
+                                            cmap=cmap, alpha=0.85)
+                    else:
+                        ax.plot_surface(T_mesh, V_mesh, Z_slice,
+                                        cmap=cmap, alpha=0.85)
+
+                    ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=12, labelpad=8)
+                    ax.set_ylabel(r'$\log_{10}(v)$', fontsize=12, labelpad=8)
+                    ax.set_zlabel(z_label, fontsize=12, labelpad=8)
+                    title_color = '#1565C0' if branch == 'cold' else '#C62828'
+                    ax.set_title(f'{branch.capitalize()}  $p_0$={p0:.3g} MPa\n'
+                                 f'{z_label}: {Z_slice.min():.4f} ~ {Z_slice.max():.4f}',
+                                 fontsize=14, fontweight='bold', color=title_color)
+                    ax.view_init(elev=25, azim=225)
+                    ax.tick_params(labelsize=10)
+                    if not v_asc:
+                        ax.invert_yaxis()
+                    if not T_asc:
+                        ax.invert_xaxis()
+
+                    fname = f"friction_map_3D_{branch}_p0_{p0:.3g}MPa_{data_type}.{fmt}"
+                    fp = os.path.join(folder, fname)
+                    fig.savefig(fp, dpi=dpi, bbox_inches='tight',
+                                facecolor='white', edgecolor='none')
+                    import matplotlib.pyplot as plt
+                    plt.close(fig)
+                    saved_files.append(fp)
+
+            self._show_status(
+                f"전체 이미지 내보내기 완료 ({len(saved_files)}개, {dpi} DPI)\n"
+                f"폴더: {folder}", 'success')
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("오류", f"이미지 내보내기 실패:\n{str(e)}")
+
+    def _export_fm_all(self):
+        """Export everything: CSV data + all high-resolution images."""
+        from tkinter import filedialog
+        import os
+
+        r = self.friction_map_results
+        if r is None:
+            self._show_status("Friction Map 결과가 없습니다.", 'warning')
+            return
+
+        folder = filedialog.askdirectory(title="전체 내보내기 폴더 선택")
+        if not folder:
+            return
+
+        saved = []
+
+        try:
+            # 1) CSV export
+            T_arr = r['T_array']
+            p0_arr = r['p0_array_MPa']
+            v_arr = r['v_array']
+
+            csv_path = os.path.join(folder, "friction_map_LUT.csv")
+            lines = [
+                "# Friction Map 3D LUT",
+                f"# T0_array_C: {','.join(f'{t:.1f}' for t in T_arr)}",
+                f"# p0_array_MPa: {','.join(f'{p:.3f}' for p in p0_arr)}",
+                f"# v_array_m/s: {len(v_arr)} points (logspace {np.log10(v_arr[0]):.1f} to {np.log10(v_arr[-1]):.1f})",
+                "#",
+                "# Format: T0[C],p0[MPa],v[m/s],mu_cold,mu_hot,mu_visc_cold,mu_visc_hot,mu_adh_cold,mu_adh_hot,A_A0_cold,A_A0_hot,tau_f_cold_Pa,tau_f_hot_Pa",
+                "T0_C,p0_MPa,v_m_s,mu_cold,mu_hot,mu_visc_cold,mu_visc_hot,mu_adh_cold,mu_adh_hot,A_A0_cold,A_A0_hot,tau_f_cold_Pa,tau_f_hot_Pa",
+            ]
+
+            has_tau_cold = 'LUT_tau_f_cold' in r
+            has_tau_hot = 'LUT_tau_f_hot' in r
+
+            for i_T, T0 in enumerate(T_arr):
+                for i_p, p0 in enumerate(p0_arr):
+                    for i_v, v in enumerate(v_arr):
+                        tau_c = r['LUT_tau_f_cold'][i_T, i_p, i_v] if has_tau_cold else 0.0
+                        tau_h = r['LUT_tau_f_hot'][i_T, i_p, i_v] if has_tau_hot else 0.0
+                        lines.append(
+                            f"{T0:.1f},{p0:.3f},{v:.6e},"
+                            f"{r['LUT_cold'][i_T,i_p,i_v]:.6f},{r['LUT_hot'][i_T,i_p,i_v]:.6f},"
+                            f"{r['LUT_mu_visc_cold'][i_T,i_p,i_v]:.6f},{r['LUT_mu_visc_hot'][i_T,i_p,i_v]:.6f},"
+                            f"{r['LUT_mu_adh_cold'][i_T,i_p,i_v]:.6f},{r['LUT_mu_adh_hot'][i_T,i_p,i_v]:.6f},"
+                            f"{r['LUT_A_A0_cold'][i_T,i_p,i_v]:.6f},{r['LUT_A_A0_hot'][i_T,i_p,i_v]:.6f},"
+                            f"{tau_c:.6f},{tau_h:.6f}"
+                        )
+
+            with open(csv_path, 'w', encoding='utf-8-sig') as f:
+                f.write('\n'.join(lines))
+            saved.append(csv_path)
+
+            # 2) Export all images
+            self._export_fm_all_images_to_folder(folder, saved)
+
+            self._show_status(
+                f"전체 내보내기 완료 ({len(saved)}개 파일)\n폴더: {folder}", 'success')
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("오류", f"전체 내보내기 실패:\n{str(e)}")
+
+    def _export_fm_all_images_to_folder(self, folder, saved_list):
+        """Internal helper: save all images to folder, appending paths to saved_list."""
+        from matplotlib.figure import Figure
+        import os
+
+        r = self.friction_map_results
+        dpi, fmt = self._get_fm_export_settings()
+
+        # Full 3D Map
+        if hasattr(self, '_fm_fig') and self._fm_fig is not None:
+            fp = os.path.join(folder, f"friction_map_3D_all.{fmt}")
+            self._fm_fig.savefig(fp, dpi=dpi, bbox_inches='tight',
+                                 facecolor='white', edgecolor='none')
+            saved_list.append(fp)
+
+        # Full 2D Graph
+        if hasattr(self, 'fig_fm_graph') and self.fig_fm_graph is not None:
+            fp = os.path.join(folder, f"friction_map_2D_graph.{fmt}")
+            self.fig_fm_graph.savefig(fp, dpi=dpi, bbox_inches='tight',
+                                      facecolor='white', edgecolor='none')
+            saved_list.append(fp)
+
+        # Individual 3D subplots
+        T_arr = r['T_array']
+        p0_arr = r['p0_array_MPa']
+        v_arr = r['v_array']
+        log_v = np.log10(v_arr)
+        has_hot = r.get('use_flash', False)
+
+        data_type = self._fm_3d_data_var.get()
+        is_force = data_type.startswith('F_')
+        base_key = data_type.replace('F_', '', 1) if is_force else data_type
+
+        z_labels = {'mu_total': r'$\mu_{total}$', 'mu_visc': r'$\mu_{hys}$',
+                    'mu_adh': r'$\mu_{adh}$', 'A_A0': 'A/A₀',
+                    'tau_f': r'$\tau_s$ (MPa)',
+                    'F_total': r'$F_{total}$ (MPa)', 'F_visc': r'$F_{hys}$ (MPa)',
+                    'F_adh': r'$F_{adh}$ (MPa)'}
+        z_label = z_labels.get(data_type, data_type)
+
+        T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
+        use_fine = len(T_arr) >= 2 and len(v_arr) >= 2
+        if use_fine:
+            from scipy.interpolate import RectBivariateSpline
+            T_fine = np.linspace(T_arr[0], T_arr[-1], 25)
+            log_v_fine = np.linspace(log_v[0], log_v[-1], 40)
+            T_mesh_f, V_mesh_f = np.meshgrid(T_fine, log_v_fine, indexing='ij')
+
+        v_asc = self._fm_3d_v_dir.get() == "asc"
+        T_asc = self._fm_3d_T_dir.get() == "asc"
+
+        branches = ['cold']
+        if has_hot:
+            branches.append('hot')
+
+        for branch in branches:
+            for i_p, p0 in enumerate(p0_arr):
+                suffix = '_cold' if branch == 'cold' else '_hot'
+                if base_key in ('mu_total', 'total'):
+                    lut_key = 'LUT_cold' if branch == 'cold' else 'LUT_hot'
+                elif base_key in ('mu_visc', 'visc'):
+                    lut_key = f'LUT_mu_visc{suffix}'
+                elif base_key in ('mu_adh', 'adh'):
+                    lut_key = f'LUT_mu_adh{suffix}'
+                else:
+                    lut_key = f'LUT_{base_key}{suffix}'
+
+                Z = r.get(lut_key)
+                if Z is None:
+                    continue
+                Z_slice = Z[:, i_p, :].copy()
+                if data_type == 'tau_f':
+                    Z_slice = Z_slice / 1e6
+                elif is_force:
+                    Z_slice = Z_slice * p0
+
+                fig = Figure(figsize=(8, 6), dpi=dpi, facecolor='white')
+                ax = fig.add_subplot(111, projection='3d')
+
+                cmap = 'viridis' if branch == 'cold' else 'inferno'
+                if use_fine:
+                    try:
+                        sp = RectBivariateSpline(T_arr, log_v, Z_slice)
+                        Z_f = sp(T_fine, log_v_fine)
+                        ax.plot_surface(T_mesh_f, V_mesh_f, Z_f,
+                                        cmap=cmap, alpha=0.85, rstride=1, cstride=1,
+                                        linewidth=0, antialiased=True)
+                    except Exception:
+                        ax.plot_surface(T_mesh, V_mesh, Z_slice,
+                                        cmap=cmap, alpha=0.85)
+                else:
+                    ax.plot_surface(T_mesh, V_mesh, Z_slice,
+                                    cmap=cmap, alpha=0.85)
+
+                ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=12, labelpad=8)
+                ax.set_ylabel(r'$\log_{10}(v)$', fontsize=12, labelpad=8)
+                ax.set_zlabel(z_label, fontsize=12, labelpad=8)
+                title_color = '#1565C0' if branch == 'cold' else '#C62828'
+                ax.set_title(f'{branch.capitalize()}  $p_0$={p0:.3g} MPa\n'
+                             f'{z_label}: {Z_slice.min():.4f} ~ {Z_slice.max():.4f}',
+                             fontsize=14, fontweight='bold', color=title_color)
+                ax.view_init(elev=25, azim=225)
+                ax.tick_params(labelsize=10)
+                if not v_asc:
+                    ax.invert_yaxis()
+                if not T_asc:
+                    ax.invert_xaxis()
+
+                fname = f"friction_map_3D_{branch}_p0_{p0:.3g}MPa_{data_type}.{fmt}"
+                fp = os.path.join(folder, fname)
+                fig.savefig(fp, dpi=dpi, bbox_inches='tight',
+                            facecolor='white', edgecolor='none')
+                import matplotlib.pyplot as plt
+                plt.close(fig)
+                saved_list.append(fp)
 
     def _send_friction_map_to_ref(self):
         """Send selected (T, p0) friction map slice to mu_visc reference editor."""
