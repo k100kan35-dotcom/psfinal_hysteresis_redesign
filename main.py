@@ -4356,7 +4356,7 @@ class PerssonModelGUI_V2:
         preset_q1_frame.grid(row=row, column=1, pady=5, sticky=tk.W)
         self.surface_q1_var = tk.StringVar(value='(선택...)')
         self.surface_q1_combo = ttk.Combobox(preset_q1_frame, textvariable=self.surface_q1_var,
-                                              state='readonly', width=18, font=self.FONTS['body'])
+                                              state='readonly', width=9, font=self.FONTS['body'])
         self.surface_q1_combo.pack(side=tk.LEFT)
         ttk.Button(preset_q1_frame, text="로드", command=self._load_preset_surface_q1, width=4,
                    style='Outline.TButton').pack(side=tk.LEFT, padx=1)
