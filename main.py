@@ -10609,6 +10609,37 @@ class PerssonModelGUI_V2:
         plot_frame = ttk.LabelFrame(right_panel, text="그래프", padding=5)
         plot_frame.pack(fill=tk.BOTH, expand=True)
 
+        # ── Plot visibility checkboxes ──
+        chk_frame = ttk.Frame(plot_frame)
+        chk_frame.pack(fill=tk.X, pady=(0, 2))
+
+        toggle_cmd = lambda: self._toggle_mu_plot_visibility()
+
+        ttk.Label(chk_frame, text="μ_visc:", font=('Segoe UI', 8, 'bold')).pack(side=tk.LEFT, padx=(2, 0))
+        self.show_mu_cold_var = tk.BooleanVar(value=True)
+        self.show_mu_hot_var = tk.BooleanVar(value=True)
+        self.show_mu_peak_var = tk.BooleanVar(value=True)
+        self.show_mu_v1_var = tk.BooleanVar(value=True)
+        self.show_mu_ref_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(chk_frame, text="Cold", variable=self.show_mu_cold_var, command=toggle_cmd).pack(side=tk.LEFT, padx=1)
+        ttk.Checkbutton(chk_frame, text="Hot", variable=self.show_mu_hot_var, command=toggle_cmd).pack(side=tk.LEFT, padx=1)
+        ttk.Checkbutton(chk_frame, text="Peak", variable=self.show_mu_peak_var, command=toggle_cmd).pack(side=tk.LEFT, padx=1)
+        ttk.Checkbutton(chk_frame, text="v=1", variable=self.show_mu_v1_var, command=toggle_cmd).pack(side=tk.LEFT, padx=1)
+        ttk.Checkbutton(chk_frame, text="참조", variable=self.show_mu_ref_var, command=toggle_cmd).pack(side=tk.LEFT, padx=1)
+
+        ttk.Separator(chk_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=4, pady=1)
+
+        ttk.Label(chk_frame, text="A/A0:", font=('Segoe UI', 8, 'bold')).pack(side=tk.LEFT, padx=(2, 0))
+        self.show_aa_cold_var = tk.BooleanVar(value=True)
+        self.show_aa_hot_var = tk.BooleanVar(value=True)
+        self.show_aa_ref_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(chk_frame, text="Cold", variable=self.show_aa_cold_var, command=toggle_cmd).pack(side=tk.LEFT, padx=1)
+        ttk.Checkbutton(chk_frame, text="Hot", variable=self.show_aa_hot_var, command=toggle_cmd).pack(side=tk.LEFT, padx=1)
+        ttk.Checkbutton(chk_frame, text="참조", variable=self.show_aa_ref_var, command=toggle_cmd).pack(side=tk.LEFT, padx=1)
+
+        # Initialize plot line storage for visibility toggling
+        self._mu_plot_lines = {}
+
         # Create figure with 2x2 subplots
         self.fig_mu_visc = Figure(figsize=(9, 7), dpi=100)
 
@@ -12969,6 +13000,9 @@ class PerssonModelGUI_V2:
             # Sanitize input arrays - replace NaN/Inf with safe values
             mu_array = np.nan_to_num(mu_array, nan=0.0, posinf=0.0, neginf=0.0)
 
+            # Reset line storage for visibility toggling
+            self._mu_plot_lines = {}
+
             # Clear all subplots
             self.ax_mu_v.clear()
             self.ax_mu_cumulative.clear()
@@ -12991,20 +13025,22 @@ class PerssonModelGUI_V2:
             has_flash = mu_hot is not None
             cold_label = 'μ_cold (WITHOUT FLASH)' if has_flash else None
             if np.any(valid_mask):
-                self.ax_mu_v.semilogx(v[valid_mask], mu_array[valid_mask], 'b-',
+                ln_cold, = self.ax_mu_v.semilogx(v[valid_mask], mu_array[valid_mask], 'b-',
                                       linewidth=2.5, marker='o', markersize=4, label=cold_label)
             else:
-                self.ax_mu_v.semilogx(v, np.zeros_like(v), 'b-',
+                ln_cold, = self.ax_mu_v.semilogx(v, np.zeros_like(v), 'b-',
                                       linewidth=2.5, marker='o', markersize=4, label=cold_label)
+            self._mu_plot_lines['mu_cold'] = ln_cold
 
             # Flash temperature: overlay hot curve
             if has_flash:
                 mu_hot_safe = np.nan_to_num(mu_hot, nan=0.0, posinf=0.0, neginf=0.0)
                 valid_hot = np.isfinite(mu_hot_safe) & (mu_hot_safe > 0)
                 if np.any(valid_hot):
-                    self.ax_mu_v.semilogx(v[valid_hot], mu_hot_safe[valid_hot], '-',
+                    ln_hot, = self.ax_mu_v.semilogx(v[valid_hot], mu_hot_safe[valid_hot], '-',
                                           color='#DC2626', linewidth=2.5, marker='s',
                                           markersize=4, label='μ_hot (WITH FLASH)')
+                    self._mu_plot_lines['mu_hot'] = ln_hot
                 self.ax_mu_v.set_title('μ_visc(v) - Cold vs Hot', fontweight='bold', fontsize=12)
             else:
                 self.ax_mu_v.set_title('μ_visc(v) 곡선', fontweight='bold', fontsize=12)
@@ -13020,10 +13056,12 @@ class PerssonModelGUI_V2:
             peak_mu = mu_for_peak_src[peak_idx] if np.isfinite(mu_for_peak_src[peak_idx]) else 0.0
             peak_v = v[peak_idx]
             peak_label_prefix = 'Hot 최대' if has_flash else '최대값'
-            self.ax_mu_v.plot(peak_v, peak_mu, 'r*', markersize=15,
+            ln_peak, = self.ax_mu_v.plot(peak_v, peak_mu, 'r*', markersize=15,
                              label=f'{peak_label_prefix}: μ={smart_format(peak_mu)} @ v={peak_v:.4f} m/s')
+            self._mu_plot_lines['mu_peak'] = ln_peak
 
             # Find and mark μ at v=1 m/s (important reference point)
+            v1_artists = []
             if np.min(v) <= 1.0 <= np.max(v):
                 from scipy.interpolate import interp1d
                 # Interpolate to find μ at exactly 1 m/s
@@ -13032,21 +13070,25 @@ class PerssonModelGUI_V2:
                     f_interp = interp1d(np.log10(v[valid_for_interp]), mu_array[valid_for_interp],
                                        kind='linear', fill_value='extrapolate')
                     mu_at_1ms = float(f_interp(0))  # log10(1) = 0
-                    self.ax_mu_v.plot(1.0, mu_at_1ms, 'go', markersize=12, markeredgecolor='black',
+                    ln_v1, = self.ax_mu_v.plot(1.0, mu_at_1ms, 'go', markersize=12, markeredgecolor='black',
                                      markeredgewidth=1.5, zorder=10,
                                      label=f'v=1m/s: μ={smart_format(mu_at_1ms)}')
                     # Add vertical line at v=1 m/s
-                    self.ax_mu_v.axvline(x=1.0, color='green', linestyle='--', alpha=0.5, linewidth=1)
+                    ln_vline = self.ax_mu_v.axvline(x=1.0, color='green', linestyle='--', alpha=0.5, linewidth=1)
+                    v1_artists = [ln_v1, ln_vline]
+            self._mu_plot_lines['mu_v1'] = v1_artists
 
             # Plot reference μ_visc data: single active + multiple overlay datasets
             ref_colors = ['#E6194B', '#3CB44B', '#4363D8', '#F58231', '#911EB4',
                           '#42D4F4', '#F032E6', '#BFEF45', '#FABED4', '#469990']
+            mu_ref_artists = []
             try:
                 if self.reference_mu_data is not None:
                     ref_v = self.reference_mu_data['v']
                     ref_mu = self.reference_mu_data['mu']
-                    self.ax_mu_v.semilogx(ref_v, ref_mu, 'r-', linewidth=2, alpha=0.8,
+                    ln_ref, = self.ax_mu_v.semilogx(ref_v, ref_mu, 'r-', linewidth=2, alpha=0.8,
                                          label='참조 (Persson)', zorder=5)
+                    mu_ref_artists.append(ln_ref)
                 # Plot multiple overlay reference datasets
                 if hasattr(self, 'plotted_ref_datasets'):
                     for i, ds in enumerate(self.plotted_ref_datasets):
@@ -13054,11 +13096,13 @@ class PerssonModelGUI_V2:
                         if ds['mu_log_v'] and ds['mu_vals']:
                             log_v_ref = np.array(ds['mu_log_v'])
                             mu_ref = np.array(ds['mu_vals'])
-                            self.ax_mu_v.semilogx(10**log_v_ref, mu_ref, '-', color=color,
+                            ln_ovr, = self.ax_mu_v.semilogx(10**log_v_ref, mu_ref, '-', color=color,
                                                   linewidth=1.8, alpha=0.8,
                                                   label=f'참조: {ds["name"]}', zorder=4)
+                            mu_ref_artists.append(ln_ovr)
             except Exception as e:
                 print(f"[DEBUG] 참조 μ_visc 플롯 오류: {e}")
+            self._mu_plot_lines['mu_ref'] = mu_ref_artists
 
             self.ax_mu_v.legend(loc='best', fontsize=10)
 
@@ -13092,25 +13136,29 @@ class PerssonModelGUI_V2:
             color = 'b'  # 계산값은 항상 BLUE
 
             # Plot A/A0 = P(q_max) - Cold
-            self.ax_mu_cumulative.semilogx(v, P_qmax_array, f'{color}-', linewidth=2,
+            ln_aa_cold, = self.ax_mu_cumulative.semilogx(v, P_qmax_array, f'{color}-', linewidth=2,
                                             marker='s', markersize=4, label=label_str)
+            self._mu_plot_lines['aa_cold'] = ln_aa_cold
 
             # Flash temperature: overlay hot A/A0
             if has_flash and A_A0_hot is not None:
                 A_A0_hot_safe = np.nan_to_num(A_A0_hot, nan=0.0, posinf=1.0, neginf=0.0)
-                self.ax_mu_cumulative.semilogx(v, A_A0_hot_safe, '-',
+                ln_aa_hot, = self.ax_mu_cumulative.semilogx(v, A_A0_hot_safe, '-',
                                                 color='#DC2626', linewidth=2,
                                                 marker='s', markersize=4,
                                                 label='A/A0 Hot (WITH FLASH)')
+                self._mu_plot_lines['aa_hot'] = ln_aa_hot
 
             # Overlay reference A/A0 data: single active + multiple overlay datasets
+            aa_ref_artists = []
             try:
                 if self.reference_area_data is not None:
                     ref_v = self.reference_area_data['v']
                     ref_area = self.reference_area_data['area']
-                    self.ax_mu_cumulative.semilogx(ref_v, ref_area, 'r-', linewidth=2,
+                    ln_aa_ref, = self.ax_mu_cumulative.semilogx(ref_v, ref_area, 'r-', linewidth=2,
                                                     marker='o', markersize=3,
                                                     alpha=0.8, label='참조 A/A0 (Persson)', zorder=5)
+                    aa_ref_artists.append(ln_aa_ref)
                 # Plot multiple overlay reference datasets
                 if hasattr(self, 'plotted_ref_datasets'):
                     for i, ds in enumerate(self.plotted_ref_datasets):
@@ -13118,11 +13166,13 @@ class PerssonModelGUI_V2:
                         if ds['area_log_v'] and ds['area_vals']:
                             log_v_ref = np.array(ds['area_log_v'])
                             area_ref = np.array(ds['area_vals'])
-                            self.ax_mu_cumulative.semilogx(10**log_v_ref, area_ref, '-', color=clr,
+                            ln_aa_ovr, = self.ax_mu_cumulative.semilogx(10**log_v_ref, area_ref, '-', color=clr,
                                                             linewidth=1.8, alpha=0.8,
                                                             label=f'참조: {ds["name"]}', zorder=4)
+                            aa_ref_artists.append(ln_aa_ovr)
             except Exception as e:
                 print(f"[DEBUG] 참조 A/A0 플롯 오류: {e}")
+            self._mu_plot_lines['aa_ref'] = aa_ref_artists
 
             self.ax_mu_cumulative.set_title(f'실접촉 면적비율 A/A0{title_suffix}', fontweight='bold', fontsize=12)
             self.ax_mu_cumulative.set_xlabel('속도 v (m/s)', fontsize=10)
@@ -13185,6 +13235,9 @@ class PerssonModelGUI_V2:
             # Enable interactive legend (click to toggle line visibility)
             self._setup_interactive_legends()
 
+            # Apply checkbox visibility states
+            self._apply_mu_plot_visibility()
+
             self.canvas_mu_visc.draw()
 
             # Auto-register graph data for friction results
@@ -13237,6 +13290,46 @@ class PerssonModelGUI_V2:
             self.fig_mu_visc.canvas.draw_idle()
 
         self._legend_pick_cid = self.fig_mu_visc.canvas.mpl_connect('pick_event', _on_pick)
+
+    def _apply_mu_plot_visibility(self):
+        """Apply checkbox visibility states to stored plot line objects."""
+        if not hasattr(self, '_mu_plot_lines') or not self._mu_plot_lines:
+            return
+        mapping = {
+            'mu_cold': self.show_mu_cold_var,
+            'mu_hot': self.show_mu_hot_var,
+            'mu_peak': self.show_mu_peak_var,
+            'mu_v1': self.show_mu_v1_var,
+            'mu_ref': self.show_mu_ref_var,
+            'aa_cold': self.show_aa_cold_var,
+            'aa_hot': self.show_aa_hot_var,
+            'aa_ref': self.show_aa_ref_var,
+        }
+        for key, var in mapping.items():
+            if key not in self._mu_plot_lines:
+                continue
+            objs = self._mu_plot_lines[key]
+            if not isinstance(objs, list):
+                objs = [objs]
+            for obj in objs:
+                if obj is not None:
+                    obj.set_visible(var.get())
+        # Rebuild legends to only include visible lines
+        for ax in [self.ax_mu_v, self.ax_mu_cumulative]:
+            handles, labels = ax.get_legend_handles_labels()
+            visible = [(h, l) for h, l in zip(handles, labels) if h.get_visible()]
+            if visible:
+                ax.legend(*zip(*visible), loc='best', fontsize=10)
+            else:
+                leg = ax.get_legend()
+                if leg:
+                    leg.remove()
+
+    def _toggle_mu_plot_visibility(self):
+        """Checkbox callback: toggle plot line visibility and redraw."""
+        self._apply_mu_plot_visibility()
+        if hasattr(self, 'canvas_mu_visc'):
+            self.canvas_mu_visc.draw_idle()
 
     def _toggle_reference_mu(self):
         """Toggle reference μ_visc display and redraw plot."""
@@ -20211,6 +20304,18 @@ class PerssonModelGUI_V2:
                 except (ValueError, AttributeError):
                     pass
 
+            # Check D (돌기 직경) change → sync to Flash Temperature tab
+            ch_D_str = self.ch_D_macro_var.get().strip()
+            if ch_D_str and hasattr(self, 'flash_d_macro_var'):
+                try:
+                    ch_D = float(ch_D_str)
+                    flash_D = float(self.flash_d_macro_var.get())
+                    if abs(ch_D - flash_D) / max(flash_D, 1e-10) > 0.001:
+                        need_recalc = True
+                        reason_parts.append(f"돌기직경 {flash_D:.2f}→{ch_D:.2f} mm")
+                except (ValueError, AttributeError):
+                    pass
+
             if need_recalc:
                 reason_str = ", ".join(reason_parts)
                 self.status_var.set(
@@ -20221,6 +20326,10 @@ class PerssonModelGUI_V2:
                 # Sync Cold & Hot tab values → μ_adh tab
                 self.adh_calc_temp_var.set(ch_T0_str)
                 self.adh_p0_var.set(ch_p0_str)
+
+                # Sync D → Flash Temperature tab
+                if ch_D_str and hasattr(self, 'flash_d_macro_var'):
+                    self.flash_d_macro_var.set(ch_D_str)
 
                 # Run μ_adh calculation (cascades to μ_visc recalc internally)
                 try:
