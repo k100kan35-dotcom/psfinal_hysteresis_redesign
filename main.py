@@ -4968,7 +4968,12 @@ class PerssonModelGUI_V2:
                     # 기존 GCalculator 사용 (가장 정확)
                     # 대표 속도로 계산 (가장 낮은 속도 또는 중간 속도)
                     v_min = float(self.v_min_var.get())
-                    self.g_calculator.velocity = v_min
+                    # σ₀와 velocity를 현재 UI 값으로 갱신
+                    # G(q) ∝ 1/σ₀² 이므로 σ₀가 다르면 P(q)가 크게 달라짐
+                    self.g_calculator.update_parameters(
+                        sigma_0=p0 * 1e6,  # MPa → Pa
+                        velocity=v_min
+                    )
 
                     # q 배열 생성 (세밀한 간격)
                     n_q_fine = max(500, int(self.n_q_var.get()) * 10)
