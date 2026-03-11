@@ -4426,6 +4426,12 @@ class PerssonModelGUI_V2:
                        variable=self.hrms_q1_mode_var, value="q1_to_hrms",
                        command=self._on_hrms_q1_mode_changed).pack(side=tk.LEFT)
 
+        mode_row3 = ttk.Frame(mode_frame)
+        mode_row3.pack(fill=tk.X, pady=2)
+        ttk.Radiobutton(mode_row3, text="모드 3: 응력 한계법 → q1 계산 (σ_Y 기반)",
+                       variable=self.hrms_q1_mode_var, value="stress_limit",
+                       command=self._on_hrms_q1_mode_changed).pack(side=tk.LEFT)
+
         # 구분선
         ttk.Separator(mode_frame, orient='horizontal').pack(fill=tk.X, pady=5)
 
@@ -4444,6 +4450,16 @@ class PerssonModelGUI_V2:
         self.input_q1_var = tk.StringVar(value="1.0e+06")
         self.q1_entry = ttk.Entry(self.q1_input_frame, textvariable=self.input_q1_var, width=12)
         self.q1_entry.pack(side=tk.LEFT, padx=5)
+
+        # σ_Y 입력 (모드 3: 응력 한계법용)
+        self.stress_limit_frame = ttk.Frame(mode_frame)
+        self.stress_limit_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(self.stress_limit_frame, text="파괴 응력 σ_Y (MPa):").pack(side=tk.LEFT)
+        self.stress_y_var = tk.StringVar(value="100.0")
+        self.stress_y_entry = ttk.Entry(self.stress_limit_frame, textvariable=self.stress_y_var, width=12)
+        self.stress_y_entry.pack(side=tk.LEFT, padx=5)
+        ttk.Label(self.stress_limit_frame, text="(p₀ = 공칭 압력 사용)",
+                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=3)
 
         # Add trace to sync target_hrms_slope_var with Tab 1's psd_xi_var and Tab 4's display
         self.target_hrms_slope_var.trace_add('write', self._on_target_hrms_changed)
@@ -4489,6 +4505,17 @@ class PerssonModelGUI_V2:
                                                font=self.FONTS['small_bold'], foreground='#059669')
         self.calculated_hrms_label.pack(side=tk.LEFT, padx=5)
         ttk.Label(hrms_result_row, text="(무차원)").pack(side=tk.LEFT)
+
+        # 국부 접촉 압력 표시 (모드 3 결과)
+        stress_result_row = ttk.Frame(result_frame)
+        stress_result_row.pack(fill=tk.X, pady=2)
+        ttk.Label(stress_result_row, text="→ 국부 압력 p(q1):").pack(side=tk.LEFT)
+        self.calculated_local_pressure_var = tk.StringVar(value="(계산 후 표시)")
+        self.calculated_local_pressure_label = ttk.Label(stress_result_row,
+                                                          textvariable=self.calculated_local_pressure_var,
+                                                          font=self.FONTS['small_bold'], foreground='#DC2626')
+        self.calculated_local_pressure_label.pack(side=tk.LEFT, padx=5)
+        ttk.Label(stress_result_row, text="(MPa)").pack(side=tk.LEFT)
 
         # 초기 모드에 따른 UI 상태 설정
         self._on_hrms_q1_mode_changed()
@@ -4751,15 +4778,23 @@ class PerssonModelGUI_V2:
         """모드 변경 시 UI 상태 업데이트."""
         mode = self.hrms_q1_mode_var.get()
         if mode == "hrms_to_q1":
-            # 모드 1: h'rms 입력 활성화, q1 입력 비활성화
+            # 모드 1: h'rms 입력 활성화, q1/σ_Y 입력 비활성화
             self.hrms_entry.config(state='normal')
             self.q1_entry.config(state='disabled')
+            self.stress_y_entry.config(state='disabled')
             self.hrms_q1_calc_btn.config(text="h'rms → q1 계산")
-        else:
-            # 모드 2: q1 입력 활성화, h'rms 입력 비활성화
+        elif mode == "q1_to_hrms":
+            # 모드 2: q1 입력 활성화, h'rms/σ_Y 입력 비활성화
             self.hrms_entry.config(state='disabled')
             self.q1_entry.config(state='normal')
+            self.stress_y_entry.config(state='disabled')
             self.hrms_q1_calc_btn.config(text="q1 → h'rms 계산")
+        elif mode == "stress_limit":
+            # 모드 3: σ_Y 입력 활성화, h'rms/q1 입력 비활성화
+            self.hrms_entry.config(state='disabled')
+            self.q1_entry.config(state='disabled')
+            self.stress_y_entry.config(state='normal')
+            self.hrms_q1_calc_btn.config(text="σ_Y → q1 계산")
 
     def _calculate_hrms_q1(self):
         """선택된 모드에 따라 h'rms(ξ) 또는 q1 계산.
@@ -4853,7 +4888,7 @@ class PerssonModelGUI_V2:
                     f"  최대 가능 ξ: {max_xi:.4f}\n\n"
                     f"※ ξ² = 2π∫k³C(k)dk", 'success')
 
-            else:
+            elif mode == "q1_to_hrms":
                 # 모드 2: 주어진 q1로 h'rms(ξ) 계산
                 target_q1 = float(self.input_q1_var.get())
 
@@ -4888,6 +4923,145 @@ class PerssonModelGUI_V2:
                     f"  q 범위: {min_q:.2e} ~ {max_q:.2e}\n"
                     f"  최대 가능 ξ: {max_xi:.4f}\n\n"
                     f"※ ξ² = 2π∫k³C(k)dk", 'success')
+
+            elif mode == "stress_limit":
+                # 모드 3: 응력 한계법 (Steady-state stress limit method)
+                # p(q) = p0 / P(q) >= σ_Y 조건을 만족하는 q를 q1으로 확정
+                from scipy.special import erf as _erf
+
+                p0 = float(self.sigma_0_var.get())  # 공칭 압력 (MPa)
+                stress_y = float(self.stress_y_var.get())  # 파괴 응력 한계 (MPa)
+
+                if p0 <= 0:
+                    self._show_status("공칭 압력 p₀는 0보다 커야 합니다.", 'warning')
+                    return
+                if stress_y <= 0:
+                    self._show_status("파괴 응력 σ_Y는 0보다 커야 합니다.", 'warning')
+                    return
+                if p0 >= stress_y:
+                    self._show_status(f"공칭 압력 p₀ ({p0} MPa)가 이미 파괴 응력 σ_Y ({stress_y} MPa) 이상입니다.\n"
+                        f"q1 = q_min (전체 범위에서 소성 변형 발생)", 'warning')
+                    return
+
+                # G(q) 누적 계산: G(q) = (1/8) ∫ q'³ C(q') |E/(1-ν²)σ₀|² dq'
+                # 여기서는 PSD 기반의 간이 G(q)를 사용 (정적 탄성률 기준)
+                # 실제로는 _run_calculation의 GCalculator를 사용하는 것이 정확하지만,
+                # 여기서는 PSD 데이터로부터 직접 누적 적분을 수행
+                #
+                # Persson 이론: P(q) = erf(1 / (2√G(q)))
+                # G(q) ≈ (π/4) ∫[q0→q] q'³ C(q') dq' × |E*/(1-ν²)σ₀|²
+                #
+                # 간이 방법: xi²(q) = 2π ∫ k³C(k)dk 를 이용
+                # G(q) ∝ xi²(q) 관계를 활용하여 P(q) 계산
+
+                # 이미 계산된 xi_squared_cumulative 사용
+                # G(q) = (1/4) × xi²(q) × |E*/(1-ν²)σ₀|² 에서
+                # 정적 탄성률이 필요하지만, 여기서는 P(q) = erf(1/(2√G))의
+                # 역관계를 활용: p(q) = p0/P(q) >= σ_Y
+                #
+                # P(q)가 p0/σ_Y 이하로 떨어지는 q를 찾으면 됨
+                P_threshold = p0 / stress_y  # P(q)가 이 값 이하가 되면 q1
+
+                # 접촉 면적비 P(q) 계산을 위해 기존 계산 결과 활용
+                # GCalculator가 이미 초기화되어 있는지 확인
+                if hasattr(self, 'g_calculator') and self.g_calculator is not None:
+                    # 기존 GCalculator 사용 (가장 정확)
+                    # 대표 속도로 계산 (가장 낮은 속도 또는 중간 속도)
+                    v_min = float(self.v_min_var.get())
+                    self.g_calculator.velocity = v_min
+
+                    # q 배열 생성 (세밀한 간격)
+                    n_q_fine = max(500, int(self.n_q_var.get()) * 10)
+                    q_fine = np.logspace(np.log10(min_q), np.log10(max_q), n_q_fine)
+
+                    # G(q) 계산
+                    results_g = self.g_calculator.calculate_G_with_details(q_fine)
+                    P_arr = results_g['contact_area_ratio']
+                    q_arr = results_g['q']
+                    G_arr = results_g['G']
+
+                    # p(q) = p0 / P(q) >= σ_Y 조건 검색
+                    q1_found = None
+                    p_local_at_q1 = None
+                    P_at_q1 = None
+                    xi_at_q1 = None
+
+                    for i in range(len(q_arr)):
+                        if P_arr[i] > 0 and P_arr[i] < 1.0:
+                            p_local = p0 / P_arr[i]
+                            if p_local >= stress_y:
+                                q1_found = q_arr[i]
+                                p_local_at_q1 = p_local
+                                P_at_q1 = P_arr[i]
+                                # 해당 q에서의 ξ 보간
+                                from scipy.interpolate import interp1d
+                                f_xi = interp1d(q_data, xi_cumulative, kind='linear',
+                                                fill_value='extrapolate', bounds_error=False)
+                                xi_at_q1 = float(f_xi(q1_found))
+                                break
+
+                else:
+                    # GCalculator가 없는 경우: PSD 기반 간이 계산
+                    # P(q) ≈ P_threshold 조건으로 xi 역산
+                    # 이 방법은 정확도가 낮지만 GCalculator 없이도 사용 가능
+                    self._show_status(
+                        "응력 한계법 계산을 위해서는 먼저 'G(q,v) 계산 실행' 버튼을 한 번 실행하여\n"
+                        "GCalculator를 초기화해야 합니다.\n\n"
+                        "또는 먼저 모드 1/2로 q1을 설정한 후 계산을 실행하세요.",
+                        'warning')
+                    return
+
+                if q1_found is not None:
+                    # 결과 표시
+                    self.calculated_q1_var.set(f"{q1_found:.3e}")
+                    self.calculated_local_pressure_var.set(f"{p_local_at_q1:.2f}")
+                    self.calculated_q1 = q1_found
+                    if xi_at_q1 is not None:
+                        self.calculated_hrms_var.set(f"{xi_at_q1:.4f}")
+                        self.target_xi = xi_at_q1
+                        self.target_hrms_slope_var.set(f"{xi_at_q1:.4f}")
+                    # q1 입력란에도 반영
+                    self.input_q1_var.set(f"{q1_found:.3e}")
+
+                    self.status_var.set(
+                        f"응력 한계법: σ_Y={stress_y:.1f} MPa → q1={q1_found:.3e} (1/m)")
+                    self._show_status(
+                        f"모드 3: 응력 한계법 (Steady-state stress limit)\n\n"
+                        f"[입력]\n"
+                        f"  공칭 압력 p₀: {p0} MPa\n"
+                        f"  파괴 응력 σ_Y: {stress_y} MPa\n"
+                        f"  임계 P(q) = p₀/σ_Y: {P_threshold:.6f}\n\n"
+                        f"[출력]\n"
+                        f"  q1 (컷오프 파수): {q1_found:.3e} (1/m)\n"
+                        f"  국부 접촉 압력 p(q1): {p_local_at_q1:.2f} MPa\n"
+                        f"  접촉 면적비 P(q1): {P_at_q1:.6f}\n"
+                        f"  해당 q1에서 ξ (h'rms): {xi_at_q1:.4f}\n\n"
+                        f"[원리]\n"
+                        f"  p(q) = p₀/P(q) ≥ σ_Y 조건 도달 시 q1 확정\n"
+                        f"  고무의 국부 압력이 파괴 응력에 도달하여\n"
+                        f"  소성 변형/찢어짐이 시작되는 스케일입니다.\n\n"
+                        f"[PSD 정보]\n"
+                        f"  {q_source}\n"
+                        f"  q 범위: {min_q:.2e} ~ {max_q:.2e}",
+                        'success')
+                else:
+                    # σ_Y에 도달하지 못한 경우
+                    # 마지막 q에서의 p_local 값 계산
+                    last_P = P_arr[-1] if P_arr[-1] > 0 else 1e-10
+                    last_p_local = p0 / last_P
+                    self.calculated_local_pressure_var.set(f"{last_p_local:.2f} (미도달)")
+
+                    self._show_status(
+                        f"모드 3: 응력 한계법 - q1 미발견\n\n"
+                        f"PSD 데이터 전체 범위 ({min_q:.2e} ~ {max_q:.2e} 1/m)에서\n"
+                        f"국부 압력 p(q)가 σ_Y ({stress_y} MPa)에 도달하지 못했습니다.\n\n"
+                        f"  최대 q에서의 국부 압력: {last_p_local:.2f} MPa\n"
+                        f"  최대 q에서의 P(q): {last_P:.6f}\n\n"
+                        f"[해결 방법]\n"
+                        f"  1. q_max 범위를 늘리세요\n"
+                        f"  2. σ_Y 값을 낮추세요\n"
+                        f"  3. 공칭 압력 p₀를 높이세요",
+                        'warning')
 
         except ValueError as e:
             messagebox.showerror("오류", f"입력값이 유효하지 않습니다: {e}")
