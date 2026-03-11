@@ -245,7 +245,7 @@ class PerssonModelGUI_V2:
 
     # ── Standardised Dimensions (pixels, applied uniformly to every tab) ──
     DIMS = {
-        'panel_width':   490,     # Left control-panel width
+        'panel_width':   470,     # Left control-panel width
         'section_pad':   6,       # LabelFrame internal padding
         'section_gap_y': 3,       # Vertical gap between sections
         'row_gap_y':     2,       # Vertical gap between rows within a section
@@ -317,7 +317,7 @@ class PerssonModelGUI_V2:
             self.DIMS['btn_pady'] = max(2, int(4 * s))
             self.DIMS['toolbar_pady'] = max(1, int(3 * s))
             if eff_w < 1600:
-                self.DIMS['panel_width'] = max(400, int(490 * s))
+                self.DIMS['panel_width'] = max(400, int(470 * s))
 
         # ── Load saved layout settings (before theme setup) ──
         self._saved_window_cfg = None
@@ -22710,9 +22710,9 @@ class PerssonModelGUI_V2:
                       left=0.06, right=0.97, top=0.93, bottom=0.07)
 
         # Top row: 4 time-history / characteristic plots
-        _bf_title = 9
-        _bf_label = 8
-        _bf_tick = 7
+        _bf_title = 12
+        _bf_label = 12
+        _bf_tick = 12
 
         self.ax_br_input = self.fig_brush.add_subplot(gs[0, :5])
         self.ax_br_input.set_xlabel('time [s]', fontsize=_bf_label)
@@ -23855,12 +23855,15 @@ class PerssonModelGUI_V2:
         t_contact_1d = np.clip((x_arr + L / 2.0) / max(vc, 0.01), 0, None)
         t_contact = t_contact_1d[:, np.newaxis] * np.ones((1, Ny))
 
-        # Distribute total stiffness across nodes inside ellipse
-        # kx, ky = total tire tread stiffness [N/m]
-        # Per-node stiffness = total / n_nodes_in_contact
+        # Distribute stiffness across nodes, scaled by contact area.
+        # kx, ky are calibrated for default footprint (L=0.15, W=0.12).
+        # When L or W changes, total stiffness scales with contact area
+        # (more rubber in contact = stiffer patch).
+        _L_ref, _W_ref = 0.15, 0.12  # default footprint dimensions [m]
+        _area_scale = (L * W) / (_L_ref * _W_ref)
         n_in_ellipse = max(np.sum(ellipse_mask), 1)
-        kx_node = kx / n_in_ellipse  # [N/m] per node
-        ky_node = ky / n_in_ellipse
+        kx_node = (kx * _area_scale) / n_in_ellipse  # [N/m] per node
+        ky_node = (ky * _area_scale) / n_in_ellipse
 
         # Store frames
         from scipy.ndimage import binary_dilation
@@ -24816,20 +24819,20 @@ class PerssonModelGUI_V2:
         # ── Common helpers ──
         _cb_kw = dict(fraction=0.046, pad=0.04)
 
-        # Axis extent: proportional to footprint with generous margin
-        # Larger margin makes the footprint appear smaller and more readable
-        _AX_MARGIN = 1.60  # 60% margin around footprint
-        _AX_X_HALF = L_mm / 2 * _AX_MARGIN
-        _AX_Y_HALF = W_mm / 2 * _AX_MARGIN
+        # Axis extent: additive margin so footprint size changes are visible
+        # (multiplicative margin makes contour fill same proportion regardless of size)
+        _AX_MARGIN_MM = 30.0  # fixed margin in mm around footprint
+        _AX_X_HALF = L_mm / 2 + _AX_MARGIN_MM
+        _AX_Y_HALF = W_mm / 2 + _AX_MARGIN_MM
 
         def _setup_ax(ax, title, has_colorbar_space=False):
-            ax.set_title(title, fontsize=9, fontweight='bold')
-            ax.set_xlabel('length [mm]', fontsize=8)
-            ax.set_ylabel('width [mm]', fontsize=8)
+            ax.set_title(title, fontsize=12, fontweight='bold')
+            ax.set_xlabel('length [mm]', fontsize=12)
+            ax.set_ylabel('width [mm]', fontsize=12)
             # Use footprint-proportional axis limits to prevent white gaps
             ax.set_xlim(-_AX_X_HALF, _AX_X_HALF)
             ax.set_ylim(-_AX_Y_HALF, _AX_Y_HALF)
-            ax.tick_params(labelsize=7)
+            ax.tick_params(labelsize=12)
 
         def _add_contact_outline(ax):
             """Add a contact patch outline that can be updated per-frame.
@@ -25330,9 +25333,9 @@ class PerssonModelGUI_V2:
         self._brush_L_mm = L_new
         self._brush_W_mm = W_new
 
-        margin = 1.60
-        xh = L_new / 2 * margin
-        yh = W_new / 2 * margin
+        margin_mm = 30.0  # fixed additive margin (same as _brush_init_artists)
+        xh = L_new / 2 + margin_mm
+        yh = W_new / 2 + margin_mm
         for ax_name in ('ax_br_stick', 'ax_br_speed', 'ax_br_pressure',
                         'ax_br_temperature', 'ax_br_friction'):
             ax = getattr(self, ax_name, None)
@@ -26206,10 +26209,13 @@ class PerssonModelGUI_V2:
         t_contact_1d = np.clip((xx + L / 2.0) / max(vc_brush, 0.01), 0, None)
         t_contact = t_contact_1d  # (nx, ny)
 
-        # Per-node stiffness
+        # Per-node stiffness, scaled by contact area
+        # (same area scaling as _run_brush_transient)
+        _L_ref, _W_ref = 0.15, 0.12  # default footprint dimensions [m]
+        _area_scale = (L * W) / (_L_ref * _W_ref)
         n_in_mask = max(np.sum(mask), 1)
-        kx_node = kx / n_in_mask
-        ky_node = ky / n_in_mask
+        kx_node = (kx * _area_scale) / n_in_mask
+        ky_node = (ky * _area_scale) / n_in_mask
 
         # Dual-peak components for SA-dependent asymmetry
         _is_dual_peak = (ptype == 'dual_peak')
@@ -26440,9 +26446,9 @@ class PerssonModelGUI_V2:
         self._ts_fy_canvas.draw()
 
         # ── Contact patch outline setup (matching 2D Brush Model exactly) ──
-        _AX_MARGIN = 1.60  # 60% margin around footprint (matches 2D Brush tab)
-        _AX_X_HALF = L_mm / 2 * _AX_MARGIN
-        _AX_Y_HALF = W_mm / 2 * _AX_MARGIN
+        _AX_MARGIN_MM = 30.0  # fixed margin in mm (matches 2D Brush tab)
+        _AX_X_HALF = L_mm / 2 + _AX_MARGIN_MM
+        _AX_Y_HALF = W_mm / 2 + _AX_MARGIN_MM
         n_levels = 8  # discrete levels (matching 2D Brush tab)
 
         self._ts_outline_patches = []
