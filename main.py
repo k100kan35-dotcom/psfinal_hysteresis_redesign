@@ -4461,6 +4461,16 @@ class PerssonModelGUI_V2:
         ttk.Label(self.stress_limit_frame, text="(p₀ = 공칭 압력 사용)",
                   font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=3)
 
+        # 대표 속도 입력 (모드 3용)
+        self.stress_velocity_frame = ttk.Frame(mode_frame)
+        self.stress_velocity_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(self.stress_velocity_frame, text="대표 속도 v (m/s):").pack(side=tk.LEFT)
+        self.stress_velocity_var = tk.StringVar(value="1.0")
+        self.stress_velocity_entry = ttk.Entry(self.stress_velocity_frame, textvariable=self.stress_velocity_var, width=12)
+        self.stress_velocity_entry.pack(side=tk.LEFT, padx=5)
+        ttk.Label(self.stress_velocity_frame, text="(G(q) 계산용 슬라이딩 속도)",
+                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=3)
+
         # Add trace to sync target_hrms_slope_var with Tab 1's psd_xi_var and Tab 4's display
         self.target_hrms_slope_var.trace_add('write', self._on_target_hrms_changed)
 
@@ -4778,22 +4788,25 @@ class PerssonModelGUI_V2:
         """모드 변경 시 UI 상태 업데이트."""
         mode = self.hrms_q1_mode_var.get()
         if mode == "hrms_to_q1":
-            # 모드 1: h'rms 입력 활성화, q1/σ_Y 입력 비활성화
+            # 모드 1: h'rms 입력 활성화, q1/σ_Y/속도 입력 비활성화
             self.hrms_entry.config(state='normal')
             self.q1_entry.config(state='disabled')
             self.stress_y_entry.config(state='disabled')
+            self.stress_velocity_entry.config(state='disabled')
             self.hrms_q1_calc_btn.config(text="h'rms → q1 계산")
         elif mode == "q1_to_hrms":
-            # 모드 2: q1 입력 활성화, h'rms/σ_Y 입력 비활성화
+            # 모드 2: q1 입력 활성화, h'rms/σ_Y/속도 입력 비활성화
             self.hrms_entry.config(state='disabled')
             self.q1_entry.config(state='normal')
             self.stress_y_entry.config(state='disabled')
+            self.stress_velocity_entry.config(state='disabled')
             self.hrms_q1_calc_btn.config(text="q1 → h'rms 계산")
         elif mode == "stress_limit":
-            # 모드 3: σ_Y 입력 활성화, h'rms/q1 입력 비활성화
+            # 모드 3: σ_Y/속도 입력 활성화, h'rms/q1 입력 비활성화
             self.hrms_entry.config(state='disabled')
             self.q1_entry.config(state='disabled')
             self.stress_y_entry.config(state='normal')
+            self.stress_velocity_entry.config(state='normal')
             self.hrms_q1_calc_btn.config(text="σ_Y → q1 계산")
 
     def _calculate_hrms_q1(self):
@@ -4966,13 +4979,13 @@ class PerssonModelGUI_V2:
                 # GCalculator가 이미 초기화되어 있는지 확인
                 if hasattr(self, 'g_calculator') and self.g_calculator is not None:
                     # 기존 GCalculator 사용 (가장 정확)
-                    # 대표 속도로 계산 (가장 낮은 속도 또는 중간 속도)
-                    v_min = float(self.v_min_var.get())
+                    # 사용자 지정 대표 속도로 계산
+                    v_stress = float(self.stress_velocity_var.get())
                     # σ₀와 velocity를 현재 UI 값으로 갱신
                     # G(q) ∝ 1/σ₀² 이므로 σ₀가 다르면 P(q)가 크게 달라짐
                     self.g_calculator.update_parameters(
                         sigma_0=p0 * 1e6,  # MPa → Pa
-                        velocity=v_min
+                        velocity=v_stress
                     )
 
                     # q 배열 생성 (세밀한 간격)
@@ -5035,6 +5048,7 @@ class PerssonModelGUI_V2:
                         f"[입력]\n"
                         f"  공칭 압력 p₀: {p0} MPa\n"
                         f"  파괴 응력 σ_Y: {stress_y} MPa\n"
+                        f"  대표 속도 v: {v_stress} m/s\n"
                         f"  임계 P(q) = p₀/σ_Y: {P_threshold:.6f}\n\n"
                         f"[출력]\n"
                         f"  q1 (컷오프 파수): {q1_found:.3e} (1/m)\n"
@@ -5060,12 +5074,14 @@ class PerssonModelGUI_V2:
                         f"모드 3: 응력 한계법 - q1 미발견\n\n"
                         f"PSD 데이터 전체 범위 ({min_q:.2e} ~ {max_q:.2e} 1/m)에서\n"
                         f"국부 압력 p(q)가 σ_Y ({stress_y} MPa)에 도달하지 못했습니다.\n\n"
+                        f"  대표 속도 v: {v_stress} m/s\n"
                         f"  최대 q에서의 국부 압력: {last_p_local:.2f} MPa\n"
                         f"  최대 q에서의 P(q): {last_P:.6f}\n\n"
                         f"[해결 방법]\n"
-                        f"  1. q_max 범위를 늘리세요\n"
+                        f"  1. 대표 속도를 높이세요 (E* 증가 → G(q) 증가)\n"
                         f"  2. σ_Y 값을 낮추세요\n"
-                        f"  3. 공칭 압력 p₀를 높이세요",
+                        f"  3. 공칭 압력 p₀를 높이세요\n"
+                        f"  4. q_max 범위를 늘리세요",
                         'warning')
 
         except ValueError as e:
