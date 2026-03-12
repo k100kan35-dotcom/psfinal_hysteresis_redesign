@@ -196,6 +196,7 @@ matplotlib.rcParams['figure.titlesize'] = 12
 
 
 from braking_simulation import bind_braking_simulation
+from vehicle_test_matching import bind_vehicle_test_matching
 
 
 class PerssonModelGUI_V2:
@@ -910,6 +911,7 @@ class PerssonModelGUI_V2:
             ('tab_variables',       '변수 관계',           self._create_variables_tab),
             ('tab_debug',           '디버그',              self._create_debug_tab),
             ('tab_friction_factors','영향 인자',           self._create_friction_factors_tab),
+            ('tab_vtm',             '실차 매칭',           self._create_vehicle_test_matching_tab),
         ]
 
         # 기본 숨김 탭 목록
@@ -29463,6 +29465,7 @@ def _get_system_dpi_scale():
 
 
 bind_braking_simulation(PerssonModelGUI_V2)
+bind_vehicle_test_matching(PerssonModelGUI_V2)
 
 
 def main():
