@@ -237,29 +237,30 @@ def _create_vehicle_test_matching_tab(self, parent):
     toolbar_detail = NavigationToolbar2Tk(canvas_detail, tab_detail)
     toolbar_detail.update()
 
-    # Tab 4: Friction Map 조건 탐색 — 3D 시각화
+    # Tab 4: Friction Map 조건 탐색 — 3D 시각화 (스크롤 지원, 대형 플롯)
     tab_map = ttk.Frame(self._vtm_right_notebook)
     self._vtm_right_notebook.add(tab_map, text='  맵 조건 탐색  ')
 
     # 옵션 바: 슬라이스 축 선택
     opt_bar = ttk.Frame(tab_map)
     opt_bar.pack(fill=tk.X, padx=4, pady=2)
-    ttk.Label(opt_bar, text="3D 슬라이스 축:").pack(side=tk.LEFT)
+    ttk.Label(opt_bar, text="슬라이스 축:").pack(side=tk.LEFT)
     self._vtm_map_slice_var = tk.StringVar(value="pressure")
     for txt, val in [("압력(p₀)별", "pressure"), ("온도(T)별", "temperature"), ("속도(v)별", "velocity")]:
         ttk.Radiobutton(opt_bar, text=txt, variable=self._vtm_map_slice_var,
-                        value=val).pack(side=tk.LEFT, padx=4)
+                        value=val).pack(side=tk.LEFT, padx=3)
+    ttk.Label(opt_bar, text=" | Branch:").pack(side=tk.LEFT, padx=(8, 2))
+    self._vtm_map_branch_var = tk.StringVar(value="cold")
+    for txt, val in [("Cold", "cold"), ("Hot", "hot")]:
+        ttk.Radiobutton(opt_bar, text=txt, variable=self._vtm_map_branch_var,
+                        value=val).pack(side=tk.LEFT, padx=2)
     ttk.Button(opt_bar, text="새로고침",
                command=lambda: self._vtm_plot_map_conditions(self._vtm_results) if self._vtm_results else None
                ).pack(side=tk.LEFT, padx=8)
 
-    fig_map = Figure(figsize=(10, 7), dpi=100)
-    self._vtm_fig_map = fig_map
-    canvas_map = FigureCanvasTkAgg(fig_map, master=tab_map)
-    canvas_map.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-    self._vtm_canvas_map = canvas_map
-    toolbar_map = NavigationToolbar2Tk(canvas_map, tab_map)
-    toolbar_map.update()
+    # 동적 플롯 영역 (스크롤 지원) — 플롯은 _vtm_plot_map_conditions에서 생성
+    self._vtm_map_plot_frame = ttk.Frame(tab_map)
+    self._vtm_map_plot_frame.pack(fill=tk.BOTH, expand=True)
 
 
 # ── Sample-Map assignment ──
@@ -1395,23 +1396,29 @@ def _vtm_plot_match_detail(self, all_results):
 
 
 def _vtm_plot_map_conditions(self, all_results):
-    """3D 마찰맵 표면 위에 상관성 통과 범위를 음영으로 표시하고
-    Best Fit 포인트를 마킹하는 시각화.
+    """3D 마찰맵 표면 위에 상관성 통과 영역을 색상으로 표시.
 
-    슬라이스 축(기본: 압력별)에 따라 3개의 3D 서브플롯을 생성.
+    Friction Map 탭과 유사한 대형 스크롤 가능 3D 플롯.
+    상관성 높은 영역 = 빨간색 음영, 비통과 영역 = 기본 컬러맵.
+    Best Fit = 별표 마커.
     """
+    import tkinter as tk
+    from matplotlib.figure import Figure
+    from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+    from matplotlib.colors import Normalize
     import matplotlib.pyplot as plt
-    from mpl_toolkits.mplot3d import Axes3D  # noqa: F401
+    import matplotlib.colors as mcolors
 
-    fig = self._vtm_fig_map
-    fig.clear()
+    # ── 기존 플롯 영역 클리어 ──
+    plot_frame = self._vtm_map_plot_frame
+    for w in plot_frame.winfo_children():
+        w.destroy()
 
+    # ── 데이터 검증 ──
     if all_results is None:
-        ax = fig.add_subplot(111)
-        ax.text(0.5, 0.5, "상관성 분석을 먼저 실행하세요.",
-                ha='center', va='center', fontsize=14, transform=ax.transAxes)
-        ax.set_axis_off()
-        self._vtm_canvas_map.draw()
+        lbl = ttk.Label(plot_frame, text="상관성 분석을 먼저 실행하세요.",
+                        font=self.FONTS['body'])
+        lbl.pack(expand=True)
         return
 
     # Collect search results from first item with search_result
@@ -1424,31 +1431,26 @@ def _vtm_plot_map_conditions(self, all_results):
             break
 
     if sr is None:
-        ax = fig.add_subplot(111)
-        ax.text(0.5, 0.5, "전수 탐색 결과가 없습니다.\n조건을 비우고 분석을 실행하세요.",
-                ha='center', va='center', fontsize=14, transform=ax.transAxes)
-        ax.set_axis_off()
-        self._vtm_canvas_map.draw()
+        lbl = ttk.Label(plot_frame,
+                        text="전수 탐색 결과가 없습니다.\n조건을 비우고 분석을 실행하세요.",
+                        font=self.FONTS['body'])
+        lbl.pack(expand=True)
         return
 
-    # Get friction map from first sample with a map
+    # Get friction map from first sample
     any_fm = None
-    any_sample = None
     for s in self._vtm_samples:
         map_name = self._vtm_sample_maps.get(s)
         if map_name:
             fm, _ = self._get_friction_map_by_name(map_name)
             if fm is not None:
                 any_fm = fm
-                any_sample = s
                 break
 
     if any_fm is None:
-        ax = fig.add_subplot(111)
-        ax.text(0.5, 0.5, "마찰맵 데이터를 찾을 수 없습니다.",
-                ha='center', va='center', fontsize=14, transform=ax.transAxes)
-        ax.set_axis_off()
-        self._vtm_canvas_map.draw()
+        lbl = ttk.Label(plot_frame, text="마찰맵 데이터를 찾을 수 없습니다.",
+                        font=self.FONTS['body'])
+        lbl.pack(expand=True)
         return
 
     T_arr = any_fm['T_array']
@@ -1457,79 +1459,72 @@ def _vtm_plot_map_conditions(self, all_results):
     log_v = np.log10(v_arr)
     thr = getattr(self, '_vtm_threshold', 0.80)
 
-    # Determine LUT key from analysis settings
+    # Determine LUT key
     mu_type = self._vtm_mu_type_var.get()
-    branch_mode = self._vtm_branch_var.get()
+    branch_sel = getattr(self, '_vtm_map_branch_var', None)
+    display_branch = branch_sel.get() if branch_sel else 'cold'
     lut_map = {
         'mu_total': ('LUT_cold', 'LUT_hot'),
         'mu_visc': ('LUT_mu_visc_cold', 'LUT_mu_visc_hot'),
         'mu_adh': ('LUT_mu_adh_cold', 'LUT_mu_adh_hot'),
     }
-    cold_lut_key, hot_lut_key = lut_map.get(mu_type, ('LUT_cold', 'LUT_hot'))
-
-    # Use cold branch for surface display
-    use_cold = branch_mode in ('cold', 'both')
-    use_hot = branch_mode in ('hot', 'both') and any_fm.get('use_flash', False)
-    lut_key = cold_lut_key if use_cold else hot_lut_key
+    cold_key, hot_key = lut_map.get(mu_type, ('LUT_cold', 'LUT_hot'))
+    lut_key = hot_key if display_branch == 'hot' else cold_key
     LUT = any_fm.get(lut_key)
     if LUT is None:
-        LUT = any_fm.get(cold_lut_key)
+        LUT = any_fm.get(cold_key)
     if LUT is None:
-        ax = fig.add_subplot(111)
-        ax.text(0.5, 0.5, "LUT 데이터를 찾을 수 없습니다.",
-                ha='center', va='center', fontsize=14, transform=ax.transAxes)
-        ax.set_axis_off()
-        self._vtm_canvas_map.draw()
+        lbl = ttk.Label(plot_frame, text="LUT 데이터를 찾을 수 없습니다.",
+                        font=self.FONTS['body'])
+        lbl.pack(expand=True)
         return
 
-    # Build passing mask: 3D boolean array [n_T, n_p, n_v]
-    passing_mask = np.zeros((len(T_arr), len(p0_arr), len(v_arr)), dtype=bool)
+    # ── Build correlation map: 3D array [n_T, n_p, n_v] with |r| values ──
+    # Initialize with NaN (= not computed)
+    corr_map = np.full((len(T_arr), len(p0_arr), len(v_arr)), np.nan)
     best_cond = sr['best_condition']
 
     for c in sr['passing_conditions']:
         iT = np.argmin(np.abs(T_arr - c['T_C']))
         ip = np.argmin(np.abs(p0_arr - c['p0_MPa']))
         iv = np.argmin(np.abs(v_arr - c['v_ms']))
-        passing_mask[iT, ip, iv] = True
+        corr_map[iT, ip, iv] = abs(c['corr'])
 
-    # Determine slice axis
+    # ── Slice axis ──
     slice_axis = getattr(self, '_vtm_map_slice_var', None)
     slice_mode = slice_axis.get() if slice_axis else 'pressure'
 
-    # ── Build 3D subplots based on slice axis ──
     if slice_mode == 'pressure':
         slice_arr = p0_arr
         slice_label = 'p₀'
         slice_unit = 'MPa'
         x_arr, y_arr = T_arr, log_v
-        x_label, y_label = r'$T_0$ (°C)', r'$\log_{10}(v)$'
-        def get_slice(ip): return LUT[:, ip, :]
-        def get_mask(ip): return passing_mask[:, ip, :]
+        x_label, y_label = r'$T_0$ ($^\circ$C)', r'$\log_{10}(v)$'
+        def get_Z(i): return LUT[:, i, :]
+        def get_corr(i): return corr_map[:, i, :]
     elif slice_mode == 'temperature':
         slice_arr = T_arr
         slice_label = 'T'
         slice_unit = '°C'
         x_arr, y_arr = p0_arr, log_v
         x_label, y_label = r'$p_0$ (MPa)', r'$\log_{10}(v)$'
-        def get_slice(iT): return LUT[iT, :, :]
-        def get_mask(iT): return passing_mask[iT, :, :]
+        def get_Z(i): return LUT[i, :, :]
+        def get_corr(i): return corr_map[i, :, :]
     else:  # velocity
         slice_arr = v_arr
         slice_label = 'v'
         slice_unit = 'm/s'
         x_arr, y_arr = T_arr, p0_arr
-        x_label, y_label = r'$T_0$ (°C)', r'$p_0$ (MPa)'
-        def get_slice(iv): return LUT[:, :, iv]
-        def get_mask(iv): return passing_mask[:, :, iv]
+        x_label, y_label = r'$T_0$ ($^\circ$C)', r'$p_0$ (MPa)'
+        def get_Z(i): return LUT[:, :, i]
+        def get_corr(i): return corr_map[:, :, i]
 
     n_slices = len(slice_arr)
-    n_cols = min(n_slices, 3)
-    n_rows = int(np.ceil(n_slices / n_cols))
 
     # z-label
-    z_labels = {'mu_total': r'$\mu_{total}$', 'mu_visc': r'$\mu_{hys}$',
-                'mu_adh': r'$\mu_{adh}$'}
-    z_label = z_labels.get(mu_type, r'$\mu$')
+    z_labels_map = {'mu_total': r'$\mu_{total}$', 'mu_visc': r'$\mu_{hys}$',
+                    'mu_adh': r'$\mu_{adh}$'}
+    z_label = z_labels_map.get(mu_type, r'$\mu$')
 
     # Global z-limits
     z_min = float(LUT.min())
@@ -1537,7 +1532,7 @@ def _vtm_plot_map_conditions(self, all_results):
 
     X_mesh, Y_mesh = np.meshgrid(x_arr, y_arr, indexing='ij')
 
-    # Fine interpolation for smooth surface
+    # Fine interpolation
     use_fine = len(x_arr) >= 2 and len(y_arr) >= 2
     if use_fine:
         try:
@@ -1548,123 +1543,229 @@ def _vtm_plot_map_conditions(self, all_results):
         except ImportError:
             use_fine = False
 
-    for idx in range(n_slices):
-        ax = fig.add_subplot(n_rows, n_cols, idx + 1, projection='3d')
+    # ── Figure sizing (Friction Map 탭과 유사) ──
+    MAX_COLS = 3
+    n_cols = min(n_slices, MAX_COLS)
+    n_rows = int(np.ceil(n_slices / n_cols))
 
-        Z_slice = get_slice(idx)
-        mask_slice = get_mask(idx)
+    plot_frame.update_idletasks()
+    avail_w = plot_frame.winfo_width()
+    if avail_w < 200:
+        avail_w = 900
+    fig_dpi = 100
+    fig_w = max(avail_w - 20, 600) / fig_dpi
+    row_h = 5.5  # inches per row — large plots
+    fig_h = max(row_h * n_rows, 6)
+
+    fig = Figure(figsize=(fig_w, fig_h), dpi=fig_dpi, facecolor='white')
+    fig.subplots_adjust(left=0.04, right=0.96, top=0.92, bottom=0.04,
+                        wspace=0.18, hspace=0.30)
+
+    # ── Custom colormap: viridis base + red overlay for passing regions ──
+    base_cmap = plt.cm.viridis
+    red_color = np.array([1.0, 0.15, 0.15, 1.0])  # bright red
+
+    def _make_facecolors(Z_slice, corr_slice):
+        """Create RGBA facecolors: viridis for non-passing, red-tinted for passing."""
+        norm = Normalize(vmin=z_min, vmax=z_max)
+        # Base colors from viridis
+        rgba = base_cmap(norm(Z_slice))  # shape (nx, ny, 4)
+        # Overlay red where correlation passes threshold
+        # For plot_surface, facecolors shape = (nx-1, ny-1, 4) for cell centers
+        nx, ny = Z_slice.shape
+        fc = np.zeros((nx - 1, ny - 1, 4))
+        for i in range(nx - 1):
+            for j in range(ny - 1):
+                # Average of 4 corner values
+                z_avg = (Z_slice[i, j] + Z_slice[i+1, j] +
+                         Z_slice[i, j+1] + Z_slice[i+1, j+1]) / 4
+                base_rgba = base_cmap(norm(z_avg))
+
+                # Check if any corner is a passing condition
+                corners = [corr_slice[i, j], corr_slice[i+1, j],
+                           corr_slice[i, j+1], corr_slice[i+1, j+1]]
+                passing_corners = [c for c in corners if not np.isnan(c)]
+
+                if passing_corners:
+                    # Blend with red — intensity proportional to |r|
+                    max_corr = max(passing_corners)
+                    blend = min((max_corr - thr) / (1.0 - thr + 1e-10), 1.0) * 0.7 + 0.3
+                    fc[i, j] = (1 - blend) * np.array(base_rgba) + blend * red_color
+                else:
+                    fc[i, j] = base_rgba
+                fc[i, j, 3] = 0.85  # alpha
+        return fc
+
+    for idx in range(n_slices):
+        row_i = idx // n_cols
+        col_i = idx % n_cols
+        subplot_idx = row_i * n_cols + col_i + 1
+        ax = fig.add_subplot(n_rows, n_cols, subplot_idx, projection='3d')
+
+        Z_slice = get_Z(idx)
+        corr_slice = get_corr(idx)
         s_val = slice_arr[idx]
 
-        # Plot surface
+        # Count passing cells in this slice
+        n_pass_slice = int(np.sum(~np.isnan(corr_slice)))
+
+        # ── Surface with facecolors ──
         if use_fine:
             try:
-                sp = RectBivariateSpline(x_arr, y_arr, Z_slice)
-                Z_f = sp(x_fine, y_fine)
+                sp_z = RectBivariateSpline(x_arr, y_arr, Z_slice)
+                Z_f = sp_z(x_fine, y_fine)
+                # Also interpolate correlation mask (nearest for boolean-like data)
+                from scipy.interpolate import RegularGridInterpolator
+                corr_filled = np.where(np.isnan(corr_slice), -1.0, corr_slice)
+                rgi = RegularGridInterpolator(
+                    (x_arr, y_arr), corr_filled, method='nearest',
+                    bounds_error=False, fill_value=-1.0)
+                pts = np.stack(np.meshgrid(x_fine, y_fine, indexing='ij'), axis=-1)
+                corr_f = rgi(pts.reshape(-1, 2)).reshape(len(x_fine), len(y_fine))
+                corr_f[corr_f < 0] = np.nan
+
+                fc = _make_facecolors(Z_f, corr_f)
                 ax.plot_surface(X_fine, Y_fine, Z_f,
-                                cmap='viridis', alpha=0.6,
+                                facecolors=fc,
                                 rstride=1, cstride=1,
                                 linewidth=0, antialiased=False,
-                                vmin=z_min, vmax=z_max)
+                                shade=False)
             except Exception:
+                fc = _make_facecolors(Z_slice, corr_slice)
                 ax.plot_surface(X_mesh, Y_mesh, Z_slice,
-                                cmap='viridis', alpha=0.6,
-                                vmin=z_min, vmax=z_max)
+                                facecolors=fc,
+                                shade=False)
         else:
+            fc = _make_facecolors(Z_slice, corr_slice)
             ax.plot_surface(X_mesh, Y_mesh, Z_slice,
-                            cmap='viridis', alpha=0.6,
-                            vmin=z_min, vmax=z_max)
+                            facecolors=fc,
+                            shade=False)
 
-        # Plot passing conditions as red shaded scatter on the surface
-        pass_ix, pass_iy = np.where(mask_slice)
-        if len(pass_ix) > 0:
-            pass_x = x_arr[pass_ix]
-            pass_y = y_arr[pass_iy]
-            pass_z = np.array([Z_slice[ix, iy] for ix, iy in zip(pass_ix, pass_iy)])
-            ax.scatter(pass_x, pass_y, pass_z,
-                       c='red', alpha=0.7, s=40, marker='o',
-                       edgecolors='darkred', linewidth=0.5,
-                       label=f'|r|≥{thr:.2f}', zorder=10)
-
-        # Plot best fit point
+        # ── Best Fit marker ──
         if best_cond is not None:
             if slice_mode == 'pressure':
                 bc_slice_val = best_cond['p0_MPa']
-                bc_x, bc_y = best_cond['T_C'], np.log10(best_cond['v_ms'])
+                bc_x = best_cond['T_C']
+                bc_y = np.log10(best_cond['v_ms'])
             elif slice_mode == 'temperature':
                 bc_slice_val = best_cond['T_C']
-                bc_x, bc_y = best_cond['p0_MPa'], np.log10(best_cond['v_ms'])
+                bc_x = best_cond['p0_MPa']
+                bc_y = np.log10(best_cond['v_ms'])
             else:
                 bc_slice_val = best_cond['v_ms']
-                bc_x, bc_y = best_cond['T_C'], best_cond['p0_MPa']
+                bc_x = best_cond['T_C']
+                bc_y = best_cond['p0_MPa']
 
-            # Only plot best fit on the matching slice
             bc_slice_idx = np.argmin(np.abs(slice_arr - bc_slice_val))
             if bc_slice_idx == idx:
-                # Find z at best condition
                 bc_ix = np.argmin(np.abs(x_arr - bc_x))
                 bc_iy = np.argmin(np.abs(y_arr - bc_y))
                 bc_z = float(Z_slice[bc_ix, bc_iy])
                 ax.scatter([bc_x], [bc_y], [bc_z],
-                           c='yellow', s=200, marker='*',
+                           c='yellow', s=300, marker='*',
                            edgecolors='black', linewidth=1.5,
-                           zorder=20, label='Best Fit')
+                           zorder=20)
+                ax.text(bc_x, bc_y, bc_z * 1.03,
+                        'Best Fit', fontsize=9, fontweight='bold',
+                        color='black', ha='center', zorder=21)
 
-        ax.set_xlabel(x_label, fontsize=9, labelpad=4)
-        ax.set_ylabel(y_label, fontsize=9, labelpad=4)
-        ax.set_zlabel(z_label, fontsize=9, labelpad=4)
+        ax.set_xlabel(x_label, fontsize=11, labelpad=6)
+        ax.set_ylabel(y_label, fontsize=11, labelpad=6)
+        ax.set_zlabel(z_label, fontsize=11, labelpad=6)
         ax.set_zlim(z_min, z_max)
         ax.view_init(elev=25, azim=225)
-        ax.tick_params(labelsize=8)
+        ax.tick_params(labelsize=9)
 
-        # Slice value in title
+        # Title
         if slice_mode == 'velocity':
             title_val = f"{s_val:.4g}"
         elif slice_mode == 'pressure':
             title_val = f"{s_val:.3g}"
         else:
             title_val = f"{s_val:.0f}"
-        branch_label = 'Cold' if use_cold else 'Hot'
-        ax.set_title(f"{branch_label}  {slice_label}={title_val} {slice_unit}",
-                     fontsize=10, fontweight='bold')
+        branch_disp = display_branch.capitalize()
+        pass_info = f"({n_pass_slice}개 통과)" if n_pass_slice > 0 else "(통과 없음)"
+        ax.set_title(f'{branch_disp}  {slice_label}={title_val} {slice_unit}\n'
+                     f'{z_label}: {Z_slice.min():.4f} ~ {Z_slice.max():.4f}  {pass_info}',
+                     fontsize=12, fontweight='bold',
+                     color='#1565C0' if display_branch == 'cold' else '#C62828')
 
-    # ── Text box with range info (범례처럼) ──
+    # ── Text box with range info ──
     info_lines = []
     info_lines.append(f"[{sr_item_name}] 전수 탐색 결과")
-    info_lines.append(f"총 탐색: {sr['total_searched']}개")
-    info_lines.append(f"|r| ≥ {thr:.2f} 통과: {sr['passing_count']}개 "
+    info_lines.append(f"총 탐색: {sr['total_searched']:,}개 조건")
+    info_lines.append(f"|r| ≥ {thr:.2f} 통과: {sr['passing_count']:,}개 "
                       f"({sr['passing_count']/max(sr['total_searched'],1)*100:.1f}%)")
 
     if sr['passing_count'] > 0:
         T_r = sr['T_range']
         p_r = sr['p0_range']
         v_r = sr['v_range']
-        info_lines.append(f"")
-        info_lines.append(f"상관성 충족 범위:")
+        info_lines.append("")
+        info_lines.append("■ 상관성 충족 범위:")
         info_lines.append(f"  온도: {T_r[0]:.0f} ~ {T_r[1]:.0f} °C")
         info_lines.append(f"  하중: {p_r[0]:.3g} ~ {p_r[1]:.3g} MPa")
         info_lines.append(f"  속도: {v_r[0]:.4g} ~ {v_r[1]:.4g} m/s")
         info_lines.append(f"  Branch: {', '.join(sr['branch_list'])}")
 
     if best_cond is not None:
-        info_lines.append(f"")
-        info_lines.append(f"Best Fit (r={best_cond['corr']:+.4f}):")
+        info_lines.append("")
+        info_lines.append(f"★ Best Fit (r={best_cond['corr']:+.4f}):")
         info_lines.append(f"  T={best_cond['T_C']:.0f}°C, "
                           f"p₀={best_cond['p0_MPa']:.3g} MPa, "
-                          f"v={best_cond['v_ms']:.4g} m/s")
-        info_lines.append(f"  [{best_cond['branch']}]")
+                          f"v={best_cond['v_ms']:.4g} m/s [{best_cond['branch']}]")
 
     info_text = '\n'.join(info_lines)
-    fig.text(0.99, 0.02, info_text,
-             fontsize=8, family='monospace',
+    fig.text(0.99, 0.01, info_text,
+             fontsize=10, family='monospace',
              verticalalignment='bottom', horizontalalignment='right',
-             bbox=dict(boxstyle='round,pad=0.5', facecolor='lightyellow',
-                       alpha=0.9, edgecolor='#666'))
+             bbox=dict(boxstyle='round,pad=0.6', facecolor='lightyellow',
+                       alpha=0.95, edgecolor='#444'))
 
-    fig.suptitle(f"마찰맵 3D 표면 + 상관성 통과 범위 ({slice_label}별 슬라이스)",
-                 fontsize=12, fontweight='bold')
-    fig.subplots_adjust(left=0.02, right=0.98, top=0.90, bottom=0.12,
-                        wspace=0.15, hspace=0.25)
-    self._vtm_canvas_map.draw()
+    fig.suptitle(f"마찰맵 3D 표면 — 상관성 통과 영역 표시 ({slice_label}별, {display_branch.capitalize()})",
+                 fontsize=14, fontweight='bold')
+
+    # ── Scrollable canvas (Friction Map 탭과 동일 패턴) ──
+    scroll_frame = tk.Frame(plot_frame, bg='white')
+    scroll_frame.pack(fill=tk.BOTH, expand=True)
+
+    v_scrollbar = ttk.Scrollbar(scroll_frame, orient=tk.VERTICAL)
+    v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+    plot_canvas = tk.Canvas(scroll_frame, yscrollcommand=v_scrollbar.set,
+                            bg='white', highlightthickness=0)
+    v_scrollbar.config(command=plot_canvas.yview)
+    plot_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+    inner_frame = tk.Frame(plot_canvas, bg='white')
+    mpl_canvas = FigureCanvasTkAgg(fig, master=inner_frame)
+    mpl_canvas.draw()
+    canvas_widget = mpl_canvas.get_tk_widget()
+    fig_w_px = int(fig_w * fig_dpi)
+    fig_h_px = int(fig_h * fig_dpi)
+    canvas_widget.config(width=fig_w_px, height=fig_h_px)
+    canvas_widget.pack(fill=tk.X)
+
+    win_id = plot_canvas.create_window((0, 0), window=inner_frame, anchor='nw',
+                                       width=fig_w_px)
+
+    def _on_configure(event):
+        plot_canvas.configure(scrollregion=plot_canvas.bbox('all'))
+        new_w = event.width
+        if new_w > 100:
+            plot_canvas.itemconfig(win_id, width=new_w)
+    plot_canvas.bind('<Configure>', _on_configure)
+
+    def _on_mousewheel(event):
+        if event.delta:
+            plot_canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+        elif event.num == 4:
+            plot_canvas.yview_scroll(-3, 'units')
+        elif event.num == 5:
+            plot_canvas.yview_scroll(3, 'units')
+
+    plot_canvas.bind('<MouseWheel>', _on_mousewheel)
+    plot_canvas.bind('<Button-4>', _on_mousewheel)
+    plot_canvas.bind('<Button-5>', _on_mousewheel)
 
 
 # ── Export ──
