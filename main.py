@@ -388,6 +388,12 @@ class PerssonModelGUI_V2:
         self.profile_psd_analyzer = None  # ProfilePSDAnalyzer instance
         self.profile_psd_data = None  # Loaded profile data (x, h)
 
+        # ── Friction Map Store ──
+        # 여러 컴파운드의 마찰맵을 이름과 함께 저장/관리
+        # list of dicts: {name, friction_map_results, cold_hot_results, timestamp}
+        self._friction_map_store = []
+        self._selected_friction_map_name = None  # 현재 선택된 마찰맵 이름
+
         # Graph data registry for automatic data listing
         self.graph_data_registry = {}  # {name: {x, y, header, description, timestamp}}
 
@@ -21303,6 +21309,8 @@ class PerssonModelGUI_V2:
             ("Friction Map 생성", self._calculate_friction_map, 'Accent.TButton'),
             ("LUT 내보내기 (CSV)", self._export_friction_map_csv, 'TButton'),
             ("전체 내보내기", self._export_fm_all, 'TButton'),
+            ("마찰맵 저장", self._save_friction_map_to_store, 'TButton'),
+            ("저장소 관리", self._show_friction_map_store_list, 'TButton'),
         ])
         left_panel = layout['content']
 
@@ -22559,6 +22567,166 @@ class PerssonModelGUI_V2:
                 pass
             self._show_status(f"Friction Map 생성 실패:\n{str(e)}", 'error')
 
+    # ── Friction Map Store (마찰맵 저장소) ──
+
+    def _save_friction_map_to_store(self):
+        """현재 마찰맵을 이름과 함께 저장소에 저장."""
+        import copy
+        import datetime
+
+        if self.friction_map_results is None and self.cold_hot_results is None:
+            messagebox.showwarning("마찰맵 저장", "저장할 마찰맵이 없습니다.\nFriction Map 또는 Cold & Hot Branch를 먼저 계산하세요.")
+            return
+
+        # 이름 입력 다이얼로그
+        from tkinter import simpledialog
+        name = simpledialog.askstring("마찰맵 저장",
+            "마찰맵 이름을 입력하세요 (예: Compound A, SBR-1502 등):",
+            parent=self.root)
+        if not name or not name.strip():
+            return
+        name = name.strip()
+
+        # 중복 이름 체크
+        for entry in self._friction_map_store:
+            if entry['name'] == name:
+                if not messagebox.askyesno("이름 중복",
+                    f"'{name}' 이름의 마찰맵이 이미 있습니다.\n덮어쓰시겠습니까?"):
+                    return
+                self._friction_map_store.remove(entry)
+                break
+
+        entry = {
+            'name': name,
+            'friction_map_results': copy.deepcopy(self.friction_map_results),
+            'cold_hot_results': copy.deepcopy(self.cold_hot_results),
+            'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        self._friction_map_store.append(entry)
+        self._update_friction_map_combos()
+        self._show_status(f"마찰맵 '{name}' 저장 완료 (총 {len(self._friction_map_store)}개)", 'success')
+
+    def _show_friction_map_store_list(self):
+        """저장된 마찰맵 목록을 팝업으로 표시."""
+        if not self._friction_map_store:
+            messagebox.showinfo("마찰맵 저장소", "저장된 마찰맵이 없습니다.")
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title("마찰맵 저장소 관리")
+        win.geometry("500x400")
+        win.transient(self.root)
+
+        ttk.Label(win, text="저장된 마찰맵 목록", font=('', 13, 'bold')).pack(pady=8)
+
+        listbox = tk.Listbox(win, font=('NanumGothicCoding', 11), height=12)
+        listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
+
+        for entry in self._friction_map_store:
+            fm = entry.get('friction_map_results')
+            ch = entry.get('cold_hot_results')
+            info_parts = [entry['name'], f"[{entry['timestamp']}]"]
+            if fm:
+                info_parts.append(f"FM:{fm['T_array'].shape[0]}T×{fm['p0_array_MPa'].shape[0]}p×{fm['v_array'].shape[0]}v")
+            if ch:
+                info_parts.append(f"C&H:{len(ch['v'])}pts")
+            listbox.insert(tk.END, "  ".join(info_parts))
+
+        btn_frame = ttk.Frame(win)
+        btn_frame.pack(fill=tk.X, padx=10, pady=8)
+
+        def _load_selected():
+            sel = listbox.curselection()
+            if not sel:
+                messagebox.showwarning("선택", "로드할 마찰맵을 선택하세요.", parent=win)
+                return
+            import copy
+            entry = self._friction_map_store[sel[0]]
+            if entry.get('friction_map_results'):
+                self.friction_map_results = copy.deepcopy(entry['friction_map_results'])
+            if entry.get('cold_hot_results'):
+                self.cold_hot_results = copy.deepcopy(entry['cold_hot_results'])
+            self._selected_friction_map_name = entry['name']
+            self._show_status(f"마찰맵 '{entry['name']}' 로드 완료", 'success')
+            win.destroy()
+
+        def _delete_selected():
+            sel = listbox.curselection()
+            if not sel:
+                messagebox.showwarning("선택", "삭제할 마찰맵을 선택하세요.", parent=win)
+                return
+            entry = self._friction_map_store[sel[0]]
+            if messagebox.askyesno("삭제 확인", f"'{entry['name']}' 마찰맵을 삭제하시겠습니까?", parent=win):
+                del self._friction_map_store[sel[0]]
+                listbox.delete(sel[0])
+                self._update_friction_map_combos()
+                self._show_status(f"마찰맵 '{entry['name']}' 삭제됨", 'info')
+
+        ttk.Button(btn_frame, text="선택 로드", command=_load_selected,
+                   style='Accent.TButton').pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="선택 삭제", command=_delete_selected).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="닫기", command=win.destroy).pack(side=tk.RIGHT, padx=4)
+
+    def _export_friction_map_store(self):
+        """저장소의 모든 마찰맵을 파일로 내보내기."""
+        if not self._friction_map_store:
+            messagebox.showwarning("내보내기", "저장된 마찰맵이 없습니다.")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".npz",
+            filetypes=[("NumPy Archive", "*.npz"), ("All", "*.*")],
+            title="마찰맵 저장소 내보내기")
+        if not path:
+            return
+        try:
+            import pickle
+            with open(path, 'wb') as f:
+                pickle.dump(self._friction_map_store, f)
+            self._show_status(f"마찰맵 저장소 내보내기 완료: {len(self._friction_map_store)}개", 'success')
+        except Exception as e:
+            messagebox.showerror("내보내기 오류", str(e))
+
+    def _import_friction_map_store(self):
+        """파일에서 마찰맵 저장소 가져오기."""
+        path = filedialog.askopenfilename(
+            filetypes=[("NumPy Archive", "*.npz"), ("Pickle", "*.pkl;*.pickle"), ("All", "*.*")],
+            title="마찰맵 저장소 가져오기")
+        if not path:
+            return
+        try:
+            import pickle
+            with open(path, 'rb') as f:
+                loaded = pickle.load(f)
+            if isinstance(loaded, list):
+                self._friction_map_store.extend(loaded)
+                self._update_friction_map_combos()
+                self._show_status(f"마찰맵 {len(loaded)}개 가져오기 완료", 'success')
+            else:
+                messagebox.showerror("오류", "올바른 마찰맵 저장소 파일이 아닙니다.")
+        except Exception as e:
+            messagebox.showerror("가져오기 오류", str(e))
+
+    def _update_friction_map_combos(self):
+        """모든 탭의 마찰맵 선택 콤보박스 업데이트."""
+        names = [entry['name'] for entry in self._friction_map_store]
+        # 2D Brush Model 탭
+        if hasattr(self, '_br_friction_map_combo'):
+            self._br_friction_map_combo['values'] = ['(현재 계산 결과)'] + names
+        # Track Simulation 탭
+        if hasattr(self, '_ts_friction_map_combo'):
+            self._ts_friction_map_combo['values'] = ['(현재 계산 결과)'] + names
+        # 실차 매칭 탭
+        if hasattr(self, '_vtm_map_combos'):
+            for combo in self._vtm_map_combos.values():
+                combo['values'] = names
+
+    def _get_friction_map_by_name(self, name):
+        """이름으로 저장된 마찰맵 가져오기. Returns (friction_map_results, cold_hot_results) or (None, None)."""
+        for entry in self._friction_map_store:
+            if entry['name'] == name:
+                return entry.get('friction_map_results'), entry.get('cold_hot_results')
+        return None, None
+
     def _plot_friction_map(self):
         """Plot 3D friction map surfaces for all pressures (Cold & Hot)."""
         r = self.friction_map_results
@@ -23645,6 +23813,22 @@ class PerssonModelGUI_V2:
         ttk.Label(row_fs, text="(< 1: 슬라이딩↑)", font=self.FONTS['small'],
                   foreground='#64748B').pack(side=tk.LEFT)
 
+        # ── 마찰맵 선택 ──
+        sec_fm = self._create_section(left_panel, "마찰 모델 선택")
+        ttk.Label(sec_fm, text="시뮬레이션에 사용할 마찰맵을 선택하세요.\n"
+                  "저장소에 저장된 마찰맵 또는 현재 계산 결과를 사용합니다.",
+                  font=self.FONTS['small'], foreground='#0369A1').pack(anchor='w')
+        row_fm = ttk.Frame(sec_fm); row_fm.pack(fill=tk.X, pady=2)
+        ttk.Label(row_fm, text="마찰맵:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self._br_friction_map_var = tk.StringVar(value="(현재 계산 결과)")
+        self._br_friction_map_combo = ttk.Combobox(
+            row_fm, textvariable=self._br_friction_map_var, width=24,
+            values=['(현재 계산 결과)'], state='readonly')
+        self._br_friction_map_combo.pack(side=tk.LEFT, padx=2)
+        self._br_fm_status_var = tk.StringVar(value="")
+        ttk.Label(sec_fm, textvariable=self._br_fm_status_var,
+                  font=self.FONTS['small'], foreground='#16A34A').pack(anchor='w')
+
         # ── 2) 주행 조건 ──
         sec2 = self._create_section(left_panel, "2) 주행 조건")
 
@@ -24425,13 +24609,25 @@ class PerssonModelGUI_V2:
 
     # ── 2D Brush: Core simulation engine ──
 
+    def _get_active_cold_hot_results(self):
+        """선택된 마찰맵의 cold_hot_results를 반환. 없으면 현재 계산 결과 사용."""
+        selected = getattr(self, '_br_friction_map_var', None)
+        if selected and selected.get() != '(현재 계산 결과)':
+            name = selected.get()
+            _, ch = self._get_friction_map_by_name(name)
+            if ch is not None:
+                if hasattr(self, '_br_fm_status_var'):
+                    self._br_fm_status_var.set(f"마찰맵 '{name}' 사용 중")
+                return ch
+        return self.cold_hot_results
+
     def _build_brush_lut(self):
         """Build spline LUTs from Cold & Hot branch results.
 
         Returns (lut_cold, lut_hot) - callable interpolators mu(v).
         """
         from scipy.interpolate import interp1d
-        r = self.cold_hot_results
+        r = self._get_active_cold_hot_results()
         v = r['v']
         mu_cold = r['mu_cold_total']
         mu_hot = r['mu_hot_total']
@@ -24556,8 +24752,9 @@ class PerssonModelGUI_V2:
         Returns dict with sweep results.
         """
         # ── Validate data ──
-        if self.cold_hot_results is None:
-            raise ValueError("Cold & Hot Branch 결과가 필요합니다. 먼저 계산하세요.")
+        active_ch = self._get_active_cold_hot_results()
+        if active_ch is None:
+            raise ValueError("Cold & Hot Branch 결과가 필요합니다. 먼저 계산하거나 저장된 마찰맵을 선택하세요.")
 
         # ── Read parameters ──
         Nx = int(self.br_Nx_var.get())
@@ -24924,8 +25121,8 @@ class PerssonModelGUI_V2:
 
     def _run_brush_transient(self):
         """Core transient simulation with time-varying SA(t) and SR(t)."""
-        if self.cold_hot_results is None:
-            raise ValueError("Cold & Hot Branch 결과가 필요합니다.")
+        if self._get_active_cold_hot_results() is None:
+            raise ValueError("Cold & Hot Branch 결과가 필요합니다. 먼저 계산하거나 저장된 마찰맵을 선택하세요.")
 
         # Read parameters
         Nx = int(self.br_Nx_var.get())
@@ -27072,6 +27269,21 @@ class PerssonModelGUI_V2:
         ttk.Button(sec_brush, text="Brush 설정 동기화 확인",
                    command=self._show_track_brush_sync_info, width=22).pack(anchor='w', padx=4, pady=2)
 
+        # ── 마찰맵 선택 ──
+        sec_fm_ts = self._create_section(left_panel, "2-2) 마찰 모델 선택")
+        ttk.Label(sec_fm_ts, text="시뮬레이션에 사용할 마찰맵 선택:",
+                  font=self.FONTS['small'], foreground='#0369A1').pack(anchor='w')
+        row_fm_ts = ttk.Frame(sec_fm_ts); row_fm_ts.pack(fill=tk.X, pady=2)
+        ttk.Label(row_fm_ts, text="마찰맵:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self._ts_friction_map_var = tk.StringVar(value="(현재 계산 결과)")
+        self._ts_friction_map_combo = ttk.Combobox(
+            row_fm_ts, textvariable=self._ts_friction_map_var, width=24,
+            values=['(현재 계산 결과)'], state='readonly')
+        self._ts_friction_map_combo.pack(side=tk.LEFT, padx=2)
+        self._ts_fm_status_var = tk.StringVar(value="")
+        ttk.Label(sec_fm_ts, textvariable=self._ts_fm_status_var,
+                  font=self.FONTS['small'], foreground='#16A34A').pack(anchor='w')
+
         sec3 = self._create_section(left_panel, "3) 실행 & 재생")
         calc_row = ttk.Frame(sec3); calc_row.pack(fill=tk.X, pady=2)
         self.ts_run_btn = ttk.Button(calc_row, text="▶ 랩 시뮬레이션 실행",
@@ -27907,17 +28119,26 @@ class PerssonModelGUI_V2:
         from tkinter import messagebox
 
         # ── Validate: Cold & Hot friction map must exist ──
-        if self.cold_hot_results is None:
+        # Track Sim에서도 저장된 마찰맵 선택 지원
+        _ts_active_ch = self.cold_hot_results
+        ts_fm_sel = getattr(self, '_ts_friction_map_var', None)
+        if ts_fm_sel and ts_fm_sel.get() != '(현재 계산 결과)':
+            _fm, _ch = self._get_friction_map_by_name(ts_fm_sel.get())
+            if _ch is not None:
+                _ts_active_ch = _ch
+                if hasattr(self, '_ts_fm_status_var'):
+                    self._ts_fm_status_var.set(f"마찰맵 '{ts_fm_sel.get()}' 사용 중")
+        if _ts_active_ch is None:
             messagebox.showerror(
                 "데이터 없음",
                 "Cold & Hot Branch 마찰맵 데이터가 없습니다.\n\n"
-                "Track Simulation을 실행하려면 먼저:\n"
-                "  1) μ_visc 계산 탭에서 μ_visc 계산\n"
-                "  2) μ_adh 계산 탭에서 μ_adh 계산\n"
-                "  3) Cold & Hot Branch 탭에서 마찰맵 계산\n"
-                "  4) 2D Brush Model 탭에서 시뮬레이션 실행\n\n"
-                "위 단계를 완료한 후 다시 실행하세요.")
+                "Track Simulation을 실행하려면:\n"
+                "  - 저장소에서 마찰맵을 선택하거나\n"
+                "  - Cold & Hot Branch 탭에서 직접 계산하세요.")
             return
+        # 임시로 cold_hot_results를 선택된 맵으로 교체
+        _orig_ch = self.cold_hot_results
+        self.cold_hot_results = _ts_active_ch
 
         try:
             mass = float(self.ts_mass_var.get())
@@ -27926,6 +28147,7 @@ class PerssonModelGUI_V2:
             cla = float(self.ts_cla_var.get())
             brake_g_max = float(self.ts_brake_g_var.get())
         except ValueError:
+            self.cold_hot_results = _orig_ch
             messagebox.showerror("오류", "차량 파라미터를 확인하세요.")
             return
 
@@ -28168,6 +28390,9 @@ class PerssonModelGUI_V2:
 
         # Auto-play at ~120 Hz after simulation completes
         self._track_play()
+
+        # 선택된 마찰맵 사용 후 원래 cold_hot_results 복원
+        self.cold_hot_results = _orig_ch
 
     def _update_track_results_text(self):
         d = self._track_sim_data

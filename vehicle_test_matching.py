@@ -2,15 +2,14 @@
 Vehicle Test Matching Tab — 실차 평가 결과 vs 마찰 맵 상관성 분석
 
 실차 평가 항목(제동거리, 소음, 마모 등)의 인덱스를 기반으로
-Friction Map의 어떤 (온도, 하중, 속도, Cold/Hot) 조건이
-가장 높은 상관성을 보이는지 찾아주는 탭.
+각 컴파운드별 Friction Map에서 추출한 mu 인덱스와의 상관성을 분석하는 탭.
 
 핵심 원리:
-  - 각 샘플(컴파운드)마다 실차 평가 결과를 입력
-  - 각 샘플마다 측정 마찰계수(mu)도 입력
-  - 평가 결과를 인덱스화 → mu와 상관성 계산
-  - 마찰 맵에서 각 샘플의 mu 값에 가장 가까운 조건(T, p0, v, branch) 탐색
-  - 항목별로 독립적인 상관성 및 매칭 조건 표기
+  - 각 샘플(컴파운드)마다 저장된 마찰맵을 연결
+  - 각 샘플마다 실차 평가 결과를 입력 (제동거리, 소음 등 — 측정 마찰계수 불필요)
+  - 지정된 조건(T, p0, v, branch)에서 마찰맵으로부터 mu 값을 추출
+  - 평가 결과를 인덱스화 → 마찰맵 mu 인덱스와 상관성 계산
+  - 최적 상관성 조건을 자동 탐색
 
 All methods are designed to be bound to the main PerssonModelGUI_V2 class.
 Usage in main.py:
@@ -44,9 +43,10 @@ def _create_vehicle_test_matching_tab(self, parent):
     # ── Internal state ──
     self._vtm_items = []        # list of dicts: {name, unit, direction, values:{sample:val}}
     self._vtm_samples = []      # sample names e.g. ["A", "B", "C"]
-    self._vtm_mu_values = {}    # {sample: mu_value} — measured mu per sample
+    self._vtm_sample_maps = {}  # {sample: friction_map_name} — 샘플별 마찰맵 매핑
     self._vtm_results = None    # analysis results
     self._vtm_threshold = 0.80  # correlation threshold
+    self._vtm_map_combos = {}   # {sample: combo_widget} — 샘플별 마찰맵 콤보박스
 
     # ── 1) 실차 평가 항목 정의 ──
     sec1 = self._create_section(left_panel, "1) 평가 항목 관리")
@@ -92,30 +92,46 @@ def _create_vehicle_test_matching_tab(self, parent):
     ttk.Button(row_preset, text="파일로 저장",
                command=self._vtm_save_items_to_file).pack(side=tk.LEFT, padx=2)
 
-    # ── 2) 샘플 & 데이터 입력 ──
-    sec2 = self._create_section(left_panel, "2) 샘플 및 실차 데이터 입력")
+    # ── 2) 샘플 & 마찰맵 매핑 ──
+    sec2 = self._create_section(left_panel, "2) 샘플 및 마찰맵 연결")
 
     ttk.Label(sec2, text="샘플(컴파운드) 이름, 쉼표 구분, 2개 이상:",
               font=self.FONTS['body']).pack(anchor='w')
     self._vtm_samples_var = tk.StringVar(value="A, B, C")
     ttk.Entry(sec2, textvariable=self._vtm_samples_var, width=30).pack(fill=tk.X, pady=2)
 
-    ttk.Button(sec2, text="데이터 입력 테이블 생성",
+    ttk.Button(sec2, text="샘플 & 마찰맵 매핑 생성",
+               command=self._vtm_create_sample_map_table,
+               style='Accent.TButton').pack(anchor='w', pady=4)
+
+    ttk.Label(sec2, text="※ 각 샘플에 저장소의 마찰맵을 연결하세요.\n"
+              "   Friction Map 탭에서 '마찰맵 저장' 후 여기서 선택.\n"
+              "   측정 마찰계수는 선택사항 (Traction 평가 시에만).",
+              font=self.FONTS['small'], foreground='#0369A1').pack(anchor='w')
+
+    # Sample-map assignment area
+    self._vtm_sample_map_frame = ttk.Frame(sec2)
+    self._vtm_sample_map_frame.pack(fill=tk.X, pady=2)
+
+    # ── 3) 실차 데이터 입력 ──
+    sec2b = self._create_section(left_panel, "3) 실차 평가 데이터 입력")
+
+    ttk.Button(sec2b, text="데이터 입력 테이블 생성",
                command=self._vtm_create_data_table,
                style='Accent.TButton').pack(anchor='w', pady=4)
 
-    ttk.Label(sec2, text="※ 첫 행은 각 샘플의 측정 마찰계수 (mu).\n"
-              "   그 아래가 실차 평가 항목별 결과값.",
-              font=self.FONTS['small'], foreground='#0369A1').pack(anchor='w')
+    ttk.Label(sec2b, text="※ 실차 평가 항목별 결과값을 입력합니다.\n"
+              "   측정 마찰계수(mu) 행은 선택사항입니다 (비워도 됨).",
+              font=self.FONTS['small'], foreground='#64748B').pack(anchor='w')
 
     # Data table area (scrollable)
-    self._vtm_table_frame = ttk.Frame(sec2)
+    self._vtm_table_frame = ttk.Frame(sec2b)
     self._vtm_table_frame.pack(fill=tk.BOTH, expand=True, pady=2)
     self._vtm_entry_vars = {}   # (row_idx, sample_idx) → StringVar
-    self._vtm_mu_entry_vars = {}  # sample_idx → StringVar
+    self._vtm_mu_entry_vars = {}  # sample_idx → StringVar (선택사항)
 
-    # ── 3) 분석 설정 ──
-    sec3 = self._create_section(left_panel, "3) 분석 설정")
+    # ── 4) 분석 설정 ──
+    sec3 = self._create_section(left_panel, "4) 분석 설정")
 
     row_thr = ttk.Frame(sec3); row_thr.pack(fill=tk.X, pady=2)
     ttk.Label(row_thr, text="상관성 임계값:", font=self.FONTS['body']).pack(side=tk.LEFT)
@@ -151,8 +167,35 @@ def _create_vehicle_test_matching_tab(self, parent):
     ttk.Radiobutton(row_idx_base, text="평균=100", variable=self._vtm_index_base_var,
                     value="mean").pack(side=tk.LEFT, padx=3)
 
-    # ── 4) 결과 요약 ──
-    sec4 = self._create_section(left_panel, "4) 결과 요약")
+    # ── 탐색 조건 설정 ──
+    sec3b = self._create_section(left_panel, "4-1) 맵 탐색 조건 (고정값)")
+    ttk.Label(sec3b, text="마찰맵에서 mu 추출 시 고정할 조건을 지정합니다.\n"
+              "비워두면 자동으로 최적 조건을 탐색합니다.",
+              font=self.FONTS['small'], foreground='#64748B').pack(anchor='w')
+
+    row_fix_T = ttk.Frame(sec3b); row_fix_T.pack(fill=tk.X, pady=1)
+    ttk.Label(row_fix_T, text="온도 T (°C):", font=self.FONTS['body']).pack(side=tk.LEFT)
+    self._vtm_fix_T_var = tk.StringVar(value="")
+    ttk.Entry(row_fix_T, textvariable=self._vtm_fix_T_var, width=8).pack(side=tk.LEFT, padx=2)
+    ttk.Label(row_fix_T, text="(비우면 자동탐색)", font=self.FONTS['small'],
+              foreground='#64748B').pack(side=tk.LEFT)
+
+    row_fix_p = ttk.Frame(sec3b); row_fix_p.pack(fill=tk.X, pady=1)
+    ttk.Label(row_fix_p, text="압력 p₀ (MPa):", font=self.FONTS['body']).pack(side=tk.LEFT)
+    self._vtm_fix_p0_var = tk.StringVar(value="")
+    ttk.Entry(row_fix_p, textvariable=self._vtm_fix_p0_var, width=8).pack(side=tk.LEFT, padx=2)
+    ttk.Label(row_fix_p, text="(비우면 자동탐색)", font=self.FONTS['small'],
+              foreground='#64748B').pack(side=tk.LEFT)
+
+    row_fix_v = ttk.Frame(sec3b); row_fix_v.pack(fill=tk.X, pady=1)
+    ttk.Label(row_fix_v, text="속도 v (m/s):", font=self.FONTS['body']).pack(side=tk.LEFT)
+    self._vtm_fix_v_var = tk.StringVar(value="")
+    ttk.Entry(row_fix_v, textvariable=self._vtm_fix_v_var, width=8).pack(side=tk.LEFT, padx=2)
+    ttk.Label(row_fix_v, text="(비우면 자동탐색)", font=self.FONTS['small'],
+              foreground='#64748B').pack(side=tk.LEFT)
+
+    # ── 5) 결과 요약 ──
+    sec4 = self._create_section(left_panel, "5) 결과 요약")
     self._vtm_result_text = tk.Text(sec4, height=15, font=('NanumGothicCoding', 11),
                                      wrap=tk.WORD, state=tk.DISABLED)
     self._vtm_result_text.pack(fill=tk.BOTH, expand=True, pady=2)
@@ -209,6 +252,65 @@ def _create_vehicle_test_matching_tab(self, parent):
     self._vtm_canvas_map = canvas_map
     toolbar_map = NavigationToolbar2Tk(canvas_map, tab_map)
     toolbar_map.update()
+
+
+# ── Sample-Map assignment ──
+
+def _vtm_create_sample_map_table(self):
+    """Create sample ↔ friction map assignment table."""
+    samples_str = self._vtm_samples_var.get().strip()
+    samples = [s.strip() for s in samples_str.split(',') if s.strip()]
+    if len(samples) < 2:
+        messagebox.showwarning("샘플 설정", "샘플을 2개 이상 입력하세요 (쉼표 구분).")
+        return
+
+    self._vtm_samples = samples
+
+    # Clear previous
+    for w in self._vtm_sample_map_frame.winfo_children():
+        w.destroy()
+    self._vtm_map_combos = {}
+    self._vtm_sample_map_vars = {}
+
+    # Get available map names
+    map_names = [entry['name'] for entry in self._friction_map_store]
+
+    if not map_names:
+        ttk.Label(self._vtm_sample_map_frame,
+                  text="⚠ 저장된 마찰맵이 없습니다.\nFriction Map 탭에서 '마찰맵 저장' 버튼으로 먼저 저장하세요.",
+                  font=self.FONTS['small'], foreground='#DC2626').pack(anchor='w', pady=4)
+        return
+
+    # Header
+    ttk.Label(self._vtm_sample_map_frame, text="샘플 ↔ 마찰맵 연결:",
+              font=('', 10, 'bold')).pack(anchor='w', pady=(2, 4))
+
+    for sample in samples:
+        row = ttk.Frame(self._vtm_sample_map_frame)
+        row.pack(fill=tk.X, pady=1)
+
+        ttk.Label(row, text=f"{sample}:", font=self.FONTS['body'], width=8).pack(side=tk.LEFT)
+
+        var = tk.StringVar(value=self._vtm_sample_maps.get(sample, ''))
+        self._vtm_sample_map_vars[sample] = var
+        combo = ttk.Combobox(row, textvariable=var, width=24,
+                             values=map_names, state='readonly')
+        combo.pack(side=tk.LEFT, padx=2)
+        self._vtm_map_combos[sample] = combo
+
+        # Auto-select if only one or if previously set
+        if len(map_names) >= 1 and not var.get():
+            # Try to match by sample name
+            matched = False
+            for mn in map_names:
+                if sample.lower() in mn.lower():
+                    var.set(mn)
+                    matched = True
+                    break
+            if not matched and len(map_names) == 1:
+                var.set(map_names[0])
+
+    self._show_status(f"{len(samples)}개 샘플의 마찰맵 연결 테이블 생성", 'success')
 
 
 # ── Item management ──
@@ -287,7 +389,7 @@ def _vtm_save_items_to_file(self):
     data = {
         'items': self._vtm_items,
         'samples': self._vtm_samples,
-        'mu_values': self._vtm_mu_values,
+        'sample_maps': self._vtm_sample_maps,
     }
     with open(path, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
@@ -306,12 +408,13 @@ def _vtm_load_items_from_file(self):
             data = json.load(f)
         self._vtm_items = data.get('items', [])
         loaded_samples = data.get('samples', [])
-        self._vtm_mu_values = data.get('mu_values', {})
+        self._vtm_sample_maps = data.get('sample_maps', {})
         if loaded_samples:
             self._vtm_samples = loaded_samples
             self._vtm_samples_var.set(", ".join(loaded_samples))
         self._vtm_refresh_items_listbox()
         if self._vtm_items and self._vtm_samples:
+            self._vtm_create_sample_map_table()
             self._vtm_create_data_table()
         self._show_status(f"평가항목 로드: {os.path.basename(path)}", 'success')
     except Exception as e:
@@ -328,7 +431,7 @@ def _open_vtm_item_manager(self):
 # ── Data table ──
 
 def _vtm_create_data_table(self):
-    """Create data input table with mu row + evaluation item rows."""
+    """Create data input table with optional mu row + evaluation item rows."""
     samples_str = self._vtm_samples_var.get().strip()
     samples = [s.strip() for s in samples_str.split(',') if s.strip()]
     if len(samples) < 2:
@@ -365,12 +468,12 @@ def _vtm_create_data_table(self):
         ttk.Label(table_inner, text=sample, font=('', 10, 'bold'),
                   width=10).grid(row=0, column=j+1, padx=2, pady=1)
 
-    # Row 1: Measured mu (마찰계수)
-    lbl = ttk.Label(table_inner, text="★ 측정 마찰계수 (mu)",
-                    font=('', 9, 'bold'), foreground='#DC2626', width=22)
+    # Row 1: Optional measured mu (마찰계수) — 선택사항
+    lbl = ttk.Label(table_inner, text="측정 마찰계수 (선택)",
+                    font=('', 9), foreground='#64748B', width=22)
     lbl.grid(row=1, column=0, padx=2, pady=1, sticky='w')
     for j, sample in enumerate(samples):
-        var = tk.StringVar(value=str(self._vtm_mu_values.get(sample, '')))
+        var = tk.StringVar(value='')
         self._vtm_mu_entry_vars[j] = var
         e = ttk.Entry(table_inner, textvariable=var, width=10)
         e.grid(row=1, column=j+1, padx=2, pady=1)
@@ -398,7 +501,7 @@ def _vtm_create_data_table(self):
 
 def _vtm_collect_table_data(self):
     """Collect data from the table entries into internal state."""
-    # Collect mu values
+    # Collect optional mu values
     self._vtm_mu_values = {}
     for j, sample in enumerate(self._vtm_samples):
         if j in self._vtm_mu_entry_vars:
@@ -407,6 +510,13 @@ def _vtm_collect_table_data(self):
                 self._vtm_mu_values[sample] = val
             except (ValueError, TypeError):
                 pass
+
+    # Collect sample-map assignments
+    self._vtm_sample_maps = {}
+    for sample in self._vtm_samples:
+        var = getattr(self, '_vtm_sample_map_vars', {}).get(sample)
+        if var and var.get():
+            self._vtm_sample_maps[sample] = var.get()
 
     # Collect item values
     for i, item in enumerate(self._vtm_items):
@@ -424,15 +534,7 @@ def _vtm_collect_table_data(self):
 # ── Indexing ──
 
 def _vtm_compute_indices(self, raw_values, direction, base_mode='min'):
-    """Compute index values from raw data.
-
-    For 'lower_better' items (e.g. braking distance):
-        smaller raw → higher index (better)
-        index = (base / raw) * 100
-    For 'higher_better' items:
-        larger raw → higher index (better)
-        index = (raw / base) * 100
-    """
+    """Compute index values from raw data."""
     if not raw_values:
         return {}
 
@@ -461,10 +563,179 @@ def _vtm_compute_indices(self, raw_values, direction, base_mode='min'):
     return indices
 
 
+# ── Extract mu from friction map ──
+
+def _vtm_extract_mu_from_map(self, fm_results, T_fix=None, p0_fix=None, v_fix=None,
+                              branch='both', mu_type='mu_total'):
+    """Extract mu value from a friction map at specified (or all) conditions.
+
+    Returns dict with best conditions and mu values.
+    If T/p0/v are fixed, returns mu at that condition.
+    If any are None, returns the full grid for sweeping.
+    """
+    if fm_results is None:
+        return None
+
+    T_arr = fm_results['T_array']
+    p0_arr = fm_results['p0_array_MPa']
+    v_arr = fm_results['v_array']
+
+    lut_key_map = {
+        'mu_total': ('LUT_cold', 'LUT_hot'),
+        'mu_visc': ('LUT_mu_visc_cold', 'LUT_mu_visc_hot'),
+        'mu_adh': ('LUT_mu_adh_cold', 'LUT_mu_adh_hot'),
+    }
+    cold_key, hot_key = lut_key_map.get(mu_type, ('LUT_cold', 'LUT_hot'))
+
+    # Determine indices
+    iT = np.argmin(np.abs(T_arr - T_fix)) if T_fix is not None else None
+    ip = np.argmin(np.abs(p0_arr - p0_fix)) if p0_fix is not None else None
+    iv = np.argmin(np.abs(v_arr - v_fix)) if v_fix is not None else None
+
+    # Select branch
+    branches = []
+    if branch in ('cold', 'both'):
+        branches.append(('cold', cold_key))
+    if branch in ('hot', 'both') and fm_results.get('use_flash', False):
+        branches.append(('hot', hot_key))
+    if not branches:
+        branches.append(('cold', cold_key))
+
+    best_mu = None
+    best_cond = None
+
+    for branch_name, lut_key in branches:
+        LUT = fm_results[lut_key]
+
+        if iT is not None and ip is not None and iv is not None:
+            mu_val = float(LUT[iT, ip, iv])
+            if best_mu is None or mu_val > best_mu:
+                best_mu = mu_val
+                best_cond = {
+                    'T_C': float(T_arr[iT]),
+                    'p0_MPa': float(p0_arr[ip]),
+                    'v_ms': float(v_arr[iv]),
+                    'branch': branch_name,
+                    'mu': mu_val,
+                }
+        else:
+            # Find the mu value (use mean over unspecified dims)
+            if iT is not None:
+                LUT = LUT[iT:iT+1, :, :]
+            if ip is not None:
+                LUT = LUT[:, ip:ip+1, :]
+            if iv is not None:
+                LUT = LUT[:, :, iv:iv+1]
+            mu_val = float(np.mean(LUT))
+            if best_mu is None or mu_val > best_mu:
+                best_mu = mu_val
+                t_idx = iT if iT is not None else LUT.shape[0] // 2
+                p_idx = ip if ip is not None else LUT.shape[1] // 2
+                v_idx = iv if iv is not None else LUT.shape[2] // 2
+                best_cond = {
+                    'T_C': float(T_arr[min(t_idx, len(T_arr)-1)]),
+                    'p0_MPa': float(p0_arr[min(p_idx, len(p0_arr)-1)]),
+                    'v_ms': float(v_arr[min(v_idx, len(v_arr)-1)]),
+                    'branch': branch_name,
+                    'mu': mu_val,
+                }
+
+    return best_cond
+
+
+def _vtm_find_best_correlation_condition(self, fm_results_dict, item_indices,
+                                          base_mode='min', branch='both', mu_type='mu_total'):
+    """Find the friction map condition (T, p0, v) that maximizes correlation
+    between item indices and friction map mu indices across all samples.
+
+    fm_results_dict: {sample_name: friction_map_results}
+    item_indices: {sample_name: index_value}
+
+    Returns (best_corr, best_condition_desc, mu_indices_at_best).
+    """
+    # We need at least one FM with LUT data
+    any_fm = None
+    for fm in fm_results_dict.values():
+        if fm is not None:
+            any_fm = fm
+            break
+    if any_fm is None:
+        return 0.0, "마찰맵 없음", {}
+
+    T_arr = any_fm['T_array']
+    p0_arr = any_fm['p0_array_MPa']
+    v_arr = any_fm['v_array']
+
+    lut_key_map = {
+        'mu_total': ('LUT_cold', 'LUT_hot'),
+        'mu_visc': ('LUT_mu_visc_cold', 'LUT_mu_visc_hot'),
+        'mu_adh': ('LUT_mu_adh_cold', 'LUT_mu_adh_hot'),
+    }
+    cold_key, hot_key = lut_key_map.get(mu_type, ('LUT_cold', 'LUT_hot'))
+
+    common_samples = [s for s in item_indices.keys() if s in fm_results_dict and fm_results_dict[s] is not None]
+    if len(common_samples) < 2:
+        return 0.0, "공통 샘플 부족", {}
+
+    test_arr = np.array([item_indices[s] for s in common_samples])
+
+    best_corr = 0.0
+    best_desc = ""
+    best_mu_indices = {}
+
+    branches = []
+    if branch in ('cold', 'both'):
+        branches.append(('cold', cold_key))
+    if branch in ('hot', 'both') and any_fm.get('use_flash', False):
+        branches.append(('hot', hot_key))
+    if not branches:
+        branches.append(('cold', cold_key))
+
+    for branch_name, lut_key in branches:
+        for iT, T in enumerate(T_arr):
+            for ip, p0 in enumerate(p0_arr):
+                for iv, v in enumerate(v_arr):
+                    # Extract mu for each sample at this condition
+                    mu_vals = {}
+                    for s in common_samples:
+                        fm = fm_results_dict[s]
+                        if fm is None:
+                            continue
+                        try:
+                            LUT = fm[lut_key]
+                            # Find closest indices in this FM's grid
+                            s_iT = np.argmin(np.abs(fm['T_array'] - T))
+                            s_ip = np.argmin(np.abs(fm['p0_array_MPa'] - p0))
+                            s_iv = np.argmin(np.abs(fm['v_array'] - v))
+                            mu_vals[s] = float(LUT[s_iT, s_ip, s_iv])
+                        except (KeyError, IndexError):
+                            pass
+
+                    if len(mu_vals) < 2:
+                        continue
+
+                    # Compute mu indices
+                    mu_idx = self._vtm_compute_indices(mu_vals, 'higher_better', base_mode)
+                    mu_arr = np.array([mu_idx.get(s, 0) for s in common_samples])
+
+                    # Pearson correlation
+                    if np.std(test_arr) < 1e-15 or np.std(mu_arr) < 1e-15:
+                        corr = 0.0
+                    else:
+                        corr = float(np.corrcoef(test_arr, mu_arr)[0, 1])
+
+                    if abs(corr) > abs(best_corr):
+                        best_corr = corr
+                        best_desc = f"T={T:.0f}°C, p₀={p0:.3g} MPa, v={v:.4g} m/s [{branch_name}]"
+                        best_mu_indices = mu_idx
+
+    return best_corr, best_desc, best_mu_indices
+
+
 # ── Main analysis ──
 
 def _run_vehicle_test_matching(self):
-    """Run correlation analysis between vehicle test indices and friction map."""
+    """Run correlation analysis between vehicle test indices and friction map mu."""
     # Validate
     if not self._vtm_items:
         messagebox.showwarning("실차 매칭", "평가 항목을 추가하세요.")
@@ -476,12 +747,30 @@ def _run_vehicle_test_matching(self):
     # Collect table data
     self._vtm_collect_table_data()
 
-    # Verify mu data
-    mu_vals = self._vtm_mu_values
-    if len(mu_vals) < 2:
-        messagebox.showwarning("실차 매칭",
-            "측정 마찰계수(mu)를 2개 이상의 샘플에 입력하세요.")
-        return
+    # Build friction map dict per sample
+    fm_dict = {}
+    samples_with_map = 0
+    for sample in self._vtm_samples:
+        map_name = self._vtm_sample_maps.get(sample)
+        if map_name:
+            fm, _ = self._get_friction_map_by_name(map_name)
+            fm_dict[sample] = fm
+            if fm is not None:
+                samples_with_map += 1
+        else:
+            fm_dict[sample] = None
+
+    # Check if we have enough friction maps
+    if samples_with_map < 2:
+        # Check if optional measured mu is available
+        mu_vals = getattr(self, '_vtm_mu_values', {})
+        if len(mu_vals) < 2:
+            messagebox.showwarning("실차 매칭",
+                "마찰맵이 2개 이상의 샘플에 연결되어야 합니다.\n\n"
+                "1) Friction Map 탭에서 각 컴파운드의 마찰맵을 생성하고 '마찰맵 저장'\n"
+                "2) 이 탭의 '샘플 & 마찰맵 매핑 생성'에서 각 샘플에 마찰맵을 연결\n\n"
+                "또는 측정 마찰계수(mu)를 직접 입력하세요 (Traction 평가 시).")
+            return
 
     # Verify items have data
     for item in self._vtm_items:
@@ -497,20 +786,86 @@ def _run_vehicle_test_matching(self):
     self._vtm_threshold = threshold
 
     base_mode = self._vtm_index_base_var.get()
+    branch_mode = self._vtm_branch_var.get()
+    mu_type = self._vtm_mu_type_var.get()
 
-    # Step 1: Compute indices for each evaluation item
-    # Step 2: Compute mu index
-    mu_index = self._vtm_compute_indices(mu_vals, 'higher_better', base_mode)
+    # Parse fixed conditions
+    T_fix = None
+    p0_fix = None
+    v_fix = None
+    try:
+        t_str = self._vtm_fix_T_var.get().strip()
+        if t_str:
+            T_fix = float(t_str)
+    except ValueError:
+        pass
+    try:
+        p_str = self._vtm_fix_p0_var.get().strip()
+        if p_str:
+            p0_fix = float(p_str)
+    except ValueError:
+        pass
+    try:
+        v_str = self._vtm_fix_v_var.get().strip()
+        if v_str:
+            v_fix = float(v_str)
+    except ValueError:
+        pass
 
-    # Step 3: Correlate each item's index with mu index
+    # ── Determine mu source for each sample ──
+    # Priority: 1) Friction map mu at condition, 2) Measured mu (optional)
+    mu_from_map = {}
+    mu_conditions = {}
+
+    if samples_with_map >= 2:
+        if T_fix is not None and p0_fix is not None and v_fix is not None:
+            # Fixed condition: extract mu directly
+            for sample in self._vtm_samples:
+                fm = fm_dict.get(sample)
+                if fm is not None:
+                    cond = self._vtm_extract_mu_from_map(
+                        fm, T_fix=T_fix, p0_fix=p0_fix, v_fix=v_fix,
+                        branch=branch_mode, mu_type=mu_type)
+                    if cond:
+                        mu_from_map[sample] = cond['mu']
+                        mu_conditions[sample] = cond
+        else:
+            # Extract mu at center of each FM's grid as initial values
+            for sample in self._vtm_samples:
+                fm = fm_dict.get(sample)
+                if fm is not None:
+                    T_mid = float(np.median(fm['T_array']))
+                    p0_mid = float(np.median(fm['p0_array_MPa']))
+                    v_mid = float(np.median(fm['v_array']))
+                    cond = self._vtm_extract_mu_from_map(
+                        fm, T_fix=T_fix or T_mid, p0_fix=p0_fix or p0_mid,
+                        v_fix=v_fix or v_mid, branch=branch_mode, mu_type=mu_type)
+                    if cond:
+                        mu_from_map[sample] = cond['mu']
+                        mu_conditions[sample] = cond
+
+    # Fallback: use measured mu if available
+    mu_vals = getattr(self, '_vtm_mu_values', {})
+    effective_mu = {}
+    for sample in self._vtm_samples:
+        if sample in mu_from_map:
+            effective_mu[sample] = mu_from_map[sample]
+        elif sample in mu_vals:
+            effective_mu[sample] = mu_vals[sample]
+
+    # Compute mu indices
+    mu_index = self._vtm_compute_indices(effective_mu, 'higher_better', base_mode) if len(effective_mu) >= 2 else {}
+
+    # Step: Correlate each item's index with mu index, and find best conditions
     all_results = []
 
     for item in self._vtm_items:
         item_idx = self._vtm_compute_indices(item['values'], item['direction'], base_mode)
 
-        # Build aligned arrays (only samples present in both)
+        # Build aligned arrays
         common_samples = [s for s in self._vtm_samples
                           if s in item_idx and s in mu_index]
+
         if len(common_samples) < 2:
             all_results.append({
                 'item_name': item['name'],
@@ -518,8 +873,10 @@ def _run_vehicle_test_matching(self):
                 'item_direction': item['direction'],
                 'test_indices': item_idx,
                 'mu_indices': mu_index,
+                'mu_source': 'map' if samples_with_map >= 2 else 'measured',
                 'correlation': None,
                 'common_samples': [],
+                'best_condition': "",
                 'map_matches': [],
             })
             continue
@@ -527,18 +884,44 @@ def _run_vehicle_test_matching(self):
         test_arr = np.array([item_idx[s] for s in common_samples])
         mu_arr = np.array([mu_index[s] for s in common_samples])
 
-        # Pearson correlation
+        # Pearson correlation at current/fixed condition
         if np.std(test_arr) < 1e-15 or np.std(mu_arr) < 1e-15:
             corr = 0.0
         else:
             corr = float(np.corrcoef(test_arr, mu_arr)[0, 1])
 
-        # Step 4: Find matching conditions in friction map
+        # Auto-search for best condition if not all fixed and we have FMs
+        best_condition = ""
+        if samples_with_map >= 2:
+            if T_fix is not None and p0_fix is not None and v_fix is not None:
+                best_condition = f"T={T_fix:.0f}°C, p₀={p0_fix:.3g} MPa, v={v_fix:.4g} m/s (고정)"
+            else:
+                # Search for best correlation condition
+                best_corr, best_desc, best_mu_idx = self._vtm_find_best_correlation_condition(
+                    fm_dict, item_idx, base_mode, branch_mode, mu_type)
+                if abs(best_corr) > abs(corr):
+                    corr = best_corr
+                    mu_index_for_item = best_mu_idx
+                    best_condition = best_desc
+                    # Update mu_arr with best condition values
+                    mu_arr = np.array([best_mu_idx.get(s, 0) for s in common_samples])
+
+        # Map matches per sample
         map_matches = []
-        r = self.friction_map_results
-        if r is not None:
-            map_matches = self._vtm_find_map_conditions(
-                mu_vals, common_samples, item['direction'], base_mode)
+        for sample in common_samples:
+            cond = mu_conditions.get(sample)
+            if cond:
+                map_matches.append({
+                    'sample': sample,
+                    'target_mu': effective_mu.get(sample, 0),
+                    'matched_mu': cond['mu'],
+                    'T_C': cond['T_C'],
+                    'p0_MPa': cond['p0_MPa'],
+                    'v_ms': cond['v_ms'],
+                    'branch': cond['branch'],
+                    'error': 0.0,
+                    'error_pct': 0.0,
+                })
 
         all_results.append({
             'item_name': item['name'],
@@ -546,8 +929,10 @@ def _run_vehicle_test_matching(self):
             'item_direction': item['direction'],
             'test_indices': item_idx,
             'mu_indices': mu_index,
+            'mu_source': 'map' if samples_with_map >= 2 else 'measured',
             'correlation': corr,
             'common_samples': common_samples,
+            'best_condition': best_condition,
             'map_matches': map_matches,
         })
 
@@ -564,88 +949,6 @@ def _run_vehicle_test_matching(self):
         f"실차 매칭 완료: {len(self._vtm_items)}개 항목 분석", 'success')
 
 
-def _vtm_find_map_conditions(self, mu_vals, common_samples, direction, base_mode):
-    """Find friction map conditions where mu values best match the sample mu values.
-
-    For each sample's measured mu, find the closest (T, p0, v, branch) in the map.
-    """
-    r = self.friction_map_results
-    if r is None:
-        return []
-
-    mu_type = self._vtm_mu_type_var.get()
-    branch_mode = self._vtm_branch_var.get()
-
-    T_arr = r['T_array']
-    p0_arr = r['p0_array_MPa']
-    v_arr = r['v_array']
-
-    lut_key_map = {
-        'mu_total': ('LUT_cold', 'LUT_hot'),
-        'mu_visc': ('LUT_mu_visc_cold', 'LUT_mu_visc_hot'),
-        'mu_adh': ('LUT_mu_adh_cold', 'LUT_mu_adh_hot'),
-    }
-    cold_key, hot_key = lut_key_map.get(mu_type, ('LUT_cold', 'LUT_hot'))
-
-    branches = []
-    if branch_mode in ('cold', 'both'):
-        branches.append(('cold', cold_key))
-    if branch_mode in ('hot', 'both') and r.get('use_flash', False):
-        branches.append(('hot', hot_key))
-
-    matches = []
-
-    for sample in common_samples:
-        target_mu = mu_vals.get(sample)
-        if target_mu is None:
-            continue
-
-        best_dist = float('inf')
-        best_cond = None
-
-        for branch_name, lut_key in branches:
-            LUT = r[lut_key]  # (n_T, n_p, n_v)
-
-            # Find closest mu value
-            diff = np.abs(LUT - target_mu)
-            min_idx = np.unravel_index(np.argmin(diff), diff.shape)
-            min_dist = diff[min_idx]
-
-            if min_dist < best_dist:
-                best_dist = min_dist
-                iT, ip, iv = min_idx
-                best_cond = {
-                    'sample': sample,
-                    'target_mu': target_mu,
-                    'matched_mu': float(LUT[min_idx]),
-                    'T_C': float(T_arr[iT]),
-                    'p0_MPa': float(p0_arr[ip]),
-                    'v_ms': float(v_arr[iv]),
-                    'branch': branch_name,
-                    'error': float(min_dist),
-                    'error_pct': float(min_dist / max(abs(target_mu), 1e-10) * 100),
-                }
-
-                # Also find range of conditions within threshold
-                close_mask = diff <= max(min_dist * 2, 0.005)
-                if np.any(close_mask):
-                    close_indices = np.argwhere(close_mask)
-                    T_range = (float(T_arr[close_indices[:, 0].min()]),
-                               float(T_arr[close_indices[:, 0].max()]))
-                    p0_range = (float(p0_arr[close_indices[:, 1].min()]),
-                                float(p0_arr[close_indices[:, 1].max()]))
-                    v_range = (float(v_arr[close_indices[:, 2].min()]),
-                               float(v_arr[close_indices[:, 2].max()]))
-                    best_cond['T_range'] = T_range
-                    best_cond['p0_range'] = p0_range
-                    best_cond['v_range'] = v_range
-
-        if best_cond is not None:
-            matches.append(best_cond)
-
-    return matches
-
-
 # ── Display results ──
 
 def _vtm_display_results(self, all_results):
@@ -657,20 +960,35 @@ def _vtm_display_results(self, all_results):
     base_label = {'min': '최솟값', 'max': '최댓값', 'mean': '평균'}[base_mode]
 
     self._vtm_result_text.insert(tk.END,
-        f"═══ 실차 평가 ↔ 마찰계수 상관성 분석 ═══\n"
+        f"═══ 실차 평가 ↔ 마찰맵 상관성 분석 ═══\n"
         f"샘플: {', '.join(self._vtm_samples)}\n"
         f"인덱스 기준: {base_label}=100\n"
         f"{'─'*50}\n\n")
 
+    # Show sample ↔ friction map mapping
+    self._vtm_result_text.insert(tk.END, "▶ 샘플별 마찰맵 연결\n")
+    for s in self._vtm_samples:
+        map_name = self._vtm_sample_maps.get(s, '(미연결)')
+        self._vtm_result_text.insert(tk.END, f"  {s}: {map_name}\n")
+    self._vtm_result_text.insert(tk.END, "\n")
+
     # Show mu values and indices
     mu_idx = all_results[0]['mu_indices'] if all_results else {}
-    self._vtm_result_text.insert(tk.END, "▶ 측정 마찰계수\n")
+    mu_source = all_results[0].get('mu_source', 'unknown') if all_results else 'unknown'
+    effective_mu = getattr(self, '_vtm_mu_values', {})
+    # Merge with map-extracted mu
     for s in self._vtm_samples:
-        mu_val = self._vtm_mu_values.get(s, '?')
+        if s not in effective_mu:
+            if s in mu_idx:
+                # reverse-compute from index is complex, just note it
+                pass
+
+    self._vtm_result_text.insert(tk.END,
+        f"▶ 마찰계수 (소스: {'마찰맵' if mu_source == 'map' else '측정값'})\n")
+    for s in self._vtm_samples:
         idx_val = mu_idx.get(s, '?')
-        mu_str = f"{mu_val:.4f}" if isinstance(mu_val, float) else str(mu_val)
         idx_str = f"{idx_val:.1f}" if isinstance(idx_val, float) else str(idx_val)
-        self._vtm_result_text.insert(tk.END, f"  {s}: mu={mu_str}  (인덱스: {idx_str})\n")
+        self._vtm_result_text.insert(tk.END, f"  {s}: (인덱스: {idx_str})\n")
     self._vtm_result_text.insert(tk.END, "\n")
 
     # Per-item results
@@ -698,27 +1016,26 @@ def _vtm_display_results(self, all_results):
                        "보통" if abs(corr) >= 0.5 else "약함"
             sign_str = "양(+)" if corr > 0 else "음(-)"
             self._vtm_result_text.insert(tk.END,
-                f"  ★ mu 상관계수: r = {corr_str} [{strength}, {sign_str} 상관]\n")
+                f"  ★ 상관계수: r = {corr_str} [{strength}, {sign_str} 상관]\n")
         else:
             self._vtm_result_text.insert(tk.END,
                 f"  ★ 상관계수 계산 불가 (데이터 부족)\n")
 
+        # Best condition
+        best_cond = res.get('best_condition', '')
+        if best_cond:
+            self._vtm_result_text.insert(tk.END,
+                f"  최적 조건: {best_cond}\n")
+
         # Map matches per sample
         matches = res.get('map_matches', [])
         if matches:
-            self._vtm_result_text.insert(tk.END, "  ── 마찰 맵 매칭 조건 (샘플별) ──\n")
+            self._vtm_result_text.insert(tk.END, "  ── 마찰 맵 mu 값 (샘플별) ──\n")
             for m in matches:
                 self._vtm_result_text.insert(tk.END,
-                    f"    [{m['sample']}] mu={m['target_mu']:.4f} → "
+                    f"    [{m['sample']}] mu={m['matched_mu']:.4f}  "
                     f"T={m['T_C']:.0f}°C, p₀={m['p0_MPa']:.3g} MPa, "
-                    f"v={m['v_ms']:.4g} m/s [{m['branch']}]\n"
-                    f"         맵 mu={m['matched_mu']:.4f} "
-                    f"(오차: {m['error_pct']:.1f}%)\n")
-                if 'T_range' in m:
-                    self._vtm_result_text.insert(tk.END,
-                        f"         범위: T={m['T_range'][0]:.0f}~{m['T_range'][1]:.0f}°C, "
-                        f"p₀={m['p0_range'][0]:.3g}~{m['p0_range'][1]:.3g} MPa, "
-                        f"v={m['v_range'][0]:.4g}~{m['v_range'][1]:.4g} m/s\n")
+                    f"v={m['v_ms']:.4g} m/s [{m['branch']}]\n")
 
         self._vtm_result_text.insert(tk.END, "\n")
 
@@ -762,8 +1079,8 @@ def _vtm_plot_heatmap(self, all_results):
 
     ax.set_yticks(x)
     ax.set_yticklabels(names, fontsize=10)
-    ax.set_xlabel('Pearson r (실차 인덱스 vs mu 인덱스)', fontsize=11)
-    ax.set_title("항목별 상관계수 (실차 평가 ↔ 마찰계수)", fontsize=13, fontweight='bold')
+    ax.set_xlabel('Pearson r (실차 인덱스 vs 마찰맵 mu 인덱스)', fontsize=11)
+    ax.set_title("항목별 상관계수 (실차 평가 ↔ 마찰맵)", fontsize=13, fontweight='bold')
     ax.axvline(x=0, color='black', linewidth=0.8)
     ax.axvline(x=self._vtm_threshold, color='green', linewidth=1, linestyle='--', alpha=0.6,
                label=f'임계값 +{self._vtm_threshold}')
@@ -815,7 +1132,9 @@ def _vtm_plot_index_comparison(self, all_results):
     ax.set_xticks(x)
     ax.set_xticklabels(self._vtm_samples, fontsize=9)
     ax.set_ylabel('인덱스', fontsize=9)
-    ax.set_title("★ 마찰계수 (mu)", fontsize=10, fontweight='bold', color='#DC2626')
+    mu_src = all_results[0].get('mu_source', 'map') if all_results else 'map'
+    ax.set_title(f"마찰맵 mu ({'맵' if mu_src == 'map' else '측정'})",
+                 fontsize=10, fontweight='bold', color='#0369A1')
     ax.axhline(y=100, color='red', linestyle='--', alpha=0.5, linewidth=0.8)
 
     # Remaining subplots: evaluation items
@@ -895,14 +1214,14 @@ def _vtm_plot_match_detail(self, all_results):
             x_line = np.linspace(mu_vals.min() - 2, mu_vals.max() + 2, 50)
             ax.plot(x_line, p(x_line), 'r--', alpha=0.7, linewidth=1.5)
 
-        ax.set_xlabel('mu 인덱스', fontsize=9)
+        ax.set_xlabel('mu 인덱스 (마찰맵)', fontsize=9)
         ax.set_ylabel(f'{res["item_name"]} 인덱스', fontsize=9)
         corr = res['correlation']
         ax.set_title(f"{res['item_name']}\nr = {corr:+.4f}", fontsize=10, fontweight='bold')
         ax.axhline(y=100, color='gray', linestyle=':', alpha=0.4)
         ax.axvline(x=100, color='gray', linestyle=':', alpha=0.4)
 
-    fig.suptitle("항목별 상관성 상세 (mu 인덱스 vs 실차 인덱스)",
+    fig.suptitle("항목별 상관성 상세 (마찰맵 mu 인덱스 vs 실차 인덱스)",
                  fontsize=13, fontweight='bold')
     fig.tight_layout()
     self._vtm_canvas_detail.draw()
@@ -924,8 +1243,10 @@ def _vtm_plot_map_conditions(self, all_results):
     if not all_matches:
         ax = fig.add_subplot(111)
         msg = "마찰 맵 조건 탐색 결과가 없습니다."
-        if self.friction_map_results is None:
-            msg += "\nFriction Map을 먼저 생성하세요."
+        if not self._friction_map_store:
+            msg += "\nFriction Map을 먼저 생성하고 저장하세요."
+        else:
+            msg += "\n각 샘플에 마찰맵을 연결하세요."
         ax.text(0.5, 0.5, msg, ha='center', va='center', fontsize=14,
                 transform=ax.transAxes)
         ax.set_axis_off()
@@ -948,24 +1269,12 @@ def _vtm_plot_map_conditions(self, all_results):
 
         ax1.scatter(m['sample'], m['T_C'], c=[c], marker=marker, s=100,
                     edgecolors='black', linewidth=0.5)
-        if 'T_range' in m:
-            ax1.plot([m['sample'], m['sample']],
-                     [m['T_range'][0], m['T_range'][1]],
-                     color=c, linewidth=2, alpha=0.5)
 
         ax2.scatter(m['sample'], m['p0_MPa'], c=[c], marker=marker, s=100,
                     edgecolors='black', linewidth=0.5)
-        if 'p0_range' in m:
-            ax2.plot([m['sample'], m['sample']],
-                     [m['p0_range'][0], m['p0_range'][1]],
-                     color=c, linewidth=2, alpha=0.5)
 
         ax3.scatter(m['sample'], m['v_ms'], c=[c], marker=marker, s=100,
                     edgecolors='black', linewidth=0.5)
-        if 'v_range' in m:
-            ax3.plot([m['sample'], m['sample']],
-                     [m['v_range'][0], m['v_range'][1]],
-                     color=c, linewidth=2, alpha=0.5)
 
     ax1.set_ylabel('온도 T (°C)', fontsize=10)
     ax1.set_title('매칭 온도', fontsize=11, fontweight='bold')
@@ -990,7 +1299,7 @@ def _vtm_plot_map_conditions(self, all_results):
     ]
     ax3.legend(handles=legend_elements, loc='best', fontsize=9)
 
-    fig.suptitle("샘플별 마찰 맵 매칭 조건 (점=최적, 선=범위)",
+    fig.suptitle("샘플별 마찰 맵 매칭 조건",
                  fontsize=13, fontweight='bold')
     fig.tight_layout()
     self._vtm_canvas_map.draw()
@@ -1016,18 +1325,23 @@ def _export_vtm_results_csv(self):
         with open(path, 'w', newline='', encoding='utf-8-sig') as f:
             writer = csv.writer(f)
 
-            writer.writerow(["실차 평가 ↔ 마찰계수 상관성 분석 결과"])
+            writer.writerow(["실차 평가 ↔ 마찰맵 상관성 분석 결과"])
             writer.writerow([f"샘플: {', '.join(self._vtm_samples)}"])
             writer.writerow([])
 
-            # Mu values
-            writer.writerow(["측정 마찰계수"])
-            writer.writerow(["샘플", "mu", "mu 인덱스"])
+            # Sample-map mapping
+            writer.writerow(["샘플별 마찰맵"])
+            writer.writerow(["샘플", "마찰맵"])
+            for s in self._vtm_samples:
+                writer.writerow([s, self._vtm_sample_maps.get(s, '(미연결)')])
+            writer.writerow([])
+
+            # Mu indices
+            writer.writerow(["마찰맵 mu 인덱스"])
+            writer.writerow(["샘플", "mu 인덱스"])
             mu_idx = self._vtm_results[0]['mu_indices'] if self._vtm_results else {}
             for s in self._vtm_samples:
                 writer.writerow([s,
-                                 f"{self._vtm_mu_values.get(s, ''):.4f}"
-                                 if s in self._vtm_mu_values else '',
                                  f"{mu_idx.get(s, ''):.1f}"
                                  if s in mu_idx else ''])
             writer.writerow([])
@@ -1036,6 +1350,9 @@ def _export_vtm_results_csv(self):
                 writer.writerow([f"항목: {res['item_name']} [{res['item_unit']}]"])
                 corr = res['correlation']
                 writer.writerow([f"상관계수 r: {corr:+.4f}" if corr is not None else "상관계수: N/A"])
+                best = res.get('best_condition', '')
+                if best:
+                    writer.writerow([f"최적 조건: {best}"])
 
                 writer.writerow(["샘플", "실차 결과", "인덱스"])
                 for s in self._vtm_samples:
@@ -1050,13 +1367,13 @@ def _export_vtm_results_csv(self):
                 matches = res.get('map_matches', [])
                 if matches:
                     writer.writerow([])
-                    writer.writerow(["샘플", "목표 mu", "매칭 mu", "온도(°C)", "압력(MPa)",
-                                     "속도(m/s)", "Branch", "오차(%)"])
+                    writer.writerow(["샘플", "맵 mu", "온도(°C)", "압력(MPa)",
+                                     "속도(m/s)", "Branch"])
                     for m in matches:
                         writer.writerow([
-                            m['sample'], f"{m['target_mu']:.4f}", f"{m['matched_mu']:.4f}",
+                            m['sample'], f"{m['matched_mu']:.4f}",
                             f"{m['T_C']:.0f}", f"{m['p0_MPa']:.3g}",
-                            f"{m['v_ms']:.4g}", m['branch'], f"{m['error_pct']:.1f}"])
+                            f"{m['v_ms']:.4g}", m['branch']])
 
                 writer.writerow([])
 
@@ -1069,6 +1386,7 @@ def _export_vtm_results_csv(self):
 def bind_vehicle_test_matching(cls):
     """Bind all vehicle test matching methods to the main GUI class."""
     cls._create_vehicle_test_matching_tab = _create_vehicle_test_matching_tab
+    cls._vtm_create_sample_map_table = _vtm_create_sample_map_table
     cls._vtm_add_item = _vtm_add_item
     cls._vtm_remove_selected_item = _vtm_remove_selected_item
     cls._vtm_refresh_items_listbox = _vtm_refresh_items_listbox
@@ -1079,8 +1397,9 @@ def bind_vehicle_test_matching(cls):
     cls._vtm_create_data_table = _vtm_create_data_table
     cls._vtm_collect_table_data = _vtm_collect_table_data
     cls._vtm_compute_indices = _vtm_compute_indices
+    cls._vtm_extract_mu_from_map = _vtm_extract_mu_from_map
+    cls._vtm_find_best_correlation_condition = _vtm_find_best_correlation_condition
     cls._run_vehicle_test_matching = _run_vehicle_test_matching
-    cls._vtm_find_map_conditions = _vtm_find_map_conditions
     cls._vtm_display_results = _vtm_display_results
     cls._vtm_plot_heatmap = _vtm_plot_heatmap
     cls._vtm_plot_index_comparison = _vtm_plot_index_comparison
