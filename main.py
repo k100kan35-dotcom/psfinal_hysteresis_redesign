@@ -4541,6 +4541,24 @@ class PerssonModelGUI_V2:
         self.calculated_local_pressure_label.pack(side=tk.LEFT, padx=5)
         ttk.Label(stress_result_row, text="(MPa)").pack(side=tk.LEFT)
 
+        # 계산에 사용된 데이터 출처 표시 (모드 3 결과 하단)
+        self.stress_calc_info_frame = ttk.Frame(result_frame)
+        self.stress_calc_info_frame.pack(fill=tk.X, pady=(5, 2))
+
+        info_header = ttk.Label(self.stress_calc_info_frame,
+                                text="[계산에 사용된 물성/데이터]",
+                                font=self.FONTS['small_bold'], foreground='#6B7280')
+        info_header.pack(anchor=tk.W)
+
+        self.stress_calc_info_var = tk.StringVar(
+            value="  (σ_Y → q1 계산 실행 후 표시됩니다)")
+        self.stress_calc_info_label = ttk.Label(
+            self.stress_calc_info_frame,
+            textvariable=self.stress_calc_info_var,
+            font=self.FONTS['small'], foreground='#6B7280',
+            justify=tk.LEFT, wraplength=500)
+        self.stress_calc_info_label.pack(anchor=tk.W)
+
         # 초기 모드에 따른 UI 상태 설정
         self._on_hrms_q1_mode_changed()
 
@@ -4823,6 +4841,13 @@ class PerssonModelGUI_V2:
             self.stress_velocity_entry.config(state='normal')
             self.hrms_q1_calc_btn.config(text="σ_Y → q1 계산")
 
+        # 모드 3일 때만 계산 데이터 출처 정보 표시
+        if hasattr(self, 'stress_calc_info_frame'):
+            if mode == "stress_limit":
+                self.stress_calc_info_frame.pack(fill=tk.X, pady=(5, 2))
+            else:
+                self.stress_calc_info_frame.pack_forget()
+
     def _calculate_hrms_q1(self):
         """선택된 모드에 따라 h'rms(ξ) 또는 q1 계산.
 
@@ -5097,6 +5122,21 @@ class PerssonModelGUI_V2:
                         f"  3. 공칭 압력 p₀를 높이세요\n"
                         f"  4. q_max 범위를 늘리세요",
                         'warning')
+
+                # 계산에 사용된 데이터 출처 정보 표시 (성공/실패 공통)
+                if hasattr(self, 'stress_calc_info_var'):
+                    temp_used = float(self.temperature_var.get()) if hasattr(self, 'temperature_var') else None
+                    poisson_used = float(self.poisson_var.get()) if hasattr(self, 'poisson_var') else None
+                    psd_source = getattr(self, 'psd_source_name', None) or q_source
+
+                    info_lines = []
+                    info_lines.append(f"  - 접촉면적 P(q): Persson 이론으로 계산 (Hot/Cold 실측값 아님)")
+                    info_lines.append(f"  - 공칭 압력 p₀: {p0} MPa (계산 설정 탭)")
+                    info_lines.append(f"  - 복소 탄성률 E*(ω): 마스터커브 (T={temp_used}°C)")
+                    info_lines.append(f"  - 포아송비 ν: {poisson_used}")
+                    info_lines.append(f"  - 대표 속도 v: {v_stress} m/s → ω=q·v·cosφ")
+                    info_lines.append(f"  - PSD C(q): {psd_source}")
+                    self.stress_calc_info_var.set("\n".join(info_lines))
 
         except ValueError as e:
             messagebox.showerror("오류", f"입력값이 유효하지 않습니다: {e}")
