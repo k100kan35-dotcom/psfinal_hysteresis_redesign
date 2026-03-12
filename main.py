@@ -24758,18 +24758,37 @@ class PerssonModelGUI_V2:
                     return ch
         return self.cold_hot_results
 
+    def _get_active_friction_map_results(self):
+        """선택된 마찰맵의 friction_map_results(3D LUT)를 반환.
+
+        Returns the full 3D friction map results dict, or None if unavailable.
+        Checks both 2D Brush tab and Track Simulation tab selections.
+        """
+        # Check 2D Brush tab selection
+        for var_name in ('_br_friction_map_var', '_ts_friction_map_var'):
+            selected = getattr(self, var_name, None)
+            if selected and selected.get() != '(현재 계산 결과)':
+                name = selected.get()
+                fm, _ch = self._get_friction_map_by_name(name)
+                if fm is not None:
+                    return fm
+        return getattr(self, 'friction_map_results', None)
+
     def _build_brush_lut(self):
         """Build spline LUTs from Cold & Hot branch results.
 
-        Returns (lut_cold, lut_hot) - callable interpolators mu(v).
+        Returns (lut_cold, lut_hot, lut_cold_3d, lut_hot_3d).
+          - lut_cold/lut_hot: 1D callable interpolators mu(v) (fallback).
+          - lut_cold_3d/lut_hot_3d: 3D RegularGridInterpolator(T, p_Pa, v)
+            or None if no 3D friction map is available.
         """
-        from scipy.interpolate import interp1d
+        from scipy.interpolate import interp1d, RegularGridInterpolator
         r = self._get_active_cold_hot_results()
         v = r['v']
         mu_cold = r['mu_cold_total']
         mu_hot = r['mu_hot_total']
 
-        # Log-scale interpolation for better accuracy across decades
+        # 1D Log-scale interpolation (fallback)
         log_v = np.log10(np.clip(v, 1e-12, None))
         lut_cold = interp1d(log_v, mu_cold, kind='cubic',
                             bounds_error=False, fill_value=(mu_cold[0], mu_cold[-1]))
@@ -24782,7 +24801,67 @@ class PerssonModelGUI_V2:
         def mu_hot_fn(v_query):
             return lut_hot(np.log10(np.clip(np.abs(v_query) + 1e-15, 1e-12, None)))
 
-        return mu_cold_fn, mu_hot_fn
+        # 3D interpolators from friction map if available
+        fm = self._get_active_friction_map_results()
+        lut_cold_3d = None
+        lut_hot_3d = None
+        if fm is not None:
+            try:
+                T_arr = fm['T_array']
+                p0_arr_Pa = fm['p0_array_Pa']
+                v_arr = fm['v_array']
+                LUT_cold_3d = fm['LUT_cold']
+                LUT_hot_3d = fm.get('LUT_hot')
+                if LUT_cold_3d is not None and LUT_cold_3d.ndim == 3:
+                    lut_cold_3d = RegularGridInterpolator(
+                        (T_arr, p0_arr_Pa, v_arr), LUT_cold_3d,
+                        method='linear', bounds_error=False, fill_value=None)
+                if LUT_hot_3d is not None and LUT_hot_3d.ndim == 3 and np.any(LUT_hot_3d != 0):
+                    lut_hot_3d = RegularGridInterpolator(
+                        (T_arr, p0_arr_Pa, v_arr), LUT_hot_3d,
+                        method='linear', bounds_error=False, fill_value=None)
+                else:
+                    lut_hot_3d = lut_cold_3d  # no hot data → use cold
+            except (KeyError, ValueError, TypeError) as e:
+                print(f"[_build_brush_lut] 3D LUT 구축 실패, 1D fallback 사용: {e}")
+                lut_cold_3d = None
+                lut_hot_3d = None
+
+        return mu_cold_fn, mu_hot_fn, lut_cold_3d, lut_hot_3d
+
+    @staticmethod
+    def _lookup_friction_3d(lut_3d, lut_1d, T_arr, p_Pa_arr, v_arr, shape):
+        """3D friction map lookup with 1D fallback.
+
+        Args:
+            lut_3d: RegularGridInterpolator(T, p_Pa, v) or None
+            lut_1d: 1D fallback callable mu(v)
+            T_arr: temperature array (flattened or matching shape)
+            p_Pa_arr: pressure array in Pa (flattened or matching shape)
+            v_arr: velocity array (flattened or matching shape)
+            shape: output shape (e.g. (Nx, Ny))
+
+        Returns:
+            mu values with given shape
+        """
+        if lut_3d is not None:
+            try:
+                T_flat = np.asarray(T_arr).ravel()
+                p_flat = np.asarray(p_Pa_arr).ravel()
+                v_flat = np.asarray(v_arr).ravel()
+                points = np.column_stack([T_flat, p_flat, v_flat])
+                mu_vals = lut_3d(points).reshape(shape)
+                # NaN guard: fill_value=None uses nearest, but just in case
+                bad = ~np.isfinite(mu_vals)
+                if np.any(bad):
+                    mu_fallback = lut_1d(v_arr)
+                    if hasattr(mu_fallback, 'reshape'):
+                        mu_fallback = mu_fallback.reshape(shape)
+                    mu_vals[bad] = mu_fallback[bad] if hasattr(mu_fallback, '__getitem__') else mu_fallback
+                return mu_vals
+            except Exception:
+                pass
+        return lut_1d(v_arr).reshape(shape) if hasattr(lut_1d(v_arr), 'reshape') else np.full(shape, lut_1d(v_arr))
 
     def _build_pressure_map(self, Nx, Ny, L, W, Fz, ptype='parabolic',
                             driving_mode='Braking'):
@@ -24916,7 +24995,11 @@ class PerssonModelGUI_V2:
         n_sweep = int(self.br_n_sweep_var.get())
 
         # ── Build LUT ──
-        lut_cold, lut_hot = self._build_brush_lut()
+        lut_cold, lut_hot, lut_cold_3d, lut_hot_3d = self._build_brush_lut()
+
+        # Base temperature for 3D LUT lookup
+        _ch_r = self._get_active_cold_hot_results()
+        T0_base_sim = _ch_r.get('T0', 25.0) if _ch_r else 25.0
 
         # ── Build pressure map & grid ──
         p_map, x_arr, y_arr, dx, dy = self._build_pressure_map(
@@ -25019,8 +25102,17 @@ class PerssonModelGUI_V2:
                 s_dist += v_slip_mag * dt
 
                 # ── Friction force (history-dependent blending) ──
-                mu_cold_vals = lut_cold(v_slip_mag)
-                mu_hot_vals = lut_hot(v_slip_mag)
+                # 3D LUT: per-cell (T, p, v) lookup if available
+                if lut_cold_3d is not None:
+                    T_cells = np.full_like(v_slip_mag, T0_base_sim)
+                    p_cells = p_map  # local pressure per cell [Pa]
+                    mu_cold_vals = self._lookup_friction_3d(
+                        lut_cold_3d, lut_cold, T_cells, p_cells, v_slip_mag, v_slip_mag.shape)
+                    mu_hot_vals = self._lookup_friction_3d(
+                        lut_hot_3d, lut_hot, T_cells, p_cells, v_slip_mag, v_slip_mag.shape)
+                else:
+                    mu_cold_vals = lut_cold(v_slip_mag)
+                    mu_hot_vals = lut_hot(v_slip_mag)
 
                 # Blending: mu_eff = mu_cold * exp(-s/s0) + mu_hot * (1 - exp(-s/s0))
                 blend = np.exp(-s_dist / max(s0, 1e-10))
@@ -25290,7 +25382,7 @@ class PerssonModelGUI_V2:
         sr_val = float(self.br_sr_val_var.get())
 
         # Build LUT
-        lut_cold, lut_hot = self._build_brush_lut()
+        lut_cold, lut_hot, lut_cold_3d, lut_hot_3d = self._build_brush_lut()
 
         # Build BASE pressure map (symmetric, no driving mode bias)
         p_map_base, x_arr, y_arr, dx, dy = self._build_pressure_map(
@@ -25466,8 +25558,19 @@ class PerssonModelGUI_V2:
             # Leading edge: s_dist≈0 → mu≈mu_cold (cold rubber)
             # Trailing edge: s_dist large → mu≈mu_hot (heated rubber)
             blend = np.exp(-s_dist_local / max(s0, 1e-10))
-            mu_cold_vals = lut_cold(np.full_like(t_contact, v_rim_mag))
-            mu_hot_vals = lut_hot(np.full_like(t_contact, v_rim_mag))
+
+            # 3D LUT: per-cell (T, p, v) lookup if available
+            v_cells = np.full_like(t_contact, v_rim_mag)
+            if lut_cold_3d is not None:
+                T_cells = np.full_like(t_contact, T0_base)
+                p_cells = p_map  # local pressure per cell [Pa]
+                mu_cold_vals = self._lookup_friction_3d(
+                    lut_cold_3d, lut_cold, T_cells, p_cells, v_cells, t_contact.shape)
+                mu_hot_vals = self._lookup_friction_3d(
+                    lut_hot_3d, lut_hot, T_cells, p_cells, v_cells, t_contact.shape)
+            else:
+                mu_cold_vals = lut_cold(v_cells)
+                mu_hot_vals = lut_hot(v_cells)
             mu_eff = mu_cold_vals * blend + mu_hot_vals * (1.0 - blend)
 
             # Friction capacity per node (scaled by friction sensitivity)
@@ -27737,7 +27840,7 @@ class PerssonModelGUI_V2:
         from scipy.ndimage import binary_dilation
 
         # ── Build Cold/Hot friction LUT from actual data ──
-        lut_cold, lut_hot = self._build_brush_lut()
+        lut_cold, lut_hot, lut_cold_3d, lut_hot_3d = self._build_brush_lut()
 
         # Cold→Hot transition distance
         chr_ = self.cold_hot_results
@@ -27878,8 +27981,19 @@ class PerssonModelGUI_V2:
             # Sliding distance for cold→hot blend
             s_dist = v_rim_mag * t_contact
             blend = np.exp(-s_dist / max(s0, 1e-10))
-            mu_cold_vals = lut_cold(np.full_like(t_contact, v_rim_mag))
-            mu_hot_vals = lut_hot(np.full_like(t_contact, v_rim_mag))
+
+            # 3D LUT: per-cell (T, p, v) lookup if available
+            v_cells = np.full_like(t_contact, v_rim_mag)
+            if lut_cold_3d is not None:
+                T_cells = np.full_like(t_contact, T0_base)
+                p_cells = p_map  # local pressure per cell [Pa]
+                mu_cold_vals = self._lookup_friction_3d(
+                    lut_cold_3d, lut_cold, T_cells, p_cells, v_cells, t_contact.shape)
+                mu_hot_vals = self._lookup_friction_3d(
+                    lut_hot_3d, lut_hot, T_cells, p_cells, v_cells, t_contact.shape)
+            else:
+                mu_cold_vals = lut_cold(v_cells)
+                mu_hot_vals = lut_hot(v_cells)
             mu_eff = mu_cold_vals * blend + mu_hot_vals * (1.0 - blend)
 
             # Friction capacity per node
@@ -28326,8 +28440,10 @@ class PerssonModelGUI_V2:
         g = 9.81; rho = 1.225
 
         # ── Build velocity-dependent friction from Cold & Hot Branch data ──
-        lut_cold, lut_hot = self._build_brush_lut()
+        lut_cold, lut_hot, lut_cold_3d, lut_hot_3d = self._build_brush_lut()
         chr_ = self.cold_hot_results
+        _T0_lap = chr_.get('T0', 25.0)
+        _p0_lap_Pa = chr_.get('sigma_0', 0.3e6)  # representative contact pressure [Pa]
         try:
             D_mm = float(self.br_D_macro_var.get())
             _s0 = 0.2 * D_mm * 1e-3
@@ -28345,10 +28461,22 @@ class PerssonModelGUI_V2:
 
             Blends cold/hot friction using average contact-patch sliding
             distance, then applies friction_scale for macro grip level.
+            Uses 3D LUT (T, p, v) if available for pressure-dependent friction.
             """
             v_q = np.atleast_1d(np.asarray(v_arr, dtype=float))
-            mu_c = lut_cold(v_q)
-            mu_h = lut_hot(v_q)
+            if lut_cold_3d is not None:
+                T_q = np.full_like(v_q, _T0_lap)
+                p_q = np.full_like(v_q, _p0_lap_Pa)
+                pts = np.column_stack([T_q, p_q, v_q])
+                try:
+                    mu_c = lut_cold_3d(pts)
+                    mu_h = lut_hot_3d(pts) if lut_hot_3d is not None else mu_c.copy()
+                except Exception:
+                    mu_c = lut_cold(v_q)
+                    mu_h = lut_hot(v_q)
+            else:
+                mu_c = lut_cold(v_q)
+                mu_h = lut_hot(v_q)
             # Representative sliding speed at grip limit ≈ 10% of vehicle speed
             v_slide_rep = 0.1 * v_q
             t_max = _L_fp / np.clip(v_q, 0.5, None)
