@@ -24696,6 +24696,19 @@ class PerssonModelGUI_V2:
             LUT_hot = fm.get('LUT_hot')
             has_hot = LUT_hot is not None and np.any(LUT_hot != 0)
 
+            # delta_T 추정: Hot branch의 mu 감소로부터 flash temperature 역산
+            mu_cold_total = _slice('LUT_cold')
+            mu_hot_total = _slice('LUT_hot') if has_hot else mu_cold_total.copy()
+            # mu 차이를 온도 상승으로 변환 (경험적: delta_mu * 100 ≈ delta_T)
+            if has_hot:
+                mu_diff = np.clip(mu_cold_total - mu_hot_total, 0, None)
+                # 최대 온도 상승을 mu 감소 비율로 추정
+                max_dT = 200.0  # 최대 flash temperature
+                mu_ratio = mu_diff / max(np.max(mu_cold_total), 1e-10)
+                delta_T_est = max_dT * mu_ratio
+            else:
+                delta_T_est = np.zeros(len(v_arr))
+
             result = {
                 'v': v_arr.copy(),
                 'T0': T0,
@@ -24704,14 +24717,15 @@ class PerssonModelGUI_V2:
                 's0': 0.0002,
                 'mu_cold_hys': _slice('LUT_mu_visc_cold'),
                 'mu_cold_ad': _slice('LUT_mu_adh_cold'),
-                'mu_cold_total': _slice('LUT_cold'),
+                'mu_cold_total': mu_cold_total,
                 'A_A0_cold': _slice('LUT_A_A0_cold', np.ones(len(v_arr))),
                 'mu_hot_hys': _slice('LUT_mu_visc_hot') if has_hot else _slice('LUT_mu_visc_cold'),
                 'mu_hot_ad': _slice('LUT_mu_adh_hot') if has_hot else _slice('LUT_mu_adh_cold'),
-                'mu_hot_total': _slice('LUT_hot') if has_hot else _slice('LUT_cold'),
+                'mu_hot_total': mu_hot_total,
                 'A_A0_hot': _slice('LUT_A_A0_hot', np.ones(len(v_arr))) if has_hot else _slice('LUT_A_A0_cold', np.ones(len(v_arr))),
                 'tau_f_cold': _slice('LUT_tau_f_cold'),
                 'tau_f_hot': _slice('LUT_tau_f_hot') if has_hot else _slice('LUT_tau_f_cold'),
+                'delta_T': delta_T_est,
                 '_synthesized': True,
                 '_from_fm_T_C': T0,
                 '_from_fm_p0_MPa': p0,
@@ -24774,8 +24788,12 @@ class PerssonModelGUI_V2:
                     return fm
         return getattr(self, 'friction_map_results', None)
 
-    def _build_brush_lut(self):
+    def _build_brush_lut(self, override_ch=None, override_fm=None):
         """Build spline LUTs from Cold & Hot branch results.
+
+        Args:
+            override_ch: explicit cold_hot_results dict (bypasses _get_active_cold_hot_results)
+            override_fm: explicit friction_map_results dict (bypasses _get_active_friction_map_results)
 
         Returns (lut_cold, lut_hot, lut_cold_3d, lut_hot_3d).
           - lut_cold/lut_hot: 1D callable interpolators mu(v) (fallback).
@@ -24783,7 +24801,7 @@ class PerssonModelGUI_V2:
             or None if no 3D friction map is available.
         """
         from scipy.interpolate import interp1d, RegularGridInterpolator
-        r = self._get_active_cold_hot_results()
+        r = override_ch if override_ch is not None else self._get_active_cold_hot_results()
         v = r['v']
         mu_cold = r['mu_cold_total']
         mu_hot = r['mu_hot_total']
@@ -24802,7 +24820,7 @@ class PerssonModelGUI_V2:
             return lut_hot(np.log10(np.clip(np.abs(v_query) + 1e-15, 1e-12, None)))
 
         # 3D interpolators from friction map if available
-        fm = self._get_active_friction_map_results()
+        fm = override_fm if override_fm is not None else self._get_active_friction_map_results()
         lut_cold_3d = None
         lut_hot_3d = None
         if fm is not None:
@@ -25494,9 +25512,10 @@ class PerssonModelGUI_V2:
         from scipy.interpolate import interp1d
         chr_ = self.cold_hot_results
         T0_base = chr_.get('T0', 25.0)
-        dT_interp = interp1d(chr_['v'], chr_['delta_T'], kind='linear',
+        _dT_arr = chr_.get('delta_T', np.zeros(len(chr_['v'])))
+        dT_interp = interp1d(chr_['v'], _dT_arr, kind='linear',
                              bounds_error=False,
-                             fill_value=(chr_['delta_T'][0], chr_['delta_T'][-1]))
+                             fill_value=(_dT_arr[0], _dT_arr[-1]))
 
         # ── Quasi-steady brush model ──
         # Rolling direction: right-to-left (-x direction).
@@ -27825,12 +27844,17 @@ class PerssonModelGUI_V2:
             a.set_visible(True)
 
     # ── Pre-compute simplified brush model data (synced with 2D Brush tab) ──
-    def _compute_track_brush_data(self, sa_arr, v_arr, Fz_arr):
+    def _compute_track_brush_data(self, sa_arr, v_arr, Fz_arr,
+                                   override_ch=None, override_fm=None):
         """Brush model for all track points using Cold & Hot friction map LUT.
 
         Uses the ACTUAL friction map (cold/hot LUT) from Cold & Hot Branch tab,
         and pressure distribution settings from the 2D Brush Model tab.
         Same calculation logic as _run_brush_transient() for consistency.
+
+        Args:
+            override_ch: explicit cold_hot_results (bypasses Brush tab selection)
+            override_fm: explicit friction_map_results (bypasses Brush tab selection)
 
         Returns dict of (n, nx, ny) arrays for contour plot display,
         plus per-point Fy from the brush model.
@@ -27840,10 +27864,11 @@ class PerssonModelGUI_V2:
         from scipy.ndimage import binary_dilation
 
         # ── Build Cold/Hot friction LUT from actual data ──
-        lut_cold, lut_hot, lut_cold_3d, lut_hot_3d = self._build_brush_lut()
+        lut_cold, lut_hot, lut_cold_3d, lut_hot_3d = self._build_brush_lut(
+            override_ch=override_ch, override_fm=override_fm)
 
         # Cold→Hot transition distance
-        chr_ = self.cold_hot_results
+        chr_ = override_ch if override_ch is not None else self.cold_hot_results
         T0_base = chr_.get('T0', 25.0)
         try:
             D_mm = float(self.br_D_macro_var.get())
@@ -27852,9 +27877,10 @@ class PerssonModelGUI_V2:
             s0 = chr_.get('s0', 0.001)
 
         # Temperature interpolator from Cold&Hot
-        dT_interp = interp1d(chr_['v'], chr_['delta_T'], kind='linear',
+        _dT_arr = chr_.get('delta_T', np.zeros(len(chr_['v'])))
+        dT_interp = interp1d(chr_['v'], _dT_arr, kind='linear',
                              bounds_error=False,
-                             fill_value=(chr_['delta_T'][0], chr_['delta_T'][-1]))
+                             fill_value=(_dT_arr[0], _dT_arr[-1]))
 
         # ── Read parameters from 2D Brush Model tab ──
         try:
@@ -28384,9 +28410,12 @@ class PerssonModelGUI_V2:
         # ── Validate: Cold & Hot friction map must exist ──
         # Track Sim에서도 저장된 마찰맵 선택 지원
         _ts_active_ch = self.cold_hot_results
+        _ts_active_fm = getattr(self, 'friction_map_results', None)
         ts_fm_sel = getattr(self, '_ts_friction_map_var', None)
         if ts_fm_sel and ts_fm_sel.get() != '(현재 계산 결과)':
             _fm, _ch = self._get_friction_map_by_name(ts_fm_sel.get())
+            if _fm is not None:
+                _ts_active_fm = _fm  # 선택된 마찰맵의 3D LUT
             if _ch is not None:
                 _ts_active_ch = _ch
                 if hasattr(self, '_ts_fm_status_var'):
@@ -28440,8 +28469,10 @@ class PerssonModelGUI_V2:
         g = 9.81; rho = 1.225
 
         # ── Build velocity-dependent friction from Cold & Hot Branch data ──
-        lut_cold, lut_hot, lut_cold_3d, lut_hot_3d = self._build_brush_lut()
-        chr_ = self.cold_hot_results
+        # 명시적으로 선택된 마찰맵 데이터를 전달 (Brush 탭 선택과 무관하게 동작)
+        lut_cold, lut_hot, lut_cold_3d, lut_hot_3d = self._build_brush_lut(
+            override_ch=_ts_active_ch, override_fm=_ts_active_fm)
+        chr_ = _ts_active_ch
         _T0_lap = chr_.get('T0', 25.0)
         _p0_lap_Pa = chr_.get('sigma_0', 0.3e6)  # representative contact pressure [Pa]
         try:
@@ -28575,7 +28606,10 @@ class PerssonModelGUI_V2:
         self.root.update_idletasks()
 
         # Pre-compute brush data (vectorized, fast) — uses 2D Brush tab pressure type
-        brush_data = self._compute_track_brush_data(sa_arr, v_final, Fz_arr)
+        # 명시적으로 선택된 마찰맵 전달 (Brush 탭 선택과 무관)
+        brush_data = self._compute_track_brush_data(
+            sa_arr, v_final, Fz_arr,
+            override_ch=_ts_active_ch, override_fm=_ts_active_fm)
 
         # Use brush-model Fy (integrated from friction map + pressure distribution)
         # instead of raw centripetal force, so Fy responds to SA and speed properly
@@ -28649,7 +28683,9 @@ class PerssonModelGUI_V2:
                             time_arr[-1] - time_arr[s2i]]
             mu_profile = mu_profile_brush
             # Recompute brush data with refined speed profile
-            brush_data = self._compute_track_brush_data(sa_arr, v_final, Fz_arr)
+            brush_data = self._compute_track_brush_data(
+                sa_arr, v_final, Fz_arr,
+                override_ch=_ts_active_ch, override_fm=_ts_active_fm)
             Fy_arr = brush_data['Fy_brush']
 
         self.ts_progress_var.set(90)
