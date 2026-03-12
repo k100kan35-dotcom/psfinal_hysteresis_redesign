@@ -1369,6 +1369,9 @@ class PerssonModelGUI_V2:
         ttk.Button(preset_psd_frame, text="로드", command=self._load_preset_psd, width=4,
                    style='Outline.TButton').pack(side=tk.LEFT)
         ttk.Button(preset_psd_frame, text="삭제", command=self._delete_preset_psd, width=4).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_psd_frame, text="내보내기",
+                   command=lambda: self._export_preset_file('psd', self.preset_psd_var, 'PSD'),
+                   width=6).pack(side=tk.LEFT, padx=1)
 
         # 프로그램 시작 시 내장 PSD 목록 로드
         self._refresh_preset_psd_list()
@@ -2596,6 +2599,9 @@ class PerssonModelGUI_V2:
         ttk.Button(preset_mc_frame, text="로드", command=self._load_preset_mastercurve, width=4,
                    style='Outline.TButton').pack(side=tk.LEFT)
         ttk.Button(preset_mc_frame, text="삭제", command=self._delete_preset_mastercurve, width=4).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_mc_frame, text="내보내기",
+                   command=lambda: self._export_preset_file('mastercurve', self.preset_mc_var, '마스터 커브'),
+                   width=6).pack(side=tk.LEFT, padx=1)
 
         # 내장 aT 선택
         preset_aT_frame = ttk.Frame(load_frame)
@@ -2608,6 +2614,9 @@ class PerssonModelGUI_V2:
         ttk.Button(preset_aT_frame, text="로드", command=self._load_preset_aT, width=4,
                    style='Outline.TButton').pack(side=tk.LEFT)
         ttk.Button(preset_aT_frame, text="삭제", command=self._delete_preset_aT, width=4).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_aT_frame, text="내보내기",
+                   command=lambda: self._export_preset_file('aT', self.preset_aT_var, 'aT'),
+                   width=6).pack(side=tk.LEFT, padx=1)
 
         # 프로그램 시작 시 내장 데이터 목록 로드
         self._refresh_preset_mastercurve_list()
@@ -4364,6 +4373,9 @@ class PerssonModelGUI_V2:
                    style='Outline.TButton').pack(side=tk.LEFT, padx=1)
         ttk.Button(preset_q1_frame, text="삭제", command=self._delete_preset_surface_q1, width=4).pack(side=tk.LEFT, padx=1)
         ttk.Button(preset_q1_frame, text="현재값 저장", command=self._add_preset_surface_q1, width=8).pack(side=tk.LEFT, padx=1)
+        ttk.Button(preset_q1_frame, text="내보내기",
+                   command=lambda: self._export_preset_file('surface_q1', self.surface_q1_var, 'q_max/q1'),
+                   width=6).pack(side=tk.LEFT, padx=1)
         self._refresh_preset_surface_q1_list()
         # IDIADA 프리셋 자동 선택 및 로드
         self.root.after(200, self._auto_load_idiada_preset)
@@ -10407,6 +10419,9 @@ class PerssonModelGUI_V2:
         self.preset_ss_combo.pack(side=tk.LEFT, padx=2)
         ttk.Button(preset_ss_frame, text="로드", command=self._load_preset_strain_sweep, width=4).pack(side=tk.LEFT)
         ttk.Button(preset_ss_frame, text="삭제", command=self._delete_preset_strain_sweep, width=4).pack(side=tk.LEFT, padx=1)
+        ttk.Button(preset_ss_frame, text="내보내기",
+                   command=lambda: self._export_preset_file('strain_sweep', self.preset_ss_var, 'Strain Sweep'),
+                   width=6).pack(side=tk.LEFT, padx=1)
 
         self._refresh_preset_strain_sweep_list()
 
@@ -10440,6 +10455,9 @@ class PerssonModelGUI_V2:
         self.preset_fg_combo.pack(side=tk.LEFT, padx=2)
         ttk.Button(preset_fg_frame, text="로드", command=self._load_preset_fg, width=4).pack(side=tk.LEFT)
         ttk.Button(preset_fg_frame, text="삭제", command=self._delete_preset_fg, width=4).pack(side=tk.LEFT, padx=1)
+        ttk.Button(preset_fg_frame, text="내보내기",
+                   command=lambda: self._export_preset_file('fg_curve', self.preset_fg_var, 'f,g 곡선'),
+                   width=6).pack(side=tk.LEFT, padx=1)
 
         self._refresh_preset_fg_list()
 
@@ -17840,6 +17858,45 @@ class PerssonModelGUI_V2:
         os.makedirs(preset_dir, exist_ok=True)
         return preset_dir
 
+    def _export_preset_file(self, data_type, combo_var, type_label):
+        """Export selected preset file to user-chosen location as txt."""
+        selected = combo_var.get()
+        if not selected or selected.startswith('('):
+            self._show_status(f"내보낼 {type_label} 프리셋을 선택하세요.", 'warning')
+            return
+
+        preset_dir = self._get_preset_data_dir(data_type)
+        src_path = os.path.join(preset_dir, selected)
+
+        # 일부 프리셋(surface_q1)은 확장자 없이 표시 → .txt 추가 시도
+        if not os.path.exists(src_path):
+            src_path_txt = src_path + '.txt'
+            if os.path.exists(src_path_txt):
+                src_path = src_path_txt
+            else:
+                self._show_status(f"프리셋 파일을 찾을 수 없습니다:\n{selected}", 'warning')
+                return
+
+        # 내보내기 파일명 결정
+        export_name = selected if selected.endswith(('.txt', '.csv')) else selected + '.txt'
+
+        dst_path = filedialog.asksaveasfilename(
+            title=f"{type_label} 프리셋 내보내기",
+            defaultextension=".txt",
+            initialfile=export_name,
+            filetypes=[("Text files", "*.txt"), ("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+
+        if not dst_path:
+            return
+
+        try:
+            import shutil
+            shutil.copy2(src_path, dst_path)
+            self._show_status(f"{type_label} 프리셋 내보내기 완료:\n{os.path.basename(dst_path)}", 'success')
+        except Exception as e:
+            messagebox.showerror("오류", f"내보내기 실패:\n{str(e)}")
+
     def _refresh_preset_psd_list(self):
         """Refresh the preset PSD list in the combobox."""
         try:
@@ -18641,6 +18698,9 @@ class PerssonModelGUI_V2:
                    style='Outline.TButton').pack(side=tk.LEFT)
         ttk.Button(preset_mu_dry_frame, text="추가", command=self._add_preset_mu_dry, width=4).pack(side=tk.LEFT, padx=2)
         ttk.Button(preset_mu_dry_frame, text="삭제", command=self._delete_preset_mu_dry, width=4).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_mu_dry_frame, text="내보내기",
+                   command=lambda: self._export_preset_file('mu_dry', self.preset_mu_dry_var, 'μ_dry'),
+                   width=6).pack(side=tk.LEFT, padx=1)
 
         # 프로그램 시작 시 내장 μ_dry 프리셋 목록 로드
         self._refresh_preset_mu_dry_list()
