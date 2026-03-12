@@ -28163,7 +28163,11 @@ class PerssonModelGUI_V2:
         ax_fy.plot(sa_arr, Fy_arr, 'b-', lw=1.2, alpha=0.6, label='Track Fy')
         ax_fy.set_xlabel('SA [deg]', fontsize=10)
         ax_fy.set_ylabel('Fy [N]', fontsize=10)
-        ax_fy.set_title('Fy vs Slip Angle', fontsize=12, fontweight='bold')
+        _fm_label = d.get('friction_map_name', '')
+        _fy_title = 'Fy vs Slip Angle'
+        if _fm_label and _fm_label != '(현재 계산 결과)':
+            _fy_title += f'  [{_fm_label}]'
+        ax_fy.set_title(_fy_title, fontsize=11, fontweight='bold')
         ax_fy.legend(fontsize=10, loc='upper left')
         ax_fy.grid(True, alpha=0.3)
         # Auto-scale Y axis to fit actual data range with 10% margin
@@ -28188,7 +28192,8 @@ class PerssonModelGUI_V2:
         ax_fd.fill_between(dist_arr, Fy_arr, alpha=0.2, color='#1E90FF')
         ax_fd.set_xlabel('Distance [m]', fontsize=10)
         ax_fd.set_ylabel('Fy [N]', fontsize=10)
-        ax_fd.set_title('Fy vs Distance', fontsize=12, fontweight='bold')
+        _fd_title = f'Fy vs Distance  (|Fy|max={np.max(np.abs(Fy_arr)):.0f} N)'
+        ax_fd.set_title(_fd_title, fontsize=10, fontweight='bold')
         ax_fd.grid(True, alpha=0.3)
         # Auto-scale Y axis for Fy vs Distance too
         if len(all_fy_vals) > 0:
@@ -28407,19 +28412,30 @@ class PerssonModelGUI_V2:
         import numpy as np
         from tkinter import messagebox
 
+        # ── 이전 애니메이션 중지 (중복 타이머 방지) ──
+        self._track_playing = False
+        if getattr(self, '_track_play_after_id', None) is not None:
+            try:
+                self.root.after_cancel(self._track_play_after_id)
+            except Exception:
+                pass
+            self._track_play_after_id = None
+
         # ── Validate: Cold & Hot friction map must exist ──
         # Track Sim에서도 저장된 마찰맵 선택 지원
         _ts_active_ch = self.cold_hot_results
         _ts_active_fm = getattr(self, 'friction_map_results', None)
+        _ts_fm_name = '(현재 계산 결과)'  # 선택된 마찰맵 이름 추적
         ts_fm_sel = getattr(self, '_ts_friction_map_var', None)
         if ts_fm_sel and ts_fm_sel.get() != '(현재 계산 결과)':
-            _fm, _ch = self._get_friction_map_by_name(ts_fm_sel.get())
+            _ts_fm_name = ts_fm_sel.get()
+            _fm, _ch = self._get_friction_map_by_name(_ts_fm_name)
             if _fm is not None:
                 _ts_active_fm = _fm  # 선택된 마찰맵의 3D LUT
             if _ch is not None:
                 _ts_active_ch = _ch
                 if hasattr(self, '_ts_fm_status_var'):
-                    self._ts_fm_status_var.set(f"마찰맵 '{ts_fm_sel.get()}' 사용 중")
+                    self._ts_fm_status_var.set(f"마찰맵 '{_ts_fm_name}' 사용 중")
             elif _fm is not None:
                 # cold_hot_results가 None이면 friction_map_results에서 합성
                 T_sel = None
@@ -28708,6 +28724,9 @@ class PerssonModelGUI_V2:
             'mu_min': float(np.min(mu_profile)),
             'mu_max': float(np.max(mu_profile)),
             'brush_data': brush_data,
+            'friction_map_name': _ts_fm_name,
+            'Fy_max': float(np.max(np.abs(Fy_arr))),
+            'Fy_mean': float(np.mean(np.abs(Fy_arr))),
         }
 
         self.ts_progress_var.set(100)
@@ -28745,8 +28764,10 @@ class PerssonModelGUI_V2:
             )
         except Exception:
             pass
+        _fm_name = d.get('friction_map_name', '(현재 계산 결과)')
         text = (
             f"═══ 랩타임 결과 ═══\n\n"
+            f"  마찰맵:  {_fm_name}\n\n"
             f"  총 랩타임:  {m}:{s:06.3f}\n\n"
             f"  Sector 1:  {d['sector_times'][0]:.3f} s\n"
             f"  Sector 2:  {d['sector_times'][1]:.3f} s\n"
@@ -28757,6 +28778,9 @@ class PerssonModelGUI_V2:
             f"  ── 컴파운드 마찰 ──\n"
             f"  μ_eff 평균:  {d.get('mu_avg', 0):.3f}\n"
             f"  μ_eff 범위:  {d.get('mu_min', 0):.3f} – {d.get('mu_max', 0):.3f}\n\n"
+            f"  ── 횡력 (Brush Model) ──\n"
+            f"  |Fy| 최대:  {d.get('Fy_max', 0):.0f} N\n"
+            f"  |Fy| 평균:  {d.get('Fy_mean', 0):.0f} N\n\n"
             f"  트랙 길이:  5.615 km  |  18 코너\n"
             f"{brush_info}"
         )
