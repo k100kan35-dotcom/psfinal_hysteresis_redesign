@@ -21309,10 +21309,29 @@ class PerssonModelGUI_V2:
             ("Friction Map 생성", self._calculate_friction_map, 'Accent.TButton'),
             ("LUT 내보내기 (CSV)", self._export_friction_map_csv, 'TButton'),
             ("전체 내보내기", self._export_fm_all, 'TButton'),
-            ("마찰맵 저장", self._save_friction_map_to_store, 'TButton'),
-            ("저장소 관리", self._show_friction_map_store_list, 'TButton'),
         ])
         left_panel = layout['content']
+
+        # ── 마찰맵 저장소 버튼 (별도 섹션으로 배치) ──
+        sec_store = self._create_section(left_panel, "마찰맵 저장소")
+        ttk.Label(sec_store, text="생성된 마찰맵을 이름과 함께 저장하여\n"
+                  "실차 매칭, 2D Brush, Track Sim에서 사용합니다.",
+                  font=self.FONTS['small'], foreground='#0369A1').pack(anchor='w')
+        row_store = ttk.Frame(sec_store); row_store.pack(fill=tk.X, pady=4)
+        ttk.Button(row_store, text="마찰맵 저장",
+                   command=self._save_friction_map_to_store,
+                   style='Accent.TButton').pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_store, text="저장소 관리",
+                   command=self._show_friction_map_store_list).pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_store, text="파일 내보내기",
+                   command=self._export_friction_map_store).pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_store, text="파일 가져오기",
+                   command=self._import_friction_map_store).pack(side=tk.LEFT, padx=2)
+
+        # 저장소 현황 표시
+        self._fm_store_count_var = tk.StringVar(value="저장된 마찰맵: 0개")
+        ttk.Label(sec_store, textvariable=self._fm_store_count_var,
+                  font=self.FONTS['small'], foreground='#16A34A').pack(anchor='w', pady=2)
 
         # Internal storage
         self.friction_map_results = None
@@ -22604,6 +22623,7 @@ class PerssonModelGUI_V2:
         }
         self._friction_map_store.append(entry)
         self._update_friction_map_combos()
+        self._update_fm_store_count()
         self._show_status(f"마찰맵 '{name}' 저장 완료 (총 {len(self._friction_map_store)}개)", 'success')
 
     def _show_friction_map_store_list(self):
@@ -22660,6 +22680,7 @@ class PerssonModelGUI_V2:
                 del self._friction_map_store[sel[0]]
                 listbox.delete(sel[0])
                 self._update_friction_map_combos()
+                self._update_fm_store_count()
                 self._show_status(f"마찰맵 '{entry['name']}' 삭제됨", 'info')
 
         ttk.Button(btn_frame, text="선택 로드", command=_load_selected,
@@ -22700,11 +22721,22 @@ class PerssonModelGUI_V2:
             if isinstance(loaded, list):
                 self._friction_map_store.extend(loaded)
                 self._update_friction_map_combos()
+                self._update_fm_store_count()
                 self._show_status(f"마찰맵 {len(loaded)}개 가져오기 완료", 'success')
             else:
                 messagebox.showerror("오류", "올바른 마찰맵 저장소 파일이 아닙니다.")
         except Exception as e:
             messagebox.showerror("가져오기 오류", str(e))
+
+    def _update_fm_store_count(self):
+        """마찰맵 저장소 현황 라벨 업데이트."""
+        if hasattr(self, '_fm_store_count_var'):
+            n = len(self._friction_map_store)
+            names = [e['name'] for e in self._friction_map_store]
+            if n == 0:
+                self._fm_store_count_var.set("저장된 마찰맵: 0개")
+            else:
+                self._fm_store_count_var.set(f"저장된 마찰맵: {n}개 ({', '.join(names)})")
 
     def _update_friction_map_combos(self):
         """모든 탭의 마찰맵 선택 콤보박스 업데이트."""
