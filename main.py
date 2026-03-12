@@ -5129,19 +5129,23 @@ class PerssonModelGUI_V2:
                     poisson_used = float(self.poisson_var.get()) if hasattr(self, 'poisson_var') else None
                     psd_source = getattr(self, 'psd_source_name', None) or q_source
 
-                    # 비선형 보정 여부 확인
+                    # 비선형 보정 여부 확인 (g_calculator 내부 상태)
                     has_nonlinear = (hasattr(self.g_calculator, 'f_interpolator') and
                                      self.g_calculator.f_interpolator is not None)
-                    modulus_mode = "비선형 f(ε),g(ε) 보정 적용" if has_nonlinear else "선형 (마스터커브 원본)"
+                    if has_nonlinear:
+                        modulus_mode = "비선형 보정 E*(ω)·f(ε),g(ε)"
+                    else:
+                        modulus_mode = "선형 E*(ω) (마스터커브 원본)"
 
                     info_lines = []
-                    info_lines.append(f"  수식: p_local(q) = p₀ × A₀/A(q),  조건: p_local ≥ σ_Y 시 q1 확정")
+                    info_lines.append(f"  수식: p_local(q) = p₀ × A₀/A(q),  조건: p_local ≥ σ_Y → q1 확정")
                     info_lines.append(f"  ① σ_Y (파괴응력): {stress_y} MPa ← 사용자 입력")
                     info_lines.append(f"  ② p₀ (명목압력): {p0} MPa ← 계산 설정 탭")
                     info_lines.append(f"  ③ C(q) (노면 PSD): {psd_source}")
-                    info_lines.append(f"  ④ E*(ω) (점탄성 모듈러스): 마스터커브 T={temp_used}°C, {modulus_mode}")
-                    info_lines.append(f"  · A(q)/A₀: Persson 이론 계산 (Hot/Cold 실측값 아님)")
-                    info_lines.append(f"  · v={v_stress} m/s, ν={poisson_used}")
+                    info_lines.append(f"  ④ E*(ω): {modulus_mode}, T={temp_used}°C")
+                    info_lines.append(f"  ⚠ A(q)/A₀: Cold 방식 (Flash Temp 미반영, 독립 재계산)")
+                    info_lines.append(f"     → 기존 Cold/Hot 결과를 가져오지 않고 현재 v={v_stress} m/s로 새로 계산")
+                    info_lines.append(f"  · ν={poisson_used}")
                     self.stress_calc_info_var.set("\n".join(info_lines))
 
         except ValueError as e:
