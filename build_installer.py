@@ -68,7 +68,7 @@ HIDDEN_IMPORTS = [
     'matplotlib.ft2font', 'matplotlib.mathtext',
     'matplotlib._mathtext', 'matplotlib.ticker',
     'matplotlib.colors', 'matplotlib.cm',
-    'matplotlib.collections',
+    'matplotlib.collections', 'matplotlib.scale',
     # numpy/scipy
     'numpy', 'numpy.core',
     'scipy.integrate', 'scipy.interpolate',
