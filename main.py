@@ -22615,10 +22615,18 @@ class PerssonModelGUI_V2:
                 self._friction_map_store.remove(entry)
                 break
 
+        # cold_hot_results가 없으면 friction_map_results에서 자동 합성
+        ch_to_save = self.cold_hot_results
+        if ch_to_save is None and self.friction_map_results is not None:
+            ch_to_save = self._synthesize_cold_hot_from_fm(self.friction_map_results)
+            if ch_to_save is not None:
+                print(f"[마찰맵 저장] cold_hot_results 자동 합성 "
+                      f"(T={ch_to_save['T0']:.0f}°C, p₀={ch_to_save['sigma_0']/1e6:.3g} MPa)")
+
         entry = {
             'name': name,
             'friction_map_results': copy.deepcopy(self.friction_map_results),
-            'cold_hot_results': copy.deepcopy(self.cold_hot_results),
+            'cold_hot_results': copy.deepcopy(ch_to_save),
             'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         }
         self._friction_map_store.append(entry)
@@ -23857,6 +23865,18 @@ class PerssonModelGUI_V2:
             row_fm, textvariable=self._br_friction_map_var, width=24,
             values=['(현재 계산 결과)'], state='readonly')
         self._br_friction_map_combo.pack(side=tk.LEFT, padx=2)
+
+        # 마찰맵 조건 선택 (T, p0) — 3D LUT에서 슬라이스할 조건
+        row_fm_cond = ttk.Frame(sec_fm); row_fm_cond.pack(fill=tk.X, pady=1)
+        ttk.Label(row_fm_cond, text="온도 T(°C):", font=self.FONTS['small']).pack(side=tk.LEFT)
+        self._br_fm_T_var = tk.StringVar(value="")
+        ttk.Entry(row_fm_cond, textvariable=self._br_fm_T_var, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Label(row_fm_cond, text="압력 p₀(MPa):", font=self.FONTS['small']).pack(side=tk.LEFT, padx=(6, 0))
+        self._br_fm_p0_var = tk.StringVar(value="")
+        ttk.Entry(row_fm_cond, textvariable=self._br_fm_p0_var, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Label(sec_fm, text="※ 비워두면 마찰맵 중앙값 사용",
+                  font=self.FONTS['small'], foreground='#64748B').pack(anchor='w')
+
         self._br_fm_status_var = tk.StringVar(value="")
         ttk.Label(sec_fm, textvariable=self._br_fm_status_var,
                   font=self.FONTS['small'], foreground='#16A34A').pack(anchor='w')
@@ -24641,16 +24661,101 @@ class PerssonModelGUI_V2:
 
     # ── 2D Brush: Core simulation engine ──
 
+    def _synthesize_cold_hot_from_fm(self, fm, T_C=None, p0_MPa=None):
+        """friction_map_results의 3D LUT에서 cold_hot_results 형식을 합성.
+
+        T_C, p0_MPa를 지정하지 않으면 LUT 중앙값 사용.
+        Returns dict compatible with cold_hot_results or None.
+        """
+        if fm is None:
+            return None
+        try:
+            T_arr = fm['T_array']
+            p0_arr = fm['p0_array_MPa']
+            v_arr = fm['v_array']
+
+            # Select slice indices
+            if T_C is not None:
+                iT = int(np.argmin(np.abs(T_arr - T_C)))
+            else:
+                iT = len(T_arr) // 2
+            if p0_MPa is not None:
+                ip = int(np.argmin(np.abs(p0_arr - p0_MPa)))
+            else:
+                ip = 0
+
+            T0 = float(T_arr[iT])
+            p0 = float(p0_arr[ip])
+
+            def _slice(key, fallback=None):
+                arr = fm.get(key)
+                if arr is not None:
+                    return arr[iT, ip, :].copy()
+                return fallback if fallback is not None else np.zeros(len(v_arr))
+
+            LUT_hot = fm.get('LUT_hot')
+            has_hot = LUT_hot is not None and np.any(LUT_hot != 0)
+
+            result = {
+                'v': v_arr.copy(),
+                'T0': T0,
+                'sigma_0': p0 * 1e6,
+                'D': 0.001,
+                's0': 0.0002,
+                'mu_cold_hys': _slice('LUT_mu_visc_cold'),
+                'mu_cold_ad': _slice('LUT_mu_adh_cold'),
+                'mu_cold_total': _slice('LUT_cold'),
+                'A_A0_cold': _slice('LUT_A_A0_cold', np.ones(len(v_arr))),
+                'mu_hot_hys': _slice('LUT_mu_visc_hot') if has_hot else _slice('LUT_mu_visc_cold'),
+                'mu_hot_ad': _slice('LUT_mu_adh_hot') if has_hot else _slice('LUT_mu_adh_cold'),
+                'mu_hot_total': _slice('LUT_hot') if has_hot else _slice('LUT_cold'),
+                'A_A0_hot': _slice('LUT_A_A0_hot', np.ones(len(v_arr))) if has_hot else _slice('LUT_A_A0_cold', np.ones(len(v_arr))),
+                'tau_f_cold': _slice('LUT_tau_f_cold'),
+                'tau_f_hot': _slice('LUT_tau_f_hot') if has_hot else _slice('LUT_tau_f_cold'),
+                '_synthesized': True,
+                '_from_fm_T_C': T0,
+                '_from_fm_p0_MPa': p0,
+            }
+            return result
+        except (KeyError, IndexError, TypeError) as e:
+            print(f"[_synthesize_cold_hot_from_fm] Error: {e}")
+            return None
+
     def _get_active_cold_hot_results(self):
-        """선택된 마찰맵의 cold_hot_results를 반환. 없으면 현재 계산 결과 사용."""
+        """선택된 마찰맵의 cold_hot_results를 반환. 없으면 현재 계산 결과 사용.
+        cold_hot_results가 없으면 friction_map_results에서 합성.
+        """
         selected = getattr(self, '_br_friction_map_var', None)
         if selected and selected.get() != '(현재 계산 결과)':
             name = selected.get()
-            _, ch = self._get_friction_map_by_name(name)
+            fm, ch = self._get_friction_map_by_name(name)
             if ch is not None:
                 if hasattr(self, '_br_fm_status_var'):
                     self._br_fm_status_var.set(f"마찰맵 '{name}' 사용 중")
                 return ch
+            # cold_hot_results가 None이지만 friction_map_results가 있으면 합성
+            if fm is not None:
+                # Brush 탭의 T/p0 설정값 확인
+                T_sel = None
+                p0_sel = None
+                try:
+                    t_str = getattr(self, '_br_fm_T_var', None)
+                    if t_str and t_str.get().strip():
+                        T_sel = float(t_str.get())
+                except (ValueError, AttributeError):
+                    pass
+                try:
+                    p_str = getattr(self, '_br_fm_p0_var', None)
+                    if p_str and p_str.get().strip():
+                        p0_sel = float(p_str.get())
+                except (ValueError, AttributeError):
+                    pass
+                ch = self._synthesize_cold_hot_from_fm(fm, T_C=T_sel, p0_MPa=p0_sel)
+                if ch is not None:
+                    if hasattr(self, '_br_fm_status_var'):
+                        self._br_fm_status_var.set(
+                            f"마찰맵 '{name}' (T={ch['T0']:.0f}°C, p₀={ch['sigma_0']/1e6:.3g} MPa)")
+                    return ch
         return self.cold_hot_results
 
     def _build_brush_lut(self):
@@ -27312,6 +27417,18 @@ class PerssonModelGUI_V2:
             row_fm_ts, textvariable=self._ts_friction_map_var, width=24,
             values=['(현재 계산 결과)'], state='readonly')
         self._ts_friction_map_combo.pack(side=tk.LEFT, padx=2)
+
+        # 마찰맵 조건 선택 (T, p0)
+        row_fm_ts_cond = ttk.Frame(sec_fm_ts); row_fm_ts_cond.pack(fill=tk.X, pady=1)
+        ttk.Label(row_fm_ts_cond, text="온도 T(°C):", font=self.FONTS['small']).pack(side=tk.LEFT)
+        self._ts_fm_T_var = tk.StringVar(value="")
+        ttk.Entry(row_fm_ts_cond, textvariable=self._ts_fm_T_var, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Label(row_fm_ts_cond, text="압력 p₀(MPa):", font=self.FONTS['small']).pack(side=tk.LEFT, padx=(6, 0))
+        self._ts_fm_p0_var = tk.StringVar(value="")
+        ttk.Entry(row_fm_ts_cond, textvariable=self._ts_fm_p0_var, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Label(sec_fm_ts, text="※ 비워두면 마찰맵 중앙값 사용",
+                  font=self.FONTS['small'], foreground='#64748B').pack(anchor='w')
+
         self._ts_fm_status_var = tk.StringVar(value="")
         ttk.Label(sec_fm_ts, textvariable=self._ts_fm_status_var,
                   font=self.FONTS['small'], foreground='#16A34A').pack(anchor='w')
@@ -28160,6 +28277,28 @@ class PerssonModelGUI_V2:
                 _ts_active_ch = _ch
                 if hasattr(self, '_ts_fm_status_var'):
                     self._ts_fm_status_var.set(f"마찰맵 '{ts_fm_sel.get()}' 사용 중")
+            elif _fm is not None:
+                # cold_hot_results가 None이면 friction_map_results에서 합성
+                T_sel = None
+                p0_sel = None
+                try:
+                    t_str = getattr(self, '_ts_fm_T_var', None)
+                    if t_str and t_str.get().strip():
+                        T_sel = float(t_str.get())
+                except (ValueError, AttributeError):
+                    pass
+                try:
+                    p_str = getattr(self, '_ts_fm_p0_var', None)
+                    if p_str and p_str.get().strip():
+                        p0_sel = float(p_str.get())
+                except (ValueError, AttributeError):
+                    pass
+                _ch = self._synthesize_cold_hot_from_fm(_fm, T_C=T_sel, p0_MPa=p0_sel)
+                if _ch is not None:
+                    _ts_active_ch = _ch
+                    if hasattr(self, '_ts_fm_status_var'):
+                        self._ts_fm_status_var.set(
+                            f"마찰맵 '{ts_fm_sel.get()}' (T={_ch['T0']:.0f}°C, p₀={_ch['sigma_0']/1e6:.3g} MPa)")
         if _ts_active_ch is None:
             messagebox.showerror(
                 "데이터 없음",
