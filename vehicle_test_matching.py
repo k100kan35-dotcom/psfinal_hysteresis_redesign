@@ -643,16 +643,39 @@ def _vtm_extract_mu_from_map(self, fm_results, T_fix=None, p0_fix=None, v_fix=No
     return best_cond
 
 
-def _vtm_find_best_correlation_condition(self, fm_results_dict, item_indices,
-                                          base_mode='min', branch='both', mu_type='mu_total'):
-    """Find the friction map condition (T, p0, v) that maximizes correlation
-    between item indices and friction map mu indices across all samples.
+def _vtm_find_all_correlation_conditions(self, fm_results_dict, item_indices,
+                                           base_mode='min', branch='both', mu_type='mu_total',
+                                           threshold=0.80):
+    """마찰맵의 모든 (T, p0, v, branch) 조건을 전수탐색하여
+    |r| >= threshold인 조건을 모두 수집하고, 최적 조건과 범위를 리턴.
 
     fm_results_dict: {sample_name: friction_map_results}
     item_indices: {sample_name: index_value}
+    threshold: 상관성 임계값 (기본 0.80)
 
-    Returns (best_corr, best_condition_desc, mu_indices_at_best).
+    Returns dict:
+        'best_corr': float,
+        'best_condition': {T_C, p0_MPa, v_ms, branch, corr, mu_indices},
+        'passing_conditions': list of {T_C, p0_MPa, v_ms, branch, corr, mu_indices},
+        'passing_count': int,
+        'total_searched': int,
+        'T_range': (min, max) or None,
+        'p0_range': (min, max) or None,
+        'v_range': (min, max) or None,
+        'branch_list': list of branch names that passed,
     """
+    result = {
+        'best_corr': 0.0,
+        'best_condition': None,
+        'passing_conditions': [],
+        'passing_count': 0,
+        'total_searched': 0,
+        'T_range': None,
+        'p0_range': None,
+        'v_range': None,
+        'branch_list': [],
+    }
+
     # We need at least one FM with LUT data
     any_fm = None
     for fm in fm_results_dict.values():
@@ -660,7 +683,7 @@ def _vtm_find_best_correlation_condition(self, fm_results_dict, item_indices,
             any_fm = fm
             break
     if any_fm is None:
-        return 0.0, "마찰맵 없음", {}
+        return result
 
     T_arr = any_fm['T_array']
     p0_arr = any_fm['p0_array_MPa']
@@ -673,15 +696,12 @@ def _vtm_find_best_correlation_condition(self, fm_results_dict, item_indices,
     }
     cold_key, hot_key = lut_key_map.get(mu_type, ('LUT_cold', 'LUT_hot'))
 
-    common_samples = [s for s in item_indices.keys() if s in fm_results_dict and fm_results_dict[s] is not None]
+    common_samples = [s for s in item_indices.keys()
+                      if s in fm_results_dict and fm_results_dict[s] is not None]
     if len(common_samples) < 2:
-        return 0.0, "공통 샘플 부족", {}
+        return result
 
     test_arr = np.array([item_indices[s] for s in common_samples])
-
-    best_corr = 0.0
-    best_desc = ""
-    best_mu_indices = {}
 
     branches = []
     if branch in ('cold', 'both'):
@@ -691,10 +711,16 @@ def _vtm_find_best_correlation_condition(self, fm_results_dict, item_indices,
     if not branches:
         branches.append(('cold', cold_key))
 
+    # 전수 탐색: 모든 (T, p0, v, branch) 조합
+    all_passing = []
+    total_count = 0
+
     for branch_name, lut_key in branches:
         for iT, T in enumerate(T_arr):
             for ip, p0 in enumerate(p0_arr):
                 for iv, v in enumerate(v_arr):
+                    total_count += 1
+
                     # Extract mu for each sample at this condition
                     mu_vals = {}
                     for s in common_samples:
@@ -703,7 +729,6 @@ def _vtm_find_best_correlation_condition(self, fm_results_dict, item_indices,
                             continue
                         try:
                             LUT = fm[lut_key]
-                            # Find closest indices in this FM's grid
                             s_iT = np.argmin(np.abs(fm['T_array'] - T))
                             s_ip = np.argmin(np.abs(fm['p0_array_MPa'] - p0))
                             s_iv = np.argmin(np.abs(fm['v_array'] - v))
@@ -724,12 +749,39 @@ def _vtm_find_best_correlation_condition(self, fm_results_dict, item_indices,
                     else:
                         corr = float(np.corrcoef(test_arr, mu_arr)[0, 1])
 
-                    if abs(corr) > abs(best_corr):
-                        best_corr = corr
-                        best_desc = f"T={T:.0f}°C, p₀={p0:.3g} MPa, v={v:.4g} m/s [{branch_name}]"
-                        best_mu_indices = mu_idx
+                    cond_entry = {
+                        'T_C': float(T),
+                        'p0_MPa': float(p0),
+                        'v_ms': float(v),
+                        'branch': branch_name,
+                        'corr': corr,
+                        'mu_indices': mu_idx,
+                    }
 
-    return best_corr, best_desc, best_mu_indices
+                    # 임계값 이상이면 수집
+                    if abs(corr) >= threshold:
+                        all_passing.append(cond_entry)
+
+                    # 최적 조건 추적
+                    if abs(corr) > abs(result['best_corr']):
+                        result['best_corr'] = corr
+                        result['best_condition'] = cond_entry
+
+    result['total_searched'] = total_count
+    result['passing_conditions'] = all_passing
+    result['passing_count'] = len(all_passing)
+
+    # 임계값 이상 조건들의 범위 계산
+    if all_passing:
+        Ts = [c['T_C'] for c in all_passing]
+        ps = [c['p0_MPa'] for c in all_passing]
+        vs = [c['v_ms'] for c in all_passing]
+        result['T_range'] = (min(Ts), max(Ts))
+        result['p0_range'] = (min(ps), max(ps))
+        result['v_range'] = (min(vs), max(vs))
+        result['branch_list'] = list(set(c['branch'] for c in all_passing))
+
+    return result
 
 
 # ── Main analysis ──
@@ -890,21 +942,26 @@ def _run_vehicle_test_matching(self):
         else:
             corr = float(np.corrcoef(test_arr, mu_arr)[0, 1])
 
-        # Auto-search for best condition if not all fixed and we have FMs
+        # Auto-search for best condition & all passing conditions
         best_condition = ""
+        search_result = None
         if samples_with_map >= 2:
             if T_fix is not None and p0_fix is not None and v_fix is not None:
                 best_condition = f"T={T_fix:.0f}°C, p₀={p0_fix:.3g} MPa, v={v_fix:.4g} m/s (고정)"
             else:
-                # Search for best correlation condition
-                best_corr, best_desc, best_mu_idx = self._vtm_find_best_correlation_condition(
-                    fm_dict, item_idx, base_mode, branch_mode, mu_type)
-                if abs(best_corr) > abs(corr):
-                    corr = best_corr
-                    mu_index_for_item = best_mu_idx
-                    best_condition = best_desc
-                    # Update mu_arr with best condition values
-                    mu_arr = np.array([best_mu_idx.get(s, 0) for s in common_samples])
+                # 전수 탐색: 모든 조건에서 상관성 계산
+                search_result = self._vtm_find_all_correlation_conditions(
+                    fm_dict, item_idx, base_mode, branch_mode, mu_type, threshold)
+
+                if search_result['best_condition'] is not None:
+                    bc = search_result['best_condition']
+                    if abs(bc['corr']) > abs(corr):
+                        corr = bc['corr']
+                        best_condition = (
+                            f"T={bc['T_C']:.0f}°C, p₀={bc['p0_MPa']:.3g} MPa, "
+                            f"v={bc['v_ms']:.4g} m/s [{bc['branch']}]")
+                        # Update mu_arr with best condition values
+                        mu_arr = np.array([bc['mu_indices'].get(s, 0) for s in common_samples])
 
         # Map matches per sample
         map_matches = []
@@ -933,6 +990,7 @@ def _run_vehicle_test_matching(self):
             'correlation': corr,
             'common_samples': common_samples,
             'best_condition': best_condition,
+            'search_result': search_result,  # 전수 탐색 결과 (범위 정보 포함)
             'map_matches': map_matches,
         })
 
@@ -1016,7 +1074,7 @@ def _vtm_display_results(self, all_results):
                        "보통" if abs(corr) >= 0.5 else "약함"
             sign_str = "양(+)" if corr > 0 else "음(-)"
             self._vtm_result_text.insert(tk.END,
-                f"  ★ 상관계수: r = {corr_str} [{strength}, {sign_str} 상관]\n")
+                f"  ★ 최대 상관계수: r = {corr_str} [{strength}, {sign_str} 상관]\n")
         else:
             self._vtm_result_text.insert(tk.END,
                 f"  ★ 상관계수 계산 불가 (데이터 부족)\n")
@@ -1025,12 +1083,47 @@ def _vtm_display_results(self, all_results):
         best_cond = res.get('best_condition', '')
         if best_cond:
             self._vtm_result_text.insert(tk.END,
-                f"  최적 조건: {best_cond}\n")
+                f"  최적 조건 (r 최대): {best_cond}\n")
+
+        # 전수 탐색 결과 — 범위 표시
+        sr = res.get('search_result')
+        if sr and sr['total_searched'] > 0:
+            thr = self._vtm_threshold
+            self._vtm_result_text.insert(tk.END,
+                f"\n  ── 전수 탐색 결과 (|r| ≥ {thr:.2f}) ──\n"
+                f"  총 탐색: {sr['total_searched']}개 조건\n"
+                f"  통과: {sr['passing_count']}개 조건 "
+                f"({sr['passing_count']/max(sr['total_searched'],1)*100:.1f}%)\n")
+
+            if sr['passing_count'] > 0:
+                T_r = sr['T_range']
+                p_r = sr['p0_range']
+                v_r = sr['v_range']
+                self._vtm_result_text.insert(tk.END,
+                    f"  ── 상관성 충족 조건 범위 ──\n"
+                    f"    온도 T: {T_r[0]:.0f} ~ {T_r[1]:.0f} °C\n"
+                    f"    압력 p₀: {p_r[0]:.3g} ~ {p_r[1]:.3g} MPa\n"
+                    f"    속도 v: {v_r[0]:.4g} ~ {v_r[1]:.4g} m/s\n"
+                    f"    Branch: {', '.join(sr['branch_list'])}\n")
+
+                # 상위 5개 조건 상세
+                top_n = sorted(sr['passing_conditions'],
+                               key=lambda c: abs(c['corr']), reverse=True)[:5]
+                self._vtm_result_text.insert(tk.END,
+                    f"  ── 상위 {min(5, len(top_n))}개 조건 ──\n")
+                for rank, c in enumerate(top_n, 1):
+                    self._vtm_result_text.insert(tk.END,
+                        f"    #{rank} r={c['corr']:+.4f}  "
+                        f"T={c['T_C']:.0f}°C, p₀={c['p0_MPa']:.3g} MPa, "
+                        f"v={c['v_ms']:.4g} m/s [{c['branch']}]\n")
+            else:
+                self._vtm_result_text.insert(tk.END,
+                    f"  ⚠ |r| ≥ {thr:.2f} 조건이 없습니다.\n")
 
         # Map matches per sample
         matches = res.get('map_matches', [])
         if matches:
-            self._vtm_result_text.insert(tk.END, "  ── 마찰 맵 mu 값 (샘플별) ──\n")
+            self._vtm_result_text.insert(tk.END, "\n  ── 마찰 맵 mu 값 (샘플별) ──\n")
             for m in matches:
                 self._vtm_result_text.insert(tk.END,
                     f"    [{m['sample']}] mu={m['matched_mu']:.4f}  "
@@ -1228,79 +1321,155 @@ def _vtm_plot_match_detail(self, all_results):
 
 
 def _vtm_plot_map_conditions(self, all_results):
-    """Plot friction map matching conditions for each sample."""
+    """Plot friction map condition search results: all passing conditions + best."""
     import matplotlib.pyplot as plt
+    from matplotlib.lines import Line2D
 
     fig = self._vtm_fig_map
     fig.clear()
 
-    # Collect all map matches
-    all_matches = []
+    # Collect passing conditions from search_result across all items
+    all_passing = []
+    best_conditions = []
     for res in all_results:
-        for m in res.get('map_matches', []):
-            all_matches.append(m)
+        sr = res.get('search_result')
+        if sr and sr['passing_conditions']:
+            for c in sr['passing_conditions']:
+                c_copy = dict(c)
+                c_copy['item'] = res['item_name']
+                all_passing.append(c_copy)
+            if sr['best_condition']:
+                bc = dict(sr['best_condition'])
+                bc['item'] = res['item_name']
+                best_conditions.append(bc)
 
-    if not all_matches:
-        ax = fig.add_subplot(111)
-        msg = "마찰 맵 조건 탐색 결과가 없습니다."
-        if not self._friction_map_store:
-            msg += "\nFriction Map을 먼저 생성하고 저장하세요."
-        else:
-            msg += "\n각 샘플에 마찰맵을 연결하세요."
-        ax.text(0.5, 0.5, msg, ha='center', va='center', fontsize=14,
-                transform=ax.transAxes)
-        ax.set_axis_off()
+    # Fallback: use per-sample map_matches if no search results
+    if not all_passing:
+        all_matches = []
+        for res in all_results:
+            for m in res.get('map_matches', []):
+                all_matches.append(m)
+
+        if not all_matches:
+            ax = fig.add_subplot(111)
+            msg = "마찰 맵 조건 탐색 결과가 없습니다."
+            if not self._friction_map_store:
+                msg += "\nFriction Map을 먼저 생성하고 저장하세요."
+            else:
+                msg += "\n각 샘플에 마찰맵을 연결하세요."
+            ax.text(0.5, 0.5, msg, ha='center', va='center', fontsize=14,
+                    transform=ax.transAxes)
+            ax.set_axis_off()
+            self._vtm_canvas_map.draw()
+            return
+
+        # Fallback: plot per-sample matches (old behavior)
+        ax1 = fig.add_subplot(131)
+        ax2 = fig.add_subplot(132)
+        ax3 = fig.add_subplot(133)
+        sample_names = sorted(set(m['sample'] for m in all_matches))
+        colors = plt.cm.Set1(np.linspace(0, 1, max(len(sample_names), 3)))
+        color_map = {s: colors[i] for i, s in enumerate(sample_names)}
+        for m in all_matches:
+            c = color_map[m['sample']]
+            marker = 'o' if m['branch'] == 'cold' else 's'
+            ax1.scatter(m['sample'], m['T_C'], c=[c], marker=marker, s=100,
+                        edgecolors='black', linewidth=0.5)
+            ax2.scatter(m['sample'], m['p0_MPa'], c=[c], marker=marker, s=100,
+                        edgecolors='black', linewidth=0.5)
+            ax3.scatter(m['sample'], m['v_ms'], c=[c], marker=marker, s=100,
+                        edgecolors='black', linewidth=0.5)
+        ax1.set_ylabel('온도 T (°C)', fontsize=10)
+        ax1.set_title('매칭 온도', fontsize=11, fontweight='bold')
+        ax2.set_ylabel('압력 p₀ (MPa)', fontsize=10)
+        ax2.set_title('매칭 압력', fontsize=11, fontweight='bold')
+        ax3.set_ylabel('속도 v (m/s)', fontsize=10)
+        ax3.set_title('매칭 속도', fontsize=11, fontweight='bold')
+        fig.suptitle("샘플별 마찰 맵 매칭 조건", fontsize=13, fontweight='bold')
+        fig.tight_layout()
         self._vtm_canvas_map.draw()
         return
 
-    # 3 subplots: T, p0, v for each sample
+    # ── Main plot: all passing conditions scatter ──
+    # 3 subplots: T vs |r|, p0 vs |r|, v vs |r|
     ax1 = fig.add_subplot(131)
     ax2 = fig.add_subplot(132)
     ax3 = fig.add_subplot(133)
 
-    sample_names = list(set(m['sample'] for m in all_matches))
-    sample_names.sort()
-    colors = plt.cm.Set1(np.linspace(0, 1, max(len(sample_names), 3)))
-    color_map = {s: colors[i] for i, s in enumerate(sample_names)}
+    thr = getattr(self, '_vtm_threshold', 0.80)
 
-    for m in all_matches:
-        c = color_map[m['sample']]
-        marker = 'o' if m['branch'] == 'cold' else 's'
+    # Color by |r| value
+    corr_vals = np.array([abs(c['corr']) for c in all_passing])
+    T_vals = np.array([c['T_C'] for c in all_passing])
+    p0_vals = np.array([c['p0_MPa'] for c in all_passing])
+    v_vals = np.array([c['v_ms'] for c in all_passing])
+    branches = [c['branch'] for c in all_passing]
 
-        ax1.scatter(m['sample'], m['T_C'], c=[c], marker=marker, s=100,
-                    edgecolors='black', linewidth=0.5)
+    # Separate cold/hot for different markers
+    cold_mask = np.array([b == 'cold' for b in branches])
+    hot_mask = ~cold_mask
 
-        ax2.scatter(m['sample'], m['p0_MPa'], c=[c], marker=marker, s=100,
-                    edgecolors='black', linewidth=0.5)
+    # Scatter passing conditions (cold = circles, hot = squares)
+    if np.any(cold_mask):
+        sc1 = ax1.scatter(T_vals[cold_mask], corr_vals[cold_mask],
+                          c=corr_vals[cold_mask], cmap='RdYlGn', vmin=thr, vmax=1.0,
+                          marker='o', s=30, alpha=0.6, edgecolors='none')
+        ax2.scatter(p0_vals[cold_mask], corr_vals[cold_mask],
+                    c=corr_vals[cold_mask], cmap='RdYlGn', vmin=thr, vmax=1.0,
+                    marker='o', s=30, alpha=0.6, edgecolors='none')
+        ax3.scatter(v_vals[cold_mask], corr_vals[cold_mask],
+                    c=corr_vals[cold_mask], cmap='RdYlGn', vmin=thr, vmax=1.0,
+                    marker='o', s=30, alpha=0.6, edgecolors='none')
 
-        ax3.scatter(m['sample'], m['v_ms'], c=[c], marker=marker, s=100,
-                    edgecolors='black', linewidth=0.5)
+    if np.any(hot_mask):
+        ax1.scatter(T_vals[hot_mask], corr_vals[hot_mask],
+                    c=corr_vals[hot_mask], cmap='RdYlGn', vmin=thr, vmax=1.0,
+                    marker='s', s=30, alpha=0.6, edgecolors='none')
+        ax2.scatter(p0_vals[hot_mask], corr_vals[hot_mask],
+                    c=corr_vals[hot_mask], cmap='RdYlGn', vmin=thr, vmax=1.0,
+                    marker='s', s=30, alpha=0.6, edgecolors='none')
+        ax3.scatter(v_vals[hot_mask], corr_vals[hot_mask],
+                    c=corr_vals[hot_mask], cmap='RdYlGn', vmin=thr, vmax=1.0,
+                    marker='s', s=30, alpha=0.6, edgecolors='none')
 
-    ax1.set_ylabel('온도 T (°C)', fontsize=10)
-    ax1.set_title('매칭 온도', fontsize=11, fontweight='bold')
-    ax1.tick_params(axis='x', rotation=45)
+    # Mark best condition with a star
+    for bc in best_conditions:
+        for ax_plot, x_val in [(ax1, bc['T_C']), (ax2, bc['p0_MPa']), (ax3, bc['v_ms'])]:
+            ax_plot.scatter(x_val, abs(bc['corr']),
+                           marker='*', s=200, c='red', edgecolors='black',
+                           linewidth=1, zorder=10)
 
-    ax2.set_ylabel('압력 p₀ (MPa)', fontsize=10)
-    ax2.set_title('매칭 압력', fontsize=11, fontweight='bold')
-    ax2.tick_params(axis='x', rotation=45)
+    # Threshold line
+    for ax_plot in [ax1, ax2, ax3]:
+        ax_plot.axhline(y=thr, color='gray', linestyle='--', linewidth=0.8, alpha=0.7)
 
-    ax3.set_ylabel('속도 v (m/s)', fontsize=10)
-    ax3.set_title('매칭 속도', fontsize=11, fontweight='bold')
-    ax3.set_yscale('log')
-    ax3.tick_params(axis='x', rotation=45)
+    ax1.set_xlabel('온도 T (°C)', fontsize=10)
+    ax1.set_ylabel('|r| (상관계수)', fontsize=10)
+    ax1.set_title('온도별 상관성', fontsize=11, fontweight='bold')
 
-    # Legend for branch
-    from matplotlib.lines import Line2D
+    ax2.set_xlabel('압력 p₀ (MPa)', fontsize=10)
+    ax2.set_title('압력별 상관성', fontsize=11, fontweight='bold')
+
+    ax3.set_xlabel('속도 v (m/s)', fontsize=10)
+    ax3.set_title('속도별 상관성', fontsize=11, fontweight='bold')
+    ax3.set_xscale('log')
+
+    # Legend
     legend_elements = [
-        Line2D([0], [0], marker='o', color='w', markerfacecolor='gray',
-               markersize=10, label='Cold'),
-        Line2D([0], [0], marker='s', color='w', markerfacecolor='gray',
-               markersize=10, label='Hot'),
+        Line2D([0], [0], marker='o', color='w', markerfacecolor='#66bb6a',
+               markersize=8, label='Cold (통과)'),
+        Line2D([0], [0], marker='s', color='w', markerfacecolor='#66bb6a',
+               markersize=8, label='Hot (통과)'),
+        Line2D([0], [0], marker='*', color='w', markerfacecolor='red',
+               markeredgecolor='black', markersize=12, label='최적 조건'),
+        Line2D([0], [0], color='gray', linestyle='--', linewidth=0.8,
+               label=f'임계값 |r|={thr:.2f}'),
     ]
-    ax3.legend(handles=legend_elements, loc='best', fontsize=9)
+    ax3.legend(handles=legend_elements, loc='best', fontsize=8)
 
-    fig.suptitle("샘플별 마찰 맵 매칭 조건",
-                 fontsize=13, fontweight='bold')
+    n_pass = len(all_passing)
+    fig.suptitle(f"마찰맵 전수 탐색: |r| ≥ {thr:.2f} 통과 {n_pass}개 조건",
+                 fontsize=12, fontweight='bold')
     fig.tight_layout()
     self._vtm_canvas_map.draw()
 
@@ -1398,7 +1567,7 @@ def bind_vehicle_test_matching(cls):
     cls._vtm_collect_table_data = _vtm_collect_table_data
     cls._vtm_compute_indices = _vtm_compute_indices
     cls._vtm_extract_mu_from_map = _vtm_extract_mu_from_map
-    cls._vtm_find_best_correlation_condition = _vtm_find_best_correlation_condition
+    cls._vtm_find_all_correlation_conditions = _vtm_find_all_correlation_conditions
     cls._run_vehicle_test_matching = _run_vehicle_test_matching
     cls._vtm_display_results = _vtm_display_results
     cls._vtm_plot_heatmap = _vtm_plot_heatmap
