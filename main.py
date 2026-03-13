@@ -24861,7 +24861,9 @@ class PerssonModelGUI_V2:
             "if v_slip < v_tol AND |F_spring| < mu_static * Fz:\n"
             "    F_fric = -F_spring   # Stick: 완벽한 고착\n"
             "else:\n"
-            "    F_fric = -mu_eff * Fz * (v_block / |v_block|)  # Slip",
+            "    dir = v_block/|v_block| if |v_block|>v_tol\n"
+            "          else F_spring/|F_spring|  # 전환 안정화\n"
+            "    F_fric = -mu_eff * Fz * dir     # Slip",
             title="핵심 수식"
         )
 
@@ -25025,10 +25027,17 @@ class PerssonModelGUI_V2:
             F_static_cap = mu_static_val * Fz_ij
             is_stick = is_slow & (F_spring_mag < F_static_cap)
 
-            # Slip: Coulomb friction opposing slip velocity
+            # Slip: Coulomb friction opposing motion
             F_fric_limit = mu_eff * Fz_ij
-            Fx_fric_slip = -F_fric_limit * (vx_block / (v_slip_mag + eps))
-            Fy_fric_slip = -F_fric_limit * (vy_block / (v_slip_mag + eps))
+            # Use velocity direction when moving; fall back to spring direction
+            # at near-zero velocity to avoid zero-friction at stick→slip transition
+            use_vel_dir = v_slip_mag > v_tol
+            dir_x = np.where(use_vel_dir, vx_block / (v_slip_mag + eps),
+                             Fx_spring / (F_spring_mag + eps))
+            dir_y = np.where(use_vel_dir, vy_block / (v_slip_mag + eps),
+                             Fy_spring / (F_spring_mag + eps))
+            Fx_fric_slip = -F_fric_limit * dir_x
+            Fy_fric_slip = -F_fric_limit * dir_y
             # Stick: friction exactly balances spring (net force = 0)
             Fx_fric = np.where(is_stick, -Fx_spring, Fx_fric_slip)
             Fy_fric = np.where(is_stick, -Fy_spring, Fy_fric_slip)
@@ -25090,10 +25099,17 @@ class PerssonModelGUI_V2:
                     F_static_cap = mu_static_val * Fz_ij
                     is_stick = is_slow & (F_spring_mag < F_static_cap)
 
-                    # Slip: Coulomb friction opposing slip velocity
+                    # Slip: Coulomb friction opposing motion
                     F_fric_limit = mu_eff * Fz_ij
-                    Fx_fric_slip = -F_fric_limit * (vx_block / (v_slip_mag + eps))
-                    Fy_fric_slip = -F_fric_limit * (vy_block / (v_slip_mag + eps))
+                    # Use velocity direction when moving; fall back to spring direction
+                    # at near-zero velocity to avoid zero-friction at stick→slip transition
+                    use_vel_dir = v_slip_mag > v_tol
+                    dir_x = np.where(use_vel_dir, vx_block / (v_slip_mag + eps),
+                                     Fx_spring / (F_spring_mag + eps))
+                    dir_y = np.where(use_vel_dir, vy_block / (v_slip_mag + eps),
+                                     Fy_spring / (F_spring_mag + eps))
+                    Fx_fric_slip = -F_fric_limit * dir_x
+                    Fy_fric_slip = -F_fric_limit * dir_y
                     # Stick: friction exactly balances spring (net force = 0)
                     Fx_fric = np.where(is_stick, -Fx_spring, Fx_fric_slip)
                     Fy_fric = np.where(is_stick, -Fy_spring, Fy_fric_slip)
