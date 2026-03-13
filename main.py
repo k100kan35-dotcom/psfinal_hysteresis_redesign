@@ -24336,13 +24336,6 @@ class PerssonModelGUI_V2:
         ttk.Entry(row_ky, textvariable=self.pb_ky_var, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_ky, text="N/m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
-        row_fs = ttk.Frame(sec1); row_fs.pack(fill=tk.X, pady=1)
-        ttk.Label(row_fs, text="마찰 감도 계수:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.pb_friction_scale_var = tk.StringVar(value="0.5")
-        ttk.Entry(row_fs, textvariable=self.pb_friction_scale_var, width=8).pack(side=tk.LEFT, padx=2)
-        ttk.Label(row_fs, text="(< 1: 슬라이딩 증가)", font=self.FONTS['small'],
-                  foreground='#64748B').pack(side=tk.LEFT)
-
         # ── 마찰맵 선택 (공유) ──
         sec_fm = self._create_section(left_panel, "마찰 모델 선택")
         ttk.Label(sec_fm, text="2D Brush 탭의 마찰맵 설정을 공유합니다.",
@@ -24850,7 +24843,6 @@ class PerssonModelGUI_V2:
         )
 
         add_title("파라미터 튜닝 전략", fg='#059669')
-        add_text("friction_scale 높이기 (0.8~1.0): Peak Fy가 mu에 비례 -> 컴파운드 차이 확대", bold=True)
         add_text("kx, ky 높이기: 낮은 SA에서도 Slip 진입 -> 컴파운드 영향 확대", bold=True)
         add_text("m (질량) 낮추기: 더 빠른 동적 응답 -> 정상 상태 빠르게 도달", bold=True)
         add_text("zeta (감쇠비): 1.0 = 임계감쇠 (진동 없음), < 1.0 = 과소감쇠 (진동 발생)", bold=True)
@@ -24862,7 +24854,7 @@ class PerssonModelGUI_V2:
             "\n"
             "# Cold-Hot 블렌딩 (Persson 마찰열)\n"
             "w = exp(-s_slip / s0)             # s0 = 0.2 * D_macro\n"
-            "mu_eff = (w * mu_cold + (1-w) * mu_hot) * friction_scale",
+            "mu_eff = w * mu_cold + (1-w) * mu_hot",
             title="핵심 수식"
         )
 
@@ -24918,7 +24910,6 @@ class PerssonModelGUI_V2:
         vc = float(self.pb_vc_var.get())
         D_mm = float(self.pb_D_macro_var.get())
         s0 = 0.2 * D_mm * 1e-3
-        friction_scale = float(self.pb_friction_scale_var.get())
         m_total = float(self.pb_mass_var.get())
         zeta = float(self.pb_zeta_var.get())
         dt_ode = float(self.pb_dt_var.get())
@@ -25058,7 +25049,7 @@ class PerssonModelGUI_V2:
                     v_lut = np.clip(v_slip_mag, 1e-12, None)
                     mu_cold_v = lut_cold(v_lut)
                     mu_hot_v = lut_hot(v_lut)
-                    mu_eff = (w * mu_cold_v + (1.0 - w) * mu_hot_v) * friction_scale
+                    mu_eff = w * mu_cold_v + (1.0 - w) * mu_hot_v
                     F_fric_limit = mu_eff * Fz_ij
                     Fx_fric = -F_fric_limit * (vx_block / (v_slip_mag + eps))
                     Fy_fric = -F_fric_limit * (vy_block / (v_slip_mag + eps))
@@ -25343,7 +25334,8 @@ class PerssonModelGUI_V2:
         Fz = float(self.pb_Fz_var.get()) if self.pb_Fz_var.get() else 4000.0
         self._update_pb_tire(f['SA'], f['Fy'], Fz)
 
-        self.canvas_pb.draw_idle()
+        # Synchronous draw — draw_idle() doesn't reliably update QuadMesh
+        self.canvas_pb.draw()
 
     # ── PerssonBrush: Playback controls ──
 
