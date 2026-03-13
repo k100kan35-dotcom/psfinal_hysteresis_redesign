@@ -24253,15 +24253,6 @@ class PerssonModelGUI_V2:
         self.canvas_brush.draw_idle()
         self.canvas_brush.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
-        # Auto-resize figure to fill available widget space
-        def _brush_on_resize(event):
-            w_px = event.width
-            h_px = event.height
-            if w_px > 100 and h_px > 100:
-                dpi = self.fig_brush.get_dpi()
-                self.fig_brush.set_size_inches(w_px / dpi, h_px / dpi, forward=False)
-        self.canvas_brush.get_tk_widget().bind('<Configure>', _brush_on_resize)
-
         # Save TRUE original axis positions from GridSpec BEFORE any colorbars
         # are created. This prevents cumulative width shrinkage when the
         # transient simulation is re-run multiple times.
@@ -24660,15 +24651,6 @@ class PerssonModelGUI_V2:
         self.canvas_pb = FigureCanvasTkAgg(self.fig_pb, plot_frame)
         self.canvas_pb.draw_idle()
         self.canvas_pb.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-
-        # Auto-resize figure to fill available widget space
-        def _pb_on_resize(event):
-            w_px = event.width
-            h_px = event.height
-            if w_px > 100 and h_px > 100:
-                dpi = self.fig_pb.get_dpi()
-                self.fig_pb.set_size_inches(w_px / dpi, h_px / dpi, forward=False)
-        self.canvas_pb.get_tk_widget().bind('<Configure>', _pb_on_resize)
 
         toolbar = NavigationToolbar2Tk(self.canvas_pb, plot_frame)
         toolbar.update()
@@ -25413,24 +25395,44 @@ class PerssonModelGUI_V2:
             y_rim = vy_rim * t_contact
 
             for step in range(n_ode_steps):
+                # Relative velocity (block vs ground)
                 v_slip_mag = np.sqrt(vx_block**2 + vy_block**2)
                 s_slip += v_slip_mag * dt_ode
 
+                # Use rim velocity magnitude for friction LUT (represents
+                # macro-slip speed). This prevents mu→0 when blocks track
+                # the rim closely (low instantaneous v_slip), which would
+                # cause artificially low friction and Fy.
+                v_rim_mag = np.sqrt(vx_rim**2 + vy_rim**2)
+                v_for_lut = np.maximum(v_slip_mag, v_rim_mag * 0.1)
+                v_lut = np.clip(v_for_lut, 1e-12, None)
+
                 w = np.exp(-s_slip / max(s0, 1e-10))
-                v_lut = np.clip(v_slip_mag, 1e-12, None)
                 mu_cold_v = lut_cold(v_lut)
                 mu_hot_v = lut_hot(v_lut)
                 mu_eff = (w * mu_cold_v + (1.0 - w) * mu_hot_v) * friction_scale
 
+                # Regularized Coulomb friction: cap the spring force at
+                # friction limit instead of applying opposing force based
+                # on block velocity (which fails when v_slip ≈ 0).
+                Fx_spring_raw = kx_node * (x_rim - x_block) + cx_node * (vx_rim - vx_block)
+                Fy_spring_raw = ky_node * (y_rim - y_block) + cy_node * (vy_rim - vy_block)
+                F_spring_mag = np.sqrt(Fx_spring_raw**2 + Fy_spring_raw**2) + eps
+
                 F_fric_limit = mu_eff * Fz_ij
-                Fx_fric = -F_fric_limit * (vx_block / (v_slip_mag + eps))
-                Fy_fric = -F_fric_limit * (vy_block / (v_slip_mag + eps))
 
-                Fx_spring = kx_node * (x_rim - x_block) + cx_node * (vx_rim - vx_block)
-                Fy_spring = ky_node * (y_rim - y_block) + cy_node * (vy_rim - vy_block)
+                # Stick-slip: if spring force < friction capacity → stick
+                is_slipping = F_spring_mag > F_fric_limit
+                # Stick: block follows rim (net force = spring)
+                # Slip: spring force capped at friction limit
+                scale = np.where(is_slipping,
+                                 F_fric_limit / F_spring_mag,
+                                 1.0)
+                Fx_net = Fx_spring_raw * scale
+                Fy_net = Fy_spring_raw * scale
 
-                ax_b = (Fx_spring + Fx_fric) / m_node
-                ay_b = (Fy_spring + Fy_fric) / m_node
+                ax_b = Fx_net / m_node
+                ay_b = Fy_net / m_node
 
                 vx_block += ax_b * dt_ode
                 vy_block += ay_b * dt_ode
@@ -25491,8 +25493,8 @@ class PerssonModelGUI_V2:
         self._pb_x_mm = x_arr * 1000
         self._pb_y_mm = y_arr * 1000
 
-        # Invalidate cached contour artists (grid may have changed)
-        self._pb_contour_inited = False
+        # Invalidate cached meshgrid (grid may have changed)
+        self._pb_XX = None
 
         # Draw time histories
         self._pb_draw_time_histories()
@@ -25540,72 +25542,26 @@ class PerssonModelGUI_V2:
 
     # ── PerssonBrush: Frame display ──
 
-    def _pb_init_contour_artists(self):
-        """One-time init of persistent pcolormesh artists for blit-based update."""
-        x_mm = self._pb_x_mm
-        y_mm = self._pb_y_mm
-        self._pb_XX, self._pb_YY = np.meshgrid(x_mm, y_mm, indexing='ij')
-        XX, YY = self._pb_XX, self._pb_YY
-        Nx, Ny = XX.shape
-        dummy = np.full((Nx, Ny), np.nan)
-        _fs = 9
-
-        # Clear stale artists from prior runs
-        for ax in (self.ax_pb_stick, self.ax_pb_speed, self.ax_pb_pressure,
-                   self.ax_pb_temperature, self.ax_pb_friction):
-            ax.clear()
-
-        # Create persistent pcolormesh artists (updated via set_array)
-        # Use shading='nearest' so set_array() expects full Nx*Ny elements
-        self._pb_pcm_stick = self.ax_pb_stick.pcolormesh(
-            XX, YY, dummy, cmap='RdYlGn_r', vmin=0, vmax=1, shading='nearest')
-        self.ax_pb_stick.set_title('sliding vs adhesion', fontsize=_fs, fontweight='bold')
-        self.ax_pb_stick.set_xlabel('length [mm]', fontsize=7)
-        self.ax_pb_stick.set_ylabel('width [mm]', fontsize=7)
-
-        self._pb_pcm_speed = self.ax_pb_speed.pcolormesh(
-            XX, YY, dummy, cmap='plasma', shading='nearest')
-        self.ax_pb_speed.set_title('sliding speed', fontsize=_fs, fontweight='bold')
-        self.ax_pb_speed.set_xlabel('length [mm]', fontsize=7)
-        self.ax_pb_speed.set_ylabel('width [mm]', fontsize=7)
-
-        self._pb_pcm_pressure = self.ax_pb_pressure.pcolormesh(
-            XX, YY, dummy, cmap='YlOrRd', shading='nearest')
-        self.ax_pb_pressure.set_title('contact pressure [bar]', fontsize=_fs, fontweight='bold')
-        self.ax_pb_pressure.set_xlabel('length [mm]', fontsize=7)
-        self.ax_pb_pressure.set_ylabel('width [mm]', fontsize=7)
-
-        self._pb_pcm_temp = self.ax_pb_temperature.pcolormesh(
-            XX, YY, dummy, cmap='hot_r', shading='nearest')
-        self.ax_pb_temperature.set_title('temperature [°C]', fontsize=_fs, fontweight='bold')
-        self.ax_pb_temperature.set_xlabel('length [mm]', fontsize=7)
-        self.ax_pb_temperature.set_ylabel('width [mm]', fontsize=7)
-
-        self._pb_pcm_fric = self.ax_pb_friction.pcolormesh(
-            XX, YY, dummy, cmap='hot_r', shading='nearest')
-        self.ax_pb_friction.set_title('friction force', fontsize=_fs, fontweight='bold')
-        self.ax_pb_friction.set_xlabel('length [mm]', fontsize=7)
-        self.ax_pb_friction.set_ylabel('width [mm]', fontsize=7)
-
-        self._pb_contour_inited = True
-        self.canvas_pb.draw_idle()
-
     def _pb_show_frame(self, idx):
-        """Display a single PerssonBrush frame — blit-optimized contour update."""
+        """Display a single PerssonBrush frame with full contour redraw."""
         if not self._pb_frames or idx >= len(self._pb_frames):
             return
         f = self._pb_frames[idx]
-        mask_fill = f.get('_mask_fill', f.get('_contact_mask'))
+        mask = f.get('_contact_mask')
+        mask_fill = f.get('_mask_fill', mask)
+        x_mm = self._pb_x_mm
+        y_mm = self._pb_y_mm
 
-        # Lazy-init persistent pcolormesh artists (first call or after grid change)
-        if not getattr(self, '_pb_contour_inited', False):
-            self._pb_init_contour_artists()
+        # Cache meshgrid (computed once, reused every frame)
+        if not hasattr(self, '_pb_XX') or self._pb_XX is None:
+            self._pb_XX, self._pb_YY = np.meshgrid(x_mm, y_mm, indexing='ij')
+        XX, YY = self._pb_XX, self._pb_YY
 
         self.pb_frame_label_var.set(
             f"t = {f['t']:.2f} s  ({idx + 1}/{len(self._pb_frames)})  "
             f"SA={f['SA']:.1f}  SR={f['SR']:.1f}%")
 
-        # Update cursors
+        # Update cursors on top-row plots
         if hasattr(self, '_pb_cursor_in'):
             self._pb_cursor_in.set_xdata([f['t'], f['t']])
         if hasattr(self, '_pb_cursor_ft'):
@@ -25615,30 +25571,47 @@ class PerssonModelGUI_V2:
         if hasattr(self, '_pb_cursor_fx'):
             self._pb_cursor_fx.set_xdata([f['SR'], f['SR']])
 
-        # Update existing pcolormesh arrays (no ax.clear / new objects)
+        # ── Clear and redraw all 5 bottom-row contour plots ──
+        _fs = 9
+        for ax in (self.ax_pb_stick, self.ax_pb_speed, self.ax_pb_pressure,
+                   self.ax_pb_temperature, self.ax_pb_friction):
+            ax.clear()
+
+        # (1) sliding vs adhesion
         is_sl = np.where(mask_fill, f['is_sliding'].astype(float), np.nan)
-        self._pb_pcm_stick.set_array(is_sl.ravel())
+        self.ax_pb_stick.pcolormesh(XX, YY, is_sl, cmap='RdYlGn_r',
+                                     vmin=0, vmax=1, shading='auto')
+        self.ax_pb_stick.set_title('sliding vs adhesion', fontsize=_fs, fontweight='bold')
+        self.ax_pb_stick.set_xlabel('length [mm]', fontsize=7)
+        self.ax_pb_stick.set_ylabel('width [mm]', fontsize=7)
 
+        # (2) slip speed
         v_plot = np.where(mask_fill, f['v_slip_mag'], np.nan)
-        self._pb_pcm_speed.set_array(v_plot.ravel())
-        v_max = np.nanmax(v_plot) if np.any(np.isfinite(v_plot)) else 1.0
-        self._pb_pcm_speed.set_clim(0, max(v_max, 1e-6))
+        self.ax_pb_speed.pcolormesh(XX, YY, v_plot, cmap='plasma', shading='auto')
+        self.ax_pb_speed.set_title('sliding speed', fontsize=_fs, fontweight='bold')
+        self.ax_pb_speed.set_xlabel('length [mm]', fontsize=7)
+        self.ax_pb_speed.set_ylabel('width [mm]', fontsize=7)
 
+        # (3) pressure
         p_bar = np.where(mask_fill, f['p_map'] * 1e-5, np.nan)
-        self._pb_pcm_pressure.set_array(p_bar.ravel())
-        p_max = np.nanmax(p_bar) if np.any(np.isfinite(p_bar)) else 1.0
-        self._pb_pcm_pressure.set_clim(0, max(p_max, 1e-6))
+        self.ax_pb_pressure.pcolormesh(XX, YY, p_bar, cmap='YlOrRd', shading='auto')
+        self.ax_pb_pressure.set_title('contact pressure [bar]', fontsize=_fs, fontweight='bold')
+        self.ax_pb_pressure.set_xlabel('length [mm]', fontsize=7)
+        self.ax_pb_pressure.set_ylabel('width [mm]', fontsize=7)
 
+        # (4) temperature
         t_plot = np.where(mask_fill, f['T_contact'], np.nan)
-        self._pb_pcm_temp.set_array(t_plot.ravel())
-        t_min = np.nanmin(t_plot) if np.any(np.isfinite(t_plot)) else 20
-        t_max = np.nanmax(t_plot) if np.any(np.isfinite(t_plot)) else 100
-        self._pb_pcm_temp.set_clim(t_min, max(t_max, t_min + 0.1))
+        self.ax_pb_temperature.pcolormesh(XX, YY, t_plot, cmap='hot_r', shading='auto')
+        self.ax_pb_temperature.set_title('temperature [°C]', fontsize=_fs, fontweight='bold')
+        self.ax_pb_temperature.set_xlabel('length [mm]', fontsize=7)
+        self.ax_pb_temperature.set_ylabel('width [mm]', fontsize=7)
 
+        # (5) friction force
         f_fric = np.where(mask_fill, f['F_friction'], np.nan)
-        self._pb_pcm_fric.set_array(f_fric.ravel())
-        ff_max = np.nanmax(f_fric) if np.any(np.isfinite(f_fric)) else 1.0
-        self._pb_pcm_fric.set_clim(0, max(ff_max, 1e-6))
+        self.ax_pb_friction.pcolormesh(XX, YY, f_fric, cmap='hot_r', shading='auto')
+        self.ax_pb_friction.set_title('friction force', fontsize=_fs, fontweight='bold')
+        self.ax_pb_friction.set_xlabel('length [mm]', fontsize=7)
+        self.ax_pb_friction.set_ylabel('width [mm]', fontsize=7)
 
         # Steering and tire
         self._update_pb_steering(f['SA'])
