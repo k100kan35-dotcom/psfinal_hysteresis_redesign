@@ -26720,8 +26720,10 @@ class PerssonModelGUI_V2:
                 p = high_scale * _peak_high + low_scale * _peak_low
             else:
                 p = p_base.copy()
-                lat_weight = 1.0 + 0.4 * sa_factor * (2 * yy_g / W)
-                p *= np.clip(lat_weight, 0.1, None)
+                # Stronger lateral weight transfer for visible cornering effect
+                # sa_factor flips sign with SA: right turn loads -y, left turn loads +y
+                lat_weight = 1.0 + 0.8 * sa_factor * (2 * yy_g / W)
+                p *= np.clip(lat_weight, 0.05, None)
 
             # Longitudinal shift from SR (braking/accel load transfer)
             # Rolling right-to-left: braking loads leading edge (-x)
@@ -27016,29 +27018,54 @@ class PerssonModelGUI_V2:
         self._br_marker_fx, = ax_f.plot(0, self._brush_Fx_hist[0], 'o',
                                          color='#E68A00', markersize=6, zorder=5)
 
-        # (3) Fy vs Slip Angle (SA)
+        # (3) Fy vs Slip Angle (SA) — smoothed to reduce grid-discretization noise
         ax_fy = self.ax_br_fy_sa
         ax_fy.clear()
-        ax_fy.plot(self._brush_SA, self._brush_Fy_hist, 'b-', linewidth=1.2, alpha=0.6)
+        _Fy_plot = self._brush_Fy_hist
+        _SA_plot = self._brush_SA
+        if len(_Fy_plot) >= 15:
+            from scipy.signal import savgol_filter
+            _wlen = min(15, len(_Fy_plot) // 2 * 2 - 1)
+            if _wlen >= 5:
+                _Fy_smooth = savgol_filter(_Fy_plot, _wlen, 3)
+            else:
+                _Fy_smooth = _Fy_plot
+        else:
+            _Fy_smooth = _Fy_plot
+        ax_fy.plot(_SA_plot, _Fy_smooth, 'b-', linewidth=1.5, label='Fy [N]')
+        ax_fy.plot(_SA_plot, _Fy_plot, 'b-', linewidth=0.4, alpha=0.25)
         ax_fy.set_xlabel('SA [deg]', fontsize=8)
         ax_fy.set_ylabel('Fy [N]', fontsize=8)
         ax_fy.tick_params(labelsize=7)
         ax_fy.set_title('Fy vs Slip Angle', fontsize=9, fontweight='bold')
+        ax_fy.legend(loc='upper left', fontsize=7, framealpha=0.9)
         ax_fy.grid(True, alpha=0.3)
         self._br_cursor_fy_sa = ax_fy.axvline(x=self._brush_SA[0], color='k',
                                                 linewidth=1.2, alpha=0.7)
         self._br_marker_fy_sa, = ax_fy.plot(self._brush_SA[0], self._brush_Fy_hist[0],
                                               'ro', markersize=8, zorder=5)
 
-        # (4) Fx vs Slip Ratio (SR)
+        # (4) Fx vs Slip Ratio (SR) — smoothed to reduce grid-discretization noise
         ax_fx = self.ax_br_fx_sr
         ax_fx.clear()
-        ax_fx.plot(self._brush_SR, self._brush_Fx_hist, color='#E68A00',
-                   linewidth=1.2, alpha=0.6)
+        _Fx_plot = self._brush_Fx_hist
+        _SR_plot = self._brush_SR
+        if len(_Fx_plot) >= 15:
+            from scipy.signal import savgol_filter
+            _wlen = min(15, len(_Fx_plot) // 2 * 2 - 1)
+            if _wlen >= 5:
+                _Fx_smooth = savgol_filter(_Fx_plot, _wlen, 3)
+            else:
+                _Fx_smooth = _Fx_plot
+        else:
+            _Fx_smooth = _Fx_plot
+        ax_fx.plot(_SR_plot, _Fx_smooth, color='#E68A00', linewidth=1.5, label='Fx [N]')
+        ax_fx.plot(_SR_plot, _Fx_plot, color='#E68A00', linewidth=0.4, alpha=0.25)
         ax_fx.set_xlabel('SR [%]', fontsize=8)
         ax_fx.set_ylabel('Fx [N]', fontsize=8)
         ax_fx.tick_params(labelsize=7)
         ax_fx.set_title('Fx vs Slip Ratio', fontsize=9, fontweight='bold')
+        ax_fx.legend(loc='upper left', fontsize=7, framealpha=0.9)
         ax_fx.grid(True, alpha=0.3)
         self._br_cursor_fx_sr = ax_fx.axvline(x=self._brush_SR[0], color='k',
                                                 linewidth=1.2, alpha=0.7)
@@ -27898,7 +27925,7 @@ class PerssonModelGUI_V2:
         pr_centers = 0.5 * (pr_boundaries[:-1] + pr_boundaries[1:])
         self._cb_br_pres.set_ticks(pr_centers[::2])
         self._cb_br_pres.set_ticklabels([f'{v:.1f}' for v in pr_centers[::2]])
-        _setup_ax(ax3, 'contact pressure')
+        _setup_ax(ax3, 'contact pressure [bar]')
 
         # ── (4) temperature — pcolormesh with discrete levels ──
         ax4 = self.ax_br_temperature
@@ -27918,7 +27945,7 @@ class PerssonModelGUI_V2:
         t_centers = 0.5 * (t_boundaries[:-1] + t_boundaries[1:])
         self._cb_br_temp.set_ticks(t_centers[::2])
         self._cb_br_temp.set_ticklabels([f'{v:.1f}' for v in t_centers[::2]])
-        _setup_ax(ax4, 'temperature')
+        _setup_ax(ax4, 'temperature [\u00b0C]')
 
         # ── (5) friction force — pcolormesh with indexed discrete levels ──
         ax5 = self.ax_br_friction
@@ -28199,6 +28226,7 @@ class PerssonModelGUI_V2:
             return
         self._brush_playing = True
         self._br_frame_accum = 0.0
+        self._br_last_anim_time = None  # reset time-based pacer
         self._brush_animate()
 
     def _brush_pause(self):
@@ -28318,24 +28346,48 @@ class PerssonModelGUI_V2:
         self._refresh_outline_and_blit_bg()
 
     def _brush_animate(self):
-        """Advance frames — optimized for ProMotion-like smoothness."""
+        """Advance frames — time-based for smooth playback regardless of timer resolution."""
         if not self._brush_playing or not self._brush_frames:
             return
+
+        import time as _time
+        now = _time.perf_counter()
+        n = len(self._brush_frames)
 
         mult = getattr(self, '_br_speed_mult', None)
         speed = mult.get() if mult is not None else 1.0
 
-        # Fractional accumulator for smooth sub-frame speed control
-        acc = getattr(self, '_br_frame_accum', 0.0) + speed
-        frame_skip = int(acc)
-        self._br_frame_accum = acc - frame_skip
-        if frame_skip < 1:
-            # Not enough accumulated — schedule next tick without advancing
+        # Time-based frame advancement: compute how many frames to skip
+        # based on elapsed wall-clock time since last render.
+        last_t = getattr(self, '_br_last_anim_time', None)
+        if last_t is None:
+            # First tick — just show current frame and record time
+            self._br_last_anim_time = now
+            self._brush_show_frame(self._brush_frame_idx)
             self._brush_play_after_id = self.root.after(1, self._brush_animate)
             return
 
+        dt_wall = now - last_t
+        # Target: 1 frame per dt_out seconds (simulation time step)
+        dt_out = getattr(self, '_brush_t_out', None)
+        if dt_out is not None and len(dt_out) > 1:
+            dt_sim = dt_out[1] - dt_out[0]
+        else:
+            dt_sim = 1.0 / 60.0  # fallback 60fps
+
+        # How many simulation frames should have passed
+        frames_due = dt_wall * speed / max(dt_sim, 1e-6)
+        acc = getattr(self, '_br_frame_accum', 0.0) + frames_due
+        frame_skip = int(acc)
+        self._br_frame_accum = acc - frame_skip
+
+        if frame_skip < 1:
+            # Not enough time elapsed — schedule next tick
+            self._brush_play_after_id = self.root.after(1, self._brush_animate)
+            return
+
+        self._br_last_anim_time = now
         self._brush_frame_idx += frame_skip
-        n = len(self._brush_frames)
         if self._brush_frame_idx >= n:
             self._brush_frame_idx = 0  # loop
 
@@ -30217,15 +30269,38 @@ class PerssonModelGUI_V2:
             return
         self._track_playing = True
         self._ts_frame_accum = 0.0
+        self._ts_last_anim_time = None  # reset time-based pacer
         self._track_animate_step()
 
     def _track_animate_step(self):
-        """Advance frames — ProMotion-like smoothness via fractional accumulator."""
+        """Advance frames — time-based for smooth playback regardless of timer resolution."""
         if not self._track_playing or self._track_sim_data is None:
             return
 
+        import time as _time
+        now = _time.perf_counter()
+        n = self._track_sim_data['track']['n_points']
+
         speed = self._ts_speed_mult.get()
-        acc = self._ts_frame_accum + speed
+
+        # Time-based frame advancement
+        last_t = getattr(self, '_ts_last_anim_time', None)
+        if last_t is None:
+            self._ts_last_anim_time = now
+            self._update_track_frame(self._track_frame_idx)
+            self._track_play_after_id = self.root.after(1, self._track_animate_step)
+            return
+
+        dt_wall = now - last_t
+        # Target: real-time playback based on simulation time step
+        t_arr = self._track_sim_data.get('t', None)
+        if t_arr is not None and len(t_arr) > 1:
+            dt_sim = t_arr[1] - t_arr[0]
+        else:
+            dt_sim = 1.0 / 60.0
+
+        frames_due = dt_wall * speed / max(dt_sim, 1e-6)
+        acc = self._ts_frame_accum + frames_due
         frame_skip = int(acc)
         self._ts_frame_accum = acc - frame_skip
 
@@ -30233,7 +30308,7 @@ class PerssonModelGUI_V2:
             self._track_play_after_id = self.root.after(1, self._track_animate_step)
             return
 
-        n = self._track_sim_data['track']['n_points']
+        self._ts_last_anim_time = now
         self._track_frame_idx = (self._track_frame_idx + frame_skip) % n
 
         # Update slider infrequently
@@ -30242,7 +30317,7 @@ class PerssonModelGUI_V2:
 
         self._update_track_frame(self._track_frame_idx)
 
-        # Minimal delay — let rendering be the natural frame pacer (matching 2D Brush tab)
+        # Minimal delay — let rendering be the natural frame pacer
         self._track_play_after_id = self.root.after(1, self._track_animate_step)
 
     def _track_pause(self):
