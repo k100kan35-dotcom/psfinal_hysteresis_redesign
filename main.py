@@ -24854,7 +24854,11 @@ class PerssonModelGUI_V2:
             "\n"
             "# Cold-Hot 블렌딩 (Persson 마찰열)\n"
             "w = exp(-s_slip / s0)             # s0 = 0.2 * D_macro\n"
-            "mu_eff = w * mu_cold + (1-w) * mu_hot\n"
+            "mu_kinetic = w * mu_cold + (1-w) * mu_hot\n"
+            "\n"
+            "# Stick↔Slip 전환 스무딩 (chattering 방지)\n"
+            "blend = clip((v_slip - v_tol) / v_smooth, 0, 1)\n"
+            "mu_eff = mu_static*(1-blend) + mu_kinetic*blend\n"
             "\n"
             "# Karnopp Stick/Slip 마찰 모델\n"
             "F_spring = k*(x_rim - x_block) + c*(v_rim - v_block)\n"
@@ -24863,7 +24867,13 @@ class PerssonModelGUI_V2:
             "else:\n"
             "    dir = v_block/|v_block| if |v_block|>v_tol\n"
             "          else F_spring/|F_spring|  # 전환 안정화\n"
-            "    F_fric = -mu_eff * Fz * dir     # Slip",
+            "    F_fric = -mu_eff * Fz * dir     # Slip\n"
+            "\n"
+            "# 출력 힘 = 스프링 + 댐퍼 (완전 점탄성)\n"
+            "F_out = k*(x_rim-x_block) + c*(v_rim-v_block)\n"
+            "\n"
+            "# Footprint 체류시간 리셋\n"
+            "if age > L/vc: reset(x_block, v_block, s_slip)",
             title="핵심 수식"
         )
 
@@ -24982,6 +24992,7 @@ class PerssonModelGUI_V2:
         eps = 1e-9
         # Karnopp stick/slip parameters
         v_tol = 1e-3  # velocity threshold for stick detection [m/s]
+        v_smooth = 3.0 * v_tol  # smoothing band for mu transition
         # Static friction: use LUT at near-zero speed (peak μ at low v)
         mu_static_val = float(max(lut_cold(0.001), lut_hot(0.001)))
 
@@ -24999,6 +25010,10 @@ class PerssonModelGUI_V2:
         cmask = ellipse_mask
         mask_fill = binary_dilation(cmask, iterations=2)
 
+        # Footprint residence: max time a block stays in contact patch
+        t_residence_max = L / max(vc, 0.01)  # [s]
+        age = t_contact.copy()  # initialize age from spatial position
+
         # Seed rim position using contact time for initial spatial distribution
         sa_0 = SA_profile[0]
         sr_0 = SR_profile[0]
@@ -25012,10 +25027,13 @@ class PerssonModelGUI_V2:
             v_slip_mag = np.sqrt(vx_block**2 + vy_block**2)
             s_slip += v_slip_mag * dt_ode
             w = np.exp(-s_slip / max(s0, 1e-10))
-            v_lut = np.clip(v_slip_mag, 1e-12, None)
+            v_lut = np.clip(v_slip_mag, v_tol, None)
             mu_cold_v = lut_cold(v_lut)
             mu_hot_v = lut_hot(v_lut)
-            mu_eff = w * mu_cold_v + (1.0 - w) * mu_hot_v
+            mu_kinetic = w * mu_cold_v + (1.0 - w) * mu_hot_v
+            # Smooth static→kinetic blending near v_tol to prevent chattering
+            blend = np.clip((v_slip_mag - v_tol) / v_smooth, 0.0, 1.0)
+            mu_eff = mu_static_val * (1.0 - blend) + mu_kinetic * blend
 
             # Spring + damper force
             Fx_spring = kx_node * (x_rim - x_block) + cx_node * (vx_rim_vel_0 - vx_block)
@@ -25054,6 +25072,17 @@ class PerssonModelGUI_V2:
             x_rim += vx_rim_vel_0 * dt_ode
             y_rim += vy_rim_vel_0 * dt_ode
 
+            # Footprint exit: reset blocks that exceeded residence time
+            age += dt_ode
+            exited = age > t_residence_max
+            if np.any(exited):
+                x_block[exited] = x_rim[exited]
+                y_block[exited] = y_rim[exited]
+                vx_block[exited] = 0.0
+                vy_block[exited] = 0.0
+                s_slip[exited] = 0.0
+                age[exited] = 0.0
+
         # Steps between output frames
         steps_per_frame = max(int(dt_out / dt_ode), 1)
 
@@ -25084,10 +25113,13 @@ class PerssonModelGUI_V2:
                     v_slip_mag = np.sqrt(vx_block**2 + vy_block**2)
                     s_slip += v_slip_mag * dt_ode
                     w = np.exp(-s_slip / max(s0, 1e-10))
-                    v_lut = np.clip(v_slip_mag, 1e-12, None)
+                    v_lut = np.clip(v_slip_mag, v_tol, None)
                     mu_cold_v = lut_cold(v_lut)
                     mu_hot_v = lut_hot(v_lut)
-                    mu_eff = w * mu_cold_v + (1.0 - w) * mu_hot_v
+                    mu_kinetic = w * mu_cold_v + (1.0 - w) * mu_hot_v
+                    # Smooth static→kinetic blending near v_tol
+                    blend = np.clip((v_slip_mag - v_tol) / v_smooth, 0.0, 1.0)
+                    mu_eff = mu_static_val * (1.0 - blend) + mu_kinetic * blend
 
                     # Spring + damper force
                     Fx_spring = kx_node * (x_rim - x_block) + cx_node * (vx_rim_vel - vx_block)
@@ -25126,10 +25158,27 @@ class PerssonModelGUI_V2:
                     x_rim += vx_rim_vel * dt_ode
                     y_rim += vy_rim_vel * dt_ode
 
+                    # Footprint exit: reset blocks that exceeded residence time
+                    age += dt_ode
+                    exited = age > t_residence_max
+                    if np.any(exited):
+                        x_block[exited] = x_rim[exited]
+                        y_block[exited] = y_rim[exited]
+                        vx_block[exited] = 0.0
+                        vy_block[exited] = 0.0
+                        s_slip[exited] = 0.0
+                        age[exited] = 0.0
+
             # Snapshot current state
             v_slip_final = np.sqrt(vx_block**2 + vy_block**2) * cmask
-            Fx_sp = kx_node * (x_rim - x_block) * cmask
-            Fy_sp = ky_node * (y_rim - y_block) * cmask
+            # Rim velocity at this frame for damper force
+            vx_rim_now = vc * (sr_pct / 100.0)
+            vy_rim_now = vc * np.sin(np.radians(sa_deg))
+            # Spring + Damper force (complete viscoelastic coupling)
+            Fx_sp = (kx_node * (x_rim - x_block)
+                     + cx_node * (vx_rim_now - vx_block)) * cmask
+            Fy_sp = (ky_node * (y_rim - y_block)
+                     + cy_node * (vy_rim_now - vy_block)) * cmask
             mu_eff_final = mu_eff * cmask
 
             is_sliding = (v_slip_final > v_tol) & cmask
