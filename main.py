@@ -21964,27 +21964,20 @@ class PerssonModelGUI_V2:
             self.root.update()
             print("[TestRun] Step 8 완료: Cold & Hot Branch")
 
-            # ── Step 9: 세분화 옵션이면 Friction Map 자동 생성 ──
-            preset = self.fm_p0_preset_var.get() if hasattr(self, 'fm_p0_preset_var') else 'Simple'
-            if preset == '세분화':
-                self.status_var.set("9/9  세분화 Friction Map 생성 중...")
+            # ── Step 9: Friction Map 자동 생성 (항상 실행) ──
+            self.status_var.set("9/9  Friction Map 생성 중...")
+            self.root.update()
+            # 현재 프리셋 적용하여 압력 배열 동기화
+            if hasattr(self, '_apply_fm_p0_preset'):
+                self._apply_fm_p0_preset()
                 self.root.update()
-                self._apply_fm_p0_preset()   # Ensure pressure array is set
-                self.root.update()
-                self._calculate_friction_map()
-                self.root.update()
-                print("[TestRun] Step 9 완료: 세분화 Friction Map 생성")
-                self.status_var.set("시험 Run 완료 — 세분화 Friction Map 생성 완료!")
-                self._show_status(
-                    "시험 Run 파이프라인 완료!\n\n"
-                    "모든 전처리 + 세분화 Friction Map 생성이 완료되었습니다.", 'success')
-            else:
-                self.status_var.set("시험 Run 완료 — Friction Map 생성 가능")
-                self._show_status(
-                    "시험 Run 파이프라인 완료!\n\n"
-                    "모든 전처리가 완료되었습니다.\n"
-                    "'Friction Map 생성' 버튼을 눌러 마찰맵을 생성하세요.\n"
-                    "(세분화 옵션 선택 시 자동 생성됩니다)", 'success')
+            self._calculate_friction_map()
+            self.root.update()
+            print("[TestRun] Step 9 완료: Friction Map 생성")
+            self.status_var.set("시험 Run 완료 — Friction Map 생성 완료!")
+            self._show_status(
+                "시험 Run 파이프라인 완료!\n\n"
+                "모든 전처리 + Friction Map 생성이 완료되었습니다.", 'success')
 
         except Exception as e:
             import traceback
@@ -22879,19 +22872,23 @@ class PerssonModelGUI_V2:
             n_cols_eff = n_cols
             n_grid_rows = n_rows
 
-        # Figure size: width fills panel, height grows with rows for scrolling
+        # Figure size: width fills panel, height scales with screen resolution
         right_frame.update_idletasks()
         avail_w = right_frame.winfo_width()
+        avail_h = right_frame.winfo_height()
         toolbar_h = 60  # two toolbar rows
         if avail_w < 200:
             avail_w = 900
+        if avail_h < 200:
+            avail_h = 700
         fig_dpi = 100
         fig_w = max(avail_w - 20, 600) / fig_dpi  # -20 for scrollbar
-        row_h = 4.5  # inches per subplot row
+        # Scale row height with available screen space
+        row_h = max(4.5, (avail_h - toolbar_h) / fig_dpi / max(n_grid_rows, 1))
         fig_h = max(row_h * n_grid_rows, 5)
         fig = Figure(figsize=(fig_w, fig_h), dpi=fig_dpi, facecolor='white')
-        fig.subplots_adjust(left=0.04, right=0.97, top=0.92, bottom=0.04,
-                            wspace=0.22, hspace=0.35)
+        fig.subplots_adjust(left=0.04, right=0.97, top=0.95, bottom=0.04,
+                            wspace=0.22, hspace=0.30)
 
         T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
 
@@ -24256,6 +24253,15 @@ class PerssonModelGUI_V2:
         self.canvas_brush.draw_idle()
         self.canvas_brush.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
+        # Auto-resize figure to fill available widget space
+        def _brush_on_resize(event):
+            w_px = event.width
+            h_px = event.height
+            if w_px > 100 and h_px > 100:
+                dpi = self.fig_brush.get_dpi()
+                self.fig_brush.set_size_inches(w_px / dpi, h_px / dpi, forward=False)
+        self.canvas_brush.get_tk_widget().bind('<Configure>', _brush_on_resize)
+
         # Save TRUE original axis positions from GridSpec BEFORE any colorbars
         # are created. This prevents cumulative width shrinkage when the
         # transient simulation is re-run multiple times.
@@ -24640,7 +24646,7 @@ class PerssonModelGUI_V2:
         self.ax_pb_pressure.tick_params(labelsize=_bf_tick)
 
         self.ax_pb_temperature = self.fig_pb.add_subplot(gs[1, 12:16])
-        self.ax_pb_temperature.set_title('mu_eff map', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_temperature.set_title('temperature [°C]', fontsize=_bf_title, fontweight='bold')
         self.ax_pb_temperature.set_xlabel('length [mm]', fontsize=_bf_label)
         self.ax_pb_temperature.set_ylabel('width [mm]', fontsize=_bf_label)
         self.ax_pb_temperature.tick_params(labelsize=_bf_tick)
@@ -24654,6 +24660,15 @@ class PerssonModelGUI_V2:
         self.canvas_pb = FigureCanvasTkAgg(self.fig_pb, plot_frame)
         self.canvas_pb.draw_idle()
         self.canvas_pb.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Auto-resize figure to fill available widget space
+        def _pb_on_resize(event):
+            w_px = event.width
+            h_px = event.height
+            if w_px > 100 and h_px > 100:
+                dpi = self.fig_pb.get_dpi()
+                self.fig_pb.set_size_inches(w_px / dpi, h_px / dpi, forward=False)
+        self.canvas_pb.get_tk_widget().bind('<Configure>', _pb_on_resize)
 
         toolbar = NavigationToolbar2Tk(self.canvas_pb, plot_frame)
         toolbar.update()
@@ -25541,32 +25556,33 @@ class PerssonModelGUI_V2:
             ax.clear()
 
         # Create persistent pcolormesh artists (updated via set_array)
+        # Use shading='nearest' so set_array() expects full Nx*Ny elements
         self._pb_pcm_stick = self.ax_pb_stick.pcolormesh(
-            XX, YY, dummy, cmap='RdYlGn_r', vmin=0, vmax=1, shading='auto')
+            XX, YY, dummy, cmap='RdYlGn_r', vmin=0, vmax=1, shading='nearest')
         self.ax_pb_stick.set_title('sliding vs adhesion', fontsize=_fs, fontweight='bold')
         self.ax_pb_stick.set_xlabel('length [mm]', fontsize=7)
         self.ax_pb_stick.set_ylabel('width [mm]', fontsize=7)
 
         self._pb_pcm_speed = self.ax_pb_speed.pcolormesh(
-            XX, YY, dummy, cmap='plasma', shading='auto')
+            XX, YY, dummy, cmap='plasma', shading='nearest')
         self.ax_pb_speed.set_title('sliding speed', fontsize=_fs, fontweight='bold')
         self.ax_pb_speed.set_xlabel('length [mm]', fontsize=7)
         self.ax_pb_speed.set_ylabel('width [mm]', fontsize=7)
 
         self._pb_pcm_pressure = self.ax_pb_pressure.pcolormesh(
-            XX, YY, dummy, cmap='YlOrRd', shading='auto')
+            XX, YY, dummy, cmap='YlOrRd', shading='nearest')
         self.ax_pb_pressure.set_title('contact pressure [bar]', fontsize=_fs, fontweight='bold')
         self.ax_pb_pressure.set_xlabel('length [mm]', fontsize=7)
         self.ax_pb_pressure.set_ylabel('width [mm]', fontsize=7)
 
-        self._pb_pcm_mu = self.ax_pb_temperature.pcolormesh(
-            XX, YY, dummy, cmap='coolwarm_r', shading='auto')
-        self.ax_pb_temperature.set_title('mu_eff map', fontsize=_fs, fontweight='bold')
+        self._pb_pcm_temp = self.ax_pb_temperature.pcolormesh(
+            XX, YY, dummy, cmap='hot_r', shading='nearest')
+        self.ax_pb_temperature.set_title('temperature [°C]', fontsize=_fs, fontweight='bold')
         self.ax_pb_temperature.set_xlabel('length [mm]', fontsize=7)
         self.ax_pb_temperature.set_ylabel('width [mm]', fontsize=7)
 
         self._pb_pcm_fric = self.ax_pb_friction.pcolormesh(
-            XX, YY, dummy, cmap='hot_r', shading='auto')
+            XX, YY, dummy, cmap='hot_r', shading='nearest')
         self.ax_pb_friction.set_title('friction force', fontsize=_fs, fontweight='bold')
         self.ax_pb_friction.set_xlabel('length [mm]', fontsize=7)
         self.ax_pb_friction.set_ylabel('width [mm]', fontsize=7)
@@ -25613,11 +25629,11 @@ class PerssonModelGUI_V2:
         p_max = np.nanmax(p_bar) if np.any(np.isfinite(p_bar)) else 1.0
         self._pb_pcm_pressure.set_clim(0, max(p_max, 1e-6))
 
-        mu_plot = np.where(mask_fill, f['mu_eff'], np.nan)
-        self._pb_pcm_mu.set_array(mu_plot.ravel())
-        mu_min = np.nanmin(mu_plot) if np.any(np.isfinite(mu_plot)) else 0
-        mu_max = np.nanmax(mu_plot) if np.any(np.isfinite(mu_plot)) else 1.0
-        self._pb_pcm_mu.set_clim(mu_min, max(mu_max, mu_min + 1e-6))
+        t_plot = np.where(mask_fill, f['T_contact'], np.nan)
+        self._pb_pcm_temp.set_array(t_plot.ravel())
+        t_min = np.nanmin(t_plot) if np.any(np.isfinite(t_plot)) else 20
+        t_max = np.nanmax(t_plot) if np.any(np.isfinite(t_plot)) else 100
+        self._pb_pcm_temp.set_clim(t_min, max(t_max, t_min + 0.1))
 
         f_fric = np.where(mask_fill, f['F_friction'], np.nan)
         self._pb_pcm_fric.set_array(f_fric.ravel())
