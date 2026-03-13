@@ -24529,6 +24529,7 @@ class PerssonModelGUI_V2:
         self._pb_frame_idx = 0
         self._pb_playing = False
         self._pb_play_after_id = None
+        self._pb_contour_ready = False
 
         # ── 조향 핸들 / 타이어 ──
         sec6 = self._create_section(left_panel, "6) 조향 핸들 / 타이어")
@@ -24901,6 +24902,8 @@ class PerssonModelGUI_V2:
         from scipy.interpolate import interp1d
         from scipy.ndimage import binary_dilation
 
+        self._pb_contour_ready = False  # reset for new simulation
+
         if self._get_active_cold_hot_results() is None:
             raise ValueError("Cold & Hot Branch 결과 필요")
 
@@ -25082,8 +25085,131 @@ class PerssonModelGUI_V2:
         self._pb_x_mm = x_arr * 1000
         self._pb_y_mm = y_arr * 1000
 
+        # Compute global ranges for consistent color scales
+        self._pb_global_ranges = self._pb_compute_global_ranges(frames)
+
+        # Initialize persistent contour artists
+        self._pb_init_contour_artists()
+
         # Draw time histories
         self._pb_draw_time_histories()
+
+    def _pb_compute_global_ranges(self, frames):
+        """Compute min/max ranges across all frames for consistent color scales."""
+        speed_max = 1e-6
+        pressure_max = 1e-6
+        temp_lo = 999.0
+        temp_hi = -999.0
+        mu_lo = 999.0
+        mu_hi = -999.0
+        fric_max = 1e-6
+        for f in frames:
+            mask = f.get('_mask_fill', f.get('_contact_mask'))
+            v = f['v_slip_mag'][mask]
+            if len(v) > 0:
+                speed_max = max(speed_max, np.max(v))
+            p = f['p_map'][mask]
+            if len(p) > 0:
+                pressure_max = max(pressure_max, np.max(p) * 1e-5)
+            tc = f['T_contact'][mask]
+            if len(tc) > 0:
+                temp_lo = min(temp_lo, np.min(tc))
+                temp_hi = max(temp_hi, np.max(tc))
+            mu = f['mu_eff'][mask]
+            if len(mu) > 0:
+                mu_lo = min(mu_lo, np.min(mu))
+                mu_hi = max(mu_hi, np.max(mu))
+            ff = f['F_friction'][mask]
+            if len(ff) > 0:
+                fric_max = max(fric_max, np.max(ff))
+        return {
+            'speed': (0, speed_max),
+            'pressure': (0, pressure_max),
+            'temperature': (temp_lo, temp_hi),
+            'mu_eff': (mu_lo, mu_hi),
+            'friction': (0, fric_max),
+        }
+
+    def _pb_init_contour_artists(self):
+        """Create persistent pcolormesh artists for fast frame updates."""
+        x_mm = self._pb_x_mm
+        y_mm = self._pb_y_mm
+        gr = self._pb_global_ranges
+
+        # Build mesh edges (N+1 for N centers) — required for shading='flat'
+        dx = x_mm[1] - x_mm[0] if len(x_mm) > 1 else 1.0
+        dy = y_mm[1] - y_mm[0] if len(y_mm) > 1 else 1.0
+        x_edges = np.concatenate([x_mm - dx / 2, [x_mm[-1] + dx / 2]])
+        y_edges = np.concatenate([y_mm - dy / 2, [y_mm[-1] + dy / 2]])
+
+        f0 = self._pb_frames[0]
+        mask_fill = f0.get('_mask_fill', f0.get('_contact_mask'))
+        nan_base = np.where(mask_fill, 0.0, np.nan)
+        _fs = 9
+
+        # (1) sliding vs adhesion
+        ax1 = self.ax_pb_stick
+        ax1.clear()
+        from matplotlib.colors import ListedColormap, BoundaryNorm
+        cmap_sa = ListedColormap(['#2196F3', '#F44336'])
+        norm_sa = BoundaryNorm([0, 0.5, 1.0], cmap_sa.N)
+        self._pb_pm_stick = ax1.pcolormesh(
+            x_edges, y_edges, nan_base.T, cmap=cmap_sa, norm=norm_sa,
+            shading='flat', zorder=1)
+        ax1.set_title('sliding vs adhesion', fontsize=_fs, fontweight='bold')
+        ax1.set_xlabel('length [mm]', fontsize=7)
+        ax1.set_ylabel('width [mm]', fontsize=7)
+
+        # (2) slip speed
+        ax2 = self.ax_pb_speed
+        ax2.clear()
+        self._pb_pm_speed = ax2.pcolormesh(
+            x_edges, y_edges, nan_base.T, cmap='plasma',
+            vmin=gr['speed'][0], vmax=gr['speed'][1],
+            shading='flat', zorder=1)
+        ax2.set_title('sliding speed', fontsize=_fs, fontweight='bold')
+        ax2.set_xlabel('length [mm]', fontsize=7)
+        ax2.set_ylabel('width [mm]', fontsize=7)
+
+        # (3) contact pressure
+        ax3 = self.ax_pb_pressure
+        ax3.clear()
+        self._pb_pm_pressure = ax3.pcolormesh(
+            x_edges, y_edges, nan_base.T, cmap='YlOrRd',
+            vmin=gr['pressure'][0], vmax=gr['pressure'][1],
+            shading='flat', zorder=1)
+        ax3.set_title('contact pressure [bar]', fontsize=_fs, fontweight='bold')
+        ax3.set_xlabel('length [mm]', fontsize=7)
+        ax3.set_ylabel('width [mm]', fontsize=7)
+
+        # (4) temperature
+        ax4 = self.ax_pb_temperature
+        ax4.clear()
+        t_lo, t_hi = gr['temperature']
+        if abs(t_hi - t_lo) < 0.1:
+            t_lo -= 1.0
+            t_hi += 1.0
+        self._pb_pm_temp = ax4.pcolormesh(
+            x_edges, y_edges, nan_base.T, cmap='coolwarm',
+            vmin=t_lo, vmax=t_hi,
+            shading='flat', zorder=1)
+        ax4.set_title('temperature [\u00b0C]', fontsize=_fs, fontweight='bold')
+        ax4.set_xlabel('length [mm]', fontsize=7)
+        ax4.set_ylabel('width [mm]', fontsize=7)
+
+        # (5) friction force
+        ax5 = self.ax_pb_friction
+        ax5.clear()
+        self._pb_pm_friction = ax5.pcolormesh(
+            x_edges, y_edges, nan_base.T, cmap='hot_r',
+            vmin=gr['friction'][0], vmax=gr['friction'][1],
+            shading='flat', zorder=1)
+        ax5.set_title('friction force', fontsize=_fs, fontweight='bold')
+        ax5.set_xlabel('length [mm]', fontsize=7)
+        ax5.set_ylabel('width [mm]', fontsize=7)
+
+        self._pb_contour_ready = True
+        self.canvas_pb.draw_idle()
 
     def _pb_draw_time_histories(self):
         """Draw the time-history plots for PerssonBrush."""
@@ -25129,15 +25255,17 @@ class PerssonModelGUI_V2:
     # ── PerssonBrush: Frame display ──
 
     def _pb_show_frame(self, idx):
-        """Display a single PerssonBrush frame with contour plots."""
+        """Display a single PerssonBrush frame using persistent artists (set_array)."""
         if not self._pb_frames or idx >= len(self._pb_frames):
             return
+
+        # Initialize artists on first call if needed
+        if not getattr(self, '_pb_contour_ready', False):
+            self._pb_global_ranges = self._pb_compute_global_ranges(self._pb_frames)
+            self._pb_init_contour_artists()
+
         f = self._pb_frames[idx]
-        mask = f.get('_contact_mask')
-        mask_fill = f.get('_mask_fill', mask)
-        x_mm = self._pb_x_mm
-        y_mm = self._pb_y_mm
-        XX, YY = np.meshgrid(x_mm, y_mm, indexing='ij')
+        mask_fill = f.get('_mask_fill', f.get('_contact_mask'))
 
         self.pb_frame_label_var.set(
             f"t = {f['t']:.2f} s  ({idx + 1}/{len(self._pb_frames)})  "
@@ -25153,47 +25281,26 @@ class PerssonModelGUI_V2:
         if hasattr(self, '_pb_cursor_fx'):
             self._pb_cursor_fx.set_xdata([f['SR'], f['SR']])
 
-        # Bottom row: contour plots (full redraw — simpler than blit for new tab)
-        for ax in (self.ax_pb_stick, self.ax_pb_speed, self.ax_pb_pressure,
-                   self.ax_pb_temperature, self.ax_pb_friction):
-            ax.clear()
-
-        _fs = 9
+        # Update contour data via set_array (fast — no ax.clear needed)
         # (1) sliding vs adhesion
         is_sl = np.where(mask_fill, f['is_sliding'].astype(float), np.nan)
-        self.ax_pb_stick.pcolormesh(XX, YY, is_sl, cmap='RdYlGn_r',
-                                     vmin=0, vmax=1, shading='auto')
-        self.ax_pb_stick.set_title('sliding vs adhesion', fontsize=_fs, fontweight='bold')
-        self.ax_pb_stick.set_xlabel('length [mm]', fontsize=7)
-        self.ax_pb_stick.set_ylabel('width [mm]', fontsize=7)
+        self._pb_pm_stick.set_array(is_sl.T.ravel())
 
         # (2) slip speed
         v_plot = np.where(mask_fill, f['v_slip_mag'], np.nan)
-        self.ax_pb_speed.pcolormesh(XX, YY, v_plot, cmap='plasma', shading='auto')
-        self.ax_pb_speed.set_title('sliding speed', fontsize=_fs, fontweight='bold')
-        self.ax_pb_speed.set_xlabel('length [mm]', fontsize=7)
-        self.ax_pb_speed.set_ylabel('width [mm]', fontsize=7)
+        self._pb_pm_speed.set_array(v_plot.T.ravel())
 
-        # (3) pressure
+        # (3) contact pressure
         p_bar = np.where(mask_fill, f['p_map'] * 1e-5, np.nan)
-        self.ax_pb_pressure.pcolormesh(XX, YY, p_bar, cmap='YlOrRd', shading='auto')
-        self.ax_pb_pressure.set_title('contact pressure [bar]', fontsize=_fs, fontweight='bold')
-        self.ax_pb_pressure.set_xlabel('length [mm]', fontsize=7)
-        self.ax_pb_pressure.set_ylabel('width [mm]', fontsize=7)
+        self._pb_pm_pressure.set_array(p_bar.T.ravel())
 
-        # (4) mu_eff distribution
-        mu_plot = np.where(mask_fill, f['mu_eff'], np.nan)
-        self.ax_pb_temperature.pcolormesh(XX, YY, mu_plot, cmap='coolwarm_r', shading='auto')
-        self.ax_pb_temperature.set_title('mu_eff map', fontsize=_fs, fontweight='bold')
-        self.ax_pb_temperature.set_xlabel('length [mm]', fontsize=7)
-        self.ax_pb_temperature.set_ylabel('width [mm]', fontsize=7)
+        # (4) temperature
+        T_plot = np.where(mask_fill, f['T_contact'], np.nan)
+        self._pb_pm_temp.set_array(T_plot.T.ravel())
 
         # (5) friction force
         f_fric = np.where(mask_fill, f['F_friction'], np.nan)
-        self.ax_pb_friction.pcolormesh(XX, YY, f_fric, cmap='hot_r', shading='auto')
-        self.ax_pb_friction.set_title('friction force', fontsize=_fs, fontweight='bold')
-        self.ax_pb_friction.set_xlabel('length [mm]', fontsize=7)
-        self.ax_pb_friction.set_ylabel('width [mm]', fontsize=7)
+        self._pb_pm_friction.set_array(f_fric.T.ravel())
 
         # Steering and tire
         self._update_pb_steering(f['SA'])
