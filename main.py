@@ -229,9 +229,8 @@ class PerssonModelGUI_V2:
     }
 
     # Font sizes designed for 96 DPI (100% scaling, 1600×1000 window).
-    # On high-DPI displays, the Tk scaling factor is reset in main() so that
-    # these point sizes render at the same physical size on every machine.
-    _FONT_SIZE = 12  # Unified font size for all UI and plot elements
+    # On high-DPI displays, fonts are scaled up so text remains readable.
+    _FONT_SIZE = 12  # Base font size (scaled by _hi_dpi_font_scale at runtime)
     FONTS = {
         'heading':   ('NanumGothic', 12, 'bold'),
         'subheading':('NanumGothic', 12, 'bold'),
@@ -21965,11 +21964,27 @@ class PerssonModelGUI_V2:
             self.root.update()
             print("[TestRun] Step 8 완료: Cold & Hot Branch")
 
-            self.status_var.set("시험 Run 완료 — Friction Map 생성 가능")
-            self._show_status(
-                "시험 Run 파이프라인 완료!\n\n"
-                "모든 전처리가 완료되었습니다.\n"
-                "'Friction Map 생성' 버튼을 눌러 마찰맵을 생성하세요.", 'success')
+            # ── Step 9: 세분화 옵션이면 Friction Map 자동 생성 ──
+            preset = self.fm_p0_preset_var.get() if hasattr(self, 'fm_p0_preset_var') else 'Simple'
+            if preset == '세분화':
+                self.status_var.set("9/9  세분화 Friction Map 생성 중...")
+                self.root.update()
+                self._apply_fm_p0_preset()   # Ensure pressure array is set
+                self.root.update()
+                self._calculate_friction_map()
+                self.root.update()
+                print("[TestRun] Step 9 완료: 세분화 Friction Map 생성")
+                self.status_var.set("시험 Run 완료 — 세분화 Friction Map 생성 완료!")
+                self._show_status(
+                    "시험 Run 파이프라인 완료!\n\n"
+                    "모든 전처리 + 세분화 Friction Map 생성이 완료되었습니다.", 'success')
+            else:
+                self.status_var.set("시험 Run 완료 — Friction Map 생성 가능")
+                self._show_status(
+                    "시험 Run 파이프라인 완료!\n\n"
+                    "모든 전처리가 완료되었습니다.\n"
+                    "'Friction Map 생성' 버튼을 눌러 마찰맵을 생성하세요.\n"
+                    "(세분화 옵션 선택 시 자동 생성됩니다)", 'success')
 
         except Exception as e:
             import traceback
@@ -24649,95 +24664,483 @@ class PerssonModelGUI_V2:
     # ── PerssonBrush: Steering wheel (simplified) ──
 
     def _init_pb_steering_wheel(self):
-        """Draw steering wheel for PerssonBrush tab."""
+        """Draw steering wheel for PerssonBrush tab — matches 2D Brush design."""
+        from matplotlib.patches import Polygon as MplPoly
         ax = self._pb_steer_ax
         ax.clear()
         ax.set_xlim(-1.5, 1.5); ax.set_ylim(-1.5, 1.5)
         ax.set_aspect('equal'); ax.axis('off')
         ax.set_facecolor('#F8FAFC')
         theta = np.linspace(0, 2 * np.pi, 100)
-        ax.plot(np.cos(theta), np.sin(theta), '-', color='#333', lw=6, zorder=2)
-        ax.plot(0.3 * np.cos(theta), 0.3 * np.sin(theta), '-', color='#555', lw=2, zorder=2)
-        ax.plot(0, 0, 'o', color='#333', markersize=7, zorder=3)
+        # Outer ring
+        self._pb_steer_outer, = ax.plot(np.cos(theta), np.sin(theta),
+                                         '-', color='#333333', lw=6, zorder=2)
+        # Inner hub ring
+        self._pb_steer_inner, = ax.plot(0.3 * np.cos(theta), 0.3 * np.sin(theta),
+                                         '-', color='#555', lw=2, zorder=2)
+        # Center dot
+        self._pb_steer_center, = ax.plot(0, 0, 'o', color='#333',
+                                          markersize=7, zorder=3)
+        # 3 spokes
         self._pb_spoke_lines = []
         for base_angle in [np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]:
             sp, = ax.plot([0, 0.85 * np.cos(base_angle)],
                           [0, 0.85 * np.sin(base_angle)],
-                          '-', color='#333', lw=3.5, zorder=2)
+                          '-', color='#333333', lw=3.5, zorder=2)
             self._pb_spoke_lines.append(sp)
-        self._pb_steer_arc, = ax.plot([], [], '-', color='#FF6600', lw=3, alpha=0.8, zorder=5)
-        self._pb_steer_sa_label = ax.text(0, -1.35, 'SA=0.0', fontsize=12,
-                                           ha='center', va='top', fontweight='bold', zorder=6)
+
+        # ── Hands on wheel (10 o'clock and 2 o'clock) — matches 2D Brush ──
+        self._pb_steer_hands = []
+        for hand_angle_deg in [140, 40]:
+            ha_rad = np.radians(hand_angle_deg)
+            hcx = np.cos(ha_rad)
+            hcy = np.sin(ha_rad)
+            tang = ha_rad + np.pi / 2
+            hw, hh = 0.18, 0.12
+            t_h = np.linspace(0, 2 * np.pi, 16)
+            hx = hw * np.cos(t_h)
+            hy = hh * np.sin(t_h)
+            cos_t = np.cos(tang)
+            sin_t = np.sin(tang)
+            rx = hx * cos_t - hy * sin_t + hcx
+            ry = hx * sin_t + hy * cos_t + hcy
+            hand_verts = np.column_stack([rx, ry])
+            hand_patch = MplPoly(hand_verts, closed=True,
+                                  facecolor='#FFD4A0', edgecolor='#CC8844',
+                                  linewidth=1.2, zorder=4)
+            ax.add_patch(hand_patch)
+            self._pb_steer_hands.append(hand_patch)
+            # 3 finger dots per hand
+            for fi in range(-1, 2):
+                fang = ha_rad + fi * 0.12
+                fcx = 1.12 * np.cos(fang)
+                fcy = 1.12 * np.sin(fang)
+                finger, = ax.plot(fcx, fcy, 'o', color='#FFD4A0',
+                                   markersize=3.5, markeredgecolor='#CC8844',
+                                   markeredgewidth=0.6, zorder=4)
+                self._pb_steer_hands.append(finger)
+
+        # Steering angle visual arc
+        self._pb_steer_arc, = ax.plot([], [], '-', color='#FF6600', lw=3,
+                                       alpha=0.8, zorder=5)
+        # SA label
+        self._pb_steer_sa_label = ax.text(0, -1.35, 'SA=0.0°',
+                                           fontsize=12, ha='center', va='top',
+                                           fontweight='bold', zorder=6)
+        # L/R indicators
+        self._pb_steer_left_label = ax.text(-1.35, 0, 'L', fontsize=12, ha='center',
+                                             va='center', fontweight='bold',
+                                             color='#BBBBBB', zorder=6)
+        self._pb_steer_right_label = ax.text(1.35, 0, 'R', fontsize=12, ha='center',
+                                              va='center', fontweight='bold',
+                                              color='#BBBBBB', zorder=6)
+        # Store base angles for hands
+        self._pb_steer_hand_base_angles = [np.radians(140), np.radians(40)]
+
         self._pb_steer_canvas.draw_idle()
 
     def _update_pb_steering(self, sa_deg):
-        """Update PerssonBrush steering wheel angle."""
-        rot = np.radians(-sa_deg * 3)
+        """Update PerssonBrush steering wheel — full rotation with hands, L/R highlight."""
+        steer_rad = -np.radians(sa_deg)
+
+        # Rotate spokes
         for i, base_angle in enumerate([np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]):
-            a = base_angle + rot
+            a = base_angle + steer_rad
             self._pb_spoke_lines[i].set_data([0, 0.85 * np.cos(a)],
                                               [0, 0.85 * np.sin(a)])
-        if abs(sa_deg) > 0.1:
-            arc_t = np.linspace(np.pi / 2, np.pi / 2 + rot, 30)
-            self._pb_steer_arc.set_data(1.15 * np.cos(arc_t), 1.15 * np.sin(arc_t))
+
+        # Rotate hands on wheel
+        if hasattr(self, '_pb_steer_hands') and hasattr(self, '_pb_steer_hand_base_angles'):
+            hand_idx = 0
+            for hi, base_ha in enumerate(self._pb_steer_hand_base_angles):
+                ha_rad = base_ha + steer_rad
+                hcx = np.cos(ha_rad)
+                hcy = np.sin(ha_rad)
+                tang = ha_rad + np.pi / 2
+                hw, hh = 0.18, 0.12
+                t_h = np.linspace(0, 2 * np.pi, 16)
+                hx = hw * np.cos(t_h)
+                hy = hh * np.sin(t_h)
+                cos_t = np.cos(tang)
+                sin_t = np.sin(tang)
+                rx = hx * cos_t - hy * sin_t + hcx
+                ry = hx * sin_t + hy * cos_t + hcy
+                self._pb_steer_hands[hand_idx].set_xy(
+                    np.column_stack([rx, ry]))
+                hand_idx += 1
+                for fi in range(-1, 2):
+                    fang = ha_rad + fi * 0.12
+                    self._pb_steer_hands[hand_idx].set_data(
+                        [1.12 * np.cos(fang)], [1.12 * np.sin(fang)])
+                    hand_idx += 1
+
+        self._pb_steer_sa_label.set_text(f'SA={sa_deg:+.1f}°')
+
+        # Steering arc with color
+        if abs(sa_deg) > 0.2:
+            arc_r = 0.55
+            a_start = np.pi / 2
+            a_end = np.pi / 2 + steer_rad
+            t_arc = np.linspace(a_start, a_end, 30)
+            arc_color = '#F44336' if sa_deg > 0 else '#2196F3'
+            self._pb_steer_arc.set_data(arc_r * np.cos(t_arc),
+                                         arc_r * np.sin(t_arc))
+            self._pb_steer_arc.set_color(arc_color)
+            self._pb_steer_arc.set_visible(True)
         else:
-            self._pb_steer_arc.set_data([], [])
-        self._pb_steer_sa_label.set_text(f'SA={sa_deg:.1f}')
+            self._pb_steer_arc.set_visible(False)
+
+        # L/R highlight
+        if sa_deg > 0.5:
+            self._pb_steer_right_label.set_color('#F44336')
+            self._pb_steer_right_label.set_fontsize(14)
+            self._pb_steer_left_label.set_color('#CCCCCC')
+            self._pb_steer_left_label.set_fontsize(14)
+        elif sa_deg < -0.5:
+            self._pb_steer_left_label.set_color('#2196F3')
+            self._pb_steer_left_label.set_fontsize(14)
+            self._pb_steer_right_label.set_color('#CCCCCC')
+            self._pb_steer_right_label.set_fontsize(14)
+        else:
+            self._pb_steer_left_label.set_color('#BBBBBB')
+            self._pb_steer_left_label.set_fontsize(14)
+            self._pb_steer_right_label.set_color('#BBBBBB')
+            self._pb_steer_right_label.set_fontsize(14)
+
         self._pb_steer_canvas.draw_idle()
 
     # ── PerssonBrush: Tire top-down (simplified) ──
 
     def _init_pb_tire_simple(self):
-        """Simple tire top-down view for PerssonBrush."""
-        from matplotlib.patches import Rectangle, FancyBboxPatch
+        """Racing game top-down view for PerssonBrush — matches 2D Brush design."""
+        from matplotlib.patches import Rectangle, Polygon as MplPoly
         ax = self._pb_tire_ax
         ax.clear()
-        ax.set_xlim(-3, 3); ax.set_ylim(-4, 4)
+        ax.set_xlim(-3.0, 3.0); ax.set_ylim(-4.0, 4.0)
         ax.set_aspect('equal'); ax.axis('off')
         ax.set_facecolor('#3A3A3A')
-        # Road
-        ax.add_patch(Rectangle((-3, -4), 6, 8, facecolor='#4A4A4A', zorder=0))
-        ax.plot([-2.5, -2.5], [-4, 4], '-', color='#FFF', lw=2, zorder=1)
-        ax.plot([2.5, 2.5], [-4, 4], '-', color='#FFF', lw=2, zorder=1)
-        # Car body
-        car = FancyBboxPatch((-0.8, -1.6), 1.6, 3.2,
-                              boxstyle="round,pad=0.1",
-                              facecolor='#1565C0', edgecolor='#0D47A1',
-                              linewidth=2, zorder=5)
-        ax.add_patch(car)
-        self._pb_car_body = car
-        # Four tires
+
+        # ── Asphalt road surface ──
+        road = Rectangle((-3.0, -4.0), 6.0, 8.0, facecolor='#4A4A4A',
+                          edgecolor='none', zorder=0)
+        ax.add_patch(road)
+        ax.plot([-2.5, -2.5], [-4, 4], '-', color='#FFFFFF', lw=2.0, zorder=1)
+        ax.plot([2.5, 2.5], [-4, 4], '-', color='#FFFFFF', lw=2.0, zorder=1)
+
+        # Center yellow dashed line (scrolling)
+        self._pb_road_dashes = []
+        dash_spacing = 1.2
+        for i in range(12):
+            y0 = -6.0 + i * dash_spacing
+            line, = ax.plot([0, 0], [y0, y0 + 0.6], '-', color='#FFD54F',
+                            lw=2.5, alpha=0.85, zorder=1)
+            self._pb_road_dashes.append(line)
+
+        # White lane boundary dashes
+        self._pb_road_side_dashes_L = []
+        self._pb_road_side_dashes_R = []
+        for i in range(12):
+            y0 = -6.0 + i * dash_spacing
+            ld, = ax.plot([-1.25, -1.25], [y0, y0 + 0.4], '-',
+                          color='#AAAAAA', lw=1.2, alpha=0.5, zorder=1)
+            rd, = ax.plot([1.25, 1.25], [y0, y0 + 0.4], '-',
+                          color='#AAAAAA', lw=1.2, alpha=0.5, zorder=1)
+            self._pb_road_side_dashes_L.append(ld)
+            self._pb_road_side_dashes_R.append(rd)
+        self._pb_road_phase = 0.0
+
+        # ── Car body (Polygon for rotation) ──
+        car_w = 1.6; car_h = 3.2
+        hw, hh = car_w / 2, car_h / 2
+        self._pb_car_body_base = np.array([
+            (-hw, -hh + 0.2), (-hw, hh - 0.5),
+            (-hw + 0.2, hh - 0.15), (-hw * 0.6, hh),
+            (hw * 0.6, hh), (hw - 0.2, hh - 0.15),
+            (hw, hh - 0.5), (hw, -hh + 0.2),
+            (hw - 0.15, -hh), (-hw + 0.15, -hh),
+        ])
+        self._pb_car_body = MplPoly(self._pb_car_body_base, closed=True,
+                                     facecolor='#1565C0', edgecolor='#0D47A1',
+                                     linewidth=2.0, zorder=5, alpha=0.92)
+        ax.add_patch(self._pb_car_body)
+
+        # Windshield
+        self._pb_ws_base = np.array([
+            (-0.50, 0.55), (0.50, 0.55), (0.38, 1.1), (-0.38, 1.1)])
+        self._pb_car_windshield = MplPoly(self._pb_ws_base, closed=True,
+                                           facecolor='#90CAF9', edgecolor='#0D47A1',
+                                           linewidth=1, zorder=6, alpha=0.8)
+        ax.add_patch(self._pb_car_windshield)
+
+        # Rear window
+        self._pb_rw_base = np.array([
+            (-0.45, -0.55), (0.45, -0.55), (0.35, -1.05), (-0.35, -1.05)])
+        self._pb_car_rearwindow = MplPoly(self._pb_rw_base, closed=True,
+                                           facecolor='#90CAF9', edgecolor='#0D47A1',
+                                           linewidth=1, zorder=6, alpha=0.7)
+        ax.add_patch(self._pb_car_rearwindow)
+
+        # Headlights
+        self._pb_hl_base = []
+        self._pb_hl_patches = []
+        for hx in [-0.55, 0.55]:
+            verts = np.array([(hx - 0.1, hh - 0.15), (hx + 0.1, hh - 0.15),
+                              (hx + 0.1, hh - 0.02), (hx - 0.1, hh - 0.02)])
+            p = MplPoly(verts, closed=True, facecolor='#FFE082',
+                        edgecolor='#FFC107', linewidth=0.6, zorder=6)
+            ax.add_patch(p)
+            self._pb_hl_base.append(verts)
+            self._pb_hl_patches.append(p)
+
+        # Taillights
+        self._pb_tl_base = []
+        self._pb_tl_patches = []
+        for tx in [-0.55, 0.55]:
+            verts = np.array([(tx - 0.1, -hh), (tx + 0.1, -hh),
+                              (tx + 0.1, -hh + 0.1), (tx - 0.1, -hh + 0.1)])
+            p = MplPoly(verts, closed=True, facecolor='#EF5350',
+                        edgecolor='#C62828', linewidth=0.6, zorder=6)
+            ax.add_patch(p)
+            self._pb_tl_base.append(verts)
+            self._pb_tl_patches.append(p)
+
+        self._pb_car_w = car_w
+        self._pb_car_h = car_h
+
+        # ── 4 Tires (Polygon rectangles at corners) ──
+        tw = 0.28; th = 0.60
+        self._pb_tire_w = tw
+        self._pb_tire_h = th
+        wb = 1.2
+        tk_x = hw + tw * 0.3
+        tire_positions = [
+            (-tk_x, wb), (tk_x, wb),     # FL, FR
+            (-tk_x, -wb), (tk_x, -wb),    # RL, RR
+        ]
         self._pb_tire_patches = []
-        tire_pos = [(-1.0, 1.1), (1.0, 1.1), (-1.0, -1.1), (1.0, -1.1)]
-        for tx, ty in tire_pos:
-            tire = Rectangle((tx - 0.15, ty - 0.35), 0.3, 0.7,
-                              facecolor='#222', edgecolor='#444', lw=1, zorder=6)
-            ax.add_patch(tire)
-            self._pb_tire_patches.append(tire)
-        # Force arrow
-        self._pb_force_arrow, = ax.plot([], [], '->', color='#FF4444',
-                                         lw=2.5, markersize=8, zorder=10)
-        self._pb_tire_sa_text = ax.text(0, 3.5, '', fontsize=11, ha='center',
-                                         color='#FFD54F', fontweight='bold', zorder=10)
+        self._pb_tire_positions = tire_positions
+        self._pb_tire_base_verts = []
+        self._pb_tire_tread_lines = []
+        for (tx, ty) in tire_positions:
+            verts = np.array([
+                (tx - tw / 2, ty - th / 2), (tx + tw / 2, ty - th / 2),
+                (tx + tw / 2, ty + th / 2), (tx - tw / 2, ty + th / 2)])
+            tp = MplPoly(verts, closed=True, facecolor='#1A1A1A',
+                         edgecolor='#555555', linewidth=1.0, zorder=8)
+            ax.add_patch(tp)
+            self._pb_tire_patches.append(tp)
+            self._pb_tire_base_verts.append(verts.copy())
+            treads = []
+            for j in range(3):
+                yoff = ty - th / 2 + 0.10 + j * (th - 0.20) / 2
+                ln, = ax.plot([tx - tw / 2 + 0.03, tx + tw / 2 - 0.03],
+                              [yoff, yoff], '-', color='#3A3A3A', lw=0.7, zorder=9)
+                treads.append(ln)
+            self._pb_tire_tread_lines.append(treads)
+        self._pb_tire_tread_phase = 0.0
+
+        # ── Lateral force arrow (line + triangle head) ──
+        self._pb_tire_Fy_line, = ax.plot([], [], '-', color='#FF4444', lw=3.5, zorder=15)
+        self._pb_tire_Fy_head, = ax.plot([], [], marker='>', color='#FF4444',
+                                          markersize=12, linestyle='', zorder=15)
+        self._pb_tire_Fy_line.set_visible(False)
+        self._pb_tire_Fy_head.set_visible(False)
+        self._pb_tire_Fy_label = ax.text(0, 0, '', fontsize=12, ha='center',
+                                          va='bottom', fontweight='bold',
+                                          color='#FF6644',
+                                          bbox=dict(boxstyle='round,pad=0.12',
+                                                    facecolor='black', alpha=0.7),
+                                          zorder=16)
+        self._pb_tire_Fy_label.set_visible(False)
+
+        # Longitudinal force arrow
+        self._pb_tire_Fx_line, = ax.plot([], [], '-', color='#44FF44', lw=3.0, zorder=15)
+        self._pb_tire_Fx_head, = ax.plot([], [], marker='^', color='#44FF44',
+                                          markersize=11, linestyle='', zorder=15)
+        self._pb_tire_Fx_line.set_visible(False)
+        self._pb_tire_Fx_head.set_visible(False)
+        self._pb_tire_Fx_label = ax.text(0, 0, '', fontsize=12, ha='left',
+                                          va='center', fontweight='bold',
+                                          color='#44FF44',
+                                          bbox=dict(boxstyle='round,pad=0.10',
+                                                    facecolor='black', alpha=0.7),
+                                          zorder=16)
+        self._pb_tire_Fx_label.set_visible(False)
+
+        # SA arc indicator
+        self._pb_tire_sa_arc, = ax.plot([], [], '-', color='#FFD54F', lw=1.5,
+                                         alpha=0.8, zorder=12)
+        self._pb_tire_sa_label_arc = ax.text(0, 0, '', fontsize=12, ha='center',
+                                              va='center', color='#FFD54F',
+                                              fontweight='bold', zorder=12)
+
+        # HUD text
+        self._pb_tire_speed_label = ax.text(
+            -2.85, 3.7, '', fontsize=12.5, ha='left', va='top',
+            color='#AAFFAA', fontweight='bold',
+            fontfamily='monospace', zorder=20)
+        ax.text(0, 3.8, 'Racing View', fontsize=12, ha='center', va='top',
+                fontweight='bold', color='#EEEEEE', zorder=20)
+
+        self._pb_tire_rotation_deg = 0.0
         self._pb_tire_canvas.draw_idle()
 
-    def _update_pb_tire(self, sa_deg, Fy, Fz):
-        """Update PerssonBrush tire animation."""
-        from matplotlib.transforms import Affine2D
-        # Rotate front tires with SA
-        sa_rad = np.radians(sa_deg)
-        for i, tire in enumerate(self._pb_tire_patches[:2]):  # front only
-            tx, ty = [(-1.0, 1.1), (1.0, 1.1)][i]
-            t = Affine2D().rotate_around(tx, ty, sa_rad) + self._pb_tire_ax.transData
-            tire.set_transform(t)
-        # Force arrow
-        fy_scale = min(abs(Fy) / max(Fz, 1) * 4.0, 3.0)
-        if abs(Fy) > 10:
-            direction = 1.0 if Fy > 0 else -1.0
-            self._pb_force_arrow.set_data([0, fy_scale * direction], [0, 0])
+    def _update_pb_tire(self, sa_deg, Fy, Fz, Fx=0.0, vc=16.67):
+        """Racing game update for PerssonBrush — matches 2D Brush design."""
+        tw = self._pb_tire_w
+        th = self._pb_tire_h
+        car_h = self._pb_car_h
+
+        # ── 1) Treadmill road scroll ──
+        road_speed = np.clip(vc / 16.67, 0.05, 5.0) * 0.22
+        self._pb_road_phase += road_speed
+        dash_spacing = 1.2
+        total_span = dash_spacing * 12
+        for i, line in enumerate(self._pb_road_dashes):
+            y0 = -6.0 + i * dash_spacing - (self._pb_road_phase % dash_spacing)
+            if y0 < -6.0:
+                y0 += total_span
+            line.set_data([0, 0], [y0, y0 + 0.6])
+        for i in range(len(self._pb_road_side_dashes_L)):
+            y0 = -6.0 + i * dash_spacing - (self._pb_road_phase % dash_spacing)
+            if y0 < -6.0:
+                y0 += total_span
+            self._pb_road_side_dashes_L[i].set_data([-1.25, -1.25], [y0, y0 + 0.4])
+            self._pb_road_side_dashes_R[i].set_data([1.25, 1.25], [y0, y0 + 0.4])
+
+        # ── 2) Car yaw from steering (bicycle model) ──
+        steer_angle = -sa_deg
+        target_yaw = steer_angle * 0.8
+        alpha_smooth = 0.18
+        self._pb_tire_rotation_deg += alpha_smooth * (target_yaw - self._pb_tire_rotation_deg)
+        yaw_rad = np.radians(self._pb_tire_rotation_deg)
+        cos_r = np.cos(yaw_rad)
+        sin_r = np.sin(yaw_rad)
+
+        def _rot(pts):
+            R = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
+            return pts @ R.T
+
+        def _rot1(x, y):
+            return x * cos_r - y * sin_r, x * sin_r + y * cos_r
+
+        # Lateral drift
+        fy_norm = np.clip(Fy / max(Fz, 1.0), -1, 1) if Fz > 0 else 0
+        lat_shift = fy_norm * 0.5
+        cx, cy = lat_shift, 0.0
+
+        # ── 3) Rotate car body polygons ──
+        self._pb_car_body.set_xy(_rot(self._pb_car_body_base) + [cx, cy])
+        self._pb_car_windshield.set_xy(_rot(self._pb_ws_base) + [cx, cy])
+        self._pb_car_rearwindow.set_xy(_rot(self._pb_rw_base) + [cx, cy])
+        for base, patch in zip(self._pb_hl_base, self._pb_hl_patches):
+            patch.set_xy(_rot(base) + [cx, cy])
+        for base, patch in zip(self._pb_tl_base, self._pb_tl_patches):
+            patch.set_xy(_rot(base) + [cx, cy])
+
+        # ── 4) Tires: front steer, rear fixed to body ──
+        front_steer_extra = np.radians(-sa_deg * 0.6)
+        self._pb_tire_tread_phase += np.clip(vc / 16.67, 0.05, 5.0) * 0.18
+        tread_spacing_t = (th - 0.20) / 2
+
+        for ti, (tx0, ty0) in enumerate(self._pb_tire_positions):
+            is_front = ti < 2
+            rx, ry = _rot1(tx0, ty0)
+            tcx, tcy = rx + cx, ry + cy
+
+            if is_front:
+                t_rad = yaw_rad + front_steer_extra
+            else:
+                t_rad = yaw_rad
+            cos_t = np.cos(t_rad)
+            sin_t = np.sin(t_rad)
+
+            local_v = self._pb_tire_base_verts[ti] - [tx0, ty0]
+            R_t = np.array([[cos_t, -sin_t], [sin_t, cos_t]])
+            rotated_v = local_v @ R_t.T + [tcx, tcy]
+            self._pb_tire_patches[ti].set_xy(rotated_v)
+
+            # Tread marks
+            phase_off = (self._pb_tire_tread_phase * tread_spacing_t) % tread_spacing_t
+            for j, ln in enumerate(self._pb_tire_tread_lines[ti]):
+                yoff = -th / 2 + 0.10 + j * tread_spacing_t + phase_off
+                if yoff > th / 2 - 0.06:
+                    yoff -= (th - 0.20) + tread_spacing_t
+                p1 = np.array([-tw / 2 + 0.03, yoff])
+                p2 = np.array([tw / 2 - 0.03, yoff])
+                rp1 = R_t @ p1 + [tcx, tcy]
+                rp2 = R_t @ p2 + [tcx, tcy]
+                ln.set_data([rp1[0], rp2[0]], [rp1[1], rp2[1]])
+
+        # ── 5) SA arc at front of car ──
+        if abs(sa_deg) > 0.3:
+            front_y = car_h / 2 + 0.2
+            arc_cx_r, arc_cy_r = _rot1(0, front_y)
+            ac_x, ac_y = arc_cx_r + cx, arc_cy_r + cy
+            arc_r = 1.2
+            a_start = np.pi / 2
+            a_end = np.pi / 2 - yaw_rad
+            t_arc = np.linspace(a_start, a_end, 20)
+            self._pb_tire_sa_arc.set_data(arc_r * np.cos(t_arc) + ac_x,
+                                           arc_r * np.sin(t_arc) + ac_y)
+            self._pb_tire_sa_arc.set_visible(True)
+            mid_a = (a_start + a_end) / 2
+            self._pb_tire_sa_label_arc.set_position(
+                ((arc_r + 0.2) * np.cos(mid_a) + ac_x,
+                 (arc_r + 0.2) * np.sin(mid_a) + ac_y))
+            self._pb_tire_sa_label_arc.set_text(f'{sa_deg:+.1f}°')
+            self._pb_tire_sa_label_arc.set_visible(True)
         else:
-            self._pb_force_arrow.set_data([], [])
-        self._pb_tire_sa_text.set_text(f'SA={sa_deg:.1f}  Fy={Fy:.0f}N')
+            self._pb_tire_sa_arc.set_visible(False)
+            self._pb_tire_sa_label_arc.set_visible(False)
+
+        # ── 6) Lateral force arrow ──
+        if abs(Fy) > 10 and Fz > 0:
+            mu_y = Fy / max(Fz, 1.0)
+            arrow_len = np.clip(abs(mu_y) * 1.8, 0.25, 1.8)
+            px, py = _rot1(np.sign(Fy) * arrow_len, 0)
+            self._pb_tire_Fy_line.set_data([cx, cx + px], [cy, cy + py])
+            self._pb_tire_Fy_line.set_visible(True)
+            head_marker = '>' if Fy > 0 else '<'
+            self._pb_tire_Fy_head.set_marker(head_marker)
+            self._pb_tire_Fy_head.set_data([cx + px], [cy + py])
+            self._pb_tire_Fy_head.set_visible(True)
+            self._pb_tire_Fy_label.set_position(
+                (cx + px * 1.15, cy + py * 1.15 + 0.2))
+            self._pb_tire_Fy_label.set_text(f'Fy {Fy:+.0f}N')
+            self._pb_tire_Fy_label.set_visible(True)
+        else:
+            self._pb_tire_Fy_line.set_visible(False)
+            self._pb_tire_Fy_head.set_visible(False)
+            self._pb_tire_Fy_label.set_visible(False)
+
+        # ── 7) Longitudinal force arrow ──
+        if abs(Fx) > 10 and Fz > 0:
+            mu_x = Fx / max(Fz, 1.0)
+            fx_len = np.clip(abs(mu_x) * 1.5, 0.25, 1.5)
+            fwd_x, fwd_y = _rot1(0, np.sign(Fx) * fx_len)
+            boff = car_h / 2 + 0.15
+            bx, by = _rot1(0, boff * np.sign(Fx))
+            sx, sy = cx + bx, cy + by
+            ex, ey = sx + fwd_x, sy + fwd_y
+            self._pb_tire_Fx_line.set_data([sx, ex], [sy, ey])
+            self._pb_tire_Fx_line.set_visible(True)
+            head_mk = '^' if Fx > 0 else 'v'
+            self._pb_tire_Fx_head.set_marker(head_mk)
+            self._pb_tire_Fx_head.set_data([ex], [ey])
+            self._pb_tire_Fx_head.set_visible(True)
+            self._pb_tire_Fx_label.set_position((ex + 0.15, ey))
+            self._pb_tire_Fx_label.set_text(f'Fx {Fx:+.0f}N')
+            self._pb_tire_Fx_label.set_visible(True)
+        else:
+            self._pb_tire_Fx_line.set_visible(False)
+            self._pb_tire_Fx_head.set_visible(False)
+            self._pb_tire_Fx_label.set_visible(False)
+
+        # ── 8) HUD ──
+        self._pb_tire_speed_label.set_text(
+            f'SA {sa_deg:+5.1f}°\nFy {Fy:+6.0f}N\nFx {Fx:+6.0f}N')
+
         self._pb_tire_canvas.draw_idle()
 
     # ── PerssonBrush: CSV export ──
@@ -25041,6 +25444,9 @@ class PerssonModelGUI_V2:
 
             F_node_mag = np.sqrt(Fx_sp**2 + Fy_sp**2)
 
+            # Share static arrays (p_map, cmask, outline, mask_fill) by reference
+            if fi == 0:
+                _shared_mask_fill = binary_dilation(cmask, iterations=2)
             frames.append({
                 't': t_out[fi], 'SA': sa_deg, 'SR': sr_pct,
                 'Fx': Fx_total, 'Fy': Fy_total,
@@ -25048,13 +25454,13 @@ class PerssonModelGUI_V2:
                 'v_slip_mag': v_slip_final.copy(),
                 'v_trans_x': (vx_block * cmask).copy(),
                 'v_trans_y': (vy_block * cmask).copy(),
-                'p_map': p_map.copy(),
+                'p_map': p_map,           # shared reference (static)
                 'T_contact': T_contact.copy(),
                 'mu_eff': mu_eff_final.copy(),
                 'F_friction': F_node_mag.copy(),
-                '_contact_mask': cmask,
-                '_outline_verts': outline_verts,
-                '_mask_fill': binary_dilation(cmask, iterations=2),
+                '_contact_mask': cmask,           # shared reference
+                '_outline_verts': outline_verts,   # shared reference
+                '_mask_fill': _shared_mask_fill,   # shared reference
             })
 
             self.pb_progress_var.set(int(100 * (fi + 1) / n_frames))
@@ -25069,6 +25475,9 @@ class PerssonModelGUI_V2:
         self._pb_Fy_hist = Fy_hist
         self._pb_x_mm = x_arr * 1000
         self._pb_y_mm = y_arr * 1000
+
+        # Invalidate cached contour artists (grid may have changed)
+        self._pb_contour_inited = False
 
         # Draw time histories
         self._pb_draw_time_histories()
@@ -25116,16 +25525,65 @@ class PerssonModelGUI_V2:
 
     # ── PerssonBrush: Frame display ──
 
+    def _pb_init_contour_artists(self):
+        """One-time init of persistent pcolormesh artists for blit-based update."""
+        x_mm = self._pb_x_mm
+        y_mm = self._pb_y_mm
+        self._pb_XX, self._pb_YY = np.meshgrid(x_mm, y_mm, indexing='ij')
+        XX, YY = self._pb_XX, self._pb_YY
+        Nx, Ny = XX.shape
+        dummy = np.full((Nx, Ny), np.nan)
+        _fs = 9
+
+        # Clear stale artists from prior runs
+        for ax in (self.ax_pb_stick, self.ax_pb_speed, self.ax_pb_pressure,
+                   self.ax_pb_temperature, self.ax_pb_friction):
+            ax.clear()
+
+        # Create persistent pcolormesh artists (updated via set_array)
+        self._pb_pcm_stick = self.ax_pb_stick.pcolormesh(
+            XX, YY, dummy, cmap='RdYlGn_r', vmin=0, vmax=1, shading='auto')
+        self.ax_pb_stick.set_title('sliding vs adhesion', fontsize=_fs, fontweight='bold')
+        self.ax_pb_stick.set_xlabel('length [mm]', fontsize=7)
+        self.ax_pb_stick.set_ylabel('width [mm]', fontsize=7)
+
+        self._pb_pcm_speed = self.ax_pb_speed.pcolormesh(
+            XX, YY, dummy, cmap='plasma', shading='auto')
+        self.ax_pb_speed.set_title('sliding speed', fontsize=_fs, fontweight='bold')
+        self.ax_pb_speed.set_xlabel('length [mm]', fontsize=7)
+        self.ax_pb_speed.set_ylabel('width [mm]', fontsize=7)
+
+        self._pb_pcm_pressure = self.ax_pb_pressure.pcolormesh(
+            XX, YY, dummy, cmap='YlOrRd', shading='auto')
+        self.ax_pb_pressure.set_title('contact pressure [bar]', fontsize=_fs, fontweight='bold')
+        self.ax_pb_pressure.set_xlabel('length [mm]', fontsize=7)
+        self.ax_pb_pressure.set_ylabel('width [mm]', fontsize=7)
+
+        self._pb_pcm_mu = self.ax_pb_temperature.pcolormesh(
+            XX, YY, dummy, cmap='coolwarm_r', shading='auto')
+        self.ax_pb_temperature.set_title('mu_eff map', fontsize=_fs, fontweight='bold')
+        self.ax_pb_temperature.set_xlabel('length [mm]', fontsize=7)
+        self.ax_pb_temperature.set_ylabel('width [mm]', fontsize=7)
+
+        self._pb_pcm_fric = self.ax_pb_friction.pcolormesh(
+            XX, YY, dummy, cmap='hot_r', shading='auto')
+        self.ax_pb_friction.set_title('friction force', fontsize=_fs, fontweight='bold')
+        self.ax_pb_friction.set_xlabel('length [mm]', fontsize=7)
+        self.ax_pb_friction.set_ylabel('width [mm]', fontsize=7)
+
+        self._pb_contour_inited = True
+        self.canvas_pb.draw_idle()
+
     def _pb_show_frame(self, idx):
-        """Display a single PerssonBrush frame with contour plots."""
+        """Display a single PerssonBrush frame — blit-optimized contour update."""
         if not self._pb_frames or idx >= len(self._pb_frames):
             return
         f = self._pb_frames[idx]
-        mask = f.get('_contact_mask')
-        mask_fill = f.get('_mask_fill', mask)
-        x_mm = self._pb_x_mm
-        y_mm = self._pb_y_mm
-        XX, YY = np.meshgrid(x_mm, y_mm, indexing='ij')
+        mask_fill = f.get('_mask_fill', f.get('_contact_mask'))
+
+        # Lazy-init persistent pcolormesh artists (first call or after grid change)
+        if not getattr(self, '_pb_contour_inited', False):
+            self._pb_init_contour_artists()
 
         self.pb_frame_label_var.set(
             f"t = {f['t']:.2f} s  ({idx + 1}/{len(self._pb_frames)})  "
@@ -25141,52 +25599,35 @@ class PerssonModelGUI_V2:
         if hasattr(self, '_pb_cursor_fx'):
             self._pb_cursor_fx.set_xdata([f['SR'], f['SR']])
 
-        # Bottom row: contour plots (full redraw — simpler than blit for new tab)
-        for ax in (self.ax_pb_stick, self.ax_pb_speed, self.ax_pb_pressure,
-                   self.ax_pb_temperature, self.ax_pb_friction):
-            ax.clear()
-
-        _fs = 9
-        # (1) sliding vs adhesion
+        # Update existing pcolormesh arrays (no ax.clear / new objects)
         is_sl = np.where(mask_fill, f['is_sliding'].astype(float), np.nan)
-        self.ax_pb_stick.pcolormesh(XX, YY, is_sl, cmap='RdYlGn_r',
-                                     vmin=0, vmax=1, shading='auto')
-        self.ax_pb_stick.set_title('sliding vs adhesion', fontsize=_fs, fontweight='bold')
-        self.ax_pb_stick.set_xlabel('length [mm]', fontsize=7)
-        self.ax_pb_stick.set_ylabel('width [mm]', fontsize=7)
+        self._pb_pcm_stick.set_array(is_sl.ravel())
 
-        # (2) slip speed
         v_plot = np.where(mask_fill, f['v_slip_mag'], np.nan)
-        self.ax_pb_speed.pcolormesh(XX, YY, v_plot, cmap='plasma', shading='auto')
-        self.ax_pb_speed.set_title('sliding speed', fontsize=_fs, fontweight='bold')
-        self.ax_pb_speed.set_xlabel('length [mm]', fontsize=7)
-        self.ax_pb_speed.set_ylabel('width [mm]', fontsize=7)
+        self._pb_pcm_speed.set_array(v_plot.ravel())
+        v_max = np.nanmax(v_plot) if np.any(np.isfinite(v_plot)) else 1.0
+        self._pb_pcm_speed.set_clim(0, max(v_max, 1e-6))
 
-        # (3) pressure
         p_bar = np.where(mask_fill, f['p_map'] * 1e-5, np.nan)
-        self.ax_pb_pressure.pcolormesh(XX, YY, p_bar, cmap='YlOrRd', shading='auto')
-        self.ax_pb_pressure.set_title('contact pressure [bar]', fontsize=_fs, fontweight='bold')
-        self.ax_pb_pressure.set_xlabel('length [mm]', fontsize=7)
-        self.ax_pb_pressure.set_ylabel('width [mm]', fontsize=7)
+        self._pb_pcm_pressure.set_array(p_bar.ravel())
+        p_max = np.nanmax(p_bar) if np.any(np.isfinite(p_bar)) else 1.0
+        self._pb_pcm_pressure.set_clim(0, max(p_max, 1e-6))
 
-        # (4) mu_eff distribution (replaces temperature in this tab)
         mu_plot = np.where(mask_fill, f['mu_eff'], np.nan)
-        self.ax_pb_temperature.pcolormesh(XX, YY, mu_plot, cmap='coolwarm_r', shading='auto')
-        self.ax_pb_temperature.set_title('mu_eff map', fontsize=_fs, fontweight='bold')
-        self.ax_pb_temperature.set_xlabel('length [mm]', fontsize=7)
-        self.ax_pb_temperature.set_ylabel('width [mm]', fontsize=7)
+        self._pb_pcm_mu.set_array(mu_plot.ravel())
+        mu_min = np.nanmin(mu_plot) if np.any(np.isfinite(mu_plot)) else 0
+        mu_max = np.nanmax(mu_plot) if np.any(np.isfinite(mu_plot)) else 1.0
+        self._pb_pcm_mu.set_clim(mu_min, max(mu_max, mu_min + 1e-6))
 
-        # (5) friction force
         f_fric = np.where(mask_fill, f['F_friction'], np.nan)
-        self.ax_pb_friction.pcolormesh(XX, YY, f_fric, cmap='hot_r', shading='auto')
-        self.ax_pb_friction.set_title('friction force', fontsize=_fs, fontweight='bold')
-        self.ax_pb_friction.set_xlabel('length [mm]', fontsize=7)
-        self.ax_pb_friction.set_ylabel('width [mm]', fontsize=7)
+        self._pb_pcm_fric.set_array(f_fric.ravel())
+        ff_max = np.nanmax(f_fric) if np.any(np.isfinite(f_fric)) else 1.0
+        self._pb_pcm_fric.set_clim(0, max(ff_max, 1e-6))
 
         # Steering and tire
         self._update_pb_steering(f['SA'])
         Fz = float(self.pb_Fz_var.get()) if self.pb_Fz_var.get() else 4000.0
-        self._update_pb_tire(f['SA'], f['Fy'], Fz)
+        self._update_pb_tire(f['SA'], f['Fy'], Fz, f.get('Fx', 0.0))
 
         self.canvas_pb.draw_idle()
 
@@ -25203,6 +25644,10 @@ class PerssonModelGUI_V2:
     def _pb_play(self):
         if not self._pb_frames:
             return
+        # Cancel any previous animation timer before starting a new one
+        if self._pb_play_after_id is not None:
+            self.root.after_cancel(self._pb_play_after_id)
+            self._pb_play_after_id = None
         self._pb_playing = True
         self._pb_animate()
 
@@ -25229,7 +25674,8 @@ class PerssonModelGUI_V2:
         self._pb_frame_idx = (self._pb_frame_idx + step) % n
         self.pb_time_slider.set(self._pb_frame_idx)
         self._pb_show_frame(self._pb_frame_idx)
-        delay = max(int(30 / speed), 8)
+        # Minimum 33ms (~30fps) to avoid choking the GUI event loop
+        delay = max(int(50 / speed), 33)
         self._pb_play_after_id = self.root.after(delay, self._pb_animate)
 
     def _create_brush_education_tab(self, notebook):
@@ -31026,6 +31472,34 @@ bind_braking_simulation(PerssonModelGUI_V2)
 bind_vehicle_test_matching(PerssonModelGUI_V2)
 
 
+def _compute_hidpi_font_scale(root):
+    """Compute a font scale factor for high-DPI / 4K monitors.
+
+    On monitors with >1920 horizontal pixels the default 12pt fonts become
+    too small to read (because Tk scaling is forced to 1.0).  We scale fonts
+    proportionally to the screen width, capped at a reasonable maximum.
+
+    Returns a multiplier (>= 1.0) that should be applied to every font size.
+    """
+    try:
+        scr_w = root.winfo_screenwidth()
+        scr_h = root.winfo_screenheight()
+    except Exception:
+        return 1.0
+
+    # Reference resolution: 1920×1080 — fonts designed for this size.
+    _REF_W = 1920
+
+    if scr_w <= _REF_W:
+        return 1.0
+
+    # For a 3840 px (4K) display → scale ≈ 1.5;  2560 px (QHD) → ~1.2
+    raw = scr_w / _REF_W
+    # Smooth: scale proportionally but don't double font sizes
+    scale = 1.0 + (raw - 1.0) * 0.6   # e.g. 4K: 1 + 1.0*0.6 = 1.6
+    return min(max(scale, 1.0), 2.0)   # clamp [1.0, 2.0]
+
+
 def main():
     """Run the enhanced application."""
     # ── DPI awareness MUST be set BEFORE creating any window ──
@@ -31037,6 +31511,22 @@ def main():
     # pixels.  Without this, Tk would scale fonts by the system DPI factor
     # (e.g. 1.25× on a 125% display), making everything too large.
     root.tk.call('tk', 'scaling', 1.0)
+
+    # ── High-DPI font scaling for 4K / QHD monitors ──
+    _hi_scale = _compute_hidpi_font_scale(root)
+    if _hi_scale > 1.05:
+        _base = PerssonModelGUI_V2._FONT_SIZE
+        _new_sz = int(round(_base * _hi_scale))
+        PerssonModelGUI_V2._FONT_SIZE = _new_sz
+        for key in PerssonModelGUI_V2.FONTS:
+            fam, sz, *rest = PerssonModelGUI_V2.FONTS[key]
+            PerssonModelGUI_V2.FONTS[key] = (fam, _new_sz, *rest)
+        # Scale dimensions too
+        PerssonModelGUI_V2.DIMS['panel_width'] = int(440 * _hi_scale)
+        PerssonModelGUI_V2.DIMS['header_height'] = int(40 * _hi_scale)
+        PerssonModelGUI_V2.DIMS['statusbar_height'] = int(28 * _hi_scale)
+        PerssonModelGUI_V2.DIMS['log_height'] = int(90 * _hi_scale)
+        PerssonModelGUI_V2.DIMS['logo_height'] = int(60 * _hi_scale)
 
     # ── Splash screen ──
     root.withdraw()  # Hide main window completely during loading
