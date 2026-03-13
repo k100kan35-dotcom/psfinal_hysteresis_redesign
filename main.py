@@ -24984,65 +24984,101 @@ class PerssonModelGUI_V2:
         Fx_hist = np.zeros(n_frames)
         Fy_hist = np.zeros(n_frames)
 
+        # ── Continuous transient ODE (state carries between frames) ──
+        # Initialize block state ONCE
+        x_block = np.zeros((Nx, Ny))
+        y_block = np.zeros((Nx, Ny))
+        vx_block = np.zeros((Nx, Ny))
+        vy_block = np.zeros((Nx, Ny))
+        s_slip = np.zeros((Nx, Ny))
+        cmask = ellipse_mask
+        mask_fill = binary_dilation(cmask, iterations=2)
+
+        # Seed rim position using contact time for initial spatial distribution
+        sa_0 = SA_profile[0]
+        sr_0 = SR_profile[0]
+        vx_rim_vel_0 = vc * (sr_0 / 100.0)
+        vy_rim_vel_0 = vc * np.sin(np.radians(sa_0))
+        x_rim = vx_rim_vel_0 * t_contact
+        y_rim = vy_rim_vel_0 * t_contact
+
+        # Warmup: run n_ode_steps to reach initial steady state
+        for step in range(n_ode_steps):
+            v_slip_mag = np.sqrt(vx_block**2 + vy_block**2)
+            s_slip += v_slip_mag * dt_ode
+            w = np.exp(-s_slip / max(s0, 1e-10))
+            v_lut = np.clip(v_slip_mag, 1e-12, None)
+            mu_cold_v = lut_cold(v_lut)
+            mu_hot_v = lut_hot(v_lut)
+            mu_eff = (w * mu_cold_v + (1.0 - w) * mu_hot_v) * friction_scale
+            F_fric_limit = mu_eff * Fz_ij
+            Fx_fric = -F_fric_limit * (vx_block / (v_slip_mag + eps))
+            Fy_fric = -F_fric_limit * (vy_block / (v_slip_mag + eps))
+            Fx_spring = kx_node * (x_rim - x_block) + cx_node * (vx_rim_vel_0 - vx_block)
+            Fy_spring = ky_node * (y_rim - y_block) + cy_node * (vy_rim_vel_0 - vy_block)
+            ax_b = (Fx_spring + Fx_fric) / m_node
+            ay_b = (Fy_spring + Fy_fric) / m_node
+            vx_block += ax_b * dt_ode
+            vy_block += ay_b * dt_ode
+            x_block += vx_block * dt_ode
+            y_block += vy_block * dt_ode
+            x_rim += vx_rim_vel_0 * dt_ode
+            y_rim += vy_rim_vel_0 * dt_ode
+
+        # Steps between output frames
+        steps_per_frame = max(int(dt_out / dt_ode), 1)
+
         for fi in range(n_frames):
+            t_frame = t_out[fi]
             sa_deg = SA_profile[fi]
             sr_pct = SR_profile[fi]
-            alpha_rad = np.radians(sa_deg)
-            sr_frac = sr_pct / 100.0
-
-            cmask = ellipse_mask  # use static mask for simplicity
             outline_verts = self._egg_outline(sa_deg, L / 2, W / 2)
 
-            # Rim velocity
-            vx_rim = vc * sr_frac
-            vy_rim = vc * np.sin(alpha_rad)
+            # Integrate ODE sub-steps from previous frame to this frame
+            # Use piecewise-linear SA/SR: interpolate at frame boundaries,
+            # hold constant within sub-steps for speed
+            n_sub = steps_per_frame if fi > 0 else 0  # frame 0 already done by warmup
+            if n_sub > 0:
+                # Linear interp: SA/SR at start and end of this interval
+                sa_start = SA_profile[fi - 1]
+                sa_end = SA_profile[fi]
+                sr_start = SR_profile[fi - 1]
+                sr_end = SR_profile[fi]
+                for step in range(n_sub):
+                    # Linear blend within interval
+                    alpha_t = (step + 1) / n_sub
+                    sa_sub = sa_start + alpha_t * (sa_end - sa_start)
+                    sr_sub = sr_start + alpha_t * (sr_end - sr_start)
+                    vx_rim_vel = vc * (sr_sub / 100.0)
+                    vy_rim_vel = vc * np.sin(np.radians(sa_sub))
 
-            # ── ODE Integration: each cell independently ──
-            # Initialize state from contact-time seeding
-            x_block = np.zeros((Nx, Ny))
-            y_block = np.zeros((Nx, Ny))
-            vx_block = np.zeros((Nx, Ny))
-            vy_block = np.zeros((Nx, Ny))
-            s_slip = np.zeros((Nx, Ny))
+                    v_slip_mag = np.sqrt(vx_block**2 + vy_block**2)
+                    s_slip += v_slip_mag * dt_ode
+                    w = np.exp(-s_slip / max(s0, 1e-10))
+                    v_lut = np.clip(v_slip_mag, 1e-12, None)
+                    mu_cold_v = lut_cold(v_lut)
+                    mu_hot_v = lut_hot(v_lut)
+                    mu_eff = (w * mu_cold_v + (1.0 - w) * mu_hot_v) * friction_scale
+                    F_fric_limit = mu_eff * Fz_ij
+                    Fx_fric = -F_fric_limit * (vx_block / (v_slip_mag + eps))
+                    Fy_fric = -F_fric_limit * (vy_block / (v_slip_mag + eps))
+                    Fx_spring = kx_node * (x_rim - x_block) + cx_node * (vx_rim_vel - vx_block)
+                    Fy_spring = ky_node * (y_rim - y_block) + cy_node * (vy_rim_vel - vy_block)
+                    ax_b = (Fx_spring + Fx_fric) / m_node
+                    ay_b = (Fy_spring + Fy_fric) / m_node
+                    vx_block += ax_b * dt_ode
+                    vy_block += ay_b * dt_ode
+                    x_block += vx_block * dt_ode
+                    y_block += vy_block * dt_ode
+                    x_rim += vx_rim_vel * dt_ode
+                    y_rim += vy_rim_vel * dt_ode
 
-            # Rim position: pre-advance by contact time
-            x_rim = vx_rim * t_contact
-            y_rim = vy_rim * t_contact
-
-            for step in range(n_ode_steps):
-                v_slip_mag = np.sqrt(vx_block**2 + vy_block**2)
-                s_slip += v_slip_mag * dt_ode
-
-                w = np.exp(-s_slip / max(s0, 1e-10))
-                v_lut = np.clip(v_slip_mag, 1e-12, None)
-                mu_cold_v = lut_cold(v_lut)
-                mu_hot_v = lut_hot(v_lut)
-                mu_eff = (w * mu_cold_v + (1.0 - w) * mu_hot_v) * friction_scale
-
-                F_fric_limit = mu_eff * Fz_ij
-                Fx_fric = -F_fric_limit * (vx_block / (v_slip_mag + eps))
-                Fy_fric = -F_fric_limit * (vy_block / (v_slip_mag + eps))
-
-                Fx_spring = kx_node * (x_rim - x_block) + cx_node * (vx_rim - vx_block)
-                Fy_spring = ky_node * (y_rim - y_block) + cy_node * (vy_rim - vy_block)
-
-                ax_b = (Fx_spring + Fx_fric) / m_node
-                ay_b = (Fy_spring + Fy_fric) / m_node
-
-                vx_block += ax_b * dt_ode
-                vy_block += ay_b * dt_ode
-                x_block += vx_block * dt_ode
-                y_block += vy_block * dt_ode
-                x_rim += vx_rim * dt_ode
-                y_rim += vy_rim * dt_ode
-
-            # Final state
+            # Snapshot current state
+            v_slip_final = np.sqrt(vx_block**2 + vy_block**2) * cmask
             Fx_sp = kx_node * (x_rim - x_block) * cmask
             Fy_sp = ky_node * (y_rim - y_block) * cmask
-            v_slip_final = np.sqrt(vx_block**2 + vy_block**2) * cmask
             mu_eff_final = mu_eff * cmask
 
-            # Classify slip: v_slip > threshold
             is_sliding = (v_slip_final > 0.01) & cmask
 
             Fx_total = -np.sum(Fx_sp)
@@ -25057,7 +25093,7 @@ class PerssonModelGUI_V2:
             F_node_mag = np.sqrt(Fx_sp**2 + Fy_sp**2)
 
             frames.append({
-                't': t_out[fi], 'SA': sa_deg, 'SR': sr_pct,
+                't': t_frame, 'SA': sa_deg, 'SR': sr_pct,
                 'Fx': Fx_total, 'Fy': Fy_total,
                 'is_sliding': is_sliding.copy(),
                 'v_slip_mag': v_slip_final.copy(),
@@ -25069,7 +25105,7 @@ class PerssonModelGUI_V2:
                 'F_friction': F_node_mag.copy(),
                 '_contact_mask': cmask,
                 '_outline_verts': outline_verts,
-                '_mask_fill': binary_dilation(cmask, iterations=2),
+                '_mask_fill': mask_fill,
             })
 
             self.pb_progress_var.set(int(100 * (fi + 1) / n_frames))
