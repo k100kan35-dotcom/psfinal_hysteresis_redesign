@@ -907,6 +907,7 @@ class PerssonModelGUI_V2:
             ('tab_cold_hot_branch', 'Cold & Hot Branch',  self._create_cold_hot_branch_tab),
             ('tab_friction_map',    'Friction Map',       self._create_friction_map_tab),
             ('tab_2d_brush',        '2D Brush Model',     self._create_2d_brush_tab),
+            ('tab_persson_brush',   'PerssonBrush',       self._create_persson_brush_tab),
             ('tab_braking_sim',     'Braking Simulation', self._create_braking_simulation_tab),
             ('tab_track_sim',       'Track Simulation',   self._create_track_simulation_tab),
             ('tab_ve_advisor',      '점탄성 설계',        self._create_ve_advisor_tab),
@@ -24255,314 +24256,671 @@ class PerssonModelGUI_V2:
         toolbar = NavigationToolbar2Tk(self.canvas_brush, plot_frame)
         toolbar.update()
 
-        # ── Tab 2: Persson 2D Dynamics Simulation ──
-        self._create_persson_dynamics_tab(self.br_right_notebook)
-
-        # ── Tab 3: Educational Material ──
+        # ── Tab 2: Educational Material ──
         self._create_brush_education_tab(self.br_right_notebook)
 
     # ================================================================
-    # ====  Persson 2D Continuous Dynamics Simulation Tab  ====
+    # ====  PerssonBrush — ODE-based 2D Dynamics Tab  ====
     # ================================================================
 
-    def _create_persson_dynamics_tab(self, notebook):
-        """Create Persson 2D ODE-based dynamics simulation tab.
+    def _create_persson_brush_tab(self, parent):
+        """Create PerssonBrush tab — mirrors 2D Brush Model but uses ODE dynamics.
 
-        This implements a continuous dynamics model using Newton's 2nd law
-        (F = ma) with time integration. Unlike the classical brush model
-        which uses explicit IF/ELSE stick-slip branching, this model
-        naturally emerges stick-slip transitions from the ODE solution:
-        when spring force < friction capacity, blocks stay (stick);
-        when spring force exceeds friction, blocks accelerate (slip).
+        Instead of IF/ELSE stick-slip branching, each tread block is a
+        mass-spring-damper system whose motion is integrated via Newton's
+        2nd law. Stick-Slip transitions emerge naturally from the ODE.
         """
-        from matplotlib.figure import Figure
-        from matplotlib.backends.backend_tkagg import (
-            FigureCanvasTkAgg, NavigationToolbar2Tk)
-        from matplotlib.gridspec import GridSpec
+        layout = self._create_tab_layout(parent, toolbar_buttons=[
+            ("Transient 시뮬레이션", self._run_pb_transient_wrapper, 'Accent.TButton'),
+        ])
+        left_panel = layout['content']
 
-        persson_tab = ttk.Frame(notebook)
-        notebook.add(persson_tab, text='  Persson 시뮬레이션  ')
+        # Internal storage
+        self.pb_results = None
 
-        # ── Layout: left controls + right plots ──
-        main_pw = ttk.PanedWindow(persson_tab, orient=tk.HORIZONTAL)
-        main_pw.pack(fill=tk.BOTH, expand=True)
+        # ── 1) 타이어 / 격자 파라미터 ──
+        sec1 = self._create_section(left_panel, "1) 타이어 / 격자 설정")
 
-        # Left panel (controls) with scrollbar
-        left_outer = ttk.Frame(main_pw, width=320)
-        main_pw.add(left_outer, weight=0)
+        ttk.Label(sec1, text="Persson ODE 동역학 (IF/ELSE 없음)",
+                  font=self.FONTS['small'], foreground='#0369A1').pack(anchor='w', pady=(0, 2))
 
-        left_canvas = tk.Canvas(left_outer, highlightthickness=0, width=300)
-        left_sb = ttk.Scrollbar(left_outer, orient='vertical', command=left_canvas.yview)
-        left_sb.pack(side=tk.RIGHT, fill=tk.Y)
-        left_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        left_canvas.configure(yscrollcommand=left_sb.set)
+        row_nx = ttk.Frame(sec1); row_nx.pack(fill=tk.X, pady=1)
+        ttk.Label(row_nx, text="Nx (종방향 격자):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_Nx_var = tk.StringVar(value="40")
+        ttk.Entry(row_nx, textvariable=self.pb_Nx_var, width=6).pack(side=tk.LEFT, padx=2)
 
-        left_panel = ttk.Frame(left_canvas)
-        left_win_id = left_canvas.create_window((0, 0), window=left_panel, anchor='nw')
+        row_ny = ttk.Frame(sec1); row_ny.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ny, text="Ny (횡방향 격자):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_Ny_var = tk.StringVar(value="40")
+        ttk.Entry(row_ny, textvariable=self.pb_Ny_var, width=6).pack(side=tk.LEFT, padx=2)
 
-        def _on_left_configure(event):
-            left_canvas.configure(scrollregion=left_canvas.bbox('all'))
-        left_panel.bind('<Configure>', _on_left_configure)
+        row_L = ttk.Frame(sec1); row_L.pack(fill=tk.X, pady=1)
+        ttk.Label(row_L, text="풋프린트 길이 L:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_L_var = tk.StringVar(value="0.15")
+        ttk.Entry(row_L, textvariable=self.pb_L_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_L, text="m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
-        def _on_left_canvas_configure(event):
-            left_canvas.itemconfig(left_win_id, width=event.width)
-        left_canvas.bind('<Configure>', _on_left_canvas_configure)
+        row_W = ttk.Frame(sec1); row_W.pack(fill=tk.X, pady=1)
+        ttk.Label(row_W, text="풋프린트 폭 W:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_W_var = tk.StringVar(value="0.12")
+        ttk.Entry(row_W, textvariable=self.pb_W_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_W, text="m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
-        # Mousewheel
-        def _bind_mw(event):
-            left_canvas.bind_all('<MouseWheel>', lambda e: left_canvas.yview_scroll(int(-1 * (e.delta / 120)), 'units'))
-            left_canvas.bind_all('<Button-4>', lambda e: left_canvas.yview_scroll(-3, 'units'))
-            left_canvas.bind_all('<Button-5>', lambda e: left_canvas.yview_scroll(3, 'units'))
+        row_Fz = ttk.Frame(sec1); row_Fz.pack(fill=tk.X, pady=1)
+        ttk.Label(row_Fz, text="수직 하중 Fz:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_Fz_var = tk.StringVar(value="4000")
+        ttk.Entry(row_Fz, textvariable=self.pb_Fz_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_Fz, text="N", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
-        def _unbind_mw(event):
-            left_canvas.unbind_all('<MouseWheel>')
-            left_canvas.unbind_all('<Button-4>')
-            left_canvas.unbind_all('<Button-5>')
+        row_kx = ttk.Frame(sec1); row_kx.pack(fill=tk.X, pady=1)
+        ttk.Label(row_kx, text="kx (종방향 강성):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_kx_var = tk.StringVar(value="8e5")
+        ttk.Entry(row_kx, textvariable=self.pb_kx_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_kx, text="N/m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
-        left_canvas.bind('<Enter>', _bind_mw)
-        left_canvas.bind('<Leave>', _unbind_mw)
+        row_ky = ttk.Frame(sec1); row_ky.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ky, text="ky (횡방향 강성):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_ky_var = tk.StringVar(value="6e5")
+        ttk.Entry(row_ky, textvariable=self.pb_ky_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_ky, text="N/m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
-        # ── Section 1: 모델 파라미터 ──
-        sec1 = self._create_section(left_panel, "1) Persson 동역학 파라미터")
+        row_fs = ttk.Frame(sec1); row_fs.pack(fill=tk.X, pady=1)
+        ttk.Label(row_fs, text="마찰 감도 계수:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_friction_scale_var = tk.StringVar(value="0.5")
+        ttk.Entry(row_fs, textvariable=self.pb_friction_scale_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_fs, text="(< 1: 슬라이딩 증가)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
 
-        ttk.Label(sec1, text="Persson 2D 연속 동역학 모델 (ODE 기반)\n"
-                  "IF/ELSE 분기 없이 미분방정식으로 Stick-Slip 자연 전이",
-                  font=self.FONTS['small'], foreground='#0369A1').pack(anchor='w', pady=(0, 4))
+        # ── 마찰맵 선택 (공유) ──
+        sec_fm = self._create_section(left_panel, "마찰 모델 선택")
+        ttk.Label(sec_fm, text="2D Brush 탭의 마찰맵 설정을 공유합니다.",
+                  font=self.FONTS['small'], foreground='#0369A1').pack(anchor='w')
+        self._pb_fm_status_var = tk.StringVar(value="")
+        ttk.Label(sec_fm, textvariable=self._pb_fm_status_var,
+                  font=self.FONTS['small'], foreground='#16A34A').pack(anchor='w')
 
-        # Grid parameters
-        params = [
-            ("Nx (종방향 격자):", "ps_Nx_var", "32", 6, ""),
-            ("Ny (횡방향 격자):", "ps_Ny_var", "32", 6, ""),
-            ("풋프린트 길이 L:", "ps_L_var", "0.15", 8, "m"),
-            ("풋프린트 폭 W:", "ps_W_var", "0.12", 8, "m"),
-            ("수직 하중 Fz:", "ps_Fz_var", "4000", 8, "N"),
-            ("kx (종방향 강성):", "ps_kx_var", "8e5", 8, "N/m"),
-            ("ky (횡방향 강성):", "ps_ky_var", "6e5", 8, "N/m"),
-            ("friction_scale:", "ps_friction_scale_var", "0.5", 8, "(< 1: 슬라이딩 증가)"),
-            ("D_macro (돌기 직경):", "ps_D_macro_var", "2.0", 8, "mm (s0=0.2D)"),
-        ]
-        for label_text, var_name, default, width, unit in params:
-            row = ttk.Frame(sec1); row.pack(fill=tk.X, pady=1)
-            ttk.Label(row, text=label_text, font=self.FONTS['body']).pack(side=tk.LEFT)
-            var = tk.StringVar(value=default)
-            setattr(self, var_name, var)
-            ttk.Entry(row, textvariable=var, width=width).pack(side=tk.LEFT, padx=2)
-            if unit:
-                ttk.Label(row, text=unit, font=self.FONTS['small'],
-                          foreground='#64748B').pack(side=tk.LEFT)
+        # ── 2) 주행 조건 ──
+        sec2 = self._create_section(left_panel, "2) 주행 조건")
 
-        # ── Section 2: 동역학 전용 파라미터 ──
-        sec2 = self._create_section(left_panel, "2) 동역학 전용 설정")
+        row_vc = ttk.Frame(sec2); row_vc.pack(fill=tk.X, pady=1)
+        ttk.Label(row_vc, text="차량 속도 vc:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_vc_var = tk.StringVar(value="16.67")
+        ttk.Entry(row_vc, textvariable=self.pb_vc_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_vc, text="m/s (= 60 km/h)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
 
-        ttk.Label(sec2, text="질량-스프링-댐퍼의 동적 응답 파라미터",
-                  font=self.FONTS['small'], foreground='#64748B').pack(anchor='w')
+        row_D = ttk.Frame(sec2); row_D.pack(fill=tk.X, pady=1)
+        ttk.Label(row_D, text="D (돌기 직경):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_D_macro_var = tk.StringVar(value="2.0")
+        ttk.Entry(row_D, textvariable=self.pb_D_macro_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_D, text="mm  (s0 = 0.2D)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
 
-        dyn_params = [
-            ("셀 유효 질량 m:", "ps_mass_var", "0.001", 8, "kg"),
-            ("감쇠비 (zeta):", "ps_zeta_var", "1.0", 8, "(1.0=임계감쇠)"),
-            ("시간 간격 dt:", "ps_dt_var", "1e-5", 8, "s"),
-            ("적분 스텝 수:", "ps_nsteps_var", "3000", 8, "steps"),
-        ]
-        for label_text, var_name, default, width, unit in dyn_params:
-            row = ttk.Frame(sec2); row.pack(fill=tk.X, pady=1)
-            ttk.Label(row, text=label_text, font=self.FONTS['body']).pack(side=tk.LEFT)
-            var = tk.StringVar(value=default)
-            setattr(self, var_name, var)
-            ttk.Entry(row, textvariable=var, width=width).pack(side=tk.LEFT, padx=2)
-            if unit:
-                ttk.Label(row, text=unit, font=self.FONTS['small'],
-                          foreground='#64748B').pack(side=tk.LEFT)
+        row_ptype = ttk.Frame(sec2); row_ptype.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ptype, text="압력 분포:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_pressure_type_var = tk.StringVar(value="dual_peak")
+        ttk.Combobox(row_ptype, textvariable=self.pb_pressure_type_var, width=12,
+                     values=['dual_peak', 'parabolic', 'uniform', 'elliptic'],
+                     state='readonly').pack(side=tk.LEFT, padx=2)
 
-        # ── Section 3: 주행 조건 ──
-        sec3 = self._create_section(left_panel, "3) 주행 조건 (SA/SR sweep)")
+        row_asym = ttk.Frame(sec2); row_asym.pack(fill=tk.X, pady=1)
+        ttk.Label(row_asym, text="비대칭 강도:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_asym_preset_var = tk.StringVar(value="보통")
+        ttk.Combobox(row_asym, textvariable=self.pb_asym_preset_var, width=8,
+                     values=list(self._ASYM_PRESETS.keys()),
+                     state='readonly').pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_asym, text="(dual_peak 전용)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
 
-        drv_params = [
-            ("차량 속도 vc:", "ps_vc_var", "16.67", 8, "m/s (60 km/h)"),
-            ("SA 최대:", "ps_sa_max_var", "12", 6, "deg"),
-            ("SA 스텝:", "ps_sa_steps_var", "25", 6, "points"),
-            ("SR 최대:", "ps_sr_max_var", "30", 6, "%"),
-            ("SR 스텝:", "ps_sr_steps_var", "25", 6, "points"),
-        ]
-        for label_text, var_name, default, width, unit in drv_params:
-            row = ttk.Frame(sec3); row.pack(fill=tk.X, pady=1)
-            ttk.Label(row, text=label_text, font=self.FONTS['body']).pack(side=tk.LEFT)
-            var = tk.StringVar(value=default)
-            setattr(self, var_name, var)
-            ttk.Entry(row, textvariable=var, width=width).pack(side=tk.LEFT, padx=2)
-            if unit:
-                ttk.Label(row, text=unit, font=self.FONTS['small'],
-                          foreground='#64748B').pack(side=tk.LEFT)
+        row_drive = ttk.Frame(sec2); row_drive.pack(fill=tk.X, pady=1)
+        ttk.Label(row_drive, text="주행 모드:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_driving_mode_var = tk.StringVar(value="Braking")
+        for dm in ["Braking", "Handling", "Acceleration"]:
+            ttk.Radiobutton(row_drive, text=dm, variable=self.pb_driving_mode_var,
+                            value=dm).pack(side=tk.LEFT, padx=3)
 
-        # ── Section 4: 마찰맵 (기존 brush 탭과 공유) ──
-        sec4 = self._create_section(left_panel, "4) 마찰맵 선택")
-        ttk.Label(sec4, text="2D Brush 탭의 마찰맵 설정을 공유합니다.",
-                  font=self.FONTS['small'], foreground='#64748B').pack(anchor='w')
+        # ── 2b) ODE 동역학 전용 ──
+        sec2b = self._create_section(left_panel, "2b) ODE 동역학 파라미터")
+        ttk.Label(sec2b, text="질량-스프링-댐퍼 동적 응답",
+                  font=self.FONTS['small'], foreground='#7C3AED').pack(anchor='w')
 
-        # ── Buttons ──
-        btn_frame = ttk.Frame(left_panel)
-        btn_frame.pack(fill=tk.X, pady=8, padx=4)
+        row_mass = ttk.Frame(sec2b); row_mass.pack(fill=tk.X, pady=1)
+        ttk.Label(row_mass, text="셀 유효 질량 m:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_mass_var = tk.StringVar(value="0.001")
+        ttk.Entry(row_mass, textvariable=self.pb_mass_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_mass, text="kg", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
-        self._ps_btn_cornering = ttk.Button(
-            btn_frame, text="선회 해석 (Fy vs SA)",
-            command=self._run_persson_cornering, style='Accent.TButton')
-        self._ps_btn_cornering.pack(fill=tk.X, pady=2)
+        row_zeta = ttk.Frame(sec2b); row_zeta.pack(fill=tk.X, pady=1)
+        ttk.Label(row_zeta, text="감쇠비 (zeta):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_zeta_var = tk.StringVar(value="1.0")
+        ttk.Entry(row_zeta, textvariable=self.pb_zeta_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_zeta, text="(1.0=임계감쇠)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
 
-        self._ps_btn_braking = ttk.Button(
-            btn_frame, text="제동 해석 (Fx vs SR)",
-            command=self._run_persson_braking, style='Accent.TButton')
-        self._ps_btn_braking.pack(fill=tk.X, pady=2)
+        # ── 3) 시간 프로파일 ──
+        sec3 = self._create_section(left_panel, "3) 시간 프로파일 (SA / SR)")
 
-        self._ps_btn_compare = ttk.Button(
-            btn_frame, text="고전 vs Persson 비교",
-            command=self._run_persson_comparison)
-        self._ps_btn_compare.pack(fill=tk.X, pady=2)
+        row_ttime = ttk.Frame(sec3); row_ttime.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ttime, text="총 시간:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_total_time_var = tk.StringVar(value="6.0")
+        ttk.Entry(row_ttime, textvariable=self.pb_total_time_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_ttime, text="s", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
-        # Progress
-        self._ps_progress_var = tk.DoubleVar(value=0)
-        ttk.Progressbar(btn_frame, variable=self._ps_progress_var,
-                        maximum=100).pack(fill=tk.X, pady=2)
+        # SA profile
+        ttk.Label(sec3, text="-- SA (Slip Angle) --", font=self.FONTS['body'],
+                  foreground='#DC2626').pack(anchor='w', pady=(6, 0))
+        row_sa_type = ttk.Frame(sec3); row_sa_type.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sa_type, text="프로파일:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_sa_type_var = tk.StringVar(value="triangular")
+        for sa_t in ["triangular", "sinusoidal", "step", "constant"]:
+            ttk.Radiobutton(row_sa_type, text=sa_t, variable=self.pb_sa_type_var,
+                            value=sa_t).pack(side=tk.LEFT, padx=2)
+        row_sa_amp = ttk.Frame(sec3); row_sa_amp.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sa_amp, text="진폭:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_sa_amp_var = tk.StringVar(value="6.0")
+        ttk.Entry(row_sa_amp, textvariable=self.pb_sa_amp_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_sa_amp, text="deg", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
-        self._ps_status_var = tk.StringVar(value="대기 중")
-        ttk.Label(btn_frame, textvariable=self._ps_status_var,
-                  font=self.FONTS['small'], foreground='#64748B').pack(anchor='w')
+        # SR profile
+        ttk.Label(sec3, text="-- SR (Slip Ratio) --", font=self.FONTS['body'],
+                  foreground='#E65100').pack(anchor='w', pady=(6, 0))
+        row_sr_type = ttk.Frame(sec3); row_sr_type.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sr_type, text="프로파일:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_sr_type_var = tk.StringVar(value="constant")
+        for sr_t in ["constant", "triangular", "sinusoidal", "step"]:
+            ttk.Radiobutton(row_sr_type, text=sr_t, variable=self.pb_sr_type_var,
+                            value=sr_t).pack(side=tk.LEFT, padx=2)
+        row_sr_val = ttk.Frame(sec3); row_sr_val.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sr_val, text="값/진폭:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_sr_val_var = tk.StringVar(value="-1.0")
+        ttk.Entry(row_sr_val, textvariable=self.pb_sr_val_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_sr_val, text="%", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
-        # ── Section 5: 결과 요약 ──
-        sec5 = self._create_section(left_panel, "5) 결과 요약")
-        self._ps_result_text = tk.Text(sec5, height=12, width=38,
-                                        font=('NanumGothicCoding', 10),
-                                        bg='#F8FAFC', fg='#1E293B',
-                                        wrap=tk.WORD, state=tk.DISABLED)
-        self._ps_result_text.pack(fill=tk.X, pady=2)
+        # ── 4) 시뮬레이션 설정 ──
+        sec4 = self._create_section(left_panel, "4) ODE 적분 설정")
 
-        # ── Section 6: 모델 설명 ──
-        sec6 = self._create_section(left_panel, "6) Persson ODE 모델 원리")
+        row_dt = ttk.Frame(sec4); row_dt.pack(fill=tk.X, pady=1)
+        ttk.Label(row_dt, text="dt (ODE):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_dt_var = tk.StringVar(value="1e-5")
+        ttk.Entry(row_dt, textvariable=self.pb_dt_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_dt, text="s", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
-        info_text = (
-            "이 모델은 고전적 IF/ELSE Stick-Slip 분기를 사용하지 않습니다.\n\n"
-            "각 고무 셀은 질량-스프링-댐퍼 시스템으로, Newton F=ma를\n"
-            "시간 적분하여 자연스럽게 Stick-Slip 전이가 발생합니다.\n\n"
-            "핵심 방정식:\n"
-            "  m * a = F_spring + F_damper + F_friction\n"
-            "  F_spring = k * (x_rim - x_block)\n"
-            "  F_friction = -mu_eff * Fz * (v_block / |v_block|)\n"
-            "  mu_eff = (w*mu_cold + (1-w)*mu_hot) * friction_scale\n"
-            "  w = exp(-s_slip / s0)\n\n"
-            "Stick: v_slip ≈ 0 → F = F_spring (마찰맵 무관)\n"
-            "Slip:  v_slip > 0 → F ≈ mu_eff*Fz (마찰맵 결정)\n\n"
-            "컴파운드 차이를 키우려면:\n"
-            "  - friction_scale 높이기 (0.8~1.0)\n"
-            "  - kx, ky 높이기 (빠른 Slip 진입)\n"
-            "  - Fz 낮추기 (마찰 용량 감소)"
-        )
-        info_lbl = tk.Label(sec6, text=info_text,
-                            font=('NanumGothic', 9), fg='#475569',
-                            bg='#F0F9FF', anchor='w', justify=tk.LEFT,
-                            wraplength=280, padx=8, pady=6)
-        info_lbl.pack(fill=tk.X)
+        row_nstep = ttk.Frame(sec4); row_nstep.pack(fill=tk.X, pady=1)
+        ttk.Label(row_nstep, text="ODE 스텝 수:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_ode_steps_var = tk.StringVar(value="3000")
+        ttk.Entry(row_nstep, textvariable=self.pb_ode_steps_var, width=8).pack(side=tk.LEFT, padx=2)
 
-        # ============== Right panel: Plots ==============
-        right_panel = ttk.Frame(main_pw)
-        main_pw.add(right_panel, weight=1)
+        sim_note = ttk.Label(sec4,
+                             text="※ Euler 적분 (F=ma, ODE 방식)\n"
+                                  "   IF/ELSE 분기 없이 자연 Stick-Slip 전이\n"
+                                  "   Cold & Hot Branch 결과 필요",
+                             font=self.FONTS['small'], foreground='#7C3AED')
+        sim_note.pack(anchor=tk.W, pady=(2, 0))
 
-        plot_frame = ttk.Frame(right_panel)
+        # ── 5) 실행 & 재생 ──
+        sec5 = self._create_section(left_panel, "5) 실행 & 재생")
+
+        calc_row = ttk.Frame(sec5); calc_row.pack(fill=tk.X, pady=2)
+        self.pb_calc_btn = ttk.Button(calc_row, text="Transient 시뮬레이션",
+                                       command=self._run_pb_transient_wrapper, width=22,
+                                       style='Accent.TButton')
+        self.pb_calc_btn.pack(side=tk.LEFT, padx=2)
+
+        self.pb_progress_var = tk.IntVar()
+        self.pb_progress_bar = ttk.Progressbar(calc_row, variable=self.pb_progress_var,
+                                                maximum=100, length=120)
+        self.pb_progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        # Playback controls
+        play_row = ttk.Frame(sec5); play_row.pack(fill=tk.X, pady=4)
+        self.pb_play_btn = ttk.Button(play_row, text="Play", width=5,
+                                       command=self._pb_play)
+        self.pb_play_btn.pack(side=tk.LEFT, padx=1)
+        self.pb_pause_btn = ttk.Button(play_row, text="Stop", width=5,
+                                        command=self._pb_pause)
+        self.pb_pause_btn.pack(side=tk.LEFT, padx=1)
+        self.pb_reset_btn = ttk.Button(play_row, text="Reset", width=5,
+                                        command=self._pb_reset)
+        self.pb_reset_btn.pack(side=tk.LEFT, padx=1)
+
+        ttk.Label(play_row, text="프레임:", font=self.FONTS['small']).pack(side=tk.LEFT, padx=(8, 2))
+        self.pb_frame_count_var = tk.StringVar(value="240")
+        ttk.Combobox(play_row, textvariable=self.pb_frame_count_var, width=5,
+                     values=['60', '120', '240', '480', '960'],
+                     state='readonly').pack(side=tk.LEFT, padx=1)
+
+        self.pb_frame_label_var = tk.StringVar(value="t = 0.00 s  (0/0)")
+        ttk.Label(play_row, textvariable=self.pb_frame_label_var,
+                  font=self.FONTS['small'], foreground='#0369A1').pack(side=tk.LEFT, padx=6)
+
+        # Speed slider
+        speed_row = ttk.Frame(sec5); speed_row.pack(fill=tk.X, pady=1)
+        self._pb_speed_label_var = tk.StringVar(value="재생 속도: 3.0x")
+        ttk.Label(speed_row, textvariable=self._pb_speed_label_var,
+                  font=self.FONTS['small']).pack(side=tk.LEFT, padx=4)
+        self._pb_speed_mult = tk.DoubleVar(value=3.0)
+        ttk.Scale(speed_row, from_=0.25, to=20.0,
+                  orient='horizontal', variable=self._pb_speed_mult,
+                  command=lambda v: self._pb_speed_label_var.set(
+                      f"재생 속도: {self._pb_speed_mult.get():.1f}x")
+                  ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+
+        # Time slider
+        slider_row = ttk.Frame(sec5); slider_row.pack(fill=tk.X, pady=2)
+        self.pb_time_slider = ttk.Scale(slider_row, from_=0, to=100,
+                                         orient='horizontal',
+                                         command=self._on_pb_slider_change)
+        self.pb_time_slider.pack(fill=tk.X, padx=4)
+
+        # Playback state
+        self._pb_frames = []
+        self._pb_frame_idx = 0
+        self._pb_playing = False
+        self._pb_play_after_id = None
+
+        # ── 조향 핸들 / 타이어 ──
+        sec6 = self._create_section(left_panel, "6) 조향 핸들 / 타이어")
+        from matplotlib.figure import Figure as _Fig
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg as _FCA
+
+        steer_tire_row = ttk.Frame(sec6)
+        steer_tire_row.pack(fill=tk.X, pady=2)
+
+        # Steering wheel
+        self._pb_steer_fig = _Fig(figsize=(2.2, 2.2), dpi=80, facecolor='#F8FAFC')
+        self._pb_steer_ax = self._pb_steer_fig.add_axes([0.05, 0.05, 0.9, 0.9])
+        self._pb_steer_ax.set_xlim(-1.5, 1.5)
+        self._pb_steer_ax.set_ylim(-1.5, 1.5)
+        self._pb_steer_ax.set_aspect('equal')
+        self._pb_steer_ax.axis('off')
+        self._pb_steer_canvas = _FCA(self._pb_steer_fig, steer_tire_row)
+        self._pb_steer_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._init_pb_steering_wheel()
+
+        # Tire top-down
+        self._pb_tire_fig = _Fig(figsize=(2.4, 3.6), dpi=85, facecolor='#2D2D2D')
+        self._pb_tire_ax = self._pb_tire_fig.add_axes([0.0, 0.0, 1.0, 1.0])
+        self._pb_tire_ax.set_xlim(-3.0, 3.0)
+        self._pb_tire_ax.set_ylim(-4.0, 4.0)
+        self._pb_tire_ax.set_aspect('equal')
+        self._pb_tire_ax.axis('off')
+        self._pb_tire_fig.patch.set_facecolor('#2D2D2D')
+        self._pb_tire_canvas = _FCA(self._pb_tire_fig, steer_tire_row)
+        self._pb_tire_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._init_pb_tire_simple()
+
+        export_row = ttk.Frame(sec6); export_row.pack(fill=tk.X, pady=2)
+        ttk.Button(export_row, text="CSV 내보내기",
+                   command=self._export_pb_csv, width=14).pack(side=tk.LEFT, padx=1)
+
+        # ============== Right Panel: Notebook (Simulation + Education) ==============
+        right_panel = layout['right']
+
+        self.pb_right_notebook = ttk.Notebook(right_panel)
+        self.pb_right_notebook.pack(fill=tk.BOTH, expand=True)
+
+        # ── Tab 1: Simulation plots (same layout as 2D Brush) ──
+        sim_tab = ttk.Frame(self.pb_right_notebook)
+        self.pb_right_notebook.add(sim_tab, text='  시뮬레이션  ')
+
+        plot_frame = ttk.Frame(sim_tab)
         plot_frame.pack(fill=tk.BOTH, expand=True)
 
-        self._ps_fig = Figure(figsize=(14, 9), dpi=100)
-        gs = GridSpec(2, 3, figure=self._ps_fig,
-                      hspace=0.35, wspace=0.30,
-                      left=0.07, right=0.96, top=0.93, bottom=0.08)
+        from matplotlib.gridspec import GridSpec
+        self.fig_pb = Figure(figsize=(14, 10), dpi=100)
+        gs = GridSpec(2, 20, figure=self.fig_pb, height_ratios=[1.8, 2.2],
+                      hspace=0.50, wspace=2.5,
+                      left=0.06, right=0.97, top=0.93, bottom=0.07)
 
-        _fs_title = 12
-        _fs_label = 11
-        _fs_tick = 10
+        _bf_title = 12
+        _bf_label = 12
+        _bf_tick = 12
 
-        # Top row: Force characteristic curves
-        self._ps_ax_fy_sa = self._ps_fig.add_subplot(gs[0, 0])
-        self._ps_ax_fy_sa.set_title('Fy vs Slip Angle', fontsize=_fs_title, fontweight='bold')
-        self._ps_ax_fy_sa.set_xlabel('SA [deg]', fontsize=_fs_label)
-        self._ps_ax_fy_sa.set_ylabel('Fy [N]', fontsize=_fs_label)
-        self._ps_ax_fy_sa.tick_params(labelsize=_fs_tick)
-        self._ps_ax_fy_sa.grid(True, alpha=0.3)
+        # Top row: 4 time-history / characteristic plots
+        self.ax_pb_input = self.fig_pb.add_subplot(gs[0, :5])
+        self.ax_pb_input.set_xlabel('time [s]', fontsize=_bf_label)
+        self.ax_pb_input.set_ylabel('slip', fontsize=_bf_label)
+        self.ax_pb_input.set_title('SA / SR Input', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_input.tick_params(labelsize=_bf_tick)
+        self.ax_pb_input.grid(True, alpha=0.3)
 
-        self._ps_ax_fx_sr = self._ps_fig.add_subplot(gs[0, 1])
-        self._ps_ax_fx_sr.set_title('Fx vs Slip Ratio', fontsize=_fs_title, fontweight='bold')
-        self._ps_ax_fx_sr.set_xlabel('SR [%]', fontsize=_fs_label)
-        self._ps_ax_fx_sr.set_ylabel('Fx [N]', fontsize=_fs_label)
-        self._ps_ax_fx_sr.tick_params(labelsize=_fs_tick)
-        self._ps_ax_fx_sr.grid(True, alpha=0.3)
+        self.ax_pb_force_t = self.fig_pb.add_subplot(gs[0, 5:10])
+        self.ax_pb_force_t.set_xlabel('time [s]', fontsize=_bf_label)
+        self.ax_pb_force_t.set_ylabel('force [N]', fontsize=_bf_label)
+        self.ax_pb_force_t.set_title('Fx / Fy Output', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_force_t.tick_params(labelsize=_bf_tick)
+        self.ax_pb_force_t.grid(True, alpha=0.3)
 
-        self._ps_ax_mu_v = self._ps_fig.add_subplot(gs[0, 2])
-        self._ps_ax_mu_v.set_title('Friction Coefficient', fontsize=_fs_title, fontweight='bold')
-        self._ps_ax_mu_v.set_xlabel('v_slip [m/s]', fontsize=_fs_label)
-        self._ps_ax_mu_v.set_ylabel('mu_eff', fontsize=_fs_label)
-        self._ps_ax_mu_v.tick_params(labelsize=_fs_tick)
-        self._ps_ax_mu_v.grid(True, alpha=0.3)
+        self.ax_pb_fy_sa = self.fig_pb.add_subplot(gs[0, 10:15])
+        self.ax_pb_fy_sa.set_xlabel('SA [deg]', fontsize=_bf_label)
+        self.ax_pb_fy_sa.set_ylabel('Fy [N]', fontsize=_bf_label)
+        self.ax_pb_fy_sa.set_title('Fy vs Slip Angle', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_fy_sa.tick_params(labelsize=_bf_tick)
+        self.ax_pb_fy_sa.grid(True, alpha=0.3)
 
-        # Bottom row: Contour maps (single SA snapshot)
-        self._ps_ax_deform = self._ps_fig.add_subplot(gs[1, 0])
-        self._ps_ax_deform.set_title('Deformation |u|', fontsize=_fs_title, fontweight='bold')
-        self._ps_ax_deform.set_xlabel('length [mm]', fontsize=_fs_label)
-        self._ps_ax_deform.set_ylabel('width [mm]', fontsize=_fs_label)
-        self._ps_ax_deform.tick_params(labelsize=_fs_tick)
+        self.ax_pb_fx_sr = self.fig_pb.add_subplot(gs[0, 15:])
+        self.ax_pb_fx_sr.set_xlabel('SR [%]', fontsize=_bf_label)
+        self.ax_pb_fx_sr.set_ylabel('Fx [N]', fontsize=_bf_label)
+        self.ax_pb_fx_sr.set_title('Fx vs Slip Ratio', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_fx_sr.tick_params(labelsize=_bf_tick)
+        self.ax_pb_fx_sr.grid(True, alpha=0.3)
 
-        self._ps_ax_vslip = self._ps_fig.add_subplot(gs[1, 1])
-        self._ps_ax_vslip.set_title('Slip Speed |v_slip|', fontsize=_fs_title, fontweight='bold')
-        self._ps_ax_vslip.set_xlabel('length [mm]', fontsize=_fs_label)
-        self._ps_ax_vslip.set_ylabel('width [mm]', fontsize=_fs_label)
-        self._ps_ax_vslip.tick_params(labelsize=_fs_tick)
+        # Bottom row: 5 contour plots
+        self.ax_pb_stick = self.fig_pb.add_subplot(gs[1, 0:4])
+        self.ax_pb_stick.set_title('sliding vs adhesion', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_stick.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_pb_stick.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_pb_stick.tick_params(labelsize=_bf_tick)
 
-        self._ps_ax_mu_map = self._ps_fig.add_subplot(gs[1, 2])
-        self._ps_ax_mu_map.set_title('mu_eff distribution', fontsize=_fs_title, fontweight='bold')
-        self._ps_ax_mu_map.set_xlabel('length [mm]', fontsize=_fs_label)
-        self._ps_ax_mu_map.set_ylabel('width [mm]', fontsize=_fs_label)
-        self._ps_ax_mu_map.tick_params(labelsize=_fs_tick)
+        self.ax_pb_speed = self.fig_pb.add_subplot(gs[1, 4:8])
+        self.ax_pb_speed.set_title('sliding speed', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_speed.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_pb_speed.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_pb_speed.tick_params(labelsize=_bf_tick)
 
-        self._ps_canvas = FigureCanvasTkAgg(self._ps_fig, plot_frame)
-        self._ps_canvas.draw_idle()
-        self._ps_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self.ax_pb_pressure = self.fig_pb.add_subplot(gs[1, 8:12])
+        self.ax_pb_pressure.set_title('contact pressure', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_pressure.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_pb_pressure.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_pb_pressure.tick_params(labelsize=_bf_tick)
 
-        toolbar = NavigationToolbar2Tk(self._ps_canvas, plot_frame)
+        self.ax_pb_temperature = self.fig_pb.add_subplot(gs[1, 12:16])
+        self.ax_pb_temperature.set_title('mu_eff map', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_temperature.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_pb_temperature.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_pb_temperature.tick_params(labelsize=_bf_tick)
+
+        self.ax_pb_friction = self.fig_pb.add_subplot(gs[1, 16:20])
+        self.ax_pb_friction.set_title('friction force', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_friction.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_pb_friction.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_pb_friction.tick_params(labelsize=_bf_tick)
+
+        self.canvas_pb = FigureCanvasTkAgg(self.fig_pb, plot_frame)
+        self.canvas_pb.draw_idle()
+        self.canvas_pb.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        toolbar = NavigationToolbar2Tk(self.canvas_pb, plot_frame)
         toolbar.update()
 
-        # Store for results
-        self._ps_results = None
+        # ── Tab 2: Educational Material (ODE explanation) ──
+        self._create_pb_education_tab(self.pb_right_notebook)
 
-    def _run_persson_ode_single(self, sa_deg=0.0, sr_pct=0.0):
-        """Run single Persson ODE simulation for given SA and SR.
+    # ── PerssonBrush: Steering wheel (simplified) ──
 
-        Returns dict with:
-          Fx, Fy: total forces [N]
-          Mz: self-aligning torque [Nm]
-          x_block, y_block: final block positions (Nx, Ny)
-          vx_block, vy_block: final block velocities (Nx, Ny)
-          s_slip: accumulated slip distance (Nx, Ny)
-          mu_eff: effective friction (Nx, Ny)
-          deform_mag: deformation magnitude (Nx, Ny)
-          v_slip_mag: slip speed magnitude (Nx, Ny)
-        """
-        import numpy as np
+    def _init_pb_steering_wheel(self):
+        """Draw steering wheel for PerssonBrush tab."""
+        ax = self._pb_steer_ax
+        ax.clear()
+        ax.set_xlim(-1.5, 1.5); ax.set_ylim(-1.5, 1.5)
+        ax.set_aspect('equal'); ax.axis('off')
+        ax.set_facecolor('#F8FAFC')
+        theta = np.linspace(0, 2 * np.pi, 100)
+        ax.plot(np.cos(theta), np.sin(theta), '-', color='#333', lw=6, zorder=2)
+        ax.plot(0.3 * np.cos(theta), 0.3 * np.sin(theta), '-', color='#555', lw=2, zorder=2)
+        ax.plot(0, 0, 'o', color='#333', markersize=7, zorder=3)
+        self._pb_spoke_lines = []
+        for base_angle in [np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]:
+            sp, = ax.plot([0, 0.85 * np.cos(base_angle)],
+                          [0, 0.85 * np.sin(base_angle)],
+                          '-', color='#333', lw=3.5, zorder=2)
+            self._pb_spoke_lines.append(sp)
+        self._pb_steer_arc, = ax.plot([], [], '-', color='#FF6600', lw=3, alpha=0.8, zorder=5)
+        self._pb_steer_sa_label = ax.text(0, -1.35, 'SA=0.0', fontsize=12,
+                                           ha='center', va='top', fontweight='bold', zorder=6)
+        self._pb_steer_canvas.draw_idle()
+
+    def _update_pb_steering(self, sa_deg):
+        """Update PerssonBrush steering wheel angle."""
+        rot = np.radians(-sa_deg * 3)
+        for i, base_angle in enumerate([np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]):
+            a = base_angle + rot
+            self._pb_spoke_lines[i].set_data([0, 0.85 * np.cos(a)],
+                                              [0, 0.85 * np.sin(a)])
+        if abs(sa_deg) > 0.1:
+            arc_t = np.linspace(np.pi / 2, np.pi / 2 + rot, 30)
+            self._pb_steer_arc.set_data(1.15 * np.cos(arc_t), 1.15 * np.sin(arc_t))
+        else:
+            self._pb_steer_arc.set_data([], [])
+        self._pb_steer_sa_label.set_text(f'SA={sa_deg:.1f}')
+        self._pb_steer_canvas.draw_idle()
+
+    # ── PerssonBrush: Tire top-down (simplified) ──
+
+    def _init_pb_tire_simple(self):
+        """Simple tire top-down view for PerssonBrush."""
+        from matplotlib.patches import Rectangle, FancyBboxPatch
+        ax = self._pb_tire_ax
+        ax.clear()
+        ax.set_xlim(-3, 3); ax.set_ylim(-4, 4)
+        ax.set_aspect('equal'); ax.axis('off')
+        ax.set_facecolor('#3A3A3A')
+        # Road
+        ax.add_patch(Rectangle((-3, -4), 6, 8, facecolor='#4A4A4A', zorder=0))
+        ax.plot([-2.5, -2.5], [-4, 4], '-', color='#FFF', lw=2, zorder=1)
+        ax.plot([2.5, 2.5], [-4, 4], '-', color='#FFF', lw=2, zorder=1)
+        # Car body
+        car = FancyBboxPatch((-0.8, -1.6), 1.6, 3.2,
+                              boxstyle="round,pad=0.1",
+                              facecolor='#1565C0', edgecolor='#0D47A1',
+                              linewidth=2, zorder=5)
+        ax.add_patch(car)
+        self._pb_car_body = car
+        # Four tires
+        self._pb_tire_patches = []
+        tire_pos = [(-1.0, 1.1), (1.0, 1.1), (-1.0, -1.1), (1.0, -1.1)]
+        for tx, ty in tire_pos:
+            tire = Rectangle((tx - 0.15, ty - 0.35), 0.3, 0.7,
+                              facecolor='#222', edgecolor='#444', lw=1, zorder=6)
+            ax.add_patch(tire)
+            self._pb_tire_patches.append(tire)
+        # Force arrow
+        self._pb_force_arrow, = ax.plot([], [], '->', color='#FF4444',
+                                         lw=2.5, markersize=8, zorder=10)
+        self._pb_tire_sa_text = ax.text(0, 3.5, '', fontsize=11, ha='center',
+                                         color='#FFD54F', fontweight='bold', zorder=10)
+        self._pb_tire_canvas.draw_idle()
+
+    def _update_pb_tire(self, sa_deg, Fy, Fz):
+        """Update PerssonBrush tire animation."""
+        from matplotlib.transforms import Affine2D
+        # Rotate front tires with SA
+        sa_rad = np.radians(sa_deg)
+        for i, tire in enumerate(self._pb_tire_patches[:2]):  # front only
+            tx, ty = [(-1.0, 1.1), (1.0, 1.1)][i]
+            t = Affine2D().rotate_around(tx, ty, sa_rad) + self._pb_tire_ax.transData
+            tire.set_transform(t)
+        # Force arrow
+        fy_scale = min(abs(Fy) / max(Fz, 1) * 4.0, 3.0)
+        if abs(Fy) > 10:
+            direction = 1.0 if Fy > 0 else -1.0
+            self._pb_force_arrow.set_data([0, fy_scale * direction], [0, 0])
+        else:
+            self._pb_force_arrow.set_data([], [])
+        self._pb_tire_sa_text.set_text(f'SA={sa_deg:.1f}  Fy={Fy:.0f}N')
+        self._pb_tire_canvas.draw_idle()
+
+    # ── PerssonBrush: CSV export ──
+
+    def _export_pb_csv(self):
+        """Export PerssonBrush results to CSV."""
+        if not self._pb_frames:
+            self._show_status("시뮬레이션 결과가 없습니다.", 'warning')
+            return
+        from tkinter import filedialog
+        path = filedialog.asksaveasfilename(
+            defaultextension='.csv', filetypes=[('CSV', '*.csv')],
+            title="PerssonBrush 결과 내보내기")
+        if not path:
+            return
+        import csv
+        with open(path, 'w', newline='') as f:
+            w = csv.writer(f)
+            w.writerow(['t', 'SA_deg', 'SR_pct', 'Fx_N', 'Fy_N'])
+            for fr in self._pb_frames:
+                w.writerow([f"{fr['t']:.4f}", f"{fr['SA']:.2f}",
+                            f"{fr['SR']:.2f}", f"{fr['Fx']:.2f}", f"{fr['Fy']:.2f}"])
+        self._show_status(f"CSV 내보내기 완료: {path}", 'success')
+
+    # ── PerssonBrush: Education tab ──
+
+    def _create_pb_education_tab(self, notebook):
+        """Create educational tab explaining ODE vs classical brush."""
+        edu_tab = ttk.Frame(notebook)
+        notebook.add(edu_tab, text='  ODE 교육 자료  ')
+        canvas_frame = tk.Frame(edu_tab, bg='white')
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
+        edu_canvas = tk.Canvas(canvas_frame, bg='white', highlightthickness=0)
+        scrollbar_y = ttk.Scrollbar(canvas_frame, orient='vertical', command=edu_canvas.yview)
+        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        edu_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        edu_canvas.configure(yscrollcommand=scrollbar_y.set)
+        inner = tk.Frame(edu_canvas, bg='white')
+        inner_id = edu_canvas.create_window((0, 0), window=inner, anchor='nw')
+        inner.bind('<Configure>', lambda e: edu_canvas.configure(scrollregion=edu_canvas.bbox('all')))
+        edu_canvas.bind('<Configure>', lambda e: edu_canvas.itemconfig(inner_id, width=e.width))
+
+        pad_x = 20
+        def add_title(text, fg='#1E293B'):
+            tk.Label(inner, text=text, font=('NanumGothic', 12, 'bold'),
+                     fg=fg, bg='white', anchor='w', justify=tk.LEFT).pack(fill=tk.X, padx=pad_x, pady=(18, 4))
+        def add_text(text, fg='#334155', bold=False):
+            w = 'bold' if bold else 'normal'
+            tk.Label(inner, text=text, font=('NanumGothic', 11, w),
+                     fg=fg, bg='white', anchor='w', justify=tk.LEFT,
+                     wraplength=900).pack(fill=tk.X, padx=pad_x, pady=1)
+        def add_code(text, title=None):
+            if title:
+                tk.Label(inner, text=title, font=('NanumGothicCoding', 12, 'bold'),
+                         fg='#059669', bg='#F0FDF4', anchor='w').pack(fill=tk.X, padx=pad_x + 4, pady=(8, 0))
+            code_frame = tk.Frame(inner, bg='#1E293B', padx=2, pady=2)
+            code_frame.pack(fill=tk.X, padx=pad_x, pady=(2, 8))
+            ct = tk.Text(code_frame, font=('NanumGothicCoding', 12),
+                         fg='#E2E8F0', bg='#1E293B', wrap=tk.NONE,
+                         relief=tk.FLAT, padx=12, pady=8, height=text.count('\n') + 1)
+            ct.insert('1.0', text)
+            ct.config(state=tk.DISABLED)
+            ct.pack(fill=tk.X)
+        def add_box(text, bg_c='#EFF6FF', fg_c='#1E40AF', border_c='#3B82F6'):
+            box = tk.Frame(inner, bg=border_c, padx=2, pady=2)
+            box.pack(fill=tk.X, padx=pad_x, pady=6)
+            tk.Label(box, text=text, font=('NanumGothic', 12),
+                     fg=fg_c, bg=bg_c, anchor='w', justify=tk.LEFT,
+                     wraplength=860, padx=12, pady=8).pack(fill=tk.X)
+
+        add_title("Persson ODE 동역학 모델 vs 고전 Brush 모델")
+        add_text("이 탭은 고전적 IF/ELSE 분기 없이, Newton의 제2법칙(F=ma)을 "
+                 "시간 적분하여 Stick-Slip 전이를 자연스럽게 구현합니다.")
+
+        add_code(
+            "# 고전 Brush 모델 (IF/ELSE 분기)\n"
+            "if F_spring > mu * Fz:   # Slip\n"
+            "    F = mu * Fz * direction\n"
+            "else:                     # Stick\n"
+            "    F = F_spring\n"
+            "\n"
+            "# Persson ODE 모델 (연속 동역학)\n"
+            "F_spring = k * (x_rim - x_block)\n"
+            "F_fric   = -mu_eff * Fz * (v_block / |v_block|)\n"
+            "a_block  = (F_spring + F_fric) / m\n"
+            "v_block += a_block * dt\n"
+            "x_block += v_block * dt",
+            title="고전 vs Persson: 핵심 차이"
+        )
+
+        add_box(
+            "핵심: ODE 모델에서는 IF/ELSE가 없습니다!\n\n"
+            "- v_slip ~ 0 (Stick): 마찰력이 스프링력을 상쇄 -> a ~ 0 -> 블록 정지\n"
+            "- v_slip > 0 (Slip): 스프링력 > 마찰력 -> a > 0 -> 블록 가속\n\n"
+            "전이는 힘의 균형에서 자연스럽게 발생합니다.",
+            bg_c='#FFF7ED', fg_c='#9A3412', border_c='#F97316'
+        )
+
+        add_title("파라미터 튜닝 전략", fg='#059669')
+        add_text("friction_scale 높이기 (0.8~1.0): Peak Fy가 mu에 비례 -> 컴파운드 차이 확대", bold=True)
+        add_text("kx, ky 높이기: 낮은 SA에서도 Slip 진입 -> 컴파운드 영향 확대", bold=True)
+        add_text("m (질량) 낮추기: 더 빠른 동적 응답 -> 정상 상태 빠르게 도달", bold=True)
+        add_text("zeta (감쇠비): 1.0 = 임계감쇠 (진동 없음), < 1.0 = 과소감쇠 (진동 발생)", bold=True)
+
+        add_code(
+            "# 감쇠 계수 계산\n"
+            "c_x = 2 * zeta * sqrt(m * kx)   # 임계감쇠 기반\n"
+            "c_y = 2 * zeta * sqrt(m * ky)\n"
+            "\n"
+            "# Cold-Hot 블렌딩 (Persson 마찰열)\n"
+            "w = exp(-s_slip / s0)             # s0 = 0.2 * D_macro\n"
+            "mu_eff = (w * mu_cold + (1-w) * mu_hot) * friction_scale",
+            title="핵심 수식"
+        )
+
+    # ── PerssonBrush: Core ODE Transient Simulation ──
+
+    def _run_pb_transient_wrapper(self):
+        """Run PerssonBrush ODE transient simulation."""
+        try:
+            self.pb_calc_btn.config(state='disabled')
+            self.pb_progress_var.set(0)
+            self.status_var.set("PerssonBrush Transient 시뮬레이션 중...")
+            self.root.update()
+
+            self._run_pb_transient()
+
+            self.pb_progress_var.set(100)
+            self.status_var.set("PerssonBrush Transient 완료")
+            self.pb_calc_btn.config(state='normal')
+            n = len(self._pb_frames)
+            self._show_status(f"PerssonBrush 완료: {n} 프레임 생성", 'success')
+
+            self.pb_time_slider.config(to=max(n - 1, 1))
+            self.pb_time_slider.set(0)
+            self._pb_frame_idx = 0
+            self._pb_show_frame(0)
+
+        except ValueError as e:
+            self.pb_calc_btn.config(state='normal')
+            self._show_status(f"입력값 오류: {str(e)}", 'warning')
+        except Exception as e:
+            self.pb_calc_btn.config(state='normal')
+            import traceback; traceback.print_exc()
+            self._show_status(f"PerssonBrush 오류: {e}", 'warning')
+
+    def _run_pb_transient(self):
+        """Core ODE-based transient simulation with SA(t)/SR(t) profiles."""
         from scipy.interpolate import interp1d
+        from scipy.ndimage import binary_dilation
+
+        if self._get_active_cold_hot_results() is None:
+            raise ValueError("Cold & Hot Branch 결과 필요")
 
         # Read parameters
-        Nx = int(self.ps_Nx_var.get())
-        Ny = int(self.ps_Ny_var.get())
-        L = float(self.ps_L_var.get())
-        W = float(self.ps_W_var.get())
-        Fz = float(self.ps_Fz_var.get())
-        kx = float(self.ps_kx_var.get())
-        ky = float(self.ps_ky_var.get())
-        friction_scale = float(self.ps_friction_scale_var.get())
-        D_mm = float(self.ps_D_macro_var.get())
-        s0 = 0.2 * D_mm * 1e-3  # [m]
-        vc = float(self.ps_vc_var.get())
-        m = float(self.ps_mass_var.get())
-        zeta = float(self.ps_zeta_var.get())
-        dt = float(self.ps_dt_var.get())
-        n_steps = int(self.ps_nsteps_var.get())
+        Nx = int(self.pb_Nx_var.get())
+        Ny = int(self.pb_Ny_var.get())
+        L = float(self.pb_L_var.get())
+        W = float(self.pb_W_var.get())
+        Fz = float(self.pb_Fz_var.get())
+        kx = float(self.pb_kx_var.get())
+        ky = float(self.pb_ky_var.get())
+        vc = float(self.pb_vc_var.get())
+        D_mm = float(self.pb_D_macro_var.get())
+        s0 = 0.2 * D_mm * 1e-3
+        friction_scale = float(self.pb_friction_scale_var.get())
+        m_total = float(self.pb_mass_var.get())
+        zeta = float(self.pb_zeta_var.get())
+        dt_ode = float(self.pb_dt_var.get())
+        n_ode_steps = int(self.pb_ode_steps_var.get())
+        ptype = self.pb_pressure_type_var.get()
+        driving_mode = self.pb_driving_mode_var.get()
 
-        # Damping from zeta: c = 2*zeta*sqrt(m*k)
-        cx = 2.0 * zeta * np.sqrt(m * kx)
-        cy = 2.0 * zeta * np.sqrt(m * ky)
+        T_total = float(self.pb_total_time_var.get())
+        frame_count = int(self.pb_frame_count_var.get())
+        dt_out = T_total / max(frame_count, 1)
+        sa_type = self.pb_sa_type_var.get()
+        sa_amp = float(self.pb_sa_amp_var.get())
+        sr_type = self.pb_sr_type_var.get()
+        sr_val = float(self.pb_sr_val_var.get())
+
+        # Build LUT
+        lut_cold, lut_hot, _, _ = self._build_brush_lut()
 
         # Build grid
         x_arr = np.linspace(-L / 2, L / 2, Nx)
@@ -24570,522 +24928,309 @@ class PerssonModelGUI_V2:
         dx = L / max(Nx - 1, 1)
         dy = W / max(Ny - 1, 1)
         dA = dx * dy
-        xx, yy = np.meshgrid(x_arr, y_arr, indexing='ij')
+        xx_g, yy_g = np.meshgrid(x_arr, y_arr, indexing='ij')
 
-        # Superellipse contact mask
-        se_n = getattr(self, '_ELLIPSE_POWER', 2.5)
-        se_r = np.abs(2 * xx / L)**se_n + np.abs(2 * yy / W)**se_n
-        mask = se_r <= 1.0
+        # Contact mask
+        se_n = self._ELLIPSE_POWER
+        se_r = np.abs(2 * xx_g / L)**se_n + np.abs(2 * yy_g / W)**se_n
+        ellipse_mask = se_r <= 1.0
 
-        # Pressure distribution (parabolic inside ellipse)
-        p_map = np.clip(1 - se_r, 0, None)
-        p_map *= mask
-        total_p = np.sum(p_map) * dA
-        if total_p > 0:
-            p_map *= Fz / total_p
-        Fz_ij = p_map * dA  # normal force per node [N]
+        # Pressure map
+        p_map, _, _, _, _ = self._build_pressure_map(Nx, Ny, L, W, Fz, ptype, driving_mode)
+        Fz_ij = p_map * dA
 
-        # Distribute stiffness per node
-        n_active = max(np.sum(mask), 1)
-        _L_ref, _W_ref = 0.15, 0.12
-        _area_scale = (L * W) / (_L_ref * _W_ref)
+        # Per-node stiffness
+        n_active = max(np.sum(ellipse_mask), 1)
+        _area_scale = (L * W) / (0.15 * 0.12)
         kx_node = (kx * _area_scale) / n_active
         ky_node = (ky * _area_scale) / n_active
-        cx_node = (cx * _area_scale) / n_active
-        cy_node = (cy * _area_scale) / n_active
-        m_node = m / n_active
+        m_node = m_total / n_active
+        cx_node = 2.0 * zeta * np.sqrt(m_node * kx_node)
+        cy_node = 2.0 * zeta * np.sqrt(m_node * ky_node)
 
-        # Build friction LUTs (reuse from main brush tab)
-        lut_cold, lut_hot, lut_cold_3d, lut_hot_3d = self._build_brush_lut()
+        # Contact time
+        t_contact = np.clip((xx_g + L / 2.0) / max(vc, 0.01), 0, None)
 
-        # Rim velocity (what the carcass imposes on each cell)
-        alpha_rad = np.radians(sa_deg)
-        sr_frac = sr_pct / 100.0
-        vx_rim = vc * sr_frac              # longitudinal slip
-        vy_rim = vc * np.sin(alpha_rad)     # lateral slip
+        # Time arrays
+        t_out = np.arange(0, T_total + dt_out * 0.5, dt_out)
+        n_frames = len(t_out)
+        SA_profile = self._generate_time_profile(sa_type, sa_amp, t_out)
+        SR_profile = self._generate_time_profile(sr_type, sr_val, t_out)
 
-        # Contact time per cell: leading edge enters first
-        # Rolling direction: right-to-left (-x), so leading edge at x = -L/2
-        t_contact = np.clip((xx + L / 2.0) / max(vc, 0.01), 0, None)
-
-        # ── Initialize block state arrays ──
-        # Blocks start at rest on the road (x_block = road position)
-        x_block = np.zeros((Nx, Ny))
-        y_block = np.zeros((Nx, Ny))
-        vx_block = np.zeros((Nx, Ny))
-        vy_block = np.zeros((Nx, Ny))
-        s_slip = np.zeros((Nx, Ny))
-
-        # Rim position evolves per cell based on contact time
-        # At each cell, the rim has been moving for t_contact seconds
-        # Pre-seed rim offset: rim moved by v_rim * t_contact before ODE starts
-        x_rim = vx_rim * t_contact
-        y_rim = vy_rim * t_contact
+        # Temperature from Cold&Hot
+        chr_ = self._get_active_cold_hot_results()
+        T0_base = chr_.get('T0', 25.0)
+        _dT_arr = chr_.get('delta_T', np.zeros(len(chr_['v'])))
+        dT_interp = interp1d(chr_['v'], _dT_arr, kind='linear',
+                             bounds_error=False, fill_value=(_dT_arr[0], _dT_arr[-1]))
 
         eps = 1e-9
+        frames = []
+        Fx_hist = np.zeros(n_frames)
+        Fy_hist = np.zeros(n_frames)
 
-        # ── Time integration (Euler) ──
-        for step in range(n_steps):
-            # Step 1: Slip velocity magnitude
-            v_slip_mag = np.sqrt(vx_block**2 + vy_block**2)
+        for fi in range(n_frames):
+            sa_deg = SA_profile[fi]
+            sr_pct = SR_profile[fi]
+            alpha_rad = np.radians(sa_deg)
+            sr_frac = sr_pct / 100.0
 
-            # Step 2: Accumulated slip distance
-            s_slip += v_slip_mag * dt
+            cmask = ellipse_mask  # use static mask for simplicity
+            outline_verts = self._egg_outline(sa_deg, L / 2, W / 2)
 
-            # Step 3: Cold-Hot blending via Persson formula
-            w = np.exp(-s_slip / max(s0, 1e-10))
-            v_for_lut = np.clip(v_slip_mag, 1e-12, None)
-            mu_cold_vals = lut_cold(v_for_lut)
-            mu_hot_vals = lut_hot(v_for_lut)
-            mu_eff = (w * mu_cold_vals + (1.0 - w) * mu_hot_vals) * friction_scale
+            # Rim velocity
+            vx_rim = vc * sr_frac
+            vy_rim = vc * np.sin(alpha_rad)
 
-            # Step 4: Friction force (opposes slip velocity direction)
-            F_fric_limit = mu_eff * Fz_ij
-            Fx_fric = -F_fric_limit * (vx_block / (v_slip_mag + eps))
-            Fy_fric = -F_fric_limit * (vy_block / (v_slip_mag + eps))
+            # ── ODE Integration: each cell independently ──
+            # Initialize state from contact-time seeding
+            x_block = np.zeros((Nx, Ny))
+            y_block = np.zeros((Nx, Ny))
+            vx_block = np.zeros((Nx, Ny))
+            vy_block = np.zeros((Nx, Ny))
+            s_slip = np.zeros((Nx, Ny))
 
-            # Step 5: Spring + damper force
-            Fx_spring = kx_node * (x_rim - x_block) + cx_node * (vx_rim - vx_block)
-            Fy_spring = ky_node * (y_rim - y_block) + cy_node * (vy_rim - vy_block)
+            # Rim position: pre-advance by contact time
+            x_rim = vx_rim * t_contact
+            y_rim = vy_rim * t_contact
 
-            # Step 6: Newton's 2nd law
-            ax_block = (Fx_spring + Fx_fric) / m_node
-            ay_block = (Fy_spring + Fy_fric) / m_node
+            for step in range(n_ode_steps):
+                v_slip_mag = np.sqrt(vx_block**2 + vy_block**2)
+                s_slip += v_slip_mag * dt_ode
 
-            # Step 7: Update state (Euler integration)
-            vx_block += ax_block * dt
-            vy_block += ay_block * dt
-            x_block += vx_block * dt
-            y_block += vy_block * dt
+                w = np.exp(-s_slip / max(s0, 1e-10))
+                v_lut = np.clip(v_slip_mag, 1e-12, None)
+                mu_cold_v = lut_cold(v_lut)
+                mu_hot_v = lut_hot(v_lut)
+                mu_eff = (w * mu_cold_v + (1.0 - w) * mu_hot_v) * friction_scale
 
-            # Rim continues to advance
-            x_rim += vx_rim * dt
-            y_rim += vy_rim * dt
+                F_fric_limit = mu_eff * Fz_ij
+                Fx_fric = -F_fric_limit * (vx_block / (v_slip_mag + eps))
+                Fy_fric = -F_fric_limit * (vy_block / (v_slip_mag + eps))
 
-        # Apply mask
-        Fx_spring_final = kx_node * (x_rim - x_block) * mask
-        Fy_spring_final = ky_node * (y_rim - y_block) * mask
+                Fx_spring = kx_node * (x_rim - x_block) + cx_node * (vx_rim - vx_block)
+                Fy_spring = ky_node * (y_rim - y_block) + cy_node * (vy_rim - vy_block)
 
-        # Total forces (reaction on tire = sum of spring forces)
-        Fx_total = np.sum(Fx_spring_final)
-        Fy_total = np.sum(Fy_spring_final)
+                ax_b = (Fx_spring + Fx_fric) / m_node
+                ay_b = (Fy_spring + Fy_fric) / m_node
 
-        # Self-aligning torque
-        Mz = np.sum(Fy_spring_final * xx - Fx_spring_final * yy)
+                vx_block += ax_b * dt_ode
+                vy_block += ay_b * dt_ode
+                x_block += vx_block * dt_ode
+                y_block += vy_block * dt_ode
+                x_rim += vx_rim * dt_ode
+                y_rim += vy_rim * dt_ode
 
-        # Deformation magnitude
-        deform_mag = np.sqrt((x_rim - x_block)**2 + (y_rim - y_block)**2) * mask
-        v_slip_final = np.sqrt(vx_block**2 + vy_block**2) * mask
-        mu_eff_final = mu_eff * mask
+            # Final state
+            Fx_sp = kx_node * (x_rim - x_block) * cmask
+            Fy_sp = ky_node * (y_rim - y_block) * cmask
+            v_slip_final = np.sqrt(vx_block**2 + vy_block**2) * cmask
+            mu_eff_final = mu_eff * cmask
 
-        return {
-            'Fx': Fx_total, 'Fy': Fy_total, 'Mz': Mz,
-            'x_arr': x_arr, 'y_arr': y_arr, 'mask': mask,
-            'deform_mag': deform_mag,
-            'v_slip_mag': v_slip_final,
-            'mu_eff': mu_eff_final,
-            's_slip': s_slip * mask,
-            'Fx_spring': Fx_spring_final,
-            'Fy_spring': Fy_spring_final,
-        }
+            # Classify slip: v_slip > threshold
+            is_sliding = (v_slip_final > 0.01) & cmask
 
-    def _run_persson_cornering(self):
-        """Run Persson ODE sweep over slip angles."""
-        try:
-            self._ps_btn_cornering.config(state='disabled')
-            self._ps_status_var.set("Persson 선회 해석 중...")
-            self._ps_progress_var.set(0)
-            self.root.update()
+            Fx_total = -np.sum(Fx_sp)
+            Fy_total = np.sum(Fy_sp)
+            Fx_hist[fi] = Fx_total
+            Fy_hist[fi] = Fy_total
 
-            if self._get_active_cold_hot_results() is None:
-                self._show_status("Cold & Hot Branch 결과가 필요합니다.", 'warning')
-                self._ps_btn_cornering.config(state='normal')
-                return
+            # Temperature estimate
+            dT_local = dT_interp(np.clip(v_slip_final.ravel(), 0, None)).reshape(Nx, Ny)
+            T_contact = T0_base + dT_local * cmask
 
-            sa_max = float(self.ps_sa_max_var.get())
-            n_sa = int(self.ps_sa_steps_var.get())
-            sa_arr = np.linspace(0, sa_max, n_sa)
+            F_node_mag = np.sqrt(Fx_sp**2 + Fy_sp**2)
 
-            Fy_arr = np.zeros(n_sa)
-            Mz_arr = np.zeros(n_sa)
-            last_snap = None
+            frames.append({
+                't': t_out[fi], 'SA': sa_deg, 'SR': sr_pct,
+                'Fx': Fx_total, 'Fy': Fy_total,
+                'is_sliding': is_sliding.copy(),
+                'v_slip_mag': v_slip_final.copy(),
+                'v_trans_x': (vx_block * cmask).copy(),
+                'v_trans_y': (vy_block * cmask).copy(),
+                'p_map': p_map.copy(),
+                'T_contact': T_contact.copy(),
+                'mu_eff': mu_eff_final.copy(),
+                'F_friction': F_node_mag.copy(),
+                '_contact_mask': cmask,
+                '_outline_verts': outline_verts,
+                '_mask_fill': binary_dilation(cmask, iterations=2),
+            })
 
-            for i, sa in enumerate(sa_arr):
-                res = self._run_persson_ode_single(sa_deg=sa, sr_pct=0.0)
-                Fy_arr[i] = res['Fy']
-                Mz_arr[i] = res['Mz']
-                if i == n_sa // 2:
-                    last_snap = res  # snapshot at mid-SA for contour plots
-                self._ps_progress_var.set(100.0 * (i + 1) / n_sa)
-                self.root.update_idletasks()
+            self.pb_progress_var.set(int(100 * (fi + 1) / n_frames))
+            if fi % 5 == 0:
+                self.root.update()
 
-            # Use last result for contours if mid wasn't captured
-            if last_snap is None:
-                last_snap = res
+        self._pb_frames = frames
+        self._pb_t_out = t_out
+        self._pb_SA = SA_profile
+        self._pb_SR = SR_profile
+        self._pb_Fx_hist = Fx_hist
+        self._pb_Fy_hist = Fy_hist
+        self._pb_x_mm = x_arr * 1000
+        self._pb_y_mm = y_arr * 1000
 
-            self._ps_results = {
-                'mode': 'cornering',
-                'sa_arr': sa_arr, 'Fy_arr': Fy_arr, 'Mz_arr': Mz_arr,
-                'snapshot': last_snap,
-            }
-            self._update_persson_plots()
-            self._update_persson_result_text()
+        # Draw time histories
+        self._pb_draw_time_histories()
 
-            self._ps_progress_var.set(100)
-            self._ps_status_var.set("선회 해석 완료")
-            self._ps_btn_cornering.config(state='normal')
-            self._show_status("Persson ODE 선회 해석 완료", 'success')
+    def _pb_draw_time_histories(self):
+        """Draw the time-history plots for PerssonBrush."""
+        t = self._pb_t_out
+        ax_in = self.ax_pb_input
+        ax_in.clear()
+        ax_in.plot(t, self._pb_SA, 'r-', lw=1.5, label='SA [deg]')
+        ax_in.plot(t, self._pb_SR, color='#E68A00', lw=1.5, label='SR [%]')
+        ax_in.set_title('SA / SR Input', fontsize=9, fontweight='bold')
+        ax_in.set_xlabel('time [s]', fontsize=8); ax_in.set_ylabel('slip', fontsize=8)
+        ax_in.tick_params(labelsize=7); ax_in.legend(fontsize=7)
+        ax_in.grid(True, alpha=0.3); ax_in.set_xlim(t[0], t[-1])
+        self._pb_cursor_in = ax_in.axvline(x=0, color='k', lw=1.2, alpha=0.7)
 
-        except Exception as e:
-            self._ps_btn_cornering.config(state='normal')
-            self._ps_status_var.set(f"오류: {e}")
-            import traceback; traceback.print_exc()
+        ax_f = self.ax_pb_force_t
+        ax_f.clear()
+        ax_f.plot(t, self._pb_Fy_hist, 'r-', lw=1.5, label='Fy')
+        ax_f.plot(t, self._pb_Fx_hist, color='#E68A00', lw=1.5, label='Fx')
+        ax_f.set_title('Fx / Fy Output', fontsize=9, fontweight='bold')
+        ax_f.set_xlabel('time [s]', fontsize=8); ax_f.set_ylabel('force [N]', fontsize=8)
+        ax_f.tick_params(labelsize=7); ax_f.legend(fontsize=7)
+        ax_f.grid(True, alpha=0.3); ax_f.set_xlim(t[0], t[-1])
+        self._pb_cursor_ft = ax_f.axvline(x=0, color='k', lw=1.2, alpha=0.7)
 
-    def _run_persson_braking(self):
-        """Run Persson ODE sweep over slip ratios."""
-        try:
-            self._ps_btn_braking.config(state='disabled')
-            self._ps_status_var.set("Persson 제동 해석 중...")
-            self._ps_progress_var.set(0)
-            self.root.update()
+        ax_fy = self.ax_pb_fy_sa
+        ax_fy.clear()
+        ax_fy.plot(self._pb_SA, self._pb_Fy_hist, 'b-', lw=1.2, alpha=0.6)
+        ax_fy.set_title('Fy vs Slip Angle', fontsize=9, fontweight='bold')
+        ax_fy.set_xlabel('SA [deg]', fontsize=8); ax_fy.set_ylabel('Fy [N]', fontsize=8)
+        ax_fy.tick_params(labelsize=7); ax_fy.grid(True, alpha=0.3)
+        self._pb_cursor_fy = ax_fy.axvline(x=0, color='k', lw=1.2, alpha=0.7)
 
-            if self._get_active_cold_hot_results() is None:
-                self._show_status("Cold & Hot Branch 결과가 필요합니다.", 'warning')
-                self._ps_btn_braking.config(state='normal')
-                return
+        ax_fx = self.ax_pb_fx_sr
+        ax_fx.clear()
+        ax_fx.plot(self._pb_SR, self._pb_Fx_hist, color='#E68A00', lw=1.2, alpha=0.6)
+        ax_fx.set_title('Fx vs Slip Ratio', fontsize=9, fontweight='bold')
+        ax_fx.set_xlabel('SR [%]', fontsize=8); ax_fx.set_ylabel('Fx [N]', fontsize=8)
+        ax_fx.tick_params(labelsize=7); ax_fx.grid(True, alpha=0.3)
+        self._pb_cursor_fx = ax_fx.axvline(x=0, color='k', lw=1.2, alpha=0.7)
 
-            sr_max = float(self.ps_sr_max_var.get())
-            n_sr = int(self.ps_sr_steps_var.get())
-            sr_arr = np.linspace(0, sr_max, n_sr)
+        self.canvas_pb.draw_idle()
 
-            Fx_arr = np.zeros(n_sr)
-            last_snap = None
+    # ── PerssonBrush: Frame display ──
 
-            for i, sr in enumerate(sr_arr):
-                res = self._run_persson_ode_single(sa_deg=0.0, sr_pct=sr)
-                Fx_arr[i] = res['Fx']
-                if i == n_sr // 2:
-                    last_snap = res
-                self._ps_progress_var.set(100.0 * (i + 1) / n_sr)
-                self.root.update_idletasks()
-
-            if last_snap is None:
-                last_snap = res
-
-            self._ps_results = {
-                'mode': 'braking',
-                'sr_arr': sr_arr, 'Fx_arr': Fx_arr,
-                'snapshot': last_snap,
-            }
-            self._update_persson_plots()
-            self._update_persson_result_text()
-
-            self._ps_progress_var.set(100)
-            self._ps_status_var.set("제동 해석 완료")
-            self._ps_btn_braking.config(state='normal')
-            self._show_status("Persson ODE 제동 해석 완료", 'success')
-
-        except Exception as e:
-            self._ps_btn_braking.config(state='normal')
-            self._ps_status_var.set(f"오류: {e}")
-            import traceback; traceback.print_exc()
-
-    def _run_persson_comparison(self):
-        """Run Persson ODE sweep for both cornering and braking, overlay with
-        classical brush results if available from the main brush tab."""
-        try:
-            self._ps_btn_compare.config(state='disabled')
-            self._ps_status_var.set("고전 vs Persson 비교 중...")
-            self._ps_progress_var.set(0)
-            self.root.update()
-
-            if self._get_active_cold_hot_results() is None:
-                self._show_status("Cold & Hot Branch 결과가 필요합니다.", 'warning')
-                self._ps_btn_compare.config(state='normal')
-                return
-
-            sa_max = float(self.ps_sa_max_var.get())
-            n_sa = int(self.ps_sa_steps_var.get())
-            sa_arr = np.linspace(0, sa_max, n_sa)
-
-            sr_max = float(self.ps_sr_max_var.get())
-            n_sr = int(self.ps_sr_steps_var.get())
-            sr_arr = np.linspace(0, sr_max, n_sr)
-
-            # Persson ODE sweep
-            Fy_persson = np.zeros(n_sa)
-            Fx_persson = np.zeros(n_sr)
-
-            total_runs = n_sa + n_sr
-            for i, sa in enumerate(sa_arr):
-                res = self._run_persson_ode_single(sa_deg=sa, sr_pct=0.0)
-                Fy_persson[i] = res['Fy']
-                self._ps_progress_var.set(50.0 * (i + 1) / n_sa)
-                self.root.update_idletasks()
-
-            for i, sr in enumerate(sr_arr):
-                res = self._run_persson_ode_single(sa_deg=0.0, sr_pct=sr)
-                Fx_persson[i] = res['Fx']
-                self._ps_progress_var.set(50 + 50.0 * (i + 1) / n_sr)
-                self.root.update_idletasks()
-
-            # Extract classical brush results if previously computed
-            Fy_classic = None
-            Fx_classic = None
-            br = getattr(self, 'brush_results', None)
-            if br is not None and 'sweep' in br and 'mode' in br:
-                sweep = br['sweep']
-                if br['mode'] == 'cornering' and 'Fy' in br:
-                    Fy_classic = (sweep.copy(), br['Fy'].copy())
-                elif br['mode'] == 'braking' and 'Fx' in br:
-                    Fx_classic = (sweep.copy(), br['Fx'].copy())
-
-            last_snap = self._run_persson_ode_single(
-                sa_deg=sa_arr[min(n_sa // 2, n_sa - 1)], sr_pct=0.0)
-
-            self._ps_results = {
-                'mode': 'comparison',
-                'sa_arr': sa_arr, 'sr_arr': sr_arr,
-                'Fy_persson': Fy_persson, 'Fx_persson': Fx_persson,
-                'Fy_classic': Fy_classic, 'Fx_classic': Fx_classic,
-                'snapshot': last_snap,
-            }
-            self._update_persson_plots()
-            self._update_persson_result_text()
-
-            self._ps_progress_var.set(100)
-            self._ps_status_var.set("비교 완료")
-            self._ps_btn_compare.config(state='normal')
-            self._show_status("고전 vs Persson 비교 완료", 'success')
-
-        except Exception as e:
-            self._ps_btn_compare.config(state='normal')
-            self._ps_status_var.set(f"오류: {e}")
-            import traceback; traceback.print_exc()
-
-    def _update_persson_plots(self):
-        """Update all Persson tab plots based on _ps_results."""
-        r = self._ps_results
-        if r is None:
+    def _pb_show_frame(self, idx):
+        """Display a single PerssonBrush frame with contour plots."""
+        if not self._pb_frames or idx >= len(self._pb_frames):
             return
-
-        # Clear all axes
-        for ax in (self._ps_ax_fy_sa, self._ps_ax_fx_sr, self._ps_ax_mu_v,
-                   self._ps_ax_deform, self._ps_ax_vslip, self._ps_ax_mu_map):
-            ax.clear()
-
-        mode = r['mode']
-        snap = r['snapshot']
-        x_mm = snap['x_arr'] * 1e3
-        y_mm = snap['y_arr'] * 1e3
-
-        if mode == 'cornering':
-            sa = r['sa_arr']
-            Fy = r['Fy_arr']
-            # Mirror for full envelope
-            sa_full = np.concatenate([-sa[::-1], sa])
-            Fy_full = np.concatenate([-Fy[::-1], Fy])
-            self._ps_ax_fy_sa.plot(sa_full, Fy_full, 'b-', linewidth=2, label='Persson ODE')
-            self._ps_ax_fy_sa.set_title('Fy vs Slip Angle', fontsize=12, fontweight='bold')
-            self._ps_ax_fy_sa.set_xlabel('SA [deg]')
-            self._ps_ax_fy_sa.set_ylabel('Fy [N]')
-            self._ps_ax_fy_sa.legend(fontsize=9)
-            self._ps_ax_fy_sa.grid(True, alpha=0.3)
-
-            self._ps_ax_fx_sr.text(0.5, 0.5, '(제동 해석 필요)',
-                                    ha='center', va='center', fontsize=11,
-                                    color='#94A3B8', transform=self._ps_ax_fx_sr.transAxes)
-            self._ps_ax_fx_sr.set_title('Fx vs Slip Ratio', fontsize=12, fontweight='bold')
-
-        elif mode == 'braking':
-            sr = r['sr_arr']
-            Fx = r['Fx_arr']
-            sr_full = np.concatenate([-sr[::-1], sr])
-            Fx_full = np.concatenate([-Fx[::-1], Fx])
-            self._ps_ax_fx_sr.plot(sr_full, Fx_full, 'r-', linewidth=2, label='Persson ODE')
-            self._ps_ax_fx_sr.set_title('Fx vs Slip Ratio', fontsize=12, fontweight='bold')
-            self._ps_ax_fx_sr.set_xlabel('SR [%]')
-            self._ps_ax_fx_sr.set_ylabel('Fx [N]')
-            self._ps_ax_fx_sr.legend(fontsize=9)
-            self._ps_ax_fx_sr.grid(True, alpha=0.3)
-
-            self._ps_ax_fy_sa.text(0.5, 0.5, '(선회 해석 필요)',
-                                    ha='center', va='center', fontsize=11,
-                                    color='#94A3B8', transform=self._ps_ax_fy_sa.transAxes)
-            self._ps_ax_fy_sa.set_title('Fy vs Slip Angle', fontsize=12, fontweight='bold')
-
-        elif mode == 'comparison':
-            sa = r['sa_arr']
-            sr = r['sr_arr']
-            # Fy vs SA
-            sa_full = np.concatenate([-sa[::-1], sa])
-            Fy_p = r['Fy_persson']
-            Fy_p_full = np.concatenate([-Fy_p[::-1], Fy_p])
-            self._ps_ax_fy_sa.plot(sa_full, Fy_p_full, 'b-', linewidth=2, label='Persson ODE')
-            if r.get('Fy_classic') is not None:
-                sa_c, Fy_c = r['Fy_classic']
-                sa_c_full = np.concatenate([-sa_c[::-1], sa_c])
-                Fy_c_full = np.concatenate([-Fy_c[::-1], Fy_c])
-                self._ps_ax_fy_sa.plot(sa_c_full, Fy_c_full, 'b--', linewidth=1.5,
-                                        alpha=0.6, label='Classical Brush')
-            self._ps_ax_fy_sa.set_title('Fy vs SA (비교)', fontsize=12, fontweight='bold')
-            self._ps_ax_fy_sa.set_xlabel('SA [deg]')
-            self._ps_ax_fy_sa.set_ylabel('Fy [N]')
-            self._ps_ax_fy_sa.legend(fontsize=9)
-            self._ps_ax_fy_sa.grid(True, alpha=0.3)
-
-            # Fx vs SR
-            sr_full = np.concatenate([-sr[::-1], sr])
-            Fx_p = r['Fx_persson']
-            Fx_p_full = np.concatenate([-Fx_p[::-1], Fx_p])
-            self._ps_ax_fx_sr.plot(sr_full, Fx_p_full, 'r-', linewidth=2, label='Persson ODE')
-            if r.get('Fx_classic') is not None:
-                sr_c, Fx_c = r['Fx_classic']
-                sr_c_full = np.concatenate([-sr_c[::-1], sr_c])
-                Fx_c_full = np.concatenate([-Fx_c[::-1], Fx_c])
-                self._ps_ax_fx_sr.plot(sr_c_full, Fx_c_full, 'r--', linewidth=1.5,
-                                        alpha=0.6, label='Classical Brush')
-            self._ps_ax_fx_sr.set_title('Fx vs SR (비교)', fontsize=12, fontweight='bold')
-            self._ps_ax_fx_sr.set_xlabel('SR [%]')
-            self._ps_ax_fx_sr.set_ylabel('Fx [N]')
-            self._ps_ax_fx_sr.legend(fontsize=9)
-            self._ps_ax_fx_sr.grid(True, alpha=0.3)
-
-        # Friction coefficient from snapshot
-        mu_map = snap['mu_eff']
-        mask = snap['mask']
-        v_slip = snap['v_slip_mag']
-        # Scatter plot of mu vs v_slip for active cells
-        active = mask & (v_slip > 1e-8)
-        if np.any(active):
-            self._ps_ax_mu_v.scatter(v_slip[active], mu_map[active],
-                                      s=3, alpha=0.5, c='#0369A1')
-        self._ps_ax_mu_v.set_title('mu vs v_slip (snapshot)', fontsize=12, fontweight='bold')
-        self._ps_ax_mu_v.set_xlabel('v_slip [m/s]')
-        self._ps_ax_mu_v.set_ylabel('mu_eff')
-        self._ps_ax_mu_v.grid(True, alpha=0.3)
-
-        # Contour plots
+        f = self._pb_frames[idx]
+        mask = f.get('_contact_mask')
+        mask_fill = f.get('_mask_fill', mask)
+        x_mm = self._pb_x_mm
+        y_mm = self._pb_y_mm
         XX, YY = np.meshgrid(x_mm, y_mm, indexing='ij')
 
-        # Deformation
-        deform = snap['deform_mag']
-        deform_plot = np.where(mask, deform * 1e3, np.nan)  # mm
-        im1 = self._ps_ax_deform.pcolormesh(XX, YY, deform_plot,
-                                              cmap='YlOrRd', shading='auto')
-        self._ps_ax_deform.set_title('Deformation [mm]', fontsize=12, fontweight='bold')
-        self._ps_ax_deform.set_xlabel('length [mm]')
-        self._ps_ax_deform.set_ylabel('width [mm]')
-        self._ps_fig.colorbar(im1, ax=self._ps_ax_deform, shrink=0.8)
+        self.pb_frame_label_var.set(
+            f"t = {f['t']:.2f} s  ({idx + 1}/{len(self._pb_frames)})  "
+            f"SA={f['SA']:.1f}  SR={f['SR']:.1f}%")
 
-        # Slip speed
-        v_plot = np.where(mask, v_slip, np.nan)
-        im2 = self._ps_ax_vslip.pcolormesh(XX, YY, v_plot,
-                                             cmap='plasma', shading='auto')
-        self._ps_ax_vslip.set_title('Slip Speed [m/s]', fontsize=12, fontweight='bold')
-        self._ps_ax_vslip.set_xlabel('length [mm]')
-        self._ps_ax_vslip.set_ylabel('width [mm]')
-        self._ps_fig.colorbar(im2, ax=self._ps_ax_vslip, shrink=0.8)
+        # Update cursors
+        if hasattr(self, '_pb_cursor_in'):
+            self._pb_cursor_in.set_xdata([f['t'], f['t']])
+        if hasattr(self, '_pb_cursor_ft'):
+            self._pb_cursor_ft.set_xdata([f['t'], f['t']])
+        if hasattr(self, '_pb_cursor_fy'):
+            self._pb_cursor_fy.set_xdata([f['SA'], f['SA']])
+        if hasattr(self, '_pb_cursor_fx'):
+            self._pb_cursor_fx.set_xdata([f['SR'], f['SR']])
 
-        # mu_eff map
-        mu_plot = np.where(mask, mu_map, np.nan)
-        im3 = self._ps_ax_mu_map.pcolormesh(XX, YY, mu_plot,
-                                              cmap='coolwarm_r', shading='auto')
-        self._ps_ax_mu_map.set_title('mu_eff distribution', fontsize=12, fontweight='bold')
-        self._ps_ax_mu_map.set_xlabel('length [mm]')
-        self._ps_ax_mu_map.set_ylabel('width [mm]')
-        self._ps_fig.colorbar(im3, ax=self._ps_ax_mu_map, shrink=0.8)
+        # Bottom row: contour plots (full redraw — simpler than blit for new tab)
+        for ax in (self.ax_pb_stick, self.ax_pb_speed, self.ax_pb_pressure,
+                   self.ax_pb_temperature, self.ax_pb_friction):
+            ax.clear()
 
-        self._ps_canvas.draw_idle()
+        _fs = 9
+        # (1) sliding vs adhesion
+        is_sl = np.where(mask_fill, f['is_sliding'].astype(float), np.nan)
+        self.ax_pb_stick.pcolormesh(XX, YY, is_sl, cmap='RdYlGn_r',
+                                     vmin=0, vmax=1, shading='auto')
+        self.ax_pb_stick.set_title('sliding vs adhesion', fontsize=_fs, fontweight='bold')
+        self.ax_pb_stick.set_xlabel('length [mm]', fontsize=7)
+        self.ax_pb_stick.set_ylabel('width [mm]', fontsize=7)
 
-    def _update_persson_result_text(self):
-        """Update the result summary text widget."""
-        r = self._ps_results
-        if r is None:
+        # (2) slip speed
+        v_plot = np.where(mask_fill, f['v_slip_mag'], np.nan)
+        self.ax_pb_speed.pcolormesh(XX, YY, v_plot, cmap='plasma', shading='auto')
+        self.ax_pb_speed.set_title('sliding speed', fontsize=_fs, fontweight='bold')
+        self.ax_pb_speed.set_xlabel('length [mm]', fontsize=7)
+        self.ax_pb_speed.set_ylabel('width [mm]', fontsize=7)
+
+        # (3) pressure
+        p_bar = np.where(mask_fill, f['p_map'] * 1e-5, np.nan)
+        self.ax_pb_pressure.pcolormesh(XX, YY, p_bar, cmap='YlOrRd', shading='auto')
+        self.ax_pb_pressure.set_title('contact pressure [bar]', fontsize=_fs, fontweight='bold')
+        self.ax_pb_pressure.set_xlabel('length [mm]', fontsize=7)
+        self.ax_pb_pressure.set_ylabel('width [mm]', fontsize=7)
+
+        # (4) mu_eff distribution (replaces temperature in this tab)
+        mu_plot = np.where(mask_fill, f['mu_eff'], np.nan)
+        self.ax_pb_temperature.pcolormesh(XX, YY, mu_plot, cmap='coolwarm_r', shading='auto')
+        self.ax_pb_temperature.set_title('mu_eff map', fontsize=_fs, fontweight='bold')
+        self.ax_pb_temperature.set_xlabel('length [mm]', fontsize=7)
+        self.ax_pb_temperature.set_ylabel('width [mm]', fontsize=7)
+
+        # (5) friction force
+        f_fric = np.where(mask_fill, f['F_friction'], np.nan)
+        self.ax_pb_friction.pcolormesh(XX, YY, f_fric, cmap='hot_r', shading='auto')
+        self.ax_pb_friction.set_title('friction force', fontsize=_fs, fontweight='bold')
+        self.ax_pb_friction.set_xlabel('length [mm]', fontsize=7)
+        self.ax_pb_friction.set_ylabel('width [mm]', fontsize=7)
+
+        # Steering and tire
+        self._update_pb_steering(f['SA'])
+        Fz = float(self.pb_Fz_var.get()) if self.pb_Fz_var.get() else 4000.0
+        self._update_pb_tire(f['SA'], f['Fy'], Fz)
+
+        self.canvas_pb.draw_idle()
+
+    # ── PerssonBrush: Playback controls ──
+
+    def _on_pb_slider_change(self, value):
+        if not self._pb_frames:
             return
+        idx = int(float(value))
+        idx = max(0, min(idx, len(self._pb_frames) - 1))
+        self._pb_frame_idx = idx
+        self._pb_show_frame(idx)
 
-        self._ps_result_text.config(state=tk.NORMAL)
-        self._ps_result_text.delete('1.0', tk.END)
+    def _pb_play(self):
+        if not self._pb_frames:
+            return
+        self._pb_playing = True
+        self._pb_animate()
 
-        lines = []
-        lines.append("=" * 36)
-        lines.append("  Persson ODE 시뮬레이션 결과")
-        lines.append("=" * 36)
+    def _pb_pause(self):
+        self._pb_playing = False
+        if self._pb_play_after_id is not None:
+            self.root.after_cancel(self._pb_play_after_id)
+            self._pb_play_after_id = None
 
-        mode = r['mode']
-        if mode == 'cornering':
-            Fy = r['Fy_arr']
-            sa = r['sa_arr']
-            peak_idx = np.argmax(np.abs(Fy))
-            lines.append(f"\n모드: 선회 (Cornering)")
-            lines.append(f"SA 범위: 0 ~ {sa[-1]:.1f} deg")
-            lines.append(f"Peak Fy: {Fy[peak_idx]:.1f} N")
-            lines.append(f"  @ SA = {sa[peak_idx]:.1f} deg")
-            lines.append(f"  mu_y = {Fy[peak_idx] / float(self.ps_Fz_var.get()):.3f}")
-            if 'Mz_arr' in r:
-                Mz = r['Mz_arr']
-                lines.append(f"\nPeak Mz: {np.max(np.abs(Mz)):.1f} Nm")
+    def _pb_reset(self):
+        self._pb_pause()
+        self._pb_frame_idx = 0
+        self.pb_time_slider.set(0)
+        if self._pb_frames:
+            self._pb_show_frame(0)
 
-        elif mode == 'braking':
-            Fx = r['Fx_arr']
-            sr = r['sr_arr']
-            peak_idx = np.argmax(np.abs(Fx))
-            lines.append(f"\n모드: 제동 (Braking)")
-            lines.append(f"SR 범위: 0 ~ {sr[-1]:.1f} %")
-            lines.append(f"Peak Fx: {Fx[peak_idx]:.1f} N")
-            lines.append(f"  @ SR = {sr[peak_idx]:.1f} %")
-            lines.append(f"  mu_x = {Fx[peak_idx] / float(self.ps_Fz_var.get()):.3f}")
-
-        elif mode == 'comparison':
-            Fy_p = r['Fy_persson']
-            Fx_p = r['Fx_persson']
-            sa = r['sa_arr']
-            sr = r['sr_arr']
-            lines.append(f"\n모드: 고전 vs Persson 비교")
-            lines.append(f"\n[Persson ODE]")
-            pk_fy = np.argmax(np.abs(Fy_p))
-            pk_fx = np.argmax(np.abs(Fx_p))
-            lines.append(f"  Peak Fy: {Fy_p[pk_fy]:.1f} N @ SA={sa[pk_fy]:.1f}")
-            lines.append(f"  Peak Fx: {Fx_p[pk_fx]:.1f} N @ SR={sr[pk_fx]:.1f}")
-
-            if r.get('Fy_classic') is not None:
-                sa_c, Fy_c = r['Fy_classic']
-                pk_c = np.argmax(np.abs(Fy_c))
-                lines.append(f"\n[Classical Brush]")
-                lines.append(f"  Peak Fy: {Fy_c[pk_c]:.1f} N @ SA={sa_c[pk_c]:.1f}")
-                diff = abs(Fy_p[pk_fy]) - abs(Fy_c[pk_c])
-                lines.append(f"  차이: {diff:+.1f} N ({diff / max(abs(Fy_c[pk_c]), 1) * 100:+.1f}%)")
-
-        # Snapshot info
-        snap = r.get('snapshot')
-        if snap:
-            v_slip = snap['v_slip_mag']
-            mask = snap['mask']
-            active = mask & (v_slip > 0.01)
-            n_total = np.sum(mask)
-            n_slip = np.sum(active)
-            pct = 100.0 * n_slip / max(n_total, 1)
-            lines.append(f"\n--- Snapshot 분석 ---")
-            lines.append(f"전체 셀: {n_total}")
-            lines.append(f"Slip 셀: {n_slip} ({pct:.1f}%)")
-            lines.append(f"Stick 셀: {n_total - n_slip} ({100 - pct:.1f}%)")
-            lines.append(f"평균 mu_eff: {np.mean(snap['mu_eff'][mask]):.3f}")
-            lines.append(f"최대 v_slip: {np.max(v_slip):.4f} m/s")
-
-        # Parameters used
-        lines.append(f"\n--- 사용된 파라미터 ---")
-        lines.append(f"friction_scale: {self.ps_friction_scale_var.get()}")
-        lines.append(f"kx: {self.ps_kx_var.get()} N/m")
-        lines.append(f"ky: {self.ps_ky_var.get()} N/m")
-        lines.append(f"Fz: {self.ps_Fz_var.get()} N")
-        lines.append(f"D_macro: {self.ps_D_macro_var.get()} mm")
-        lines.append(f"m: {self.ps_mass_var.get()} kg")
-        lines.append(f"zeta: {self.ps_zeta_var.get()}")
-        lines.append(f"dt: {self.ps_dt_var.get()} s")
-        lines.append(f"steps: {self.ps_nsteps_var.get()}")
-
-        self._ps_result_text.insert('1.0', '\n'.join(lines))
-        self._ps_result_text.config(state=tk.DISABLED)
+    def _pb_animate(self):
+        """Advance one frame and schedule next."""
+        if not self._pb_playing or not self._pb_frames:
+            return
+        n = len(self._pb_frames)
+        speed = max(self._pb_speed_mult.get(), 0.25)
+        step = max(1, int(speed))
+        self._pb_frame_idx = (self._pb_frame_idx + step) % n
+        self.pb_time_slider.set(self._pb_frame_idx)
+        self._pb_show_frame(self._pb_frame_idx)
+        delay = max(int(30 / speed), 8)
+        self._pb_play_after_id = self.root.after(delay, self._pb_animate)
 
     def _create_brush_education_tab(self, notebook):
         """Create educational material tab explaining the 2D Brush Model theory and pseudocode."""
