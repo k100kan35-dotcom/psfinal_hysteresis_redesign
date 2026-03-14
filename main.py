@@ -24155,16 +24155,21 @@ class PerssonModelGUI_V2:
         guide_frame = self._create_section(left_panel,
             "Fy (코너링 포스) 조절 가이드")
         guide_text = (
-            "■ Fy 크기 ↑ : Fz↑, kx/ky↑, L↑, W↑, SA 진폭↑\n"
-            "■ Fy 크기 ↓ : Fz↓, kx/ky↓, L↓, W↓, SA 진폭↓\n"
-            "■ 빠른 포화 : kx/ky↑↑ (강성 증가) → 작은 SA에서 포화\n"
-            "■ 느린 포화 : kx/ky↓ (강성 감소) → 큰 SA까지 선형\n"
-            "■ 피크 후 드롭 : D↑ (돌기 직경) → 속도의존 마찰↑\n"
-            "  vc↑도 슬라이딩 속도↑ → 마찰 감소 효과\n"
-            "■ 압력 분포가 dual_peak이면 좌우 비대칭 하중\n"
-            "  전달이 Fy 특성에 영향 (더 현실적)\n"
-            "※ L, W, Fz, kx, ky 변경 후 시뮬레이션 재실행 필요\n"
-            "※ K, n 슬라이더는 아웃라인만 변경 (재실행 불필요)"
+            "── 피크 높이 (Fy_peak) 결정 인자 ──\n"
+            "  mu(v)×Fz = 마찰력 상한\n"
+            "  Fz↑ → 피크↑ | Cold&Hot mu커브↑ → 피크↑\n"
+            "  압력분포(uniform/elliptic/dual_peak) 영향\n"
+            "── 포락선 기울기 (Cornering Stiffness) ──\n"
+            "  ky (횡강성)이 주 결정 인자\n"
+            "  ky↑ → 기울기↑ (작은 SA에서 빠른 포화)\n"
+            "  L·W (접지면적)↑ → 노드당 강성↑ → 기울기↑\n"
+            "── 피크 이후 감소 (Post-peak) 결정 인자 ──\n"
+            "  D (돌기직경) → s0=0.2D (메모리길이)\n"
+            "  D↑ → Cold→Hot 전이 빠름 → 감소폭↑\n"
+            "  vc (주행속도)↑ → v_slip↑ → mu_hot 지배\n"
+            "  flash temperature↑ → 마찰계수↓\n"
+            "※ L, W, Fz, kx, ky 변경 후 재실행 필요\n"
+            "※ K, n 슬라이더는 아웃라인만 변경"
         )
         ttk.Label(guide_frame, text=guide_text, font=self.FONTS['small'],
                   foreground='#1565C0', wraplength=380,
@@ -25658,6 +25663,17 @@ class PerssonModelGUI_V2:
                 sa_peak = env_sa[i_peak]
                 fy_peak = env_f[i_peak]
 
+                # Read current parameters for annotation
+                _ann_ky = float(self.pb_ky_var.get())
+                _ann_kx = float(self.pb_kx_var.get())
+                _ann_Fz = float(self.pb_Fz_var.get())
+                _ann_L = float(self.pb_L_var.get())
+                _ann_W = float(self.pb_W_var.get())
+                _ann_D = float(self.pb_D_macro_var.get())
+                _ann_vc = float(self.pb_vc_var.get())
+                _ann_s0 = 0.2 * _ann_D * 1e-3
+                _ann_ptype = self.pb_pressure_type_var.get()
+
                 # (A) Initial slope (Cornering Stiffness)
                 # Use first few points near SA=0
                 near_zero = np.abs(env_sa) < max(0.3 * np.abs(sa_peak), 1.0)
@@ -25672,14 +25688,17 @@ class PerssonModelGUI_V2:
                         sa_annot = sa_peak * 0.25
                         fy_annot = slope * sa_annot
                         ax_fy.annotate(
-                            f'Cornering Stiffness\n'
+                            f'Cornering Stiffness  (포락선 기울기)\n'
                             f'dFy/dSA = {slope:.0f} N/deg\n'
-                            f'(Adhesion zone dominant,\n'
-                            f' linear spring response)',
+                            f'결정 인자:\n'
+                            f'  ky={_ann_ky:.0f} N/m (횡강성)\n'
+                            f'  L={_ann_L:.3f}m, W={_ann_W:.3f}m\n'
+                            f'  Fz={_ann_Fz:.0f}N (접촉 면적)\n'
+                            f'ky↑ or L·W↑ → 기울기↑ (빠른 포화)',
                             xy=(sa_annot, fy_annot),
                             xytext=(sa_annot + (sa_max - sa_min) * 0.15,
                                     fy_annot + np.sign(fy_peak) * abs(fy_peak) * 0.3),
-                            fontsize=6.5, color='#1565C0',
+                            fontsize=6.0, color='#1565C0',
                             arrowprops=dict(arrowstyle='->', color='#1565C0',
                                             lw=1.2),
                             bbox=dict(boxstyle='round,pad=0.3', fc='#E3F2FD',
@@ -25688,16 +25707,20 @@ class PerssonModelGUI_V2:
 
                 # (B) Peak Fy
                 ax_fy.plot(sa_peak, fy_peak, 'r*', ms=12, zorder=10)
+                _mu_peak_est = abs(fy_peak) / max(_ann_Fz, 1.0)
                 ax_fy.annotate(
-                    f'Peak Fy = {fy_peak:.1f} N\n'
+                    f'Peak Fy = {fy_peak:.1f} N  (피크 높이)\n'
                     f'@ SA = {sa_peak:.1f} deg\n'
-                    f'(Sliding zone spreads\n'
-                    f' across contact patch,\n'
-                    f' max friction capacity)',
+                    f'mu_peak ≈ {_mu_peak_est:.3f}\n'
+                    f'결정 인자:\n'
+                    f'  mu(v) × Fz = 마찰력 상한\n'
+                    f'  Fz={_ann_Fz:.0f}N, 압력분포={_ann_ptype}\n'
+                    f'  Cold&Hot mu(v) 커브 (점탄성)\n'
+                    f'mu↑ or Fz↑ → 피크↑',
                     xy=(sa_peak, fy_peak),
                     xytext=(sa_peak + (sa_max - sa_min) * 0.08,
                             fy_peak + np.sign(fy_peak) * abs(fy_peak) * 0.15),
-                    fontsize=6.5, color='#C62828',
+                    fontsize=6.0, color='#C62828',
                     arrowprops=dict(arrowstyle='->', color='#C62828', lw=1.2),
                     bbox=dict(boxstyle='round,pad=0.3', fc='#FFEBEE',
                               ec='#C62828', alpha=0.9),
@@ -25715,15 +25738,18 @@ class PerssonModelGUI_V2:
                     fy_drop_pct = (1.0 - abs(fy_post) / max(abs(fy_peak), 1e-6)) * 100
                     if fy_drop_pct > 1.0:
                         ax_fy.annotate(
-                            f'Post-peak decay\n'
+                            f'Post-peak decay  (피크 이후 감소)\n'
                             f'Fy = {fy_post:.1f} N ({fy_drop_pct:.0f}% drop)\n'
-                            f'(Full sliding: mu_eff drops\n'
-                            f' as v_slip increases,\n'
-                            f' cold->hot friction transition)',
+                            f'결정 인자:\n'
+                            f'  D={_ann_D:.1f}mm → s0={_ann_s0*1e3:.3f}mm\n'
+                            f'  vc={_ann_vc:.1f}m/s (주행속도)\n'
+                            f'  Cold→Hot 마찰 전이 (flash T↑)\n'
+                            f'v_slip↑ → mu_hot 지배 → Fy↓\n'
+                            f'D↑ or vc↑ → 감소폭↑',
                             xy=(sa_post, fy_post),
                             xytext=(sa_post - (sa_max - sa_min) * 0.15,
                                     fy_post - np.sign(fy_peak) * abs(fy_peak) * 0.2),
-                            fontsize=6.5, color='#4A148C',
+                            fontsize=6.0, color='#4A148C',
                             arrowprops=dict(arrowstyle='->', color='#4A148C',
                                             lw=1.2),
                             bbox=dict(boxstyle='round,pad=0.3', fc='#F3E5F5',
