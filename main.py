@@ -24627,10 +24627,10 @@ class PerssonModelGUI_V2:
         plot_frame.pack(fill=tk.BOTH, expand=True)
 
         from matplotlib.gridspec import GridSpec
-        self.fig_pb = Figure(figsize=(14, 10), dpi=100)
-        gs = GridSpec(2, 20, figure=self.fig_pb, height_ratios=[1.8, 2.2],
-                      hspace=0.50, wspace=2.5,
-                      left=0.06, right=0.97, top=0.93, bottom=0.07)
+        self.fig_pb = Figure(figsize=(16, 9), dpi=100)
+        gs = GridSpec(2, 20, figure=self.fig_pb, height_ratios=[1.6, 2.4],
+                      hspace=0.42, wspace=2.0,
+                      left=0.04, right=0.98, top=0.95, bottom=0.05)
 
         _bf_title = 12
         _bf_label = 12
@@ -24935,19 +24935,26 @@ class PerssonModelGUI_V2:
 
     def _run_pb_transient_wrapper(self):
         """Run PerssonBrush ODE transient simulation."""
+        import time as _time
         try:
             self.pb_calc_btn.config(state='disabled')
             self.pb_progress_var.set(0)
             self.status_var.set("PerssonBrush Transient 시뮬레이션 중...")
             self.root.update()
 
+            self._log('CALC', '═══ PerssonBrush Transient 시뮬레이션 시작 ═══')
+            t0 = _time.perf_counter()
+
             self._run_pb_transient()
 
+            elapsed = _time.perf_counter() - t0
             self.pb_progress_var.set(100)
             self.status_var.set("PerssonBrush Transient 완료")
             self.pb_calc_btn.config(state='normal')
             n = len(self._pb_frames)
             self._show_status(f"PerssonBrush 완료: {n} 프레임 생성", 'success')
+            self._log('CALC', f'시뮬레이션 완료: {n} 프레임, 소요시간 {elapsed:.2f}s')
+            self._log('CALC', f'프레임당 평균 계산시간: {elapsed/max(n,1)*1000:.1f}ms')
 
             self.pb_time_slider.config(to=max(n - 1, 1))
             self.pb_time_slider.set(0)
@@ -24956,10 +24963,12 @@ class PerssonModelGUI_V2:
 
         except ValueError as e:
             self.pb_calc_btn.config(state='normal')
+            self._log('ERROR', f'PerssonBrush 입력값 오류: {str(e)}')
             self._show_status(f"입력값 오류: {str(e)}", 'warning')
         except Exception as e:
             self.pb_calc_btn.config(state='normal')
             import traceback; traceback.print_exc()
+            self._log('ERROR', f'PerssonBrush 오류: {e}')
             self._show_status(f"PerssonBrush 오류: {e}", 'warning')
 
     def _run_pb_transient(self):
@@ -24997,6 +25006,16 @@ class PerssonModelGUI_V2:
         sa_amp = float(self.pb_sa_amp_var.get())
         sr_type = self.pb_sr_type_var.get()
         sr_val = float(self.pb_sr_val_var.get())
+
+        # Log all parameters
+        self._log('CALC', f'── 파라미터 ──')
+        self._log('CALC', f'격자: Nx={Nx}, Ny={Ny}, L={L}m, W={W}m')
+        self._log('CALC', f'하중: Fz={Fz}N, 강성: kx={kx:.0f}, ky={ky:.0f} N/m')
+        self._log('CALC', f'속도: vc={vc}m/s, 돌기 D={D_mm}mm, s0={s0*1e3:.3f}mm')
+        self._log('CALC', f'ODE: m={m_total}kg, zeta={zeta}, dt={dt_ode}s, warmup={n_ode_steps}steps')
+        self._log('CALC', f'압력분포: {ptype}, 주행모드: {driving_mode}')
+        self._log('CALC', f'시간: T={T_total}s, 프레임수={frame_count}, dt_out={dt_out:.4f}s')
+        self._log('CALC', f'SA: {sa_type}, 진폭={sa_amp}deg | SR: {sr_type}, 값={sr_val}%')
 
         # Build LUT
         lut_cold, lut_hot, _, _ = self._build_brush_lut()
@@ -25049,6 +25068,10 @@ class PerssonModelGUI_V2:
         v_smooth = 3.0 * v_tol  # smoothing band for mu transition
         # Static friction: use LUT at near-zero speed (peak μ at low v)
         mu_static_val = float(max(lut_cold(0.001), lut_hot(0.001)))
+        self._log('CALC', f'LUT 빌드 완료: mu_static={mu_static_val:.4f}')
+        self._log('CALC', f'노드별: kx_node={kx_node:.1f}, ky_node={ky_node:.1f}, m_node={m_node:.6f}kg')
+        self._log('CALC', f'감쇠: cx_node={cx_node:.3f}, cy_node={cy_node:.3f}')
+        self._log('CALC', f'활성 노드 수: {int(n_active)}/{Nx*Ny}')
 
         frames = []
         Fx_hist = np.zeros(n_frames)
@@ -25137,8 +25160,15 @@ class PerssonModelGUI_V2:
                 s_slip[exited] = 0.0
                 age[exited] = 0.0
 
+        self._log('CALC', f'Warmup 완료: {n_ode_steps} ODE steps')
+        v_slip_warmup = np.sqrt(vx_block**2 + vy_block**2)
+        n_sliding_warmup = np.sum((v_slip_warmup > v_tol) & cmask)
+        self._log('CALC', f'Warmup 후 상태: sliding={int(n_sliding_warmup)}/{int(n_active)} 노드, '
+                  f'max v_slip={np.max(v_slip_warmup*cmask):.4f} m/s')
+
         # Steps between output frames
         steps_per_frame = max(int(dt_out / dt_ode), 1)
+        self._log('CALC', f'프레임당 ODE 스텝: {steps_per_frame}')
 
         for fi in range(n_frames):
             t_frame = t_out[fi]
@@ -25277,8 +25307,30 @@ class PerssonModelGUI_V2:
         self._pb_x_mm = x_arr * 1000
         self._pb_y_mm = y_arr * 1000
 
+        # Log simulation results summary
+        self._log('CALC', f'── 시뮬레이션 결과 요약 ──')
+        self._log('CALC', f'Fx 범위: [{np.min(Fx_hist):.1f}, {np.max(Fx_hist):.1f}] N')
+        self._log('CALC', f'Fy 범위: [{np.min(Fy_hist):.1f}, {np.max(Fy_hist):.1f}] N')
+        self._log('CALC', f'SA 범위: [{np.min(SA_profile):.2f}, {np.max(SA_profile):.2f}] deg')
+        self._log('CALC', f'SR 범위: [{np.min(SR_profile):.2f}, {np.max(SR_profile):.2f}] %')
+        # Check for anomalies
+        if np.any(np.isnan(Fx_hist)) or np.any(np.isnan(Fy_hist)):
+            self._log('ERROR', 'NaN detected in force output!')
+        if np.max(np.abs(Fx_hist)) < 1e-3 and np.max(np.abs(Fy_hist)) < 1e-3:
+            self._log('ERROR', 'Force output is near-zero — check parameters')
+        # Sliding ratio per frame
+        slide_ratios = []
+        for fr in frames:
+            n_sl = np.sum(fr['is_sliding'])
+            slide_ratios.append(n_sl / max(n_active, 1) * 100)
+        self._log('CALC', f'Sliding 비율 범위: [{min(slide_ratios):.1f}%, {max(slide_ratios):.1f}%]')
+        self._log('CALC', f'평균 Sliding 비율: {np.mean(slide_ratios):.1f}%')
+
         # Compute global ranges for consistent color scales
         self._pb_global_ranges = self._pb_compute_global_ranges(frames)
+        gr = self._pb_global_ranges
+        self._log('CALC', f'컬러 범위 - speed: {gr["speed"]}, pressure: {gr["pressure"]}')
+        self._log('CALC', f'컬러 범위 - temp: {gr["temperature"]}, friction: {gr["friction"]}')
 
         # Initialize persistent contour artists
         self._pb_init_contour_artists()
@@ -25323,9 +25375,11 @@ class PerssonModelGUI_V2:
         }
 
     def _pb_init_contour_artists(self):
-        """Prepare axes and contourf config for discrete-level contour plots."""
+        """Prepare axes with pcolormesh artists for fast set_array() updates."""
         from matplotlib.patches import Patch
-        from matplotlib.colors import ListedColormap, BoundaryNorm
+        from matplotlib.colors import ListedColormap, BoundaryNorm, Normalize
+        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+        import matplotlib.cm as mcm
         x_mm = self._pb_x_mm
         y_mm = self._pb_y_mm
         gr = self._pb_global_ranges
@@ -25351,12 +25405,11 @@ class PerssonModelGUI_V2:
         mask_fill = f0.get('_mask_fill', f0.get('_contact_mask'))
         nan_base = np.where(mask_fill, 0.0, np.nan)
         _fs = 9
-        N_LEVELS = 8  # number of discrete color levels
 
-        # Store contourf configuration for each plot
-        self._pb_cf_config = {}
+        # ── All 5 plots use pcolormesh for fast set_array() animation ──
+        self._pb_pm_artists = {}
 
-        # (1) sliding vs adhesion — keep as pcolormesh (only 2 values)
+        # (1) sliding vs adhesion — 2-color discrete
         ax1 = self.ax_pb_stick
         ax1.clear()
         cmap_sa = ListedColormap(['#2196F3', '#F44336'])
@@ -25371,51 +25424,98 @@ class PerssonModelGUI_V2:
                           Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Slip (미끄럼)')]
         ax1.legend(handles=legend_patches, loc='upper right', fontsize=7,
                    framealpha=0.9, edgecolor='#999')
+        # Contact patch outline (drawn once)
+        Z_mask = np.where(mask_fill, 1.0, 0.0)
+        ax1.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.2)
 
-        # (2) slip speed — contourf config
+        # (2) slip speed — pcolormesh
         sp_lo, sp_hi = gr['speed']
         if sp_hi - sp_lo < 1e-6:
             sp_hi = sp_lo + 1.0
-        self._pb_cf_config['speed'] = {
-            'ax': self.ax_pb_speed, 'cmap': 'jet',
-            'levels': np.linspace(sp_lo, sp_hi, N_LEVELS + 1),
-            'title': 'sliding speed', 'label': 'm/s'}
+        ax2 = self.ax_pb_speed
+        ax2.clear()
+        norm_sp = Normalize(vmin=sp_lo, vmax=sp_hi)
+        pm_sp = ax2.pcolormesh(x_edges, y_edges, nan_base.T, cmap='jet',
+                               norm=norm_sp, shading='flat', zorder=1)
+        ax2.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.0)
+        ax2.set_title('sliding speed', fontsize=_fs, fontweight='bold')
+        ax2.set_xlabel('length [mm]', fontsize=7)
+        ax2.set_ylabel('width [mm]', fontsize=7)
+        ax2.tick_params(labelsize=6)
+        cax2 = inset_axes(ax2, width="40%", height="5%", loc='lower right', borderpad=1.2)
+        self.fig_pb.colorbar(pm_sp, cax=cax2, orientation='horizontal')
+        cax2.tick_params(labelsize=5, length=2, pad=1)
+        self._pb_cbar_axes['speed'] = cax2
+        self._pb_pm_artists['speed'] = pm_sp
 
-        # (3) contact pressure — contourf config
+        # (3) contact pressure — pcolormesh
         pr_lo, pr_hi = gr['pressure']
         if pr_hi - pr_lo < 1e-6:
             pr_hi = pr_lo + 1.0
-        self._pb_cf_config['pressure'] = {
-            'ax': self.ax_pb_pressure, 'cmap': 'jet',
-            'levels': np.linspace(pr_lo, pr_hi, N_LEVELS + 1),
-            'title': 'contact pressure [bar]', 'label': 'bar'}
+        ax3 = self.ax_pb_pressure
+        ax3.clear()
+        norm_pr = Normalize(vmin=pr_lo, vmax=pr_hi)
+        pm_pr = ax3.pcolormesh(x_edges, y_edges, nan_base.T, cmap='jet',
+                               norm=norm_pr, shading='flat', zorder=1)
+        ax3.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.0)
+        ax3.set_title('contact pressure [bar]', fontsize=_fs, fontweight='bold')
+        ax3.set_xlabel('length [mm]', fontsize=7)
+        ax3.set_ylabel('width [mm]', fontsize=7)
+        ax3.tick_params(labelsize=6)
+        cax3 = inset_axes(ax3, width="40%", height="5%", loc='lower right', borderpad=1.2)
+        self.fig_pb.colorbar(pm_pr, cax=cax3, orientation='horizontal')
+        cax3.tick_params(labelsize=5, length=2, pad=1)
+        self._pb_cbar_axes['pressure'] = cax3
+        self._pb_pm_artists['pressure'] = pm_pr
 
-        # (4) temperature — contourf config
+        # (4) temperature — pcolormesh
         t_lo, t_hi = gr['temperature']
         if abs(t_hi - t_lo) < 0.1:
             t_lo -= 1.0
             t_hi += 1.0
-        self._pb_cf_config['temperature'] = {
-            'ax': self.ax_pb_temperature, 'cmap': 'jet',
-            'levels': np.linspace(t_lo, t_hi, N_LEVELS + 1),
-            'title': 'temperature [\u00b0C]', 'label': '\u00b0C'}
+        ax4 = self.ax_pb_temperature
+        ax4.clear()
+        norm_t = Normalize(vmin=t_lo, vmax=t_hi)
+        pm_t = ax4.pcolormesh(x_edges, y_edges, nan_base.T, cmap='jet',
+                              norm=norm_t, shading='flat', zorder=1)
+        ax4.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.0)
+        ax4.set_title('temperature [\u00b0C]', fontsize=_fs, fontweight='bold')
+        ax4.set_xlabel('length [mm]', fontsize=7)
+        ax4.set_ylabel('width [mm]', fontsize=7)
+        ax4.tick_params(labelsize=6)
+        cax4 = inset_axes(ax4, width="40%", height="5%", loc='lower right', borderpad=1.2)
+        self.fig_pb.colorbar(pm_t, cax=cax4, orientation='horizontal')
+        cax4.tick_params(labelsize=5, length=2, pad=1)
+        self._pb_cbar_axes['temperature'] = cax4
+        self._pb_pm_artists['temperature'] = pm_t
 
-        # (5) friction force — contourf config
+        # (5) friction force — pcolormesh
         fr_lo, fr_hi = gr['friction']
         if fr_hi - fr_lo < 1e-6:
             fr_hi = fr_lo + 1.0
-        self._pb_cf_config['friction'] = {
-            'ax': self.ax_pb_friction, 'cmap': 'jet',
-            'levels': np.linspace(fr_lo, fr_hi, N_LEVELS + 1),
-            'title': 'friction force', 'label': 'N'}
+        ax5 = self.ax_pb_friction
+        ax5.clear()
+        norm_f = Normalize(vmin=fr_lo, vmax=fr_hi)
+        pm_f = ax5.pcolormesh(x_edges, y_edges, nan_base.T, cmap='jet',
+                              norm=norm_f, shading='flat', zorder=1)
+        ax5.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.0)
+        ax5.set_title('friction force', fontsize=_fs, fontweight='bold')
+        ax5.set_xlabel('length [mm]', fontsize=7)
+        ax5.set_ylabel('width [mm]', fontsize=7)
+        ax5.tick_params(labelsize=6)
+        cax5 = inset_axes(ax5, width="40%", height="5%", loc='lower right', borderpad=1.2)
+        self.fig_pb.colorbar(pm_f, cax=cax5, orientation='horizontal')
+        cax5.tick_params(labelsize=5, length=2, pad=1)
+        self._pb_cbar_axes['friction'] = cax5
+        self._pb_pm_artists['friction'] = pm_f
 
-        # Initial clear of contourf axes
-        for key, cfg in self._pb_cf_config.items():
-            ax = cfg['ax']
-            ax.clear()
-            ax.set_title(cfg['title'], fontsize=_fs, fontweight='bold')
-            ax.set_xlabel('length [mm]', fontsize=7)
-            ax.set_ylabel('width [mm]', fontsize=7)
+        # Force annotations (will be updated per frame)
+        self._pb_fy_text = ax5.text(0.02, 0.98, '', transform=ax5.transAxes,
+            fontsize=7, fontweight='bold', color='blue', va='top', ha='left',
+            bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='blue', alpha=0.8))
+        self._pb_fx_text = ax5.text(0.98, 0.98, '', transform=ax5.transAxes,
+            fontsize=7, fontweight='bold', color='red', va='top', ha='right',
+            bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='red', alpha=0.8))
 
         self._pb_contour_ready = True
         self.canvas_pb.draw_idle()
@@ -25464,7 +25564,7 @@ class PerssonModelGUI_V2:
     # ── PerssonBrush: Frame display ──
 
     def _pb_show_frame(self, idx):
-        """Display a single PerssonBrush frame using persistent artists (set_array)."""
+        """Display a single PerssonBrush frame using fast set_array() updates."""
         if not self._pb_frames or idx >= len(self._pb_frames):
             return
 
@@ -25490,28 +25590,11 @@ class PerssonModelGUI_V2:
         if hasattr(self, '_pb_cursor_fx'):
             self._pb_cursor_fx.set_xdata([f['SR'], f['SR']])
 
-        from matplotlib.patches import Patch
-        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-
-        # (1) sliding vs adhesion — pcolormesh update (2-color discrete)
+        # (1) sliding vs adhesion — fast set_array
         is_sl = np.where(mask_fill, f['is_sliding'].astype(float), np.nan)
         self._pb_pm_stick.set_array(is_sl.T.ravel())
-        # Add contact patch outline
-        ax1 = self.ax_pb_stick
-        # Remove old contour lines if any
-        if hasattr(self, '_pb_stick_contour'):
-            for c in self._pb_stick_contour.collections:
-                c.remove()
-        Z_mask = np.where(mask_fill, 1.0, 0.0)
-        self._pb_stick_contour = ax1.contour(
-            self._pb_x_mm, self._pb_y_mm, Z_mask.T, levels=[0.5],
-            colors='k', linewidths=1.2)
 
-        # Prepare data for contourf plots
-        x_mm = self._pb_x_mm
-        y_mm = self._pb_y_mm
-        _fs = 9
-
+        # (2-5) All pcolormesh plots — fast set_array
         data_map = {
             'speed': np.where(mask_fill, f['v_slip_mag'], np.nan),
             'pressure': np.where(mask_fill, f['p_map'] * 1e-5, np.nan),
@@ -25519,57 +25602,26 @@ class PerssonModelGUI_V2:
             'friction': np.where(mask_fill, f['F_friction'], np.nan),
         }
 
-        # Remove old colorbar axes before redrawing
-        if hasattr(self, '_pb_cbar_axes') and self._pb_cbar_axes:
-            for cax in self._pb_cbar_axes.values():
-                try:
-                    cax.remove()
-                except Exception:
-                    pass
-            self._pb_cbar_axes = {}
-
-        for key, cfg in self._pb_cf_config.items():
-            ax = cfg['ax']
-            ax.clear()
+        for key, pm in self._pb_pm_artists.items():
             Z = data_map[key]
-            # Replace NaN with level minimum for contourf (NaN causes issues)
-            Z_fill = np.where(np.isfinite(Z), Z, cfg['levels'][0])
-            cf = ax.contourf(x_mm, y_mm, Z_fill.T, levels=cfg['levels'],
-                             cmap=cfg['cmap'], extend='both')
-            # Mask area outside contact patch
-            Z_mask = np.where(mask_fill, 1.0, np.nan)
-            ax.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.0)
-            ax.set_title(cfg['title'], fontsize=_fs, fontweight='bold')
-            ax.set_xlabel('length [mm]', fontsize=7)
-            ax.set_ylabel('width [mm]', fontsize=7)
-            ax.tick_params(labelsize=6)
-            # Discrete colorbar
-            cax = inset_axes(ax, width="40%", height="5%",
-                             loc='lower right', borderpad=1.2)
-            cb = ax.get_figure().colorbar(cf, cax=cax, orientation='horizontal')
-            cb.ax.tick_params(labelsize=5, length=2, pad=1)
-            self._pb_cbar_axes[key] = cax
+            pm.set_array(Z.T.ravel())
 
-        # Add Fy/Fx force annotations on friction plot
-        ax_fric = self._pb_cf_config['friction']['ax']
+        # Update force annotations on friction plot
         fy_val = f.get('Fy', 0.0)
         fx_val = f.get('Fx', 0.0)
-        ax_fric.text(0.02, 0.98, f'fy = {fy_val:+.1f} N',
-                     transform=ax_fric.transAxes, fontsize=7, fontweight='bold',
-                     color='blue', va='top', ha='left',
-                     bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='blue', alpha=0.8))
-        ax_fric.text(0.98, 0.98, f'fx = {fx_val:+.1f} N',
-                     transform=ax_fric.transAxes, fontsize=7, fontweight='bold',
-                     color='red', va='top', ha='right',
-                     bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='red', alpha=0.8))
+        if hasattr(self, '_pb_fy_text'):
+            self._pb_fy_text.set_text(f'fy = {fy_val:+.1f} N')
+        if hasattr(self, '_pb_fx_text'):
+            self._pb_fx_text.set_text(f'fx = {fx_val:+.1f} N')
 
         # Steering and tire
         self._update_pb_steering(f['SA'])
         Fz = float(self.pb_Fz_var.get()) if self.pb_Fz_var.get() else 4000.0
         self._update_pb_tire(f['SA'], f['Fy'], Fz)
 
-        # Synchronous draw
-        self.canvas_pb.draw()
+        # Fast blit-style draw
+        self.canvas_pb.draw_idle()
+        self.canvas_pb.flush_events()
 
     # ── PerssonBrush: Playback controls ──
 
@@ -25585,13 +25637,19 @@ class PerssonModelGUI_V2:
         if not self._pb_frames:
             return
         self._pb_playing = True
+        self._pb_frame_accum = 0.0
+        self._log('PLAYBACK', f'재생 시작: 프레임 {self._pb_frame_idx}/{len(self._pb_frames)}, '
+                  f'속도={self._pb_speed_mult.get():.1f}x')
         self._pb_animate()
 
     def _pb_pause(self):
+        was_playing = self._pb_playing
         self._pb_playing = False
         if self._pb_play_after_id is not None:
             self.root.after_cancel(self._pb_play_after_id)
             self._pb_play_after_id = None
+        if was_playing:
+            self._log('PLAYBACK', f'재생 정지: 프레임 {self._pb_frame_idx}')
 
     def _pb_reset(self):
         self._pb_pause()
@@ -25599,22 +25657,42 @@ class PerssonModelGUI_V2:
         self.pb_time_slider.set(0)
         if self._pb_frames:
             self._pb_show_frame(0)
+            self._log('PLAYBACK', '프레임 초기화 (Reset)')
 
     def _pb_animate(self):
-        """Advance frames — time-based for smooth ~120Hz playback."""
+        """Advance frames — time-based for smooth ~120Hz playback.
+
+        Uses perf_counter to maintain constant real-time playback speed
+        regardless of render time. Target: ~8ms per frame (≈120 Hz).
+        """
         if not self._pb_playing or not self._pb_frames:
             return
         import time as _time
-        now = _time.perf_counter()
+        t_start = _time.perf_counter()
         n = len(self._pb_frames)
         speed = max(self._pb_speed_mult.get(), 0.25)
-        step = max(1, int(speed))
+
+        # Fractional frame advancement for sub-1x speeds
+        if not hasattr(self, '_pb_frame_accum'):
+            self._pb_frame_accum = 0.0
+        self._pb_frame_accum += speed
+        step = int(self._pb_frame_accum)
+        if step < 1:
+            # Not enough accumulated — schedule next tick without drawing
+            self._pb_play_after_id = self.root.after(8, self._pb_animate)
+            return
+        self._pb_frame_accum -= step
+
         self._pb_frame_idx = (self._pb_frame_idx + step) % n
-        if self._pb_frame_idx % 4 == 0:
-            self.pb_time_slider.set(self._pb_frame_idx)
         self._pb_show_frame(self._pb_frame_idx)
-        render_time = _time.perf_counter() - now
-        delay = max(1, 8 - int(render_time * 1000))
+
+        # Update slider less frequently to reduce overhead
+        if self._pb_frame_idx % 8 == 0:
+            self.pb_time_slider.set(self._pb_frame_idx)
+
+        render_ms = (_time.perf_counter() - t_start) * 1000
+        # Target ~8ms interval (120Hz); subtract render time
+        delay = max(1, int(8 - render_ms))
         self._pb_play_after_id = self.root.after(delay, self._pb_animate)
 
     def _create_brush_education_tab(self, notebook):
@@ -31753,6 +31831,31 @@ class PerssonModelGUI_V2:
                     self._log('CALC', f'    {k}: {lo:.4g} ~ {hi:.4g}')
         else:
             self._log('CALC', '2D Brush frames: NONE')
+
+        # PerssonBrush frames
+        pb_frames = getattr(self, '_pb_frames', [])
+        if pb_frames:
+            n = len(pb_frames)
+            self._log('CALC', f'PerssonBrush frames: {n} frames')
+            self._log('CALC', f'  Time range: {pb_frames[0]["t"]:.3f} ~ {pb_frames[-1]["t"]:.3f} s')
+            self._log('CALC', f'  SA range: {min(f["SA"] for f in pb_frames):.1f} ~ {max(f["SA"] for f in pb_frames):.1f} deg')
+            self._log('CALC', f'  SR range: {min(f["SR"] for f in pb_frames):.1f} ~ {max(f["SR"] for f in pb_frames):.1f} %')
+            self._log('CALC', f'  Fy range: {min(f["Fy"] for f in pb_frames):.1f} ~ {max(f["Fy"] for f in pb_frames):.1f} N')
+            self._log('CALC', f'  Fx range: {min(f["Fx"] for f in pb_frames):.1f} ~ {max(f["Fx"] for f in pb_frames):.1f} N')
+            # Temperature stats
+            all_t_pb = np.concatenate([f['T_contact'][f['_contact_mask']] for f in pb_frames])
+            self._log('CALC', f'  T_contact range: {np.min(all_t_pb):.1f} ~ {np.max(all_t_pb):.1f} °C')
+            # Sliding ratio
+            total_pb = sum(np.sum(f['_contact_mask']) for f in pb_frames)
+            sliding_pb = sum(np.sum(f['is_sliding'] & f['_contact_mask']) for f in pb_frames)
+            self._log('CALC', f'  Sliding ratio: {sliding_pb}/{total_pb} ({100*sliding_pb/max(total_pb,1):.1f}%)')
+            if hasattr(self, '_pb_global_ranges'):
+                gr = self._pb_global_ranges
+                self._log('CALC', f'  Colorbar ranges:')
+                for k, v in gr.items():
+                    self._log('CALC', f'    {k}: {v[0]:.4g} ~ {v[1]:.4g}')
+        else:
+            self._log('CALC', 'PerssonBrush frames: NONE')
 
         # Track simulation
         if getattr(self, '_track_sim_data', None) is not None:
