@@ -25082,6 +25082,12 @@ class PerssonModelGUI_V2:
                 p *= Fz / total
             return p
 
+        # Time arrays
+        t_out = np.arange(0, T_total + dt_out * 0.5, dt_out)
+        n_frames = len(t_out)
+        SA_profile = self._generate_time_profile(sa_type, sa_amp, t_out)
+        SR_profile = self._generate_time_profile(sr_type, sr_val, t_out)
+
         # Initial pressure for warmup (frame 0 SA/SR)
         p_map = _pb_dynamic_pressure(SA_profile[0], SR_profile[0])
         Fz_ij = p_map * dA
@@ -25097,12 +25103,6 @@ class PerssonModelGUI_V2:
 
         # Contact time
         t_contact = np.clip((xx_g + L / 2.0) / max(vc, 0.01), 0, None)
-
-        # Time arrays
-        t_out = np.arange(0, T_total + dt_out * 0.5, dt_out)
-        n_frames = len(t_out)
-        SA_profile = self._generate_time_profile(sa_type, sa_amp, t_out)
-        SR_profile = self._generate_time_profile(sr_type, sr_val, t_out)
 
         # Temperature from Cold&Hot
         chr_ = self._get_active_cold_hot_results()
