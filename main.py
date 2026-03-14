@@ -393,6 +393,10 @@ class PerssonModelGUI_V2:
         self._friction_map_store = []
         self._selected_friction_map_name = None  # 현재 선택된 마찰맵 이름
 
+        # ── Internal Log System ──
+        # Stores log entries for the Log Analysis tab
+        self._log_entries = []  # list of (timestamp, category, message)
+
         # Graph data registry for automatic data listing
         self.graph_data_registry = {}  # {name: {x, y, header, description, timestamp}}
 
@@ -918,6 +922,7 @@ class PerssonModelGUI_V2:
             ('tab_debug',           '디버그',              self._create_debug_tab),
             ('tab_friction_factors','영향 인자',           self._create_friction_factors_tab),
             ('tab_vtm',             '실차 매칭',           self._create_vehicle_test_matching_tab),
+            ('tab_log_analysis',    'Log 분석',            self._create_log_analysis_tab),
         ]
 
         # 기본 숨김 탭 목록
@@ -5377,6 +5382,10 @@ class PerssonModelGUI_V2:
         # Append to activity log panel
         self._append_log(message, level)
 
+        # Also record in Log Analysis
+        _cat_map = {'info': 'SYSTEM', 'success': 'SYSTEM', 'warning': 'UI', 'error': 'ERROR'}
+        self._log(_cat_map.get(level, 'SYSTEM'), clean_msg)
+
         # Cancel previous auto-clear timer
         if self._status_clear_id is not None:
             try:
@@ -5398,6 +5407,24 @@ class PerssonModelGUI_V2:
     def _update_material_display(self):
         """Update material information (if needed)."""
         pass  # Simplified for now
+
+    def _log(self, category, message):
+        """Add a log entry for the Log Analysis tab.
+
+        Args:
+            category: Log category (e.g., 'CALC', 'PLAYBACK', 'DATA', 'UI', 'ERROR')
+            message: Log message text
+        """
+        import datetime
+        ts = datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        entry = (ts, category, message)
+        self._log_entries.append(entry)
+        # Update log analysis text widget if it exists
+        if hasattr(self, '_log_analysis_text') and self._log_analysis_text:
+            tag = f'log_{category.lower()}'
+            self._log_analysis_text.insert(
+                'end', f"[{ts}] [{category:>8s}] {message}\n", tag)
+            self._log_analysis_text.see('end')
 
     def _load_material(self):
         """Load DMA data from file."""
@@ -12022,6 +12049,9 @@ class PerssonModelGUI_V2:
         - S(q) = γ + (1-γ)P(q)² : contact correction factor
         - Im[E(ω,T)] : loss modulus (optionally corrected by g(strain))
         """
+        import time as _time
+        _t0 = _time.perf_counter()
+        self._log('CALC', 'mu_visc calculation started')
         # Check if data is from Tab 0 and Tab 1
         tab0_ready = getattr(self, 'tab0_finalized', False)
         tab1_ready = getattr(self, 'tab1_finalized', False)
@@ -13338,6 +13368,13 @@ class PerssonModelGUI_V2:
                 self.status_var.set("μ_visc 계산 완료")
             self.mu_calc_button.config(state='normal')
 
+            _elapsed = _time.perf_counter() - _t0
+            self._log('CALC', f'mu_visc completed in {_elapsed:.2f}s: '
+                       f'cold [{smart_fmt(mu_min)}~{smart_fmt(mu_max)}], '
+                       f'peak={smart_fmt(peak_mu)} @ v={v[peak_idx]:.4f} m/s')
+            if use_flash and mu_hot_array is not None:
+                self._log('CALC', f'  Flash: hot [{smart_fmt(np.min(mu_hot_array))}~{smart_fmt(np.max(mu_hot_array))}], '
+                           f'ΔT=[{np.min(flash_results["delta_T"]):.1f}~{np.max(flash_results["delta_T"]):.1f}°C]')
             status_msg = (f"μ_visc 계산 완료\n"
                           f"Cold: {smart_fmt(mu_min)} ~ {smart_fmt(mu_max)}\n"
                           f"최대: μ={smart_fmt(peak_mu)} @ v={v[peak_idx]:.4f} m/s")
@@ -20762,6 +20799,7 @@ class PerssonModelGUI_V2:
 
         Cold: mu_visc_results['mu'] (cold hys) + mu_adh_results['mu_adh'] (cold adh)
         Hot hys: mu_visc_results['mu_hot']
+
         Hot adh: A_A0_hot × tau_f_hot(T_hot) / p0
                  tau_f_hot recalculated with Arrhenius aT' at T_hot
 
@@ -20770,6 +20808,7 @@ class PerssonModelGUI_V2:
         re-runs μ_adh (which cascades to μ_visc recalculation).
         """
         try:
+            self._log('CALC', 'Cold & Hot Branch calculation started')
             self.ch_calc_button.config(state='disabled')
             self.ch_progress_var.set(0)
             self.status_var.set("Cold & Hot Branch 계산 시작...")
@@ -21990,6 +22029,7 @@ class PerssonModelGUI_V2:
         try:
             import time as _time
             t_start = _time.time()
+            self._log('CALC', 'Friction Map generation started')
 
             # ── Validate prerequisites ──
             if self.psd_model is None:
@@ -22576,6 +22616,7 @@ class PerssonModelGUI_V2:
                 self.fm_status_label.config(text=f"완료 ({elapsed:.1f}s)")
             except Exception:
                 pass
+            self._log('CALC', f'Friction Map completed: {n_T}×{n_p}×{n_v}={n_T*n_p*n_v} cells in {elapsed:.1f}s')
             self._show_status(
                 f"Friction Map 생성 완료\n"
                 f"Grid: {n_T}×{n_p}×{n_v} = {n_T*n_p*n_v} cells\n"
@@ -24268,6 +24309,19 @@ class PerssonModelGUI_V2:
         toolbar = NavigationToolbar2Tk(self.canvas_brush, plot_frame)
         toolbar.update()
 
+        # ── Auto-resize figure to fill widget on every geometry change ──
+        def _on_brush_canvas_resize(event):
+            w, h = event.width, event.height
+            if w > 1 and h > 1:
+                self.fig_brush.set_size_inches(
+                    w / self.fig_brush.dpi, h / self.fig_brush.dpi,
+                    forward=False)
+                # Invalidate blit background after resize
+                self._br_blit_bg = None
+                self._br_use_blit = False
+                self.canvas_brush.draw_idle()
+        self.canvas_brush.get_tk_widget().bind('<Configure>', _on_brush_canvas_resize)
+
         # ── Tab 2: Educational Material ──
         self._create_brush_education_tab(self.br_right_notebook)
 
@@ -25547,16 +25601,20 @@ class PerssonModelGUI_V2:
             self._pb_show_frame(0)
 
     def _pb_animate(self):
-        """Advance one frame and schedule next."""
+        """Advance frames — time-based for smooth ~120Hz playback."""
         if not self._pb_playing or not self._pb_frames:
             return
+        import time as _time
+        now = _time.perf_counter()
         n = len(self._pb_frames)
         speed = max(self._pb_speed_mult.get(), 0.25)
         step = max(1, int(speed))
         self._pb_frame_idx = (self._pb_frame_idx + step) % n
-        self.pb_time_slider.set(self._pb_frame_idx)
+        if self._pb_frame_idx % 4 == 0:
+            self.pb_time_slider.set(self._pb_frame_idx)
         self._pb_show_frame(self._pb_frame_idx)
-        delay = max(int(30 / speed), 8)
+        render_time = _time.perf_counter() - now
+        delay = max(1, 8 - int(render_time * 1000))
         self._pb_play_after_id = self.root.after(delay, self._pb_animate)
 
     def _create_brush_education_tab(self, notebook):
@@ -26627,14 +26685,36 @@ class PerssonModelGUI_V2:
             self.status_var.set("2D Brush Transient 시뮬레이션 중...")
             self.root.update()
 
+            import time as _time
+            _t_start = _time.perf_counter()
+            self._log('CALC', '2D Brush Transient simulation started')
+            self._log('CALC', f'  Nx={self.br_Nx_var.get()}, Ny={self.br_Ny_var.get()}, '
+                       f'L={self.br_L_var.get()}m, W={self.br_W_var.get()}m, '
+                       f'Fz={self.br_Fz_var.get()}N')
+            self._log('CALC', f'  kx={self.br_kx_var.get()}, ky={self.br_ky_var.get()}, '
+                       f'vc={self.br_vc_var.get()}m/s')
+            self._log('CALC', f'  T_total={self.br_total_time_var.get()}s, '
+                       f'frames={self.br_frame_count_var.get()}, '
+                       f'SA_type={self.br_sa_type_var.get()}, SA_amp={self.br_sa_amp_var.get()}, '
+                       f'SR_type={self.br_sr_type_var.get()}, SR_val={self.br_sr_val_var.get()}')
+
             self._br_cbs_created = False
             self._br_artists_ready = False
             self._run_brush_transient()
 
+            _elapsed = _time.perf_counter() - _t_start
             self.br_progress_var.set(100)
             self.status_var.set("2D Brush Transient 완료")
             self.br_calc_btn.config(state='normal')
             n = len(self._brush_frames)
+            self._log('CALC', f'2D Brush Transient completed: {n} frames in {_elapsed:.2f}s')
+            self._log('CALC', f'  Fy range: {min(f["Fy"] for f in self._brush_frames):.1f} ~ '
+                       f'{max(f["Fy"] for f in self._brush_frames):.1f} N')
+            self._log('CALC', f'  Fx range: {min(f["Fx"] for f in self._brush_frames):.1f} ~ '
+                       f'{max(f["Fx"] for f in self._brush_frames):.1f} N')
+            if hasattr(self, '_br_global_ranges'):
+                for k, (lo, hi) in self._br_global_ranges.items():
+                    self._log('CALC', f'  {k} range: {lo:.4g} ~ {hi:.4g}')
             self._show_status(f"Transient 완료: {n} 프레임 생성", 'success')
 
             # Update slider range and show first frame
@@ -26660,9 +26740,11 @@ class PerssonModelGUI_V2:
 
         except ValueError as e:
             self.br_calc_btn.config(state='normal')
+            self._log('ERROR', f'2D Brush Transient ValueError: {str(e)}')
             self._show_status(f"입력값 오류: {str(e)}", 'warning')
         except Exception as e:
             self.br_calc_btn.config(state='normal')
+            self._log('ERROR', f'2D Brush Transient Exception: {str(e)}')
             messagebox.showerror("오류", f"Transient 시뮬레이션 실패:\n{str(e)}")
             import traceback
             traceback.print_exc()
@@ -27035,11 +27117,29 @@ class PerssonModelGUI_V2:
         all_pres = np.concatenate([f['p_map'][f['_contact_mask']] * 1e-5 for f in frames])
         all_temp = np.concatenate([f['T_contact'][f['_contact_mask']] for f in frames])
         all_fric_force = np.concatenate([f['F_friction'][f['_contact_mask']] for f in frames])
+        # Temperature: use percentile-based range to avoid stick zone dominating
+        t_lo_raw = np.min(all_temp)
+        t_hi_raw = np.max(all_temp)
+        t_p02 = np.percentile(all_temp, 2)
+        t_p98 = np.percentile(all_temp, 98)
+        # Ensure meaningful range even when most nodes are at base temperature
+        t_range = max(t_hi_raw - t_lo_raw, 1.0)
+        t_lo_vis = t_lo_raw
+        t_hi_vis = max(t_hi_raw, t_lo_raw + t_range)
+        # If range is very skewed (>80% at base), compress the low end
+        if t_p98 > t_p02 + 0.5:
+            t_lo_vis = t_p02
+            t_hi_vis = t_p98 + (t_hi_raw - t_p98) * 0.5
+        # Friction force: use percentile-based range for better contrast
+        f_p02 = np.percentile(all_fric_force, 2)
+        f_p98 = np.percentile(all_fric_force, 98)
+        f_lo_vis = max(f_p02, 0)
+        f_hi_vis = max(f_p98, 0.001)
         self._br_global_ranges = {
             'speed': (max(np.min(all_speed), 0), max(np.max(all_speed), 0.1)),
             'pressure': (max(np.min(all_pres), 0), max(np.max(all_pres), 0.01)),
-            'temperature': (np.min(all_temp), max(np.max(all_temp), np.min(all_temp) + 1)),
-            'friction': (max(np.min(all_fric_force), 0), max(np.max(all_fric_force), 0.001)),
+            'temperature': (t_lo_vis, t_hi_vis),
+            'friction': (f_lo_vis, f_hi_vis),
         }
 
         # Draw the static time-history plots
@@ -27800,6 +27900,7 @@ class PerssonModelGUI_V2:
         from matplotlib.colors import ListedColormap, BoundaryNorm
         import matplotlib.cm as mcm
         from matplotlib.ticker import FuncFormatter
+        import matplotlib.patheffects as PathEffects
 
         # Inset colorbars: always recreate (they don't steal axis space)
         # Remove old inset colorbar axes to prevent duplicates
@@ -27857,7 +27958,10 @@ class PerssonModelGUI_V2:
             init_sa = self._brush_frames[0]['SA'] if self._brush_frames else 0
             verts = self._egg_outline(init_sa, L_mm / 2, W_mm / 2)
             poly = MplPolygon(verts, closed=True, fill=False,
-                              edgecolor='k', linewidth=1.5, zorder=5)
+                              edgecolor='white', linewidth=2.5, zorder=5,
+                              path_effects=[
+                                  PathEffects.withStroke(linewidth=4.0,
+                                                         foreground='black')])
             ax.add_patch(poly)
             return poly
 
@@ -27892,6 +27996,7 @@ class PerssonModelGUI_V2:
         # ── (1) sliding vs adhesion — pcolormesh with 2-color map ──
         ax1 = self.ax_br_stick
         ax1.clear()
+        ax1.set_facecolor('#E8E8E8')  # light gray background for contrast
         cmap_sa = ListedColormap(['#2196F3', '#F44336'])
         bounds_sa = [0, 0.5, 1.0]
         norm_sa = BoundaryNorm(bounds_sa, cmap_sa.N)
@@ -27979,6 +28084,7 @@ class PerssonModelGUI_V2:
         # ── (3) contact pressure — pcolormesh with discrete levels ──
         ax3 = self.ax_br_pressure
         ax3.clear()
+        ax3.set_facecolor('#E8E8E8')  # light gray background for contrast
         pr_lo, pr_hi = gr['pressure']
         pr_boundaries = np.linspace(pr_lo, pr_hi, n_levels + 1)
         pr_cmap = plt.colormaps['jet'].resampled(n_levels)
@@ -27999,6 +28105,7 @@ class PerssonModelGUI_V2:
         # ── (4) temperature — pcolormesh with discrete levels ──
         ax4 = self.ax_br_temperature
         ax4.clear()
+        ax4.set_facecolor('#E8E8E8')  # light gray background for contrast
         t_lo, t_hi = gr['temperature']
         t_boundaries = np.linspace(t_lo, t_hi, n_levels + 1)
         t_cmap = plt.colormaps['jet'].resampled(n_levels)
@@ -28019,6 +28126,7 @@ class PerssonModelGUI_V2:
         # ── (5) friction force — pcolormesh with indexed discrete levels ──
         ax5 = self.ax_br_friction
         ax5.clear()
+        ax5.set_facecolor('#E8E8E8')  # light gray background for contrast
         f_lo, f_hi = gr['friction']
         fric_boundaries = np.linspace(f_lo, f_hi, n_levels + 1)
         fric_cmap = plt.colormaps['jet'].resampled(n_levels)
@@ -28296,6 +28404,22 @@ class PerssonModelGUI_V2:
         self._brush_playing = True
         self._br_frame_accum = 0.0
         self._br_last_anim_time = None  # reset time-based pacer
+        self._log('PLAYBACK', f'Brush playback started at frame {self._brush_frame_idx}/{len(self._brush_frames)}')
+        # Re-capture blit background if invalidated (e.g., after resize)
+        if not getattr(self, '_br_use_blit', False) and getattr(self, '_br_artists_ready', False):
+            try:
+                _vis_states = []
+                for a in self._br_dynamic_artists:
+                    _vis_states.append(a.get_visible())
+                    a.set_visible(False)
+                self.canvas_brush.draw()
+                self._br_blit_bg = self.canvas_brush.copy_from_bbox(
+                    self.fig_brush.bbox)
+                for a, vis in zip(self._br_dynamic_artists, _vis_states):
+                    a.set_visible(vis)
+                self._br_use_blit = True
+            except Exception:
+                self._br_use_blit = False
         self._brush_animate()
 
     def _brush_pause(self):
@@ -28304,6 +28428,7 @@ class PerssonModelGUI_V2:
         if self._brush_play_after_id is not None:
             self.root.after_cancel(self._brush_play_after_id)
             self._brush_play_after_id = None
+        self._log('PLAYBACK', f'Brush playback paused at frame {self._brush_frame_idx}')
 
     def _brush_reset(self):
         """Reset to first frame."""
@@ -28415,7 +28540,13 @@ class PerssonModelGUI_V2:
         self._refresh_outline_and_blit_bg()
 
     def _brush_animate(self):
-        """Advance frames — time-based for smooth playback regardless of timer resolution."""
+        """Advance frames — time-based for smooth ~120Hz playback.
+
+        All frame data is pre-computed; this only updates visual artists.
+        Uses 8ms timer (~120Hz) with time-based frame advancement and
+        interpolation to ensure smooth, consistent playback regardless
+        of system timer resolution.
+        """
         if not self._brush_playing or not self._brush_frames:
             return
 
@@ -28433,7 +28564,7 @@ class PerssonModelGUI_V2:
             # First tick — just show current frame and record time
             self._br_last_anim_time = now
             self._brush_show_frame(self._brush_frame_idx)
-            self._brush_play_after_id = self.root.after(1, self._brush_animate)
+            self._brush_play_after_id = self.root.after(8, self._brush_animate)
             return
 
         dt_wall = now - last_t
@@ -28451,8 +28582,8 @@ class PerssonModelGUI_V2:
         self._br_frame_accum = acc - frame_skip
 
         if frame_skip < 1:
-            # Not enough time elapsed — schedule next tick
-            self._brush_play_after_id = self.root.after(1, self._brush_animate)
+            # Not enough time elapsed — schedule next tick at ~120Hz
+            self._brush_play_after_id = self.root.after(8, self._brush_animate)
             return
 
         self._br_last_anim_time = now
@@ -28461,13 +28592,16 @@ class PerssonModelGUI_V2:
             self._brush_frame_idx = 0  # loop
 
         # Update time slider infrequently to reduce widget overhead
-        if self._brush_frame_idx % 8 == 0:
+        if self._brush_frame_idx % 4 == 0:
             self.br_time_slider.set(self._brush_frame_idx)
 
         self._brush_show_frame(self._brush_frame_idx)
 
-        # Minimal delay — let rendering be the natural frame pacer
-        self._brush_play_after_id = self.root.after(1, self._brush_animate)
+        # Compute time until next frame at ~120Hz target
+        render_time = _time.perf_counter() - now
+        target_interval_ms = 8  # ~120Hz
+        next_delay = max(1, target_interval_ms - int(render_time * 1000))
+        self._brush_play_after_id = self.root.after(next_delay, self._brush_animate)
 
     # ── 2D Brush: Plot update (legacy, for backward compat) ──
 
@@ -29758,6 +29892,7 @@ class PerssonModelGUI_V2:
 
     # ── Simulation engine ──
     def _run_track_simulation(self):
+        self._log('CALC', 'Track Simulation started')
         """Run lap simulation + pre-compute brush data.
 
         Requires Cold & Hot Branch friction map data (from earlier tabs).
@@ -30374,20 +30509,22 @@ class PerssonModelGUI_V2:
         self._ts_frame_accum = acc - frame_skip
 
         if frame_skip < 1:
-            self._track_play_after_id = self.root.after(1, self._track_animate_step)
+            self._track_play_after_id = self.root.after(8, self._track_animate_step)
             return
 
         self._ts_last_anim_time = now
         self._track_frame_idx = (self._track_frame_idx + frame_skip) % n
 
         # Update slider infrequently
-        if self._track_frame_idx % 8 == 0:
+        if self._track_frame_idx % 4 == 0:
             self.ts_time_slider.set(self._track_frame_idx)
 
         self._update_track_frame(self._track_frame_idx)
 
-        # Minimal delay — let rendering be the natural frame pacer
-        self._track_play_after_id = self.root.after(1, self._track_animate_step)
+        # ~120Hz target: 8ms interval minus render time
+        render_time = _time.perf_counter() - now
+        next_delay = max(1, 8 - int(render_time * 1000))
+        self._track_play_after_id = self.root.after(next_delay, self._track_animate_step)
 
     def _track_pause(self):
         self._track_playing = False
@@ -31388,6 +31525,242 @@ class PerssonModelGUI_V2:
 
         self.fig_ve_advisor.subplots_adjust(left=0.08, right=0.97, top=0.96, bottom=0.06, hspace=0.45)
         self.canvas_ve_advisor.draw()
+
+    # ================================================================
+    # ====  Log Analysis Tab  ====
+    # ================================================================
+
+    def _create_log_analysis_tab(self, parent):
+        """Create Log Analysis tab — displays all computation and playback logs.
+
+        Provides real-time logging of:
+        - Calculation parameters and results
+        - Playback frame rates and timing
+        - Data loading/export events
+        - Error diagnostics
+        """
+        C = self.COLORS
+
+        main = ttk.Frame(parent)
+        main.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
+
+        # ── Toolbar ──
+        toolbar = ttk.Frame(main)
+        toolbar.pack(fill=tk.X, pady=(0, 4))
+
+        ttk.Button(toolbar, text="로그 지우기",
+                   command=self._clear_log_analysis).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="로그 파일 저장",
+                   command=self._export_log_analysis).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="현재 상태 스냅샷",
+                   command=self._log_current_state_snapshot).pack(side=tk.LEFT, padx=2)
+
+        # Filter checkboxes
+        filter_frame = ttk.Frame(toolbar)
+        filter_frame.pack(side=tk.LEFT, padx=20)
+        ttk.Label(filter_frame, text="필터:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self._log_filter_vars = {}
+        for cat in ('CALC', 'PLAYBACK', 'DATA', 'UI', 'ERROR', 'SYSTEM'):
+            var = tk.BooleanVar(value=True)
+            self._log_filter_vars[cat] = var
+            ttk.Checkbutton(filter_frame, text=cat, variable=var,
+                            command=self._refresh_log_display).pack(side=tk.LEFT, padx=3)
+
+        # ── Log stats bar ──
+        stats_frame = ttk.Frame(main)
+        stats_frame.pack(fill=tk.X, pady=(0, 2))
+        self._log_stats_var = tk.StringVar(value="로그 항목: 0개")
+        ttk.Label(stats_frame, textvariable=self._log_stats_var,
+                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        # ── Log text widget ──
+        text_frame = ttk.Frame(main)
+        text_frame.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar = ttk.Scrollbar(text_frame, orient='vertical')
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self._log_analysis_text = tk.Text(
+            text_frame, wrap=tk.NONE, font=('NanumGothicCoding', 10),
+            bg='#1E1E2E', fg='#CDD6F4', insertbackground='white',
+            selectbackground='#45475A', selectforeground='#CDD6F4',
+            yscrollcommand=scrollbar.set, state='normal',
+            padx=8, pady=4)
+        self._log_analysis_text.pack(fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self._log_analysis_text.yview)
+
+        # Horizontal scrollbar
+        hscroll = ttk.Scrollbar(main, orient='horizontal',
+                                command=self._log_analysis_text.xview)
+        hscroll.pack(fill=tk.X)
+        self._log_analysis_text.config(xscrollcommand=hscroll.set)
+
+        # ── Tag colors for categories ──
+        self._log_analysis_text.tag_configure('log_calc',
+            foreground='#A6E3A1')  # green
+        self._log_analysis_text.tag_configure('log_playback',
+            foreground='#89B4FA')  # blue
+        self._log_analysis_text.tag_configure('log_data',
+            foreground='#F9E2AF')  # yellow
+        self._log_analysis_text.tag_configure('log_ui',
+            foreground='#CBA6F7')  # purple
+        self._log_analysis_text.tag_configure('log_error',
+            foreground='#F38BA8')  # red
+        self._log_analysis_text.tag_configure('log_system',
+            foreground='#94E2D5')  # teal
+        self._log_analysis_text.tag_configure('log_header',
+            foreground='#FAB387', font=('NanumGothicCoding', 11, 'bold'))
+
+        # Write initial header
+        self._log_analysis_text.insert('end',
+            "═══════════════════════════════════════════════════════\n"
+            "  NEXEN Rubber Friction Modelling — Log Analysis\n"
+            "═══════════════════════════════════════════════════════\n\n",
+            'log_header')
+
+        # Replay any existing log entries
+        for ts, cat, msg in self._log_entries:
+            tag = f'log_{cat.lower()}'
+            self._log_analysis_text.insert(
+                'end', f"[{ts}] [{cat:>8s}] {msg}\n", tag)
+        self._log_analysis_text.see('end')
+
+    def _clear_log_analysis(self):
+        """Clear all log entries."""
+        self._log_entries.clear()
+        if hasattr(self, '_log_analysis_text') and self._log_analysis_text:
+            self._log_analysis_text.delete('1.0', 'end')
+            self._log_analysis_text.insert('end',
+                "═══════════════════════════════════════════════════════\n"
+                "  Log cleared.\n"
+                "═══════════════════════════════════════════════════════\n\n",
+                'log_header')
+        self._log_stats_var.set("로그 항목: 0개")
+
+    def _refresh_log_display(self):
+        """Re-display log entries with current filter settings."""
+        if not hasattr(self, '_log_analysis_text'):
+            return
+        self._log_analysis_text.delete('1.0', 'end')
+        self._log_analysis_text.insert('end',
+            "═══════════════════════════════════════════════════════\n"
+            "  NEXEN Rubber Friction Modelling — Log Analysis\n"
+            "═══════════════════════════════════════════════════════\n\n",
+            'log_header')
+        shown = 0
+        for ts, cat, msg in self._log_entries:
+            fvar = self._log_filter_vars.get(cat)
+            if fvar and not fvar.get():
+                continue
+            tag = f'log_{cat.lower()}'
+            self._log_analysis_text.insert('end',
+                f"[{ts}] [{cat:>8s}] {msg}\n", tag)
+            shown += 1
+        self._log_analysis_text.see('end')
+        self._log_stats_var.set(f"로그 항목: {shown}/{len(self._log_entries)}개")
+
+    def _export_log_analysis(self):
+        """Export all log entries to a text file."""
+        from tkinter import filedialog
+        filepath = filedialog.asksaveasfilename(
+            defaultextension='.txt',
+            initialfile='friction_model_log.txt',
+            filetypes=[('Text files', '*.txt'), ('All files', '*.*')],
+            title='로그 파일 저장')
+        if not filepath:
+            return
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write("NEXEN Rubber Friction Modelling — Log Analysis\n")
+                f.write("=" * 60 + "\n\n")
+                for ts, cat, msg in self._log_entries:
+                    f.write(f"[{ts}] [{cat:>8s}] {msg}\n")
+            self._show_status(f"로그 저장 완료: {filepath}", 'success')
+        except Exception as e:
+            self._show_status(f"로그 저장 실패: {e}", 'error')
+
+    def _log_current_state_snapshot(self):
+        """Log a snapshot of the current program state."""
+        import numpy as np
+        self._log('SYSTEM', '─── Current State Snapshot ───')
+
+        # Material data
+        if self.material is not None:
+            self._log('DATA', f'Material loaded: {getattr(self.material, "name", "unknown")}')
+        else:
+            self._log('DATA', 'Material: NOT loaded')
+
+        # PSD model
+        if self.psd_model is not None:
+            self._log('DATA', f'PSD model: loaded')
+        else:
+            self._log('DATA', 'PSD model: NOT loaded')
+
+        # mu_visc results
+        if self.mu_visc_results is not None:
+            self._log('CALC', f'mu_visc: computed')
+        else:
+            self._log('CALC', 'mu_visc: NOT computed')
+
+        # mu_adh results
+        if self.mu_adh_results is not None:
+            self._log('CALC', f'mu_adh: computed')
+        else:
+            self._log('CALC', 'mu_adh: NOT computed')
+
+        # Cold & Hot branch
+        if getattr(self, 'cold_hot_results', None) is not None:
+            self._log('CALC', f'Cold & Hot Branch: computed')
+        else:
+            self._log('CALC', 'Cold & Hot Branch: NOT computed')
+
+        # Friction map
+        if getattr(self, 'friction_map_results', None) is not None:
+            self._log('CALC', f'Friction Map: computed')
+        else:
+            self._log('CALC', 'Friction Map: NOT computed')
+
+        # Friction map store
+        store_count = len(getattr(self, '_friction_map_store', []))
+        self._log('DATA', f'Friction Map Store: {store_count} items')
+
+        # 2D Brush frames
+        brush_frames = getattr(self, '_brush_frames', [])
+        if brush_frames:
+            n = len(brush_frames)
+            self._log('CALC', f'2D Brush frames: {n} frames')
+            f0 = brush_frames[0]
+            self._log('CALC', f'  Time range: {f0["t"]:.3f} ~ {brush_frames[-1]["t"]:.3f} s')
+            self._log('CALC', f'  SA range: {min(f["SA"] for f in brush_frames):.1f} ~ {max(f["SA"] for f in brush_frames):.1f} deg')
+            self._log('CALC', f'  SR range: {min(f["SR"] for f in brush_frames):.1f} ~ {max(f["SR"] for f in brush_frames):.1f} %')
+            self._log('CALC', f'  Fy range: {min(f["Fy"] for f in brush_frames):.1f} ~ {max(f["Fy"] for f in brush_frames):.1f} N')
+            self._log('CALC', f'  Fx range: {min(f["Fx"] for f in brush_frames):.1f} ~ {max(f["Fx"] for f in brush_frames):.1f} N')
+            # Temperature stats
+            all_t = np.concatenate([f['T_contact'][f['_contact_mask']] for f in brush_frames])
+            self._log('CALC', f'  T_contact range: {np.min(all_t):.1f} ~ {np.max(all_t):.1f} °C (mean={np.mean(all_t):.1f})')
+            # Friction force stats
+            all_ff = np.concatenate([f['F_friction'][f['_contact_mask']] for f in brush_frames])
+            self._log('CALC', f'  F_friction range: {np.min(all_ff):.4f} ~ {np.max(all_ff):.4f} N/node')
+            # Sliding ratio
+            total_nodes = sum(np.sum(f['_contact_mask']) for f in brush_frames)
+            sliding_nodes = sum(np.sum(f['is_sliding'] & f['_contact_mask']) for f in brush_frames)
+            self._log('CALC', f'  Sliding ratio: {sliding_nodes}/{total_nodes} ({100*sliding_nodes/max(total_nodes,1):.1f}%)')
+            # Global ranges
+            if hasattr(self, '_br_global_ranges'):
+                gr = self._br_global_ranges
+                self._log('CALC', f'  Colorbar ranges:')
+                for k, (lo, hi) in gr.items():
+                    self._log('CALC', f'    {k}: {lo:.4g} ~ {hi:.4g}')
+        else:
+            self._log('CALC', '2D Brush frames: NONE')
+
+        # Track simulation
+        if getattr(self, '_track_sim_data', None) is not None:
+            self._log('CALC', f'Track Simulation: computed')
+        else:
+            self._log('CALC', 'Track Simulation: NOT computed')
+
+        self._log('SYSTEM', '─── End Snapshot ───')
 
 
 def _enable_dpi_awareness():
