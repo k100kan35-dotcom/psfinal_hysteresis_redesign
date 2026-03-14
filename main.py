@@ -25033,8 +25033,57 @@ class PerssonModelGUI_V2:
         se_r = np.abs(2 * xx_g / L)**se_n + np.abs(2 * yy_g / W)**se_n
         ellipse_mask = se_r <= 1.0
 
-        # Pressure map
-        p_map, _, _, _, _ = self._build_pressure_map(Nx, Ny, L, W, Fz, ptype, driving_mode)
+        # ── Dynamic pressure builder (SA/SR-dependent, like 2D Brush) ──
+        # Pre-compute base pressure shape
+        if ptype == 'uniform':
+            _pb_p_base = np.ones((Nx, Ny))
+        elif ptype == 'elliptic':
+            _pb_p_base = np.sqrt(np.clip(1 - se_r ** (2.0 / se_n), 0, None))
+        elif ptype == 'dual_peak':
+            _lon_env = np.clip(1 - np.abs(2 * xx_g / L)**se_n, 0, None)
+            _y_norm = 2 * yy_g / W
+            _pk_pos, _pk_w = 0.55, 0.45
+            _pb_p_base = (np.exp(-((_y_norm - _pk_pos) / _pk_w)**2) +
+                          np.exp(-((_y_norm + _pk_pos) / _pk_w)**2)) * _lon_env
+            _pb_p_base *= ellipse_mask
+        else:  # parabolic
+            _pb_p_base = (np.clip(1 - np.abs(2 * xx_g / L)**se_n, 0, None) *
+                          np.clip(1 - np.abs(2 * yy_g / W)**se_n, 0, None))
+
+        _pb_is_dual = (ptype == 'dual_peak')
+        if _pb_is_dual:
+            _lon_env_dp = np.clip(1 - np.abs(2 * xx_g / L)**se_n, 0, None)
+            _y_n_dp = 2 * yy_g / W
+            _peak_hi = np.exp(-((_y_n_dp - 0.55) / 0.45)**2) * _lon_env_dp
+            _peak_lo = np.exp(-((_y_n_dp + 0.55) / 0.45)**2) * _lon_env_dp
+
+        _asym_preset = self._ASYM_PRESETS.get(
+            self.pb_asym_preset_var.get(), (0.35, 0.40))
+        _ASYM_C, _ASYM_F = _asym_preset
+
+        def _pb_dynamic_pressure(sa_deg_loc, sr_pct_loc):
+            """Build pressure that shifts laterally with SA, longitudinally with SR."""
+            sa_factor = -np.clip(sa_deg_loc / 6.0, -1, 1)
+            if _pb_is_dual:
+                hi_s = max(1.0 + _ASYM_C * sa_factor, _ASYM_F)
+                lo_s = max(1.0 - _ASYM_C * sa_factor, _ASYM_F)
+                p = hi_s * _peak_hi + lo_s * _peak_lo
+            else:
+                p = _pb_p_base.copy()
+                lat_w = 1.0 + 0.8 * sa_factor * (2 * yy_g / W)
+                p *= np.clip(lat_w, 0.05, None)
+            # Longitudinal shift from SR
+            sr_factor = np.clip(sr_pct_loc / 5.0, -1, 1)
+            lon_w = 1.0 + 0.5 * sr_factor * (2 * xx_g / L)
+            p *= np.clip(lon_w, 0.1, None)
+            p *= ellipse_mask
+            total = np.sum(p) * dA
+            if total > 0:
+                p *= Fz / total
+            return p
+
+        # Initial pressure for warmup (frame 0 SA/SR)
+        p_map = _pb_dynamic_pressure(SA_profile[0], SR_profile[0])
         Fz_ij = p_map * dA
 
         # Per-node stiffness
@@ -25176,6 +25225,10 @@ class PerssonModelGUI_V2:
             sr_pct = SR_profile[fi]
             outline_verts = self._egg_outline(sa_deg, L / 2, W / 2)
 
+            # ── Dynamic pressure: update per frame with current SA/SR ──
+            p_map = _pb_dynamic_pressure(sa_deg, sr_pct)
+            Fz_ij = p_map * dA
+
             # Integrate ODE sub-steps from previous frame to this frame
             # Use piecewise-linear SA/SR: interpolate at frame boundaries,
             # hold constant within sub-steps for speed
@@ -25278,6 +25331,10 @@ class PerssonModelGUI_V2:
 
             F_node_mag = np.sqrt(Fx_sp**2 + Fy_sp**2)
 
+            # Block deformation (rim - block): shows tread stretch direction
+            def_x = ((x_rim - x_block) * cmask).copy()
+            def_y = ((y_rim - y_block) * cmask).copy()
+
             frames.append({
                 't': t_frame, 'SA': sa_deg, 'SR': sr_pct,
                 'Fx': Fx_total, 'Fy': Fy_total,
@@ -25285,6 +25342,7 @@ class PerssonModelGUI_V2:
                 'v_slip_mag': v_slip_final.copy(),
                 'v_trans_x': (vx_block * cmask).copy(),
                 'v_trans_y': (vy_block * cmask).copy(),
+                'def_x': def_x, 'def_y': def_y,
                 'p_map': p_map.copy(),
                 'T_contact': T_contact.copy(),
                 'mu_eff': mu_eff_final.copy(),
@@ -25427,6 +25485,25 @@ class PerssonModelGUI_V2:
         # Contact patch outline (drawn once)
         Z_mask = np.where(mask_fill, 1.0, 0.0)
         ax1.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.2)
+
+        # Quiver overlay: shows tread block deformation s(t) direction
+        # Subsample grid for clarity (every _q_step-th node)
+        _q_step = max(len(x_mm) // 12, 1)
+        _qx = x_mm[::_q_step]
+        _qy = y_mm[::_q_step]
+        _qxx, _qyy = np.meshgrid(_qx, _qy, indexing='ij')
+        _zero_q = np.zeros_like(_qxx)
+        # scale=None lets matplotlib auto-scale; we manually normalise in set_UVC
+        self._pb_quiver = ax1.quiver(
+            _qxx, _qyy, _zero_q, _zero_q,
+            color='white', angles='xy', scale_units='xy', scale=1.0,
+            width=0.004, headwidth=3.5, headlength=4,
+            edgecolor='k', linewidth=0.3,
+            zorder=5, alpha=0.85)
+        self._pb_quiver_step = _q_step
+        # Target arrow length: fraction of patch diagonal
+        self._pb_quiver_target_len = 0.12 * np.sqrt(
+            (x_mm[-1] - x_mm[0])**2 + (y_mm[-1] - y_mm[0])**2)
 
         # (2) slip speed — pcolormesh
         sp_lo, sp_hi = gr['speed']
@@ -25593,6 +25670,20 @@ class PerssonModelGUI_V2:
         # (1) sliding vs adhesion — fast set_array
         is_sl = np.where(mask_fill, f['is_sliding'].astype(float), np.nan)
         self._pb_pm_stick.set_array(is_sl.T.ravel())
+
+        # Update quiver: show tread block deformation s(t)
+        if hasattr(self, '_pb_quiver') and 'def_x' in f:
+            qs = self._pb_quiver_step
+            dx_q = f['def_x'][::qs, ::qs] * 1000  # m → mm
+            dy_q = f['def_y'][::qs, ::qs] * 1000
+            mag = np.sqrt(dx_q**2 + dy_q**2)
+            max_mag = np.max(mag)
+            if max_mag > 1e-6:
+                # Scale arrows so longest ≈ target_len (fraction of patch)
+                scale = self._pb_quiver_target_len / max_mag
+                self._pb_quiver.set_UVC(dx_q.T * scale, dy_q.T * scale)
+            else:
+                self._pb_quiver.set_UVC(dx_q.T * 0, dy_q.T * 0)
 
         # (2-5) All pcolormesh plots — fast set_array
         data_map = {
