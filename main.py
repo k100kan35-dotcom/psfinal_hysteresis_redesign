@@ -24990,9 +24990,9 @@ class PerssonModelGUI_V2:
                              bounds_error=False, fill_value=(_dT_arr[0], _dT_arr[-1]))
 
         eps = 1e-9
-        # Karnopp stick/slip parameters with wider smoothing band to prevent chattering
-        v_tol = 5e-3  # velocity threshold for stick detection [m/s]
-        v_smooth = 10.0 * v_tol  # wider smoothing band for stick↔slip transition
+        # Karnopp stick/slip parameters
+        v_tol = 1e-3  # velocity threshold for stick detection [m/s]
+        v_smooth = 3.0 * v_tol  # smoothing band for mu transition
         # Static friction: use LUT at near-zero speed (peak μ at low v)
         mu_static_val = float(max(lut_cold(0.001), lut_hot(0.001)))
 
@@ -25040,15 +25040,15 @@ class PerssonModelGUI_V2:
             Fy_spring = ky_node * (y_rim - y_block) + cy_node * (vy_rim_vel_0 - vy_block)
             F_spring_mag = np.sqrt(Fx_spring**2 + Fy_spring**2)
 
-            # Smooth stick↔slip friction (no hard switch — prevents chattering)
-            # stick_w = 1 near stick (low v, low spring force), 0 in full slip
+            # Karnopp stick/slip friction
+            is_slow = v_slip_mag < v_tol
             F_static_cap = mu_static_val * Fz_ij
-            v_ratio = np.clip(v_slip_mag / v_smooth, 0.0, 1.0)
-            f_ratio = np.clip(F_spring_mag / (F_static_cap + eps), 0.0, 2.0)
-            stick_w = (1.0 - v_ratio) * np.clip(1.0 - f_ratio, 0.0, 1.0)
+            is_stick = is_slow & (F_spring_mag < F_static_cap)
 
             # Slip: Coulomb friction opposing motion
             F_fric_limit = mu_eff * Fz_ij
+            # Use velocity direction when moving; fall back to spring direction
+            # at near-zero velocity to avoid zero-friction at stick→slip transition
             use_vel_dir = v_slip_mag > v_tol
             dir_x = np.where(use_vel_dir, vx_block / (v_slip_mag + eps),
                              Fx_spring / (F_spring_mag + eps))
@@ -25056,17 +25056,17 @@ class PerssonModelGUI_V2:
                              Fy_spring / (F_spring_mag + eps))
             Fx_fric_slip = -F_fric_limit * dir_x
             Fy_fric_slip = -F_fric_limit * dir_y
-            # Smooth blend: stick friction (-F_spring) ↔ slip friction
-            Fx_fric = stick_w * (-Fx_spring) + (1.0 - stick_w) * Fx_fric_slip
-            Fy_fric = stick_w * (-Fy_spring) + (1.0 - stick_w) * Fy_fric_slip
+            # Stick: friction exactly balances spring (net force = 0)
+            Fx_fric = np.where(is_stick, -Fx_spring, Fx_fric_slip)
+            Fy_fric = np.where(is_stick, -Fy_spring, Fy_fric_slip)
 
             ax_b = (Fx_spring + Fx_fric) / m_node
             ay_b = (Fy_spring + Fy_fric) / m_node
             vx_block += ax_b * dt_ode
             vy_block += ay_b * dt_ode
-            # Damp velocity smoothly in near-stick zone instead of hard clamp
-            vx_block *= (1.0 - stick_w * 0.8)
-            vy_block *= (1.0 - stick_w * 0.8)
+            # Clamp velocity to zero in stick zone to prevent drift
+            vx_block = np.where(is_stick, 0.0, vx_block)
+            vy_block = np.where(is_stick, 0.0, vy_block)
             x_block += vx_block * dt_ode
             y_block += vy_block * dt_ode
             x_rim += vx_rim_vel_0 * dt_ode
@@ -25126,14 +25126,15 @@ class PerssonModelGUI_V2:
                     Fy_spring = ky_node * (y_rim - y_block) + cy_node * (vy_rim_vel - vy_block)
                     F_spring_mag = np.sqrt(Fx_spring**2 + Fy_spring**2)
 
-                    # Smooth stick↔slip friction (no hard switch — prevents chattering)
+                    # Karnopp stick/slip friction
+                    is_slow = v_slip_mag < v_tol
                     F_static_cap = mu_static_val * Fz_ij
-                    v_ratio = np.clip(v_slip_mag / v_smooth, 0.0, 1.0)
-                    f_ratio = np.clip(F_spring_mag / (F_static_cap + eps), 0.0, 2.0)
-                    stick_w = (1.0 - v_ratio) * np.clip(1.0 - f_ratio, 0.0, 1.0)
+                    is_stick = is_slow & (F_spring_mag < F_static_cap)
 
                     # Slip: Coulomb friction opposing motion
                     F_fric_limit = mu_eff * Fz_ij
+                    # Use velocity direction when moving; fall back to spring direction
+                    # at near-zero velocity to avoid zero-friction at stick→slip transition
                     use_vel_dir = v_slip_mag > v_tol
                     dir_x = np.where(use_vel_dir, vx_block / (v_slip_mag + eps),
                                      Fx_spring / (F_spring_mag + eps))
@@ -25141,17 +25142,17 @@ class PerssonModelGUI_V2:
                                      Fy_spring / (F_spring_mag + eps))
                     Fx_fric_slip = -F_fric_limit * dir_x
                     Fy_fric_slip = -F_fric_limit * dir_y
-                    # Smooth blend: stick friction (-F_spring) ↔ slip friction
-                    Fx_fric = stick_w * (-Fx_spring) + (1.0 - stick_w) * Fx_fric_slip
-                    Fy_fric = stick_w * (-Fy_spring) + (1.0 - stick_w) * Fy_fric_slip
+                    # Stick: friction exactly balances spring (net force = 0)
+                    Fx_fric = np.where(is_stick, -Fx_spring, Fx_fric_slip)
+                    Fy_fric = np.where(is_stick, -Fy_spring, Fy_fric_slip)
 
                     ax_b = (Fx_spring + Fx_fric) / m_node
                     ay_b = (Fy_spring + Fy_fric) / m_node
                     vx_block += ax_b * dt_ode
                     vy_block += ay_b * dt_ode
-                    # Damp velocity smoothly in near-stick zone
-                    vx_block *= (1.0 - stick_w * 0.8)
-                    vy_block *= (1.0 - stick_w * 0.8)
+                    # Clamp velocity to zero in stick zone
+                    vx_block = np.where(is_stick, 0.0, vx_block)
+                    vy_block = np.where(is_stick, 0.0, vy_block)
                     x_block += vx_block * dt_ode
                     y_block += vy_block * dt_ode
                     x_rim += vx_rim_vel * dt_ode
@@ -25268,8 +25269,9 @@ class PerssonModelGUI_V2:
         }
 
     def _pb_init_contour_artists(self):
-        """Create persistent pcolormesh artists for fast frame updates."""
+        """Prepare axes and contourf config for discrete-level contour plots."""
         from matplotlib.patches import Patch
+        from matplotlib.colors import ListedColormap, BoundaryNorm
         x_mm = self._pb_x_mm
         y_mm = self._pb_y_mm
         gr = self._pb_global_ranges
@@ -25288,30 +25290,21 @@ class PerssonModelGUI_V2:
         dy = y_mm[1] - y_mm[0] if len(y_mm) > 1 else 1.0
         x_edges = np.concatenate([x_mm - dx / 2, [x_mm[-1] + dx / 2]])
         y_edges = np.concatenate([y_mm - dy / 2, [y_mm[-1] + dy / 2]])
+        self._pb_x_edges = x_edges
+        self._pb_y_edges = y_edges
 
         f0 = self._pb_frames[0]
         mask_fill = f0.get('_mask_fill', f0.get('_contact_mask'))
         nan_base = np.where(mask_fill, 0.0, np.nan)
         _fs = 9
+        N_LEVELS = 8  # number of discrete color levels
 
-        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+        # Store contourf configuration for each plot
+        self._pb_cf_config = {}
 
-        def _pb_make_cb(mappable, ax, key, label=''):
-            """Create inset colorbar for PerssonBrush contour plots."""
-            cax = inset_axes(ax, width="40%", height="4%",
-                             loc='lower right', borderpad=1.2)
-            fig = ax.get_figure()
-            cb = fig.colorbar(mappable, cax=cax, orientation='horizontal')
-            cb.ax.tick_params(labelsize=6, length=2, pad=1)
-            if label:
-                cb.set_label(label, fontsize=7)
-            self._pb_cbar_axes[key] = cax
-            return cb
-
-        # (1) sliding vs adhesion
+        # (1) sliding vs adhesion — keep as pcolormesh (only 2 values)
         ax1 = self.ax_pb_stick
         ax1.clear()
-        from matplotlib.colors import ListedColormap, BoundaryNorm
         cmap_sa = ListedColormap(['#2196F3', '#F44336'])
         norm_sa = BoundaryNorm([0, 0.5, 1.0], cmap_sa.N)
         self._pb_pm_stick = ax1.pcolormesh(
@@ -25320,63 +25313,55 @@ class PerssonModelGUI_V2:
         ax1.set_title('sliding vs adhesion', fontsize=_fs, fontweight='bold')
         ax1.set_xlabel('length [mm]', fontsize=7)
         ax1.set_ylabel('width [mm]', fontsize=7)
-        # Legend for stick/slip
-        legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Stick'),
-                          Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Slip')]
+        legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Stick (부착)'),
+                          Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Slip (미끄럼)')]
         ax1.legend(handles=legend_patches, loc='upper right', fontsize=7,
                    framealpha=0.9, edgecolor='#999')
 
-        # (2) slip speed
-        ax2 = self.ax_pb_speed
-        ax2.clear()
-        self._pb_pm_speed = ax2.pcolormesh(
-            x_edges, y_edges, nan_base.T, cmap='plasma',
-            vmin=gr['speed'][0], vmax=gr['speed'][1],
-            shading='flat', zorder=1)
-        ax2.set_title('sliding speed', fontsize=_fs, fontweight='bold')
-        ax2.set_xlabel('length [mm]', fontsize=7)
-        ax2.set_ylabel('width [mm]', fontsize=7)
-        _pb_make_cb(self._pb_pm_speed, ax2, 'speed', 'm/s')
+        # (2) slip speed — contourf config
+        sp_lo, sp_hi = gr['speed']
+        if sp_hi - sp_lo < 1e-6:
+            sp_hi = sp_lo + 1.0
+        self._pb_cf_config['speed'] = {
+            'ax': self.ax_pb_speed, 'cmap': 'jet',
+            'levels': np.linspace(sp_lo, sp_hi, N_LEVELS + 1),
+            'title': 'sliding speed', 'label': 'm/s'}
 
-        # (3) contact pressure
-        ax3 = self.ax_pb_pressure
-        ax3.clear()
-        self._pb_pm_pressure = ax3.pcolormesh(
-            x_edges, y_edges, nan_base.T, cmap='YlOrRd',
-            vmin=gr['pressure'][0], vmax=gr['pressure'][1],
-            shading='flat', zorder=1)
-        ax3.set_title('contact pressure [bar]', fontsize=_fs, fontweight='bold')
-        ax3.set_xlabel('length [mm]', fontsize=7)
-        ax3.set_ylabel('width [mm]', fontsize=7)
-        _pb_make_cb(self._pb_pm_pressure, ax3, 'pressure', 'bar')
+        # (3) contact pressure — contourf config
+        pr_lo, pr_hi = gr['pressure']
+        if pr_hi - pr_lo < 1e-6:
+            pr_hi = pr_lo + 1.0
+        self._pb_cf_config['pressure'] = {
+            'ax': self.ax_pb_pressure, 'cmap': 'jet',
+            'levels': np.linspace(pr_lo, pr_hi, N_LEVELS + 1),
+            'title': 'contact pressure [bar]', 'label': 'bar'}
 
-        # (4) temperature
-        ax4 = self.ax_pb_temperature
-        ax4.clear()
+        # (4) temperature — contourf config
         t_lo, t_hi = gr['temperature']
         if abs(t_hi - t_lo) < 0.1:
             t_lo -= 1.0
             t_hi += 1.0
-        self._pb_pm_temp = ax4.pcolormesh(
-            x_edges, y_edges, nan_base.T, cmap='coolwarm',
-            vmin=t_lo, vmax=t_hi,
-            shading='flat', zorder=1)
-        ax4.set_title('temperature [\u00b0C]', fontsize=_fs, fontweight='bold')
-        ax4.set_xlabel('length [mm]', fontsize=7)
-        ax4.set_ylabel('width [mm]', fontsize=7)
-        _pb_make_cb(self._pb_pm_temp, ax4, 'temperature', '\u00b0C')
+        self._pb_cf_config['temperature'] = {
+            'ax': self.ax_pb_temperature, 'cmap': 'jet',
+            'levels': np.linspace(t_lo, t_hi, N_LEVELS + 1),
+            'title': 'temperature [\u00b0C]', 'label': '\u00b0C'}
 
-        # (5) friction force
-        ax5 = self.ax_pb_friction
-        ax5.clear()
-        self._pb_pm_friction = ax5.pcolormesh(
-            x_edges, y_edges, nan_base.T, cmap='hot_r',
-            vmin=gr['friction'][0], vmax=gr['friction'][1],
-            shading='flat', zorder=1)
-        ax5.set_title('friction force', fontsize=_fs, fontweight='bold')
-        ax5.set_xlabel('length [mm]', fontsize=7)
-        ax5.set_ylabel('width [mm]', fontsize=7)
-        _pb_make_cb(self._pb_pm_friction, ax5, 'friction', 'N')
+        # (5) friction force — contourf config
+        fr_lo, fr_hi = gr['friction']
+        if fr_hi - fr_lo < 1e-6:
+            fr_hi = fr_lo + 1.0
+        self._pb_cf_config['friction'] = {
+            'ax': self.ax_pb_friction, 'cmap': 'jet',
+            'levels': np.linspace(fr_lo, fr_hi, N_LEVELS + 1),
+            'title': 'friction force', 'label': 'N'}
+
+        # Initial clear of contourf axes
+        for key, cfg in self._pb_cf_config.items():
+            ax = cfg['ax']
+            ax.clear()
+            ax.set_title(cfg['title'], fontsize=_fs, fontweight='bold')
+            ax.set_xlabel('length [mm]', fontsize=7)
+            ax.set_ylabel('width [mm]', fontsize=7)
 
         self._pb_contour_ready = True
         self.canvas_pb.draw_idle()
@@ -25451,33 +25436,85 @@ class PerssonModelGUI_V2:
         if hasattr(self, '_pb_cursor_fx'):
             self._pb_cursor_fx.set_xdata([f['SR'], f['SR']])
 
-        # Update contour data via set_array (fast — no ax.clear needed)
-        # (1) sliding vs adhesion
+        from matplotlib.patches import Patch
+        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+
+        # (1) sliding vs adhesion — pcolormesh update (2-color discrete)
         is_sl = np.where(mask_fill, f['is_sliding'].astype(float), np.nan)
         self._pb_pm_stick.set_array(is_sl.T.ravel())
+        # Add contact patch outline
+        ax1 = self.ax_pb_stick
+        # Remove old contour lines if any
+        if hasattr(self, '_pb_stick_contour'):
+            for c in self._pb_stick_contour.collections:
+                c.remove()
+        Z_mask = np.where(mask_fill, 1.0, 0.0)
+        self._pb_stick_contour = ax1.contour(
+            self._pb_x_mm, self._pb_y_mm, Z_mask.T, levels=[0.5],
+            colors='k', linewidths=1.2)
 
-        # (2) slip speed
-        v_plot = np.where(mask_fill, f['v_slip_mag'], np.nan)
-        self._pb_pm_speed.set_array(v_plot.T.ravel())
+        # Prepare data for contourf plots
+        x_mm = self._pb_x_mm
+        y_mm = self._pb_y_mm
+        _fs = 9
 
-        # (3) contact pressure
-        p_bar = np.where(mask_fill, f['p_map'] * 1e-5, np.nan)
-        self._pb_pm_pressure.set_array(p_bar.T.ravel())
+        data_map = {
+            'speed': np.where(mask_fill, f['v_slip_mag'], np.nan),
+            'pressure': np.where(mask_fill, f['p_map'] * 1e-5, np.nan),
+            'temperature': np.where(mask_fill, f['T_contact'], np.nan),
+            'friction': np.where(mask_fill, f['F_friction'], np.nan),
+        }
 
-        # (4) temperature
-        T_plot = np.where(mask_fill, f['T_contact'], np.nan)
-        self._pb_pm_temp.set_array(T_plot.T.ravel())
+        # Remove old colorbar axes before redrawing
+        if hasattr(self, '_pb_cbar_axes') and self._pb_cbar_axes:
+            for cax in self._pb_cbar_axes.values():
+                try:
+                    cax.remove()
+                except Exception:
+                    pass
+            self._pb_cbar_axes = {}
 
-        # (5) friction force
-        f_fric = np.where(mask_fill, f['F_friction'], np.nan)
-        self._pb_pm_friction.set_array(f_fric.T.ravel())
+        for key, cfg in self._pb_cf_config.items():
+            ax = cfg['ax']
+            ax.clear()
+            Z = data_map[key]
+            # Replace NaN with level minimum for contourf (NaN causes issues)
+            Z_fill = np.where(np.isfinite(Z), Z, cfg['levels'][0])
+            cf = ax.contourf(x_mm, y_mm, Z_fill.T, levels=cfg['levels'],
+                             cmap=cfg['cmap'], extend='both')
+            # Mask area outside contact patch
+            Z_mask = np.where(mask_fill, 1.0, np.nan)
+            ax.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.0)
+            ax.set_title(cfg['title'], fontsize=_fs, fontweight='bold')
+            ax.set_xlabel('length [mm]', fontsize=7)
+            ax.set_ylabel('width [mm]', fontsize=7)
+            ax.tick_params(labelsize=6)
+            # Discrete colorbar
+            cax = inset_axes(ax, width="40%", height="5%",
+                             loc='lower right', borderpad=1.2)
+            cb = ax.get_figure().colorbar(cf, cax=cax, orientation='horizontal')
+            cb.ax.tick_params(labelsize=5, length=2, pad=1)
+            self._pb_cbar_axes[key] = cax
+
+        # Add Fy/Fx force annotations on friction plot
+        ax_fric = self._pb_cf_config['friction']['ax']
+        fy_val = f.get('Fy', 0.0)
+        fx_val = f.get('Fx', 0.0)
+        ax_fric.text(0.02, 0.98, f'fy = {fy_val:+.1f} N',
+                     transform=ax_fric.transAxes, fontsize=7, fontweight='bold',
+                     color='blue', va='top', ha='left',
+                     bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='blue', alpha=0.8))
+        ax_fric.text(0.98, 0.98, f'fx = {fx_val:+.1f} N',
+                     transform=ax_fric.transAxes, fontsize=7, fontweight='bold',
+                     color='red', va='top', ha='right',
+                     bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='red', alpha=0.8))
 
         # Steering and tire
         self._update_pb_steering(f['SA'])
         Fz = float(self.pb_Fz_var.get()) if self.pb_Fz_var.get() else 4000.0
         self._update_pb_tire(f['SA'], f['Fy'], Fz)
 
-        # Synchronous draw — draw_idle() doesn't reliably update QuadMesh
+        # Synchronous draw
         self.canvas_pb.draw()
 
     # ── PerssonBrush: Playback controls ──
