@@ -24990,9 +24990,9 @@ class PerssonModelGUI_V2:
                              bounds_error=False, fill_value=(_dT_arr[0], _dT_arr[-1]))
 
         eps = 1e-9
-        # Karnopp stick/slip parameters
-        v_tol = 1e-3  # velocity threshold for stick detection [m/s]
-        v_smooth = 3.0 * v_tol  # smoothing band for mu transition
+        # Karnopp stick/slip parameters with wider smoothing band to prevent chattering
+        v_tol = 5e-3  # velocity threshold for stick detection [m/s]
+        v_smooth = 10.0 * v_tol  # wider smoothing band for stick↔slip transition
         # Static friction: use LUT at near-zero speed (peak μ at low v)
         mu_static_val = float(max(lut_cold(0.001), lut_hot(0.001)))
 
@@ -25040,15 +25040,15 @@ class PerssonModelGUI_V2:
             Fy_spring = ky_node * (y_rim - y_block) + cy_node * (vy_rim_vel_0 - vy_block)
             F_spring_mag = np.sqrt(Fx_spring**2 + Fy_spring**2)
 
-            # Karnopp stick/slip friction
-            is_slow = v_slip_mag < v_tol
+            # Smooth stick↔slip friction (no hard switch — prevents chattering)
+            # stick_w = 1 near stick (low v, low spring force), 0 in full slip
             F_static_cap = mu_static_val * Fz_ij
-            is_stick = is_slow & (F_spring_mag < F_static_cap)
+            v_ratio = np.clip(v_slip_mag / v_smooth, 0.0, 1.0)
+            f_ratio = np.clip(F_spring_mag / (F_static_cap + eps), 0.0, 2.0)
+            stick_w = (1.0 - v_ratio) * np.clip(1.0 - f_ratio, 0.0, 1.0)
 
             # Slip: Coulomb friction opposing motion
             F_fric_limit = mu_eff * Fz_ij
-            # Use velocity direction when moving; fall back to spring direction
-            # at near-zero velocity to avoid zero-friction at stick→slip transition
             use_vel_dir = v_slip_mag > v_tol
             dir_x = np.where(use_vel_dir, vx_block / (v_slip_mag + eps),
                              Fx_spring / (F_spring_mag + eps))
@@ -25056,17 +25056,17 @@ class PerssonModelGUI_V2:
                              Fy_spring / (F_spring_mag + eps))
             Fx_fric_slip = -F_fric_limit * dir_x
             Fy_fric_slip = -F_fric_limit * dir_y
-            # Stick: friction exactly balances spring (net force = 0)
-            Fx_fric = np.where(is_stick, -Fx_spring, Fx_fric_slip)
-            Fy_fric = np.where(is_stick, -Fy_spring, Fy_fric_slip)
+            # Smooth blend: stick friction (-F_spring) ↔ slip friction
+            Fx_fric = stick_w * (-Fx_spring) + (1.0 - stick_w) * Fx_fric_slip
+            Fy_fric = stick_w * (-Fy_spring) + (1.0 - stick_w) * Fy_fric_slip
 
             ax_b = (Fx_spring + Fx_fric) / m_node
             ay_b = (Fy_spring + Fy_fric) / m_node
             vx_block += ax_b * dt_ode
             vy_block += ay_b * dt_ode
-            # Clamp velocity to zero in stick zone to prevent drift
-            vx_block = np.where(is_stick, 0.0, vx_block)
-            vy_block = np.where(is_stick, 0.0, vy_block)
+            # Damp velocity smoothly in near-stick zone instead of hard clamp
+            vx_block *= (1.0 - stick_w * 0.8)
+            vy_block *= (1.0 - stick_w * 0.8)
             x_block += vx_block * dt_ode
             y_block += vy_block * dt_ode
             x_rim += vx_rim_vel_0 * dt_ode
@@ -25126,15 +25126,14 @@ class PerssonModelGUI_V2:
                     Fy_spring = ky_node * (y_rim - y_block) + cy_node * (vy_rim_vel - vy_block)
                     F_spring_mag = np.sqrt(Fx_spring**2 + Fy_spring**2)
 
-                    # Karnopp stick/slip friction
-                    is_slow = v_slip_mag < v_tol
+                    # Smooth stick↔slip friction (no hard switch — prevents chattering)
                     F_static_cap = mu_static_val * Fz_ij
-                    is_stick = is_slow & (F_spring_mag < F_static_cap)
+                    v_ratio = np.clip(v_slip_mag / v_smooth, 0.0, 1.0)
+                    f_ratio = np.clip(F_spring_mag / (F_static_cap + eps), 0.0, 2.0)
+                    stick_w = (1.0 - v_ratio) * np.clip(1.0 - f_ratio, 0.0, 1.0)
 
                     # Slip: Coulomb friction opposing motion
                     F_fric_limit = mu_eff * Fz_ij
-                    # Use velocity direction when moving; fall back to spring direction
-                    # at near-zero velocity to avoid zero-friction at stick→slip transition
                     use_vel_dir = v_slip_mag > v_tol
                     dir_x = np.where(use_vel_dir, vx_block / (v_slip_mag + eps),
                                      Fx_spring / (F_spring_mag + eps))
@@ -25142,17 +25141,17 @@ class PerssonModelGUI_V2:
                                      Fy_spring / (F_spring_mag + eps))
                     Fx_fric_slip = -F_fric_limit * dir_x
                     Fy_fric_slip = -F_fric_limit * dir_y
-                    # Stick: friction exactly balances spring (net force = 0)
-                    Fx_fric = np.where(is_stick, -Fx_spring, Fx_fric_slip)
-                    Fy_fric = np.where(is_stick, -Fy_spring, Fy_fric_slip)
+                    # Smooth blend: stick friction (-F_spring) ↔ slip friction
+                    Fx_fric = stick_w * (-Fx_spring) + (1.0 - stick_w) * Fx_fric_slip
+                    Fy_fric = stick_w * (-Fy_spring) + (1.0 - stick_w) * Fy_fric_slip
 
                     ax_b = (Fx_spring + Fx_fric) / m_node
                     ay_b = (Fy_spring + Fy_fric) / m_node
                     vx_block += ax_b * dt_ode
                     vy_block += ay_b * dt_ode
-                    # Clamp velocity to zero in stick zone
-                    vx_block = np.where(is_stick, 0.0, vx_block)
-                    vy_block = np.where(is_stick, 0.0, vy_block)
+                    # Damp velocity smoothly in near-stick zone
+                    vx_block *= (1.0 - stick_w * 0.8)
+                    vy_block *= (1.0 - stick_w * 0.8)
                     x_block += vx_block * dt_ode
                     y_block += vy_block * dt_ode
                     x_rim += vx_rim_vel * dt_ode
@@ -25270,9 +25269,19 @@ class PerssonModelGUI_V2:
 
     def _pb_init_contour_artists(self):
         """Create persistent pcolormesh artists for fast frame updates."""
+        from matplotlib.patches import Patch
         x_mm = self._pb_x_mm
         y_mm = self._pb_y_mm
         gr = self._pb_global_ranges
+
+        # Remove old PB colorbars to prevent duplicates
+        if hasattr(self, '_pb_cbar_axes') and self._pb_cbar_axes:
+            for cax in self._pb_cbar_axes.values():
+                try:
+                    cax.remove()
+                except Exception:
+                    pass
+        self._pb_cbar_axes = {}
 
         # Build mesh edges (N+1 for N centers) — required for shading='flat'
         dx = x_mm[1] - x_mm[0] if len(x_mm) > 1 else 1.0
@@ -25284,6 +25293,20 @@ class PerssonModelGUI_V2:
         mask_fill = f0.get('_mask_fill', f0.get('_contact_mask'))
         nan_base = np.where(mask_fill, 0.0, np.nan)
         _fs = 9
+
+        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+
+        def _pb_make_cb(mappable, ax, key, label=''):
+            """Create inset colorbar for PerssonBrush contour plots."""
+            cax = inset_axes(ax, width="40%", height="4%",
+                             loc='lower right', borderpad=1.2)
+            fig = ax.get_figure()
+            cb = fig.colorbar(mappable, cax=cax, orientation='horizontal')
+            cb.ax.tick_params(labelsize=6, length=2, pad=1)
+            if label:
+                cb.set_label(label, fontsize=7)
+            self._pb_cbar_axes[key] = cax
+            return cb
 
         # (1) sliding vs adhesion
         ax1 = self.ax_pb_stick
@@ -25297,6 +25320,11 @@ class PerssonModelGUI_V2:
         ax1.set_title('sliding vs adhesion', fontsize=_fs, fontweight='bold')
         ax1.set_xlabel('length [mm]', fontsize=7)
         ax1.set_ylabel('width [mm]', fontsize=7)
+        # Legend for stick/slip
+        legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Stick'),
+                          Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Slip')]
+        ax1.legend(handles=legend_patches, loc='upper right', fontsize=7,
+                   framealpha=0.9, edgecolor='#999')
 
         # (2) slip speed
         ax2 = self.ax_pb_speed
@@ -25308,6 +25336,7 @@ class PerssonModelGUI_V2:
         ax2.set_title('sliding speed', fontsize=_fs, fontweight='bold')
         ax2.set_xlabel('length [mm]', fontsize=7)
         ax2.set_ylabel('width [mm]', fontsize=7)
+        _pb_make_cb(self._pb_pm_speed, ax2, 'speed', 'm/s')
 
         # (3) contact pressure
         ax3 = self.ax_pb_pressure
@@ -25319,6 +25348,7 @@ class PerssonModelGUI_V2:
         ax3.set_title('contact pressure [bar]', fontsize=_fs, fontweight='bold')
         ax3.set_xlabel('length [mm]', fontsize=7)
         ax3.set_ylabel('width [mm]', fontsize=7)
+        _pb_make_cb(self._pb_pm_pressure, ax3, 'pressure', 'bar')
 
         # (4) temperature
         ax4 = self.ax_pb_temperature
@@ -25334,6 +25364,7 @@ class PerssonModelGUI_V2:
         ax4.set_title('temperature [\u00b0C]', fontsize=_fs, fontweight='bold')
         ax4.set_xlabel('length [mm]', fontsize=7)
         ax4.set_ylabel('width [mm]', fontsize=7)
+        _pb_make_cb(self._pb_pm_temp, ax4, 'temperature', '\u00b0C')
 
         # (5) friction force
         ax5 = self.ax_pb_friction
@@ -25345,6 +25376,7 @@ class PerssonModelGUI_V2:
         ax5.set_title('friction force', fontsize=_fs, fontweight='bold')
         ax5.set_xlabel('length [mm]', fontsize=7)
         ax5.set_ylabel('width [mm]', fontsize=7)
+        _pb_make_cb(self._pb_pm_friction, ax5, 'friction', 'N')
 
         self._pb_contour_ready = True
         self.canvas_pb.draw_idle()
