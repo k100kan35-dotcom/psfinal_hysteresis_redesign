@@ -24667,13 +24667,13 @@ class PerssonModelGUI_V2:
 
         # Bottom row: 5 contour plots
         self.ax_pb_stick = self.fig_pb.add_subplot(gs[1, 0:4])
-        self.ax_pb_stick.set_title('sliding vs adhesion', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_stick.set_title('Adhesion vs Sliding', fontsize=_bf_title, fontweight='bold')
         self.ax_pb_stick.set_xlabel('length [mm]', fontsize=_bf_label)
         self.ax_pb_stick.set_ylabel('width [mm]', fontsize=_bf_label)
         self.ax_pb_stick.tick_params(labelsize=_bf_tick)
 
         self.ax_pb_speed = self.fig_pb.add_subplot(gs[1, 4:8])
-        self.ax_pb_speed.set_title('sliding speed', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_speed.set_title('Slip Velocity [m/s]', fontsize=_bf_title, fontweight='bold')
         self.ax_pb_speed.set_xlabel('length [mm]', fontsize=_bf_label)
         self.ax_pb_speed.set_ylabel('width [mm]', fontsize=_bf_label)
         self.ax_pb_speed.tick_params(labelsize=_bf_tick)
@@ -25475,11 +25475,11 @@ class PerssonModelGUI_V2:
         self._pb_pm_stick = ax1.pcolormesh(
             x_edges, y_edges, nan_base.T, cmap=cmap_sa, norm=norm_sa,
             shading='flat', zorder=1)
-        ax1.set_title('sliding vs adhesion', fontsize=_fs, fontweight='bold')
+        ax1.set_title('Adhesion vs Sliding', fontsize=_fs, fontweight='bold')
         ax1.set_xlabel('length [mm]', fontsize=7)
         ax1.set_ylabel('width [mm]', fontsize=7)
-        legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Stick (부착)'),
-                          Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Slip (미끄럼)')]
+        legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Adhesion (부착, Stick)'),
+                          Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Sliding (미끄럼, Slip)')]
         ax1.legend(handles=legend_patches, loc='upper right', fontsize=7,
                    framealpha=0.9, edgecolor='#999')
         # Contact patch outline (drawn once)
@@ -25515,7 +25515,7 @@ class PerssonModelGUI_V2:
         pm_sp = ax2.pcolormesh(x_edges, y_edges, nan_base.T, cmap='jet',
                                norm=norm_sp, shading='flat', zorder=1)
         ax2.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.0)
-        ax2.set_title('sliding speed', fontsize=_fs, fontweight='bold')
+        ax2.set_title('Slip Velocity [m/s]', fontsize=_fs, fontweight='bold')
         ax2.set_xlabel('length [mm]', fontsize=7)
         ax2.set_ylabel('width [mm]', fontsize=7)
         ax2.tick_params(labelsize=6)
@@ -25622,10 +25622,118 @@ class PerssonModelGUI_V2:
 
         ax_fy = self.ax_pb_fy_sa
         ax_fy.clear()
-        ax_fy.plot(self._pb_SA, self._pb_Fy_hist, 'b-', lw=1.2, alpha=0.6)
+        ax_fy.plot(self._pb_SA, self._pb_Fy_hist, 'b-', lw=1.2, alpha=0.6,
+                   label='Fy (transient)')
+
+        # ── Envelope: connect outermost Fy at each SA bin ──
+        sa_arr = np.array(self._pb_SA)
+        fy_arr = np.array(self._pb_Fy_hist)
+        # Bin SA values and take max |Fy| per bin (positive and negative sides)
+        sa_min, sa_max = np.min(sa_arr), np.max(sa_arr)
+        if sa_max - sa_min > 0.01:
+            n_bins = min(80, max(20, len(sa_arr) // 5))
+            bin_edges = np.linspace(sa_min, sa_max, n_bins + 1)
+            bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+            env_fy = np.full(n_bins, np.nan)
+            for bi in range(n_bins):
+                mask_bin = (sa_arr >= bin_edges[bi]) & (sa_arr < bin_edges[bi + 1])
+                if bi == n_bins - 1:  # include right edge for last bin
+                    mask_bin |= (sa_arr == bin_edges[bi + 1])
+                if np.any(mask_bin):
+                    fy_in_bin = fy_arr[mask_bin]
+                    # Take the value with largest absolute magnitude
+                    idx_max = np.argmax(np.abs(fy_in_bin))
+                    env_fy[bi] = fy_in_bin[idx_max]
+
+            valid = ~np.isnan(env_fy)
+            if np.sum(valid) > 2:
+                env_sa = bin_centers[valid]
+                env_f = env_fy[valid]
+                ax_fy.plot(env_sa, env_f, 'r-', lw=2.0, alpha=0.9,
+                           label='Envelope', zorder=5)
+
+                # ── Analysis annotations on the envelope ──
+                abs_env = np.abs(env_f)
+                i_peak = np.argmax(abs_env)
+                sa_peak = env_sa[i_peak]
+                fy_peak = env_f[i_peak]
+
+                # (A) Initial slope (Cornering Stiffness)
+                # Use first few points near SA=0
+                near_zero = np.abs(env_sa) < max(0.3 * np.abs(sa_peak), 1.0)
+                if np.sum(near_zero) >= 2:
+                    sa_nz = env_sa[near_zero]
+                    fy_nz = env_f[near_zero]
+                    sort_idx = np.argsort(sa_nz)
+                    sa_nz, fy_nz = sa_nz[sort_idx], fy_nz[sort_idx]
+                    if sa_nz[-1] - sa_nz[0] > 0.01:
+                        slope = (fy_nz[-1] - fy_nz[0]) / (sa_nz[-1] - sa_nz[0])
+                        # Annotate at ~1/4 of peak SA
+                        sa_annot = sa_peak * 0.25
+                        fy_annot = slope * sa_annot
+                        ax_fy.annotate(
+                            f'Cornering Stiffness\n'
+                            f'dFy/dSA = {slope:.0f} N/deg\n'
+                            f'(Adhesion zone dominant,\n'
+                            f' linear spring response)',
+                            xy=(sa_annot, fy_annot),
+                            xytext=(sa_annot + (sa_max - sa_min) * 0.15,
+                                    fy_annot + np.sign(fy_peak) * abs(fy_peak) * 0.3),
+                            fontsize=6.5, color='#1565C0',
+                            arrowprops=dict(arrowstyle='->', color='#1565C0',
+                                            lw=1.2),
+                            bbox=dict(boxstyle='round,pad=0.3', fc='#E3F2FD',
+                                      ec='#1565C0', alpha=0.9),
+                            zorder=10)
+
+                # (B) Peak Fy
+                ax_fy.plot(sa_peak, fy_peak, 'r*', ms=12, zorder=10)
+                ax_fy.annotate(
+                    f'Peak Fy = {fy_peak:.1f} N\n'
+                    f'@ SA = {sa_peak:.1f} deg\n'
+                    f'(Sliding zone spreads\n'
+                    f' across contact patch,\n'
+                    f' max friction capacity)',
+                    xy=(sa_peak, fy_peak),
+                    xytext=(sa_peak + (sa_max - sa_min) * 0.08,
+                            fy_peak + np.sign(fy_peak) * abs(fy_peak) * 0.15),
+                    fontsize=6.5, color='#C62828',
+                    arrowprops=dict(arrowstyle='->', color='#C62828', lw=1.2),
+                    bbox=dict(boxstyle='round,pad=0.3', fc='#FFEBEE',
+                              ec='#C62828', alpha=0.9),
+                    zorder=10)
+
+                # (C) Post-peak decay
+                if i_peak < len(env_sa) - 2:
+                    # Find a point well past peak
+                    post_region = env_sa[i_peak:]
+                    post_fy = env_f[i_peak:]
+                    i_post = min(len(post_region) - 1,
+                                 max(1, len(post_region) // 2))
+                    sa_post = post_region[i_post]
+                    fy_post = post_fy[i_post]
+                    fy_drop_pct = (1.0 - abs(fy_post) / max(abs(fy_peak), 1e-6)) * 100
+                    if fy_drop_pct > 1.0:
+                        ax_fy.annotate(
+                            f'Post-peak decay\n'
+                            f'Fy = {fy_post:.1f} N ({fy_drop_pct:.0f}% drop)\n'
+                            f'(Full sliding: mu_eff drops\n'
+                            f' as v_slip increases,\n'
+                            f' cold->hot friction transition)',
+                            xy=(sa_post, fy_post),
+                            xytext=(sa_post - (sa_max - sa_min) * 0.15,
+                                    fy_post - np.sign(fy_peak) * abs(fy_peak) * 0.2),
+                            fontsize=6.5, color='#4A148C',
+                            arrowprops=dict(arrowstyle='->', color='#4A148C',
+                                            lw=1.2),
+                            bbox=dict(boxstyle='round,pad=0.3', fc='#F3E5F5',
+                                      ec='#4A148C', alpha=0.9),
+                            zorder=10)
+
         ax_fy.set_title('Fy vs Slip Angle', fontsize=9, fontweight='bold')
         ax_fy.set_xlabel('SA [deg]', fontsize=8); ax_fy.set_ylabel('Fy [N]', fontsize=8)
         ax_fy.tick_params(labelsize=7); ax_fy.grid(True, alpha=0.3)
+        ax_fy.legend(fontsize=6, loc='best')
         self._pb_cursor_fy = ax_fy.axvline(x=0, color='k', lw=1.2, alpha=0.7)
 
         ax_fx = self.ax_pb_fx_sr
