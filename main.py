@@ -1343,7 +1343,6 @@ class PerssonModelGUI_V2:
         setattr(self, fig_attr, fig)
 
         canvas = FigureCanvasTkAgg(fig, master=plot_wrapper)
-        # Do NOT draw_idle() here — wait for <Configure> to set correct size
         setattr(self, canvas_attr, canvas)
 
         if with_toolbar:
@@ -1353,6 +1352,7 @@ class PerssonModelGUI_V2:
 
         canvas_widget = canvas.get_tk_widget()
         canvas_widget.pack(fill=tk.BOTH, expand=True)
+        canvas.draw_idle()
 
         # ── Universal auto-resize: figure follows widget geometry ──
         _resize_after_id = [None]
@@ -24417,9 +24417,9 @@ class PerssonModelGUI_V2:
         self.ax_br_friction.tick_params(labelsize=_bf_tick)
 
         self.canvas_brush = FigureCanvasTkAgg(self.fig_brush, plot_frame)
-        # Do NOT draw_idle() here — wait for <Configure> to set correct size
         _br_canvas_widget = self.canvas_brush.get_tk_widget()
         _br_canvas_widget.pack(fill=tk.BOTH, expand=True)
+        self.canvas_brush.draw_idle()
 
         # Save TRUE original axis positions from GridSpec BEFORE any colorbars
         # are created. This prevents cumulative width shrinkage when the
@@ -24917,9 +24917,9 @@ class PerssonModelGUI_V2:
         self.ax_pb_friction.tick_params(labelsize=_bf_tick)
 
         self.canvas_pb = FigureCanvasTkAgg(self.fig_pb, plot_frame)
-        # Do NOT draw_idle() here — wait for <Configure> to set correct size
         _pb_canvas_widget = self.canvas_pb.get_tk_widget()
         _pb_canvas_widget.pack(fill=tk.BOTH, expand=True)
+        self.canvas_pb.draw_idle()
 
         # Save original axis positions from GridSpec BEFORE any colorbars
         self._pb_original_ax_positions = {}
@@ -29738,6 +29738,7 @@ class PerssonModelGUI_V2:
                           (self._ts_tire_fig, self._ts_tire_canvas),
                           (self._ts_contour_fig, self._ts_contour_canvas),
                           (self._ts_fy_fig, self._ts_fy_canvas)]:
+            _cv.draw_idle()
             self._bind_canvas_auto_resize(_fig, _cv)
 
         # ── Deferred layout: force sash positions & figure sizes on first map ──
