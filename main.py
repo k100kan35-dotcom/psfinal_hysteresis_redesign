@@ -7067,7 +7067,7 @@ class PerssonModelGUI_V2:
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Title
-        ttk.Label(main_frame, text="Available Graph Data", font=('NanumGothic', 12, 'bold')).pack(anchor=tk.W)
+        ttk.Label(main_frame, text="Available Graph Data", font=('NanumGothic', 10, 'bold')).pack(anchor=tk.W)
         ttk.Label(main_frame, text="Select data to export as txt files", font=self.FONTS['body']).pack(anchor=tk.W)
 
         # Listbox with scrollbar
@@ -7225,15 +7225,15 @@ class PerssonModelGUI_V2:
                                   spacing1=10, spacing3=4)
         text_widget.tag_configure('section', font=self.FONTS['heading'], foreground='#7C3AED',
                                   spacing1=12, spacing3=4)
-        text_widget.tag_configure('subsection', font=('NanumGothic', 12, 'bold'), foreground='#059669',
+        text_widget.tag_configure('subsection', font=('NanumGothic', 10, 'bold'), foreground='#059669',
                                   spacing1=8, spacing3=2, lmargin1=10, lmargin2=10)
         text_widget.tag_configure('body', font=self.FONTS['tiny'], foreground='#1E293B',
                                   spacing1=1, spacing3=1, lmargin1=15, lmargin2=15)
         text_widget.tag_configure('indent', font=self.FONTS['tiny'], foreground='#64748B',
                                   lmargin1=30, lmargin2=30, spacing1=1, spacing3=1)
-        text_widget.tag_configure('feature', font=('NanumGothic', 12, 'bold'), foreground='#2563EB',
+        text_widget.tag_configure('feature', font=('NanumGothic', 10, 'bold'), foreground='#2563EB',
                                   lmargin1=30, lmargin2=30, spacing1=1, spacing3=1)
-        text_widget.tag_configure('note', font=('NanumGothic', 12, 'italic'), foreground='#DC2626',
+        text_widget.tag_configure('note', font=('NanumGothic', 10, 'italic'), foreground='#DC2626',
                                   lmargin1=15, lmargin2=15, spacing1=2, spacing3=2)
 
         def add(text, tag='body'):
@@ -7747,23 +7747,23 @@ class PerssonModelGUI_V2:
         content = tk.Frame(dialog, bg='white', padx=25, pady=20)
         content.pack(fill=tk.BOTH, expand=True)
 
-        def add_label(text, size=12, bold=False, fg='#1E293B', pady=(0, 2)):
+        def add_label(text, size=10, bold=False, fg='#1E293B', pady=(0, 2)):
             weight = 'bold' if bold else 'normal'
             tk.Label(content, text=text, bg='white', fg=fg,
                      font=('NanumGothic', size, weight),
                      anchor='w', justify=tk.LEFT).pack(anchor='w', pady=pady)
 
-        add_label('이론적 기반', size=15, bold=True, fg='#7C3AED', pady=(5, 4))
+        add_label('이론적 기반', size=10, bold=True, fg='#7C3AED', pady=(5, 4))
         add_label('Persson, B.N.J. (2001, 2006)')
         add_label('Rubber friction and contact mechanics theory')
         add_label('')
 
-        add_label('개발', size=15, bold=True, fg='#7C3AED', pady=(5, 4))
+        add_label('개발', size=10, bold=True, fg='#7C3AED', pady=(5, 4))
         add_label('NEXENTIRE Material Research Team')
         add_label('Baekhwan Kim (김백환)')
         add_label('')
 
-        add_label('빌드 일자', size=15, bold=True, fg='#7C3AED', pady=(5, 4))
+        add_label('빌드 일자', size=10, bold=True, fg='#7C3AED', pady=(5, 4))
         add_label('2026.02.25')
 
         # Separator + Close button
@@ -7788,9 +7788,9 @@ class PerssonModelGUI_V2:
             frame = tk.Frame(scrollable_frame, bg=bg_color, padx=15, pady=12)
             frame.pack(fill=tk.X, padx=10, pady=(18, 4))
             tk.Label(frame, text=title_text, bg=bg_color, fg=fg_color,
-                     font=('NanumGothic', 12, 'bold')).pack(anchor=tk.W)
+                     font=('NanumGothic', 10, 'bold')).pack(anchor=tk.W)
 
-        def add_text(text, font_size=13, fg='#1E293B', bold=False, padx=20, pady=4):
+        def add_text(text, font_size=10, fg='#1E293B', bold=False, padx=20, pady=4):
             """Add a plain text label."""
             weight = 'bold' if bold else 'normal'
             lbl = tk.Label(scrollable_frame, text=text, bg='white', fg=fg,
@@ -7846,7 +7846,7 @@ class PerssonModelGUI_V2:
         title_frame.pack(fill=tk.X, padx=10)
         tk.Label(title_frame, text='Persson 마찰 이론 - 계산 수식 정리',
                  bg='white', fg='#1B2A4A',
-                 font=('NanumGothic', 12, 'bold')).pack(anchor='w', padx=10)
+                 font=('NanumGothic', 10, 'bold')).pack(anchor='w', padx=10)
 
         # ═══════════════════════════════════════════════════════
         # 핵심 수식 요약 테이블
@@ -7873,14 +7873,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['섹션', '수식 이름', '핵심 수식 (간략)', '물리적 의미']):
             lbl = tk.Label(eq_summary_frame, text=header, bg='#7C3AED', fg='white',
-                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 10, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (sec, name, formula, meaning) in enumerate(eq_summary_data, start=1):
             bg = '#F5F3FF' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([sec, name, formula, meaning]):
                 weight = 'bold' if col_idx <= 1 else 'normal'
                 lbl = tk.Label(eq_summary_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('NanumGothic', 11, weight), padx=10, pady=6, anchor='w',
+                               font=('NanumGothic', 10, weight), padx=10, pady=6, anchor='w',
                                wraplength=400 if col_idx >= 2 else 200)
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         eq_summary_frame.columnconfigure(0, weight=1)
@@ -7889,7 +7889,7 @@ class PerssonModelGUI_V2:
         eq_summary_frame.columnconfigure(3, weight=3)
 
         add_text('  * 각 수식의 상세 유도 과정과 직관적 설명은 아래 각 섹션에서 확인할 수 있습니다.',
-                 font_size=11, fg='#64748B', pady=(4, 8))
+                 font_size=10, fg='#64748B', pady=(4, 8))
 
         # ═══════════════════════════════════════════════════════
         # Section 0: 기본 물리량 정의
@@ -7898,10 +7898,10 @@ class PerssonModelGUI_V2:
 
         add_text('주파수 (고무가 느끼는 진동수):', bold=True, pady=(8, 0))
         add_equation(r'$\omega = q \cdot v \cdot \cos\phi$', fig_height=0.9)
-        add_text('  q : 파수(wavenumber) — 표면 거칠기의 공간 진동수. 값이 클수록 더 미세한 요철을 의미', font_size=17, fg='#64748B')
-        add_text('  v : 슬라이딩 속도 — 고무가 바닥 위를 미끄러지는 속도 [m/s]', font_size=17, fg='#64748B')
-        add_text('  \u03c6 : 슬라이딩 방향과 파수 벡터 사이의 각도 (0~2\u03c0)', font_size=17, fg='#64748B')
-        add_text('  \u03c9 : 고무가 표면 요철을 타고 넘으며 느끼는 진동 주파수. q가 클수록(미세 요철), v가 빠를수록 \u03c9 증가', font_size=17, fg='#64748B')
+        add_text('  q : 파수(wavenumber) — 표면 거칠기의 공간 진동수. 값이 클수록 더 미세한 요철을 의미', font_size=10, fg='#64748B')
+        add_text('  v : 슬라이딩 속도 — 고무가 바닥 위를 미끄러지는 속도 [m/s]', font_size=10, fg='#64748B')
+        add_text('  \u03c6 : 슬라이딩 방향과 파수 벡터 사이의 각도 (0~2\u03c0)', font_size=10, fg='#64748B')
+        add_text('  \u03c9 : 고무가 표면 요철을 타고 넘으며 느끼는 진동 주파수. q가 클수록(미세 요철), v가 빠를수록 \u03c9 증가', font_size=10, fg='#64748B')
 
         def _plot_omega_vs_phi(ax, np):
             phi = np.linspace(0, 2*np.pi, 300)
@@ -7923,29 +7923,29 @@ class PerssonModelGUI_V2:
                  bold=True, fg='#7C3AED', pady=(8, 0))
         add_text('', pady=2)
         add_text('  핵심: 노면은 프랙탈(fractal) 구조 → 거칠기가 모든 스케일에 동시에 존재',
-                 font_size=17, bold=True, fg='#1E293B')
+                 font_size=10, bold=True, fg='#1E293B')
         add_text('', pady=2)
         add_text('  실제 도로 표면은 하나의 파장이 아니라, 수mm ~ 수μm까지 다양한 스케일의 요철이 겹쳐져 있습니다.',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  이를 수학적으로 분해하면 파수(q)가 q₀ ~ q₁까지 넓은 범위에 걸쳐 C(q) > 0 입니다.',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('', pady=2)
-        add_text('  고무가 v = 1 m/s로 미끄러질 때:', font_size=17, bold=True, fg='#1E293B')
+        add_text('  고무가 v = 1 m/s로 미끄러질 때:', font_size=10, bold=True, fg='#1E293B')
         add_text('    • q = 10^2 (파장 ~6cm, 큰 돌) -> w = 10^2 rad/s (느린 진동)',
-                 font_size=17, fg='#059669')
+                 font_size=10, fg='#059669')
         add_text('    • q = 10^4 (파장 ~0.6mm, 모래알) -> w = 10^4 rad/s (빠른 진동)',
-                 font_size=17, fg='#2563EB')
+                 font_size=10, fg='#2563EB')
         add_text('    • q = 10^6 (파장 ~6um, 미세 결정) -> w = 10^6 rad/s (매우 빠른 진동)',
-                 font_size=17, fg='#DC2626')
+                 font_size=10, fg='#DC2626')
         add_text('    • q = 10^8 (파장 ~60nm, 나노 스케일) -> w = 10^8 rad/s (초고주파)',
-                 font_size=17, fg='#7C3AED')
+                 font_size=10, fg='#7C3AED')
         add_text('', pady=2)
         add_text('  -> 속도 v는 하나이지만, 프랙탈 노면의 q가 10^2~10^8까지 분포하므로',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('    고무가 동시에 느끼는 ω도 6자릿수 이상의 범위를 가짐!',
-                 font_size=17, bold=True, fg='#DC2626')
+                 font_size=10, bold=True, fg='#DC2626')
         add_text('  → 이것이 G(q) 적분에서 q₀→q₁ 넓은 범위를 적분해야 하는 이유입니다.',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
 
         def _plot_fractal_omega(ax, np):
             """Show how single velocity generates diverse frequencies on fractal surface."""
@@ -8015,14 +8015,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['기호', '단위', '이름', '물리적 의미']):
             lbl = tk.Label(phys_frame, text=header, bg='#1B2A4A', fg='white',
-                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 10, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (sym, unit, name, meaning) in enumerate(phys_data, start=1):
             bg = '#F1F5F9' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([sym, unit, name, meaning]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(phys_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('NanumGothic', 11, weight), padx=10, pady=6, anchor='w',
+                               font=('NanumGothic', 10, weight), padx=10, pady=6, anchor='w',
                                wraplength=400 if col_idx == 3 else 200)
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         phys_frame.columnconfigure(0, weight=1)
@@ -8033,11 +8033,11 @@ class PerssonModelGUI_V2:
         add_separator()
         add_text('유효 탄성률 (평면 변형 상태):', bold=True, pady=(10, 0))
         add_equation(r'$E^*(\omega) = \frac{E(\omega)}{1-\nu^2}$', fig_height=1.0)
-        add_text('  E(\u03c9) = E\'(\u03c9) + iE\'\'(\u03c9) : DMA 실험에서 측정한 복소 탄성률', font_size=17, fg='#64748B')
-        add_text('    E\'(\u03c9) : 저장 탄성률 — 탄성 에너지를 저장하는 능력 (스프링 성분)', font_size=17, fg='#64748B')
-        add_text('    E\'\'(\u03c9) : 손실 탄성률 — 에너지를 열로 소산하는 능력 (댐퍼 성분, 마찰의 원인)', font_size=17, fg='#64748B')
-        add_text('  \u03bd : 푸아송 비 — 고무를 누를 때 옆으로 퍼지는 정도 (고무 \u2248 0.5, 거의 비압축성)', font_size=17, fg='#64748B')
-        add_text('  (1-\u03bd\u00b2) 보정: 표면 접촉은 3차원 구속 상태이므로 단축 탄성률보다 더 뻣뻣하게 보정', font_size=17, fg='#64748B')
+        add_text('  E(\u03c9) = E\'(\u03c9) + iE\'\'(\u03c9) : DMA 실험에서 측정한 복소 탄성률', font_size=10, fg='#64748B')
+        add_text('    E\'(\u03c9) : 저장 탄성률 — 탄성 에너지를 저장하는 능력 (스프링 성분)', font_size=10, fg='#64748B')
+        add_text('    E\'\'(\u03c9) : 손실 탄성률 — 에너지를 열로 소산하는 능력 (댐퍼 성분, 마찰의 원인)', font_size=10, fg='#64748B')
+        add_text('  \u03bd : 푸아송 비 — 고무를 누를 때 옆으로 퍼지는 정도 (고무 \u2248 0.5, 거의 비압축성)', font_size=10, fg='#64748B')
+        add_text('  (1-\u03bd\u00b2) 보정: 표면 접촉은 3차원 구속 상태이므로 단축 탄성률보다 더 뻣뻣하게 보정', font_size=10, fg='#64748B')
 
         def _plot_master_curve(ax, np):
             omega = np.logspace(-2, 10, 500)
@@ -8062,14 +8062,14 @@ class PerssonModelGUI_V2:
             r'$G(q) = \frac{1}{8} \int_{q_0}^{q} dq^{\prime}\, (q^{\prime})^3\, C(q^{\prime})'
             r' \int_{0}^{2\pi} d\phi\, \left| \frac{E(q^{\prime}v\cos\phi)}{(1-\nu^2)\sigma_0} \right|^2$',
             fig_height=1.3)
-        add_text('물리적 의미:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  G(q)는 "파수 q₀부터 q까지의 거칠기 성분이 고무를 변형시키며 저장하는 탄성 에너지의 누적량"', font_size=17, fg='#64748B')
-        add_text('  → G(q)가 크면: 고무가 요철을 따라가기 어려워 접촉 면적이 줄어듦', font_size=17, fg='#64748B')
-        add_text('  → G(q)가 작으면: 고무가 요철에 잘 밀착하여 접촉 면적이 넓음', font_size=17, fg='#64748B')
-        add_text('각 변수의 역할:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  q\'³ C(q\') : 파수 q\'에서의 거칠기 기여분. q\'³은 미세 요철일수록 기울기 기여가 큰 것을 반영', font_size=17, fg='#64748B')
-        add_text('  |E/(σ₀(1-ν²))|² : 탄성률 대비 압력의 비율. 고무가 뻣뻣할수록(E↑) 변형 에너지가 커지고, 압력이 클수록(σ₀↑) 상대적으로 줄어듦', font_size=17, fg='#64748B')
-        add_text('  단위: 무차원 (σ₀로 나누었으므로)', font_size=17, fg='#64748B')
+        add_text('물리적 의미:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  G(q)는 "파수 q₀부터 q까지의 거칠기 성분이 고무를 변형시키며 저장하는 탄성 에너지의 누적량"', font_size=10, fg='#64748B')
+        add_text('  → G(q)가 크면: 고무가 요철을 따라가기 어려워 접촉 면적이 줄어듦', font_size=10, fg='#64748B')
+        add_text('  → G(q)가 작으면: 고무가 요철에 잘 밀착하여 접촉 면적이 넓음', font_size=10, fg='#64748B')
+        add_text('각 변수의 역할:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  q\'³ C(q\') : 파수 q\'에서의 거칠기 기여분. q\'³은 미세 요철일수록 기울기 기여가 큰 것을 반영', font_size=10, fg='#64748B')
+        add_text('  |E/(σ₀(1-ν²))|² : 탄성률 대비 압력의 비율. 고무가 뻣뻣할수록(E↑) 변형 에너지가 커지고, 압력이 클수록(σ₀↑) 상대적으로 줄어듦', font_size=10, fg='#64748B')
+        add_text('  단위: 무차원 (σ₀로 나누었으므로)', font_size=10, fg='#64748B')
 
         def _plot_G_vs_q(ax, np):
             q = np.logspace(2, 8, 500)
@@ -8089,69 +8089,69 @@ class PerssonModelGUI_V2:
                  bold=True, fg='#7C3AED', pady=(8, 0))
         add_text('', pady=2)
         add_text('  G(q)를 한 마디로: "고무가 바닥 요철을 따라가기가 얼마나 힘든가"를 나타내는 숫자',
-                 font_size=17, fg='#1E293B')
+                 font_size=10, fg='#1E293B')
         add_text('', pady=2)
         add_text('  비유: 부드러운 이불을 울퉁불퉁한 바닥에 덮는다고 상상해 보세요:',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('    • 요철이 작고 완만하면 → 이불이 바닥에 쉽게 밀착 → G 작음 → 접촉면적 넓음',
-                 font_size=17, fg='#059669')
+                 font_size=10, fg='#059669')
         add_text('    • 요철이 크고 날카로우면 → 이불 아래 빈 공간이 많이 생김 → G 큼 → 접촉면적 좁음',
-                 font_size=17, fg='#DC2626')
+                 font_size=10, fg='#DC2626')
         add_text('', pady=4)
         add_text('  핵심: G는 "바닥의 거칠기(PSD)"와 "고무의 뻣뻣함(E)"을 모두 반영한 종합 지표',
-                 font_size=17, bold=True, fg='#1E293B')
+                 font_size=10, bold=True, fg='#1E293B')
         add_text('  → 같은 바닥이라도 고무가 뻣뻣하면 G↑, 유연하면 G↓',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  → 같은 고무라도 거칠기가 심하면 G↑, 매끈하면 G↓',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('', pady=4)
-        add_text('  G가 속도(v)에도 의존하는 이유:', font_size=17, bold=True, fg='#1E293B')
+        add_text('  G가 속도(v)에도 의존하는 이유:', font_size=10, bold=True, fg='#1E293B')
         add_text('  G 수식 안의 E(ω)는 주파수 의존적입니다 (ω = q·v·cosφ)',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  → 속도 v↑ → ω 증가 → 고주파에서 고무가 유리 전이 근처로 이동 → E 크게 증가',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  → 뻣뻣해진 고무는 요철을 더 못 따라감 → G 급격히 증가',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  → 한 마디로: "천천히 누르면 잘 밀착, 빨리 밀면 접촉이 확 줄어든다"',
-                 font_size=17, bold=True, fg='#DC2626')
+                 font_size=10, bold=True, fg='#DC2626')
 
         add_text('', pady=6)
         add_text('▼ G의 구체적인 값이 의미하는 것 — "이 숫자가 대체 뭔데?"',
                  bold=True, fg='#7C3AED', pady=(6, 0))
         add_text('', pady=2)
         add_text('  G(q₁)은 파수 적분의 최종 누적합입니다. 파수 q₀부터 q₁까지 모든 스케일의 거칠기 기여를 더한 것.',
-                 font_size=17, fg='#1E293B')
+                 font_size=10, fg='#1E293B')
         add_text('  각 파수 q에서 ΔG ∝ q³·C(q)·|E/σ₀|² 만큼의 기여가 쌓여 최종 G(q₁)이 결정됩니다.',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('', pady=2)
         add_text('  직관적 해석: G는 "(고무의 뻣뻣함 × 바닥 기울기)² / 압력²" 의 누적합',
-                 font_size=17, bold=True, fg='#1E293B')
+                 font_size=10, bold=True, fg='#1E293B')
         add_text('  → 즉, 고무가 변형되며 저장해야 할 탄성 에너지가 누르는 힘(σ₀)에 비해 얼마나 큰가의 척도',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('', pady=2)
         add_text('  G값 → 접촉면적 변환 (A/A₀ = erf(1/(2√G)))으로 체감하면:',
-                 font_size=17, bold=True, fg='#1E293B')
+                 font_size=10, bold=True, fg='#1E293B')
         add_text('    G ≈ 0.1   →  A/A₀ ≈ 94%  (거의 완전 밀착 — 매우 유연한 고무 + 완만한 바닥)',
-                 font_size=17, fg='#059669')
+                 font_size=10, fg='#059669')
         add_text('    G ≈ 1     →  A/A₀ ≈ 43%  (절반 가까이 접촉 — 일반적인 저속 조건)',
-                 font_size=17, fg='#059669')
+                 font_size=10, fg='#059669')
         add_text('    G ≈ 10    →  A/A₀ ≈ 16%  (상당히 접촉 감소 — 중속 영역)',
-                 font_size=17, fg='#F59E0B')
+                 font_size=10, fg='#F59E0B')
         add_text('    G ≈ 100   →  A/A₀ ≈ 5%   (접촉 거의 없음 — 고속 또는 뻣뻣한 고무)',
-                 font_size=17, fg='#DC2626')
+                 font_size=10, fg='#DC2626')
         add_text('    G ≈ 1000  →  A/A₀ ≈ 1.6% (극히 미미한 접촉 — 유리 전이 영역 고속)',
-                 font_size=17, fg='#DC2626')
+                 font_size=10, fg='#DC2626')
         add_text('    G ≈ 10000 →  A/A₀ ≈ 0.5% (사실상 접촉 없음)',
-                 font_size=17, fg='#7C3AED')
+                 font_size=10, fg='#7C3AED')
         add_text('', pady=2)
         add_text('  요약: G는 "접촉을 방해하는 총 에너지 장벽"의 크기.',
-                 font_size=17, bold=True, fg='#DC2626')
+                 font_size=10, bold=True, fg='#DC2626')
         add_text('  작을수록 고무가 바닥에 잘 눌러붙고, 클수록 접촉이 어렵습니다.',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  G 자체는 무차원이지만, 실질적으로는 "(E/σ₀)² × (기울기)²"에 비례하는 양이라',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  탄성률이 높거나 압력이 낮거나 기울기가 가파르면 G가 빠르게 커집니다.',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
 
         def _plot_G_to_contact(ax, np):
             """Show G value to contact area mapping intuitively."""
@@ -8197,7 +8197,7 @@ class PerssonModelGUI_V2:
         add_text('▼ 실측 데이터: 3개 샘플의 속도별 G(q₁) 값',
                  bold=True, fg='#059669', pady=(6, 0))
         add_text('  동일한 바닥면(PSD) 위에서 3개 샘플을 다양한 속도로 측정한 결과입니다.',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
 
         def _plot_G_vs_v_real(ax, np):
             """Plot measured G(q1) vs velocity for 3 rubber samples."""
@@ -8255,11 +8255,11 @@ class PerssonModelGUI_V2:
         add_graph(_plot_G_vs_v_real)
 
         add_text('  → 저속: S100이 G 최대 (가장 뻣뻣) → S140 ≈ S120 (유사한 수준)',
-                 font_size=17, fg='#DC2626')
+                 font_size=10, fg='#DC2626')
         add_text('  → 고속 (v > 100 m/s): S120이 S100을 추월하여 G 최대 — 유리 전이 영역에서의 E 차이',
-                 font_size=17, fg='#2563EB')
+                 font_size=10, fg='#2563EB')
         add_text('  → 공통점: 모든 샘플에서 속도↑ → G 급증 (고주파에서 유리 전이 → 고무가 뻣뻣해짐)',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
 
         add_text('', pady=6)
         add_text('▼ 위의 G 값이 접촉면적 A/A₀에 어떻게 반영되는가?',
@@ -8269,7 +8269,7 @@ class PerssonModelGUI_V2:
             r' \quad \longleftarrow$ 위의 G를 이 수식에 대입',
             fig_height=1.1)
         add_text('  G가 커지면 erf의 인자 1/(2√G)가 작아지고 → erf 값이 0에 가까워짐 → 접촉면적 급감',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
 
         def _plot_AA0_vs_v_real(ax, np):
             """Convert measured G to A/A0 and show contact area vs velocity."""
@@ -8331,28 +8331,28 @@ class PerssonModelGUI_V2:
                         arrowprops=dict(arrowstyle='->', color='#2563EB', lw=1.5))
         add_graph(_plot_AA0_vs_v_real)
 
-        add_text('  해석:', font_size=17, bold=True, fg='#1E293B')
+        add_text('  해석:', font_size=10, bold=True, fg='#1E293B')
         add_text('  → 저속 (v < 0.01 m/s): S120 ≈ S140 ≈ 17%, S100 ≈ 12% 접촉 (G가 이미 크므로 접촉면적 작음)',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  → 중속 (v ≈ 1 m/s): 모든 샘플에서 접촉면적 5% 이하로 급감',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  → 고속 (v > 100 m/s): 접촉면적 1% 미만 — 거의 접촉 없음',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  → 핵심: G가 커지면 erf(1/(2√G))가 급격히 0에 수렴 → 접촉면적 비선형 급감',
-                 font_size=17, bold=True, fg='#DC2626')
+                 font_size=10, bold=True, fg='#DC2626')
         add_text('    (G=10 → A/A₀≈16%,  G=25 → ≈10%,  G=100 → ≈5%,  G=1000 → ≈1.6%)',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
 
         add_separator()
 
         # ── 각도 적분의 물리적 의미 ──
         add_text('각도 적분 ∫₀²π dφ 의 물리적 의미:', bold=True, fg='#7C3AED', pady=(8, 0))
-        add_text('  실제 표면 거칠기는 2차원(x,y 평면)에 분포하지만, 슬라이딩은 한 방향(예: x축)으로 일어남', font_size=17, fg='#64748B')
-        add_text('  → 파수 벡터 q = (qₓ, qᵧ)를 극좌표로 표현하면: qₓ = q·cos\u03c6, qᵧ = q·sin\u03c6', font_size=17, fg='#64748B')
-        add_text('  → 슬라이딩 방향(x축)과 각도 \u03c6를 이루는 요철이 고무에 주는 진동 주파수는 \u03c9 = q·v·cos\u03c6', font_size=17, fg='#64748B')
-        add_text('  → \u03c6 = 0° (슬라이딩 방향과 평행): 고무가 요철을 정면으로 타넘어 → 주파수 최대', font_size=17, fg='#64748B')
-        add_text('  → \u03c6 = 90° (슬라이딩 방향과 수직): 고무가 요철과 나란히 미끄러져 → 주파수 0 (기여 없음)', font_size=17, fg='#64748B')
-        add_text('  → 0~2\u03c0 적분 = 모든 방향의 요철 기여를 합산 (2D 표면의 등방 거칠기를 완전하게 반영)', font_size=17, fg='#64748B')
+        add_text('  실제 표면 거칠기는 2차원(x,y 평면)에 분포하지만, 슬라이딩은 한 방향(예: x축)으로 일어남', font_size=10, fg='#64748B')
+        add_text('  → 파수 벡터 q = (qₓ, qᵧ)를 극좌표로 표현하면: qₓ = q·cos\u03c6, qᵧ = q·sin\u03c6', font_size=10, fg='#64748B')
+        add_text('  → 슬라이딩 방향(x축)과 각도 \u03c6를 이루는 요철이 고무에 주는 진동 주파수는 \u03c9 = q·v·cos\u03c6', font_size=10, fg='#64748B')
+        add_text('  → \u03c6 = 0° (슬라이딩 방향과 평행): 고무가 요철을 정면으로 타넘어 → 주파수 최대', font_size=10, fg='#64748B')
+        add_text('  → \u03c6 = 90° (슬라이딩 방향과 수직): 고무가 요철과 나란히 미끄러져 → 주파수 0 (기여 없음)', font_size=10, fg='#64748B')
+        add_text('  → 0~2\u03c0 적분 = 모든 방향의 요철 기여를 합산 (2D 표면의 등방 거칠기를 완전하게 반영)', font_size=10, fg='#64748B')
 
         add_separator()
 
@@ -8361,7 +8361,7 @@ class PerssonModelGUI_V2:
         add_equation(
             r'$\frac{A(q)}{A_0} = P(q) \approx \mathrm{erf}\!\left( \frac{1}{2\sqrt{G(q)}} \right)$',
             fig_height=1.3)
-        add_text('물리적 의미: 배율 q에서 바닥과 실제로 닿아있는 면적의 비율 (0 ≤ P ≤ 1)', font_size=17, fg='#64748B')
+        add_text('물리적 의미: 배율 q에서 바닥과 실제로 닿아있는 면적의 비율 (0 ≤ P ≤ 1)', font_size=10, fg='#64748B')
 
         def _plot_P_erf(ax, np):
             from scipy.special import erf
@@ -8378,12 +8378,12 @@ class PerssonModelGUI_V2:
         add_graph(_plot_P_erf)
 
         add_text('erf(x) 함수란?', bold=True, fg='#7C3AED', pady=(10, 0))
-        add_text('  erf(x)는 오차 함수(error function)로, 가우시안 분포의 누적 확률을 나타냄:', font_size=17, fg='#64748B')
+        add_text('  erf(x)는 오차 함수(error function)로, 가우시안 분포의 누적 확률을 나타냄:', font_size=10, fg='#64748B')
         add_equation(
             r'$\mathrm{erf}(x) = \frac{2}{\sqrt{\pi}} \int_{0}^{x} e^{-t^2}\, dt$',
             fig_height=1.2)
-        add_text('  x = 0 → erf(0) = 0  |  x → ∞ → erf(∞) = 1  |  S자 형태로 0에서 1까지 증가', font_size=17, fg='#64748B')
-        add_text('  직관: "가우시안 분포에서 평균 ± x 범위 안에 포함되는 비율"', font_size=17, fg='#64748B')
+        add_text('  x = 0 → erf(0) = 0  |  x → ∞ → erf(∞) = 1  |  S자 형태로 0에서 1까지 증가', font_size=10, fg='#64748B')
+        add_text('  직관: "가우시안 분포에서 평균 ± x 범위 안에 포함되는 비율"', font_size=10, fg='#64748B')
 
         def _plot_erf(ax, np):
             from scipy.special import erf
@@ -8399,15 +8399,15 @@ class PerssonModelGUI_V2:
         add_graph(_plot_erf)
 
         add_text('왜 A/A₀ = erf(1/(2√G)) 인가?', bold=True, fg='#7C3AED', pady=(10, 0))
-        add_text('  Persson 이론에서 접촉 응력 σ는 가우시안 분포를 따름 (평균=σ₀, 분산∝G)', font_size=17, fg='#64748B')
-        add_text('  실접촉 = 응력이 0보다 큰 영역 → σ > 0 인 확률을 적분', font_size=17, fg='#64748B')
-        add_text('  가우시안의 σ > 0 누적확률을 계산하면 자연스럽게 erf 함수가 나옴:', font_size=17, fg='#64748B')
+        add_text('  Persson 이론에서 접촉 응력 σ는 가우시안 분포를 따름 (평균=σ₀, 분산∝G)', font_size=10, fg='#64748B')
+        add_text('  실접촉 = 응력이 0보다 큰 영역 → σ > 0 인 확률을 적분', font_size=10, fg='#64748B')
+        add_text('  가우시안의 σ > 0 누적확률을 계산하면 자연스럽게 erf 함수가 나옴:', font_size=10, fg='#64748B')
         add_equation(
             r'$P(q) = \int_{0}^{\infty} P(\sigma, q)\, d\sigma = \mathrm{erf}\!\left(\frac{\sigma_0}{2\sqrt{G(q)}\,\sigma_0}\right)'
             r' = \mathrm{erf}\!\left(\frac{1}{2\sqrt{G(q)}}\right)$',
             fig_height=1.3)
-        add_text('  G(q) 작을 때: 분포가 좁음 → 거의 모든 점이 σ>0 → P ≈ 1 (완전 접촉)', font_size=17, fg='#64748B')
-        add_text('  G(q) 클 때: 분포가 넓음 → σ<0인 영역 증가 → P → 0 (접촉 감소)', font_size=17, fg='#64748B')
+        add_text('  G(q) 작을 때: 분포가 좁음 → 거의 모든 점이 σ>0 → P ≈ 1 (완전 접촉)', font_size=10, fg='#64748B')
+        add_text('  G(q) 클 때: 분포가 넓음 → σ<0인 영역 증가 → P → 0 (접촉 감소)', font_size=10, fg='#64748B')
 
         add_separator()
 
@@ -8417,14 +8417,14 @@ class PerssonModelGUI_V2:
             r'$\mu_{visc} \approx \frac{1}{2} \int_{q_0}^{q_1} dq\, q^3 C(q)\, S(q)\, P(q)'
             r' \int_{0}^{2\pi} d\phi\, \cos\phi\, \mathrm{Im}\!\left( \frac{E(qv\cos\phi)}{(1-\nu^2)\sigma_0} \right)$',
             fig_height=1.3)
-        add_text('물리적 의미:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  고무가 거친 바닥 위를 미끄러질 때, 각 파수의 요철이 고무를 변형시키며 소산하는 에너지의 총합', font_size=17, fg='#64748B')
-        add_text('각 항의 역할:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  q³C(q) : 파수 q에서의 거칠기 기울기 기여 (미세 요철일수록 기울기가 가파름)', font_size=17, fg='#64748B')
-        add_text('  P(q) : 실접촉 면적 비율 — 닿아있는 면적만 마찰에 기여', font_size=17, fg='#64748B')
-        add_text('  S(q) : 대변형 보정 — 접촉 면적이 줄어드는 효과를 보정', font_size=17, fg='#64748B')
-        add_text('  Im[E(ω)] : 손실 탄성률 — 에너지 소산 (열로 변환)의 크기. 이것이 마찰력의 직접 원인', font_size=17, fg='#64748B')
-        add_text('  cos\u03c6 : 슬라이딩 방향 성분만 마찰력에 기여 (수직 방향 요철은 마찰에 기여 안 함)', font_size=17, fg='#64748B')
+        add_text('물리적 의미:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  고무가 거친 바닥 위를 미끄러질 때, 각 파수의 요철이 고무를 변형시키며 소산하는 에너지의 총합', font_size=10, fg='#64748B')
+        add_text('각 항의 역할:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  q³C(q) : 파수 q에서의 거칠기 기울기 기여 (미세 요철일수록 기울기가 가파름)', font_size=10, fg='#64748B')
+        add_text('  P(q) : 실접촉 면적 비율 — 닿아있는 면적만 마찰에 기여', font_size=10, fg='#64748B')
+        add_text('  S(q) : 대변형 보정 — 접촉 면적이 줄어드는 효과를 보정', font_size=10, fg='#64748B')
+        add_text('  Im[E(ω)] : 손실 탄성률 — 에너지 소산 (열로 변환)의 크기. 이것이 마찰력의 직접 원인', font_size=10, fg='#64748B')
+        add_text('  cos\u03c6 : 슬라이딩 방향 성분만 마찰력에 기여 (수직 방향 요철은 마찰에 기여 안 함)', font_size=10, fg='#64748B')
 
         def _plot_mu_integrand(ax, np):
             q = np.logspace(2, 8, 500)
@@ -8444,7 +8444,7 @@ class PerssonModelGUI_V2:
 
         add_text('보정 계수 S(q):', bold=True, pady=(10, 0))
         add_equation(r'$S(q) = \gamma + (1-\gamma)\,P^2(q) \qquad (\gamma \approx 0.5)$', fig_height=0.9)
-        add_text('  접촉 면적이 줄어들면 비접촉 영역의 고무도 변형에 참여 → 이를 보정하는 계수', font_size=17, fg='#64748B')
+        add_text('  접촉 면적이 줄어들면 비접촉 영역의 고무도 변형에 참여 → 이를 보정하는 계수', font_size=10, fg='#64748B')
 
         def _plot_S_correction(ax, np):
             P = np.linspace(0, 1, 200)
@@ -8464,29 +8464,29 @@ class PerssonModelGUI_V2:
 
         # ── μ_adh ──
         add_text('D. 점착 마찰 계수 μ_adh:', bold=True, pady=(6, 0))
-        add_text('  표면 분자 점착에 의한 마찰 (Arrhenius 온도 시프트 + 가우시안 마스터 커브)', font_size=17, fg='#64748B')
+        add_text('  표면 분자 점착에 의한 마찰 (Arrhenius 온도 시프트 + 가우시안 마스터 커브)', font_size=10, fg='#64748B')
 
-        add_text('Step 1. 아레니우스 점착 이동 계수:', font_size=17, bold=True, fg='#1E293B')
+        add_text('Step 1. 아레니우스 점착 이동 계수:', font_size=10, bold=True, fg='#1E293B')
         add_equation(
             r"$a'_T = \exp\!\left[\frac{\epsilon}{k_B}\left(\frac{1}{T} - \frac{1}{T_{ref}}\right)\right]$",
             fig_height=1.3)
-        add_text('  벌크 WLF와 달리, 표면 분자의 활성화 에너지(ε ≈ 0.94~1.0 eV)에 의한 Arrhenius 법칙', font_size=17, fg='#64748B')
+        add_text('  벌크 WLF와 달리, 표면 분자의 활성화 에너지(ε ≈ 0.94~1.0 eV)에 의한 Arrhenius 법칙', font_size=10, fg='#64748B')
 
-        add_text('Step 2. 온도 보정 유효 속도:', font_size=17, bold=True, fg='#1E293B')
+        add_text('Step 2. 온도 보정 유효 속도:', font_size=10, bold=True, fg='#1E293B')
         add_equation(r"$v_{eff} = v \times a'_T$", fig_height=0.8)
 
-        add_text('Step 3. 유효 점착 전단 응력 (가우시안 마스터 커브):', font_size=17, bold=True, fg='#1E293B')
+        add_text('Step 3. 유효 점착 전단 응력 (가우시안 마스터 커브):', font_size=10, bold=True, fg='#1E293B')
         add_equation(
             r"$\tau_f = \tau_{f0} \exp\!\left[-c\left(\log_{10}\frac{v_{eff}}{v_0^*}\right)^{\!2}\right]$",
             fig_height=1.3)
-        add_text('  τ_f0: 최대 점착 전단 응력 (5~8 MPa), v₀*: 피크 속도, c: 가우시안 폭', font_size=17, fg='#64748B')
+        add_text('  τ_f0: 최대 점착 전단 응력 (5~8 MPa), v₀*: 피크 속도, c: 가우시안 폭', font_size=10, fg='#64748B')
 
-        add_text('Step 4. 최종 점착 마찰 계수:', font_size=17, bold=True, fg='#1E293B')
+        add_text('Step 4. 최종 점착 마찰 계수:', font_size=10, bold=True, fg='#1E293B')
         add_equation(
             r"$\mu_{adh} = \frac{\tau_f}{p_0} \times \frac{A}{A_0}$",
             fig_height=1.0)
-        add_text('  A/A0는 μ_visc 계산에서 구한 실접촉 면적비 (q1에서의 P(q) 값)', font_size=17, fg='#64748B')
-        add_text('  최종 마찰 계수: μ_total = μ_visc + μ_adh', font_size=17, fg='#059669')
+        add_text('  A/A0는 μ_visc 계산에서 구한 실접촉 면적비 (q1에서의 P(q) 값)', font_size=10, fg='#64748B')
+        add_text('  최종 마찰 계수: μ_total = μ_visc + μ_adh', font_size=10, fg='#059669')
 
         # ═══════════════════════════════════════════════════════
         # Section 2: h_rms, h'_rms (RMS slope), Strain
@@ -8497,10 +8497,10 @@ class PerssonModelGUI_V2:
         add_equation(
             r'$h_{rms}^2(q) = 2\pi \int_{q_0}^{q} k\, C(k)\, dk$',
             fig_height=1.2)
-        add_text('물리적 의미:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  h_rms는 표면 높이의 RMS(root mean square) 값으로, "표면이 평균으로부터 얼마나 위아래로 출렁이는가"', font_size=17, fg='#64748B')
-        add_text('  피적분함수 k·C(k): 파수 k에서의 높이 기여분. 긴 파장(작은 q)의 거칠기가 h_rms에 주로 기여', font_size=17, fg='#64748B')
-        add_text('  단위: [m] (미터)', font_size=17, fg='#64748B')
+        add_text('물리적 의미:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  h_rms는 표면 높이의 RMS(root mean square) 값으로, "표면이 평균으로부터 얼마나 위아래로 출렁이는가"', font_size=10, fg='#64748B')
+        add_text('  피적분함수 k·C(k): 파수 k에서의 높이 기여분. 긴 파장(작은 q)의 거칠기가 h_rms에 주로 기여', font_size=10, fg='#64748B')
+        add_text('  단위: [m] (미터)', font_size=10, fg='#64748B')
 
         def _plot_hrms(ax, np):
             q = np.logspace(2, 8, 500)
@@ -8521,11 +8521,11 @@ class PerssonModelGUI_V2:
         add_equation(
             r"$h_{rms}^{\prime\,2}(q) = \xi^2(q) = 2\pi \int_{q_0}^{q} k^3\, C(k)\, dk$",
             fig_height=1.2)
-        add_text('물리적 의미:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  h\'_rms (= ξ)는 표면 기울기의 RMS 값으로, "표면이 얼마나 가파르게 경사져 있는가"', font_size=17, fg='#64748B')
-        add_text('  피적분함수 k³·C(k): k³ 가중치로 인해 미세 요철(큰 q)일수록 기울기 기여가 매우 큼', font_size=17, fg='#64748B')
-        add_text('  → h_rms는 긴 파장이 지배, h\'_rms는 짧은 파장이 지배 (같은 PSD에서 완전히 다른 특성)', font_size=17, fg='#64748B')
-        add_text('  단위: [무차원] (길이/길이 = 기울기)', font_size=17, fg='#64748B')
+        add_text('물리적 의미:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  h\'_rms (= ξ)는 표면 기울기의 RMS 값으로, "표면이 얼마나 가파르게 경사져 있는가"', font_size=10, fg='#64748B')
+        add_text('  피적분함수 k³·C(k): k³ 가중치로 인해 미세 요철(큰 q)일수록 기울기 기여가 매우 큼', font_size=10, fg='#64748B')
+        add_text('  → h_rms는 긴 파장이 지배, h\'_rms는 짧은 파장이 지배 (같은 PSD에서 완전히 다른 특성)', font_size=10, fg='#64748B')
+        add_text('  단위: [무차원] (길이/길이 = 기울기)', font_size=10, fg='#64748B')
 
         def _plot_hrms_slope(ax, np):
             q = np.logspace(2, 8, 500)
@@ -8544,18 +8544,18 @@ class PerssonModelGUI_V2:
         add_equation(
             r"$\varepsilon(q) = \alpha \cdot h_{rms}^{\prime}(q) = \alpha \cdot \xi(q)$",
             fig_height=1.0)
-        add_text('물리적 의미:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  고무가 거친 표면 요철을 따라 변형될 때, 접촉점 부근에서 고무가 받는 국소 변형률(strain)', font_size=17, fg='#64748B')
-        add_text('  표면 기울기(h\'_rms)가 가파를수록 → 고무가 요철을 감싸기 위해 더 크게 변형 → ε 증가', font_size=17, fg='#64748B')
-        add_text('  α : 비례 상수 (Persson 이론에서 α ≈ 0.5)', font_size=17, fg='#64748B')
-        add_text('  비선형 보정에서의 역할:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  → ε(q)이 크면 고무의 Payne 효과(대변형 연화)가 발생', font_size=17, fg='#64748B')
-        add_text('  → Strain Sweep 데이터에서 f(ε), g(ε) 함수를 구해 탄성률을 보정:', font_size=17, fg='#64748B')
+        add_text('물리적 의미:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  고무가 거친 표면 요철을 따라 변형될 때, 접촉점 부근에서 고무가 받는 국소 변형률(strain)', font_size=10, fg='#64748B')
+        add_text('  표면 기울기(h\'_rms)가 가파를수록 → 고무가 요철을 감싸기 위해 더 크게 변형 → ε 증가', font_size=10, fg='#64748B')
+        add_text('  α : 비례 상수 (Persson 이론에서 α ≈ 0.5)', font_size=10, fg='#64748B')
+        add_text('  비선형 보정에서의 역할:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  → ε(q)이 크면 고무의 Payne 효과(대변형 연화)가 발생', font_size=10, fg='#64748B')
+        add_text('  → Strain Sweep 데이터에서 f(ε), g(ε) 함수를 구해 탄성률을 보정:', font_size=10, fg='#64748B')
         add_equation(
             r"$E'_{eff}(\omega) = E'(\omega) \times f(\varepsilon), \qquad E''_{eff}(\omega) = E''(\omega) \times g(\varepsilon)$",
             fig_height=1.0)
-        add_text('  f(ε) ≤ 1 : 변형이 커지면 저장 탄성률 감소 (고무가 연화)', font_size=17, fg='#64748B')
-        add_text('  g(ε) : 변형이 커지면 손실 탄성률이 먼저 증가했다 감소 (에너지 소산 패턴 변화)', font_size=17, fg='#64748B')
+        add_text('  f(ε) ≤ 1 : 변형이 커지면 저장 탄성률 감소 (고무가 연화)', font_size=10, fg='#64748B')
+        add_text('  g(ε) : 변형이 커지면 손실 탄성률이 먼저 증가했다 감소 (에너지 소산 패턴 변화)', font_size=10, fg='#64748B')
 
         def _plot_payne_effect(ax, np):
             eps = np.linspace(0, 50, 200)
@@ -8580,50 +8580,50 @@ class PerssonModelGUI_V2:
         add_separator()
         add_section_title('Section 3: Flash Temperature — Per-q Sequential Accumulation')
 
-        add_text('  고무가 거친 표면 위를 미끄러질 때, 마찰 에너지가 열로 변환되어 접촉점의 온도가 상승합니다.', font_size=17, fg='#1E293B')
-        add_text('  이 "flash temperature"는 고무의 점탄성 물성(E\'\')을 변화시켜 마찰 계수에 영향을 줍니다.', font_size=17, fg='#1E293B')
-        add_text('  특히 고속 영역에서 마찰 피크를 넘은 후의 하강 거동을 물리적으로 설명하는 핵심 메커니즘입니다.', font_size=17, fg='#1E293B')
+        add_text('  고무가 거친 표면 위를 미끄러질 때, 마찰 에너지가 열로 변환되어 접촉점의 온도가 상승합니다.', font_size=10, fg='#1E293B')
+        add_text('  이 "flash temperature"는 고무의 점탄성 물성(E\'\')을 변화시켜 마찰 계수에 영향을 줍니다.', font_size=10, fg='#1E293B')
+        add_text('  특히 고속 영역에서 마찰 피크를 넘은 후의 하강 거동을 물리적으로 설명하는 핵심 메커니즘입니다.', font_size=10, fg='#1E293B')
 
         # 3-A: Thermal parameters
         add_separator()
-        add_text('  3-A. 열물성 파라미터', font_size=19, bold=True, fg='#1E293B')
-        add_text('  고무의 열적 특성을 기술하는 3개 기본 상수로부터 열확산도를 계산합니다:', font_size=17, fg='#64748B')
+        add_text('  3-A. 열물성 파라미터', font_size=10, bold=True, fg='#1E293B')
+        add_text('  고무의 열적 특성을 기술하는 3개 기본 상수로부터 열확산도를 계산합니다:', font_size=10, fg='#64748B')
 
         add_equation(r"$D_{th} = \frac{\kappa}{\rho \cdot C_v} \quad [\mathrm{m^2/s}]$", fig_height=1.0)
 
-        add_text('  ρ : 밀도 [kg/m³] — 일반 고무 ≈ 1100~1200 kg/m³', font_size=17, fg='#64748B')
-        add_text('  C_v : 비열 [J/(kg·K)] — 일반 고무 ≈ 1400~1600 J/(kg·K)', font_size=17, fg='#64748B')
-        add_text('  κ : 열전도도 [W/(m·K)] — 일반 고무 ≈ 0.15~0.35 W/(m·K)', font_size=17, fg='#64748B')
-        add_text('  D_th : 열이 재료 내부로 확산되는 속도. 값이 작을수록 열이 접촉점에 집중 → ΔT 증가', font_size=17, fg='#64748B')
+        add_text('  ρ : 밀도 [kg/m³] — 일반 고무 ≈ 1100~1200 kg/m³', font_size=10, fg='#64748B')
+        add_text('  C_v : 비열 [J/(kg·K)] — 일반 고무 ≈ 1400~1600 J/(kg·K)', font_size=10, fg='#64748B')
+        add_text('  κ : 열전도도 [W/(m·K)] — 일반 고무 ≈ 0.15~0.35 W/(m·K)', font_size=10, fg='#64748B')
+        add_text('  D_th : 열이 재료 내부로 확산되는 속도. 값이 작을수록 열이 접촉점에 집중 → ΔT 증가', font_size=10, fg='#64748B')
 
         # 3-B: Peclet number
         add_separator()
-        add_text('  3-B. Peclet 수 (Jd, Jh) — 대류 vs 전도 비율', font_size=19, bold=True, fg='#1E293B')
-        add_text('  이동 열원 문제에서 열 수송의 특성을 결정하는 무차원수:', font_size=17, fg='#64748B')
+        add_text('  3-B. Peclet 수 (Jd, Jh) — 대류 vs 전도 비율', font_size=10, bold=True, fg='#1E293B')
+        add_text('  이동 열원 문제에서 열 수송의 특성을 결정하는 무차원수:', font_size=10, fg='#64748B')
 
         add_equation(r"$J_d = \frac{v \cdot d}{D_{th}}, \qquad J_h = \frac{v \cdot h}{D_{th}}$", fig_height=0.9)
 
-        add_text('  v : 미끄럼 속도 [m/s],  d : 접촉 패치의 특성 직경 [m],  h : 표면층 두께 [m] (≈1/q₁)', font_size=17, fg='#64748B')
-        add_text('  Jd : 열이 핫스팟 직경(d) 밖으로 빠져나가는 비율 — Jd≫1이면 이동 열원', font_size=17, fg='#059669')
-        add_text('  Jh : 초고속에서 열이 표면층(h) 깊이 이상 침투 못함 — Jh≫1이면 ΔT∝1/v (포화)', font_size=17, fg='#059669')
-        add_text('  Jd ≪ 1 (느린 속도): 정상 열전도에 가까움 → ΔT ∝ q̇·d/κ', font_size=17, fg='#059669')
+        add_text('  v : 미끄럼 속도 [m/s],  d : 접촉 패치의 특성 직경 [m],  h : 표면층 두께 [m] (≈1/q₁)', font_size=10, fg='#64748B')
+        add_text('  Jd : 열이 핫스팟 직경(d) 밖으로 빠져나가는 비율 — Jd≫1이면 이동 열원', font_size=10, fg='#059669')
+        add_text('  Jh : 초고속에서 열이 표면층(h) 깊이 이상 침투 못함 — Jh≫1이면 ΔT∝1/v (포화)', font_size=10, fg='#059669')
+        add_text('  Jd ≪ 1 (느린 속도): 정상 열전도에 가까움 → ΔT ∝ q̇·d/κ', font_size=10, fg='#059669')
 
         # 3-C: Greenwood formula
         add_separator()
-        add_text('  3-C. Greenwood 원형 접촉 보간식 (Persson 2006) — ΔT', font_size=19, bold=True, fg='#1E293B')
-        add_text('  Persson(2006)이 채택한 Greenwood 보간식 — 원형(3D) 접촉 패치에 대한 이동 열원 공식:', font_size=17, fg='#64748B')
+        add_text('  3-C. Greenwood 원형 접촉 보간식 (Persson 2006) — ΔT', font_size=10, bold=True, fg='#1E293B')
+        add_text('  Persson(2006)이 채택한 Greenwood 보간식 — 원형(3D) 접촉 패치에 대한 이동 열원 공식:', font_size=10, fg='#64748B')
 
         add_equation(
             r"$\Delta T = \frac{\dot{q} \cdot d}{4\kappa \sqrt{1 + \frac{\pi}{32} J_d + \frac{J_h^2}{4}}}$"
             r"  (d = 직경, a = d/2 = 반경)",
             fig_height=1.3)
 
-        add_text('  q̇ = μ × σ₀ × v / P(q_m) : 매크로 접촉면에 집중된 열유속(heat flux) [W/m²]', font_size=17, fg='#64748B')
-        add_text('  P(q_m) = A(q_m)/A₀ : 매크로 돌기 파수 q_m에서의 접촉 면적 비율', font_size=17, fg='#DC2626')
-        add_text('  이 공식은 세 가지 속도 영역을 부드럽게 보간합니다:', font_size=17, fg='#64748B')
-        add_text('  → 저속 극한 (Jd,Jh→0): ΔT ≈ q̇·d/(4κ)  (정상 열전도, d=직경, a=d/2=반경)', font_size=17, fg='#059669')
-        add_text('  → 중속 극한 (Jd≫1):     ΔT ∝ 1/√Jd ∝ 1/√v  (이동 열원)', font_size=17, fg='#059669')
-        add_text('  → 고속 극한 (Jh≫1):     ΔT ∝ 1/Jh ∝ 1/v  (표면층 포화)', font_size=17, fg='#059669')
+        add_text('  q̇ = μ × σ₀ × v / P(q_m) : 매크로 접촉면에 집중된 열유속(heat flux) [W/m²]', font_size=10, fg='#64748B')
+        add_text('  P(q_m) = A(q_m)/A₀ : 매크로 돌기 파수 q_m에서의 접촉 면적 비율', font_size=10, fg='#DC2626')
+        add_text('  이 공식은 세 가지 속도 영역을 부드럽게 보간합니다:', font_size=10, fg='#64748B')
+        add_text('  → 저속 극한 (Jd,Jh→0): ΔT ≈ q̇·d/(4κ)  (정상 열전도, d=직경, a=d/2=반경)', font_size=10, fg='#059669')
+        add_text('  → 중속 극한 (Jd≫1):     ΔT ∝ 1/√Jd ∝ 1/√v  (이동 열원)', font_size=10, fg='#059669')
+        add_text('  → 고속 극한 (Jh≫1):     ΔT ∝ 1/Jh ∝ 1/v  (표면층 포화)', font_size=10, fg='#059669')
 
         def _plot_greenwood(ax, np):
             Jd = np.logspace(-2, 5, 500)
@@ -8653,17 +8653,17 @@ class PerssonModelGUI_V2:
 
         # 3-D: WLF time-temperature superposition
         add_separator()
-        add_text('  3-D. WLF 시간-온도 중첩 (Time-Temperature Superposition)', font_size=19, bold=True, fg='#1E293B')
-        add_text('  온도가 변하면 고분자 사슬의 이동도가 바뀌어 주파수 응답이 시프트됩니다:', font_size=17, fg='#64748B')
+        add_text('  3-D. WLF 시간-온도 중첩 (Time-Temperature Superposition)', font_size=10, bold=True, fg='#1E293B')
+        add_text('  온도가 변하면 고분자 사슬의 이동도가 바뀌어 주파수 응답이 시프트됩니다:', font_size=10, fg='#64748B')
 
         add_equation(
             r"$\log_{10} a_T(T) = \frac{-C_1 \, (T - T_{ref})}{C_2 + (T - T_{ref})}$",
             fig_height=1.0)
 
-        add_text('  C₁, C₂ : WLF 상수 (재료 고유값). T_ref : 기준 온도', font_size=17, fg='#64748B')
-        add_text('  마스터 곡선에서의 조회: E\'\'(ω, T) = E\'\'_master(ω × a_T(T))', font_size=17, fg='#374151', bold=True)
-        add_text('  T 증가 → a_T 감소 → ω×a_T 감소 → 더 낮은 주파수 영역의 E\'\' 사용', font_size=17, fg='#64748B')
-        add_text('  → 유리 전이 피크에서 벗어남 → E\'\' 감소 → μ 감소 (Negative Feedback!)', font_size=17, fg='#DC2626', bold=True)
+        add_text('  C₁, C₂ : WLF 상수 (재료 고유값). T_ref : 기준 온도', font_size=10, fg='#64748B')
+        add_text('  마스터 곡선에서의 조회: E\'\'(ω, T) = E\'\'_master(ω × a_T(T))', font_size=10, fg='#374151', bold=True)
+        add_text('  T 증가 → a_T 감소 → ω×a_T 감소 → 더 낮은 주파수 영역의 E\'\' 사용', font_size=10, fg='#64748B')
+        add_text('  → 유리 전이 피크에서 벗어남 → E\'\' 감소 → μ 감소 (Negative Feedback!)', font_size=10, fg='#DC2626', bold=True)
 
         def _plot_wlf_shift(ax, np):
             T = np.linspace(-20, 150, 300)
@@ -8686,17 +8686,17 @@ class PerssonModelGUI_V2:
 
         # 3-E: Per-q accumulation — the core algorithm
         add_separator()
-        add_text('  3-E. Per-q Sequential Accumulation — 핵심 알고리즘', font_size=19, bold=True, fg='#1E293B')
-        add_text('  파수별 순차 누적: 각 q 단계에서 누적 온도 기반 WLF shift 적용', font_size=17, fg='#DC2626', bold=True)
-        add_text('  Greenwood 원형 보간식: δT(q_i) = q̇·d/(4κ)/√(1+(π/32)Jd+Jh²/4)', font_size=17, fg='#DC2626', bold=True)
-        add_text('  면적 보정: q̇ = dμ·σ₀·v / P(q_i) (접촉면에 열 집중)', font_size=17, fg='#DC2626', bold=True)
+        add_text('  3-E. Per-q Sequential Accumulation — 핵심 알고리즘', font_size=10, bold=True, fg='#1E293B')
+        add_text('  파수별 순차 누적: 각 q 단계에서 누적 온도 기반 WLF shift 적용', font_size=10, fg='#DC2626', bold=True)
+        add_text('  Greenwood 원형 보간식: δT(q_i) = q̇·d/(4κ)/√(1+(π/32)Jd+Jh²/4)', font_size=10, fg='#DC2626', bold=True)
+        add_text('  면적 보정: q̇ = dμ·σ₀·v / P(q_i) (접촉면에 열 집중)', font_size=10, fg='#DC2626', bold=True)
 
         add_equation(
             r"$d(q_i) = \frac{2\pi}{q_i}, \qquad"
             r" d\mu_i = \frac{1}{2}\,\frac{f(q_{i-1}) + f(q_i)}{2}\,\Delta q_i$",
             fig_height=1.0)
 
-        add_text('  여기서 f(q) = q³ C(q) P(q) S(q) × (각도 적분) 은 마찰 피적분함수', font_size=17, fg='#64748B')
+        add_text('  여기서 f(q) = q³ C(q) P(q) S(q) × (각도 적분) 은 마찰 피적분함수', font_size=10, fg='#64748B')
 
         add_equation(
             r"$\dot{q}(q_i) = \frac{d\mu_i \cdot \sigma_0 \cdot v}{P(q_i)}"
@@ -8708,30 +8708,30 @@ class PerssonModelGUI_V2:
             r"{2\kappa\,\sqrt{1 + \frac{\pi}{16} J_d(q_i) + \frac{J_h^2}{4}}}$",
             fig_height=1.3)
 
-        add_text('  Jh = v·h/D_th (h=1/q₁): 고속 표면층 포화 효과', font_size=17, fg='#DC2626', bold=True)
-        add_text('  A/A₀ 보정: P(q) = A(q)/A₀ 는 파수 q까지의 접촉 면적 비율', font_size=17, fg='#DC2626', bold=True)
-        add_text('  → 열유속 q̇ = dμ·σ₀·v / P(q) : 접촉 패치에 열이 집중됨', font_size=17, fg='#DC2626', bold=True)
-        add_text('  → P(q)가 작을수록 (접촉 면적 ↓) 열유속 ↑ → ΔT ↑', font_size=17, fg='#DC2626')
+        add_text('  Jh = v·h/D_th (h=1/q₁): 고속 표면층 포화 효과', font_size=10, fg='#DC2626', bold=True)
+        add_text('  A/A₀ 보정: P(q) = A(q)/A₀ 는 파수 q까지의 접촉 면적 비율', font_size=10, fg='#DC2626', bold=True)
+        add_text('  → 열유속 q̇ = dμ·σ₀·v / P(q) : 접촉 패치에 열이 집중됨', font_size=10, fg='#DC2626', bold=True)
+        add_text('  → P(q)가 작을수록 (접촉 면적 ↓) 열유속 ↑ → ΔT ↑', font_size=10, fg='#DC2626')
 
         add_equation(
             r"$\Delta T(q_i) = \sum_{k=1}^{i} \delta T(q_k)$"
             r"  (순차 누적, $q_0 \to q_1$)",
             fig_height=0.9)
 
-        add_text('\n  Per-q Sequential Accumulation 순서:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  \u2460 초기: T_current = T_base, ΔT_accum = 0', font_size=17, fg='#059669')
-        add_text('  \u2461 각 q[i]에서: WLF shift a_T(T_current) → E\'\'(ω·a_T) 조회', font_size=17, fg='#059669')
-        add_text('  \u2462 dμ[i] 계산: shifted E\'\'로 마찰 피적분함수 적분', font_size=17, fg='#059669')
-        add_text('  \u2463 열유속: q̇(q_i) = dμ[i]·σ₀·v / P(q_i) (파수별 면적 보정)', font_size=17, fg='#059669')
-        add_text('  \u2464 δT(q_i) = Greenwood(q̇, d=π/q_i, v): (q̇·d)/(4κ)/√(1+(π/32)Jd+Jh²/4)  [원형 접촉, d=직경→a=d/2]', font_size=17, fg='#059669')
-        add_text('  \u2465 T_current = T_base + ΔT_accum + δT(q_i) → 다음 q에서 사용', font_size=17, fg='#059669')
-        add_text('  \u2466 최종: ΔT_total = Σ δT(q_i), μ_hot = Σ dμ[i]', font_size=17, fg='#059669')
+        add_text('\n  Per-q Sequential Accumulation 순서:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  \u2460 초기: T_current = T_base, ΔT_accum = 0', font_size=10, fg='#059669')
+        add_text('  \u2461 각 q[i]에서: WLF shift a_T(T_current) → E\'\'(ω·a_T) 조회', font_size=10, fg='#059669')
+        add_text('  \u2462 dμ[i] 계산: shifted E\'\'로 마찰 피적분함수 적분', font_size=10, fg='#059669')
+        add_text('  \u2463 열유속: q̇(q_i) = dμ[i]·σ₀·v / P(q_i) (파수별 면적 보정)', font_size=10, fg='#059669')
+        add_text('  \u2464 δT(q_i) = Greenwood(q̇, d=π/q_i, v): (q̇·d)/(4κ)/√(1+(π/32)Jd+Jh²/4)  [원형 접촉, d=직경→a=d/2]', font_size=10, fg='#059669')
+        add_text('  \u2465 T_current = T_base + ΔT_accum + δT(q_i) → 다음 q에서 사용', font_size=10, fg='#059669')
+        add_text('  \u2466 최종: ΔT_total = Σ δT(q_i), μ_hot = Σ dμ[i]', font_size=10, fg='#059669')
 
-        add_text('\n  물리적 의미 — 왜 Per-q Sequential인가?', font_size=17, bold=True, fg='#1E293B')
-        add_text('  → 큰 스케일(저 q)에서 작은 스케일(고 q)로 순차적 온도 누적', font_size=17, fg='#64748B')
-        add_text('  → 각 q 단계에서 누적 온도에 따른 WLF shift 자동 적용', font_size=17, fg='#64748B')
-        add_text('  → 고 q (작은 접촉 패치): 이전 q들의 발열 효과가 반영됨', font_size=17, fg='#64748B')
-        add_text('  → P(q_i) 보정: 각 파수의 실접촉 면적에 열유속 집중', font_size=17, fg='#64748B')
+        add_text('\n  물리적 의미 — 왜 Per-q Sequential인가?', font_size=10, bold=True, fg='#1E293B')
+        add_text('  → 큰 스케일(저 q)에서 작은 스케일(고 q)로 순차적 온도 누적', font_size=10, fg='#64748B')
+        add_text('  → 각 q 단계에서 누적 온도에 따른 WLF shift 자동 적용', font_size=10, fg='#64748B')
+        add_text('  → 고 q (작은 접촉 패치): 이전 q들의 발열 효과가 반영됨', font_size=10, fg='#64748B')
+        add_text('  → P(q_i) 보정: 각 파수의 실접촉 면적에 열유속 집중', font_size=10, fg='#64748B')
 
         def _plot_dT_accumulation(ax, np):
             q = np.logspace(2, 8, 200)
@@ -8766,17 +8766,17 @@ class PerssonModelGUI_V2:
 
         # 3-F: Final hot friction result
         add_separator()
-        add_text('  3-F. 최종 결과 — Hot 마찰 계수와 접촉 면적', font_size=19, bold=True, fg='#1E293B')
+        add_text('  3-F. 최종 결과 — Hot 마찰 계수와 접촉 면적', font_size=10, bold=True, fg='#1E293B')
 
         add_equation(
             r"$\mu_{hot} = \frac{1}{2}\int_{q_0}^{q_1} dq\, q^3 C(q) P(q) S(q)"
             r" \int d\phi\, \cos\phi\, \frac{\mathrm{Im}[E(\omega \cdot a_T(T_{hot}))]}{(1-\nu^2)\sigma_0}$",
             fig_height=1.0)
 
-        add_text('  μ_hot: 파수별 순차 누적 — 각 q에서 누적 온도 기반 WLF shift 적용', font_size=17, fg='#64748B')
-        add_text('  ΔT: Persson 2006 원형 접촉 공식, 파수별 순차 누적 (q₀→q₁)', font_size=17, fg='#64748B')
-        add_text('  A/A0_hot: 최종 ΔT에서 G(q) 재계산 → P(q₁) = erf(1/(2√G(q₁)))', font_size=17, fg='#64748B')
-        add_text('  T_hot(v) = T_base + ΔT_total(v): 각 속도에서의 접촉 온도', font_size=17, fg='#64748B')
+        add_text('  μ_hot: 파수별 순차 누적 — 각 q에서 누적 온도 기반 WLF shift 적용', font_size=10, fg='#64748B')
+        add_text('  ΔT: Persson 2006 원형 접촉 공식, 파수별 순차 누적 (q₀→q₁)', font_size=10, fg='#64748B')
+        add_text('  A/A0_hot: 최종 ΔT에서 G(q) 재계산 → P(q₁) = erf(1/(2√G(q₁)))', font_size=10, fg='#64748B')
+        add_text('  T_hot(v) = T_base + ΔT_total(v): 각 속도에서의 접촉 온도', font_size=10, fg='#64748B')
 
         def _plot_feedback(ax, np):
             v = np.logspace(-6, 2, 300)
@@ -8798,10 +8798,10 @@ class PerssonModelGUI_V2:
                          fontsize=self.PLOT_FONTS['title'], color='#DC2626', fontweight='bold')
         add_graph(_plot_feedback)
 
-        add_text('\n  Negative Feedback Loop (고속 영역):', font_size=17, bold=True, fg='#1E293B')
-        add_text('  v\u2191 → q̇\u2191 → ΔT\u2191 → a_T\u2193 → E\'\'\u2193 → μ\u2193 → q̇\u2193 → ΔT\u2193', font_size=17, fg='#DC2626', bold=True)
-        add_text('  → 이 피드백은 per-q 순차 처리에서 자연스럽게 구현됨 (외부 반복 불필요)', font_size=17, fg='#64748B')
-        add_text('  → A/A₀ 보정(q̇ /= P(q))으로 접촉 패치의 실제 열유속을 정확히 반영', font_size=17, fg='#DC2626')
+        add_text('\n  Negative Feedback Loop (고속 영역):', font_size=10, bold=True, fg='#1E293B')
+        add_text('  v\u2191 → q̇\u2191 → ΔT\u2191 → a_T\u2193 → E\'\'\u2193 → μ\u2193 → q̇\u2193 → ΔT\u2193', font_size=10, fg='#DC2626', bold=True)
+        add_text('  → 이 피드백은 per-q 순차 처리에서 자연스럽게 구현됨 (외부 반복 불필요)', font_size=10, fg='#64748B')
+        add_text('  → A/A₀ 보정(q̇ /= P(q))으로 접촉 패치의 실제 열유속을 정확히 반영', font_size=10, fg='#DC2626')
 
         # ═══════════════════════════════════════════════════════
         # Section 4: μ_adh (점착 마찰)
@@ -8810,9 +8810,9 @@ class PerssonModelGUI_V2:
         add_section_title('4. μ_adh — 점착 마찰 계수')
 
         add_text('접착 마찰은 고무 표면 분자와 노면 분자 사이의 점착(adhesion)에 의해 발생하는 마찰 성분입니다.',
-                 font_size=17, fg='#1E293B')
+                 font_size=10, fg='#1E293B')
         add_text('이 모델은 Arrhenius 온도 시프트 + Gaussian 전단 응력 마스터 커브를 사용합니다.',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('', pady=4)
 
         add_text('4-A. Arrhenius 온도 시프트 팩터:', bold=True, pady=(8, 0))
@@ -8820,18 +8820,18 @@ class PerssonModelGUI_V2:
             r"$a_T' = \exp\!\left[\frac{\varepsilon}{k_B}"
             r"\left(\frac{1}{T} - \frac{1}{T_{ref}}\right)\right]$",
             fig_height=1.2)
-        add_text('  aT\' : 점착 온도 시프트 팩터 — 온도에 따라 분자 이동도가 변하는 정도', font_size=17, fg='#64748B')
-        add_text('  epsilon : 활성화 에너지 [eV] — 표면 분자의 점착 결합을 끊는 데 필요한 에너지 장벽 (보통 ~0.97 eV)', font_size=17, fg='#64748B')
-        add_text('  k_B : 볼츠만 상수 = 8.6173 x 10^-5 eV/K', font_size=17, fg='#64748B')
-        add_text('  T : 계산 온도 [K], T_ref : 기준 온도 [K] (마스터 커브의 기준 온도)', font_size=17, fg='#64748B')
-        add_text('  → T > T_ref이면 aT\' < 1 (고온에서 분자 이동 빨라짐 → 점착 감소)', font_size=17, fg='#DC2626')
-        add_text('  → T < T_ref이면 aT\' > 1 (저온에서 분자 이동 느려짐 → 점착 증가 가능)', font_size=17, fg='#DC2626')
+        add_text('  aT\' : 점착 온도 시프트 팩터 — 온도에 따라 분자 이동도가 변하는 정도', font_size=10, fg='#64748B')
+        add_text('  epsilon : 활성화 에너지 [eV] — 표면 분자의 점착 결합을 끊는 데 필요한 에너지 장벽 (보통 ~0.97 eV)', font_size=10, fg='#64748B')
+        add_text('  k_B : 볼츠만 상수 = 8.6173 x 10^-5 eV/K', font_size=10, fg='#64748B')
+        add_text('  T : 계산 온도 [K], T_ref : 기준 온도 [K] (마스터 커브의 기준 온도)', font_size=10, fg='#64748B')
+        add_text('  → T > T_ref이면 aT\' < 1 (고온에서 분자 이동 빨라짐 → 점착 감소)', font_size=10, fg='#DC2626')
+        add_text('  → T < T_ref이면 aT\' > 1 (저온에서 분자 이동 느려짐 → 점착 증가 가능)', font_size=10, fg='#DC2626')
         add_text('', pady=4)
 
         add_text('4-B. 유효 속도 (온도 보정):', bold=True, pady=(8, 0))
         add_equation(r"$v_{eff} = v \times a_T'$", fig_height=0.9)
-        add_text('  v_eff : 유효 속도 — 온도 효과를 속도 축으로 변환한 값', font_size=17, fg='#64748B')
-        add_text('  → 온도가 높으면 분자가 빨리 움직이므로, 실제보다 느린 속도와 같은 효과', font_size=17, fg='#64748B')
+        add_text('  v_eff : 유효 속도 — 온도 효과를 속도 축으로 변환한 값', font_size=10, fg='#64748B')
+        add_text('  → 온도가 높으면 분자가 빨리 움직이므로, 실제보다 느린 속도와 같은 효과', font_size=10, fg='#64748B')
         add_text('', pady=4)
 
         add_text('4-C. Gaussian 전단 응력 마스터 커브:', bold=True, pady=(8, 0))
@@ -8839,31 +8839,31 @@ class PerssonModelGUI_V2:
             r"$\tau_f = \tau_{f0} \cdot \exp\!\left[-c \cdot"
             r" \left(\log_{10}\frac{v_{eff}}{v_0^*}\right)^2\right]$",
             fig_height=1.2)
-        add_text('  tau_f : 점착 전단 응력 [Pa] — 고무 표면의 점착 결합이 끊어질 때의 전단 응력', font_size=17, fg='#64748B')
-        add_text('  tau_f0 : 최대 점착 전단 응력 [Pa] — Gaussian 피크값 (피팅 파라미터)', font_size=17, fg='#2563EB')
-        add_text('  v0* : 기준 속도 [m/s] — 점착 피크가 나타나는 유효 속도 (피팅 파라미터)', font_size=17, fg='#2563EB')
-        add_text('  c : Gaussian 폭 상수 — 값이 작을수록 넓은 속도 범위에서 점착 발생 (피팅 파라미터)', font_size=17, fg='#2563EB')
-        add_text('  → v_eff = v0* 일 때 tau_f가 최대 (tau_f0)', font_size=17, fg='#DC2626')
-        add_text('  → v_eff >> v0* 또는 v_eff << v0* 이면 tau_f 급격히 감소', font_size=17, fg='#DC2626')
+        add_text('  tau_f : 점착 전단 응력 [Pa] — 고무 표면의 점착 결합이 끊어질 때의 전단 응력', font_size=10, fg='#64748B')
+        add_text('  tau_f0 : 최대 점착 전단 응력 [Pa] — Gaussian 피크값 (피팅 파라미터)', font_size=10, fg='#2563EB')
+        add_text('  v0* : 기준 속도 [m/s] — 점착 피크가 나타나는 유효 속도 (피팅 파라미터)', font_size=10, fg='#2563EB')
+        add_text('  c : Gaussian 폭 상수 — 값이 작을수록 넓은 속도 범위에서 점착 발생 (피팅 파라미터)', font_size=10, fg='#2563EB')
+        add_text('  → v_eff = v0* 일 때 tau_f가 최대 (tau_f0)', font_size=10, fg='#DC2626')
+        add_text('  → v_eff >> v0* 또는 v_eff << v0* 이면 tau_f 급격히 감소', font_size=10, fg='#DC2626')
         add_text('', pady=4)
 
         add_text('4-D. 최종 점착 마찰 계수:', bold=True, pady=(8, 0))
         add_equation(
             r"$\mu_{adh} = \frac{\tau_f}{p_0} \times \frac{A}{A_0}$",
             fig_height=1.0)
-        add_text('  mu_adh : 점착 마찰 계수 — 실접촉 면적에 작용하는 전단 응력의 마찰 기여분', font_size=17, fg='#64748B')
-        add_text('  p0 : 명목 접촉 압력 [Pa] — 하중/전체면적 (sigma_0)', font_size=17, fg='#64748B')
-        add_text('  A/A0 : 실접촉 면적비 — mu_visc 계산의 P(q1) 결과에서 가져옴', font_size=17, fg='#64748B')
-        add_text('  → tau_f가 크고 A/A0가 클수록 점착 마찰 증가', font_size=17, fg='#DC2626')
+        add_text('  mu_adh : 점착 마찰 계수 — 실접촉 면적에 작용하는 전단 응력의 마찰 기여분', font_size=10, fg='#64748B')
+        add_text('  p0 : 명목 접촉 압력 [Pa] — 하중/전체면적 (sigma_0)', font_size=10, fg='#64748B')
+        add_text('  A/A0 : 실접촉 면적비 — mu_visc 계산의 P(q1) 결과에서 가져옴', font_size=10, fg='#64748B')
+        add_text('  → tau_f가 크고 A/A0가 클수록 점착 마찰 증가', font_size=10, fg='#DC2626')
         add_text('', pady=4)
 
         add_text('4-E. 전체 마찰 합산:', bold=True, pady=(8, 0))
         add_equation(
             r"$\mu_{total} = \mu_{visc} + \mu_{adh}$",
             fig_height=0.9)
-        add_text('  mu_total : 전체 건조 마찰 계수 — 점탄성 마찰(히스테리시스) + 점착 마찰의 합', font_size=17, fg='#64748B')
-        add_text('  mu_visc : 점탄성 마찰 — 고무 내부 에너지 소산에 의한 마찰 (Section 2)', font_size=17, fg='#64748B')
-        add_text('  mu_adh : 점착 마찰 — 표면 분자 결합/해체에 의한 마찰 (이 Section)', font_size=17, fg='#64748B')
+        add_text('  mu_total : 전체 건조 마찰 계수 — 점탄성 마찰(히스테리시스) + 점착 마찰의 합', font_size=10, fg='#64748B')
+        add_text('  mu_visc : 점탄성 마찰 — 고무 내부 에너지 소산에 의한 마찰 (Section 2)', font_size=10, fg='#64748B')
+        add_text('  mu_adh : 점착 마찰 — 표면 분자 결합/해체에 의한 마찰 (이 Section)', font_size=10, fg='#64748B')
 
         def _plot_mu_adh_components(ax, np):
             """Show mu_visc, mu_adh, and mu_total."""
@@ -11121,7 +11121,7 @@ class PerssonModelGUI_V2:
 
         toggle_cmd = lambda: self._toggle_mu_plot_visibility()
 
-        ttk.Label(chk_frame, text="μ_visc:", font=('Segoe UI', 8, 'bold')).pack(side=tk.LEFT, padx=(2, 0))
+        ttk.Label(chk_frame, text="μ_visc:", font=('NanumGothic', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 0))
         self.show_mu_cold_var = tk.BooleanVar(value=True)
         self.show_mu_hot_var = tk.BooleanVar(value=True)
         self.show_mu_peak_var = tk.BooleanVar(value=True)
@@ -11135,7 +11135,7 @@ class PerssonModelGUI_V2:
 
         ttk.Separator(chk_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=4, pady=1)
 
-        ttk.Label(chk_frame, text="A/A0:", font=('Segoe UI', 8, 'bold')).pack(side=tk.LEFT, padx=(2, 0))
+        ttk.Label(chk_frame, text="A/A0:", font=('NanumGothic', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 0))
         self.show_aa_cold_var = tk.BooleanVar(value=True)
         self.show_aa_hot_var = tk.BooleanVar(value=True)
         self.show_aa_ref_var = tk.BooleanVar(value=True)
@@ -14020,7 +14020,7 @@ class PerssonModelGUI_V2:
         text_frame = ttk.Frame(dialog, padding=10)
         text_frame.pack(fill=tk.BOTH, expand=True)
 
-        text = tk.Text(text_frame, wrap=tk.WORD, font=('NanumGothicCoding', 12))
+        text = tk.Text(text_frame, wrap=tk.WORD, font=('NanumGothicCoding', 10))
         scrollbar = ttk.Scrollbar(text_frame, orient=tk.VERTICAL, command=text.yview)
         text.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -16890,9 +16890,9 @@ class PerssonModelGUI_V2:
             frame = tk.Frame(scrollable_frame, bg=bg_color, padx=15, pady=12)
             frame.pack(fill=tk.X, padx=10, pady=(18, 4))
             tk.Label(frame, text=title_text, bg=bg_color, fg=fg_color,
-                     font=('NanumGothic', 12, 'bold')).pack(anchor=tk.W)
+                     font=('NanumGothic', 10, 'bold')).pack(anchor=tk.W)
 
-        def add_text(text, font_size=13, fg='#1E293B', bold=False, padx=20, pady=4):
+        def add_text(text, font_size=10, fg='#1E293B', bold=False, padx=20, pady=4):
             weight = 'bold' if bold else 'normal'
             lbl = tk.Label(scrollable_frame, text=text, bg='white', fg=fg,
                            font=('NanumGothic', font_size, weight),
@@ -16946,7 +16946,7 @@ class PerssonModelGUI_V2:
         title_frame.pack(fill=tk.X, padx=10)
         tk.Label(title_frame, text='Persson 마찰 이론 - 변수 관계도',
                  bg='white', fg='#1B2A4A',
-                 font=('NanumGothic', 12, 'bold')).pack(anchor='w', padx=10)
+                 font=('NanumGothic', 10, 'bold')).pack(anchor='w', padx=10)
 
         # ═══════════════════════════════════════════════════════
         # Section 1: 입력 데이터
@@ -16967,14 +16967,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['데이터 종류', '핵심 변수', '단위', '역할', '상세 설명']):
             lbl = tk.Label(input_summary_frame, text=header, bg='#0E7490', fg='white',
-                           font=('NanumGothic', 12, 'bold'), padx=10, pady=7, anchor='center')
+                           font=('NanumGothic', 10, 'bold'), padx=10, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (dtype, var, unit, role, desc) in enumerate(input_summary_data, start=1):
             bg = '#ECFEFF' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([dtype, var, unit, role, desc]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(input_summary_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('NanumGothic', 11, weight), padx=10, pady=6, anchor='w',
+                               font=('NanumGothic', 10, weight), padx=10, pady=6, anchor='w',
                                justify=tk.LEFT, wraplength=350 if col_idx == 4 else 180)
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         input_summary_frame.columnconfigure(0, weight=2)
@@ -16986,10 +16986,10 @@ class PerssonModelGUI_V2:
         add_separator()
         add_text('DMA 데이터 (재료 물성) — 고무의 점탄성 특성:', bold=True, pady=(8, 0))
         add_equation(r"$E(\omega) = E'(\omega) + i\,E''(\omega)$", fig_height=0.9)
-        add_text('  \u03c9 : 각진동수 [rad/s] — 고무에 가해지는 진동의 빠르기', font_size=17, fg='#64748B')
-        add_text('  E\'(\u03c9) : 저장 탄성률 [Pa] — 탄성 에너지를 저장하는 능력 (스프링 성분)', font_size=17, fg='#64748B')
-        add_text('  E\'\'(\u03c9) : 손실 탄성률 [Pa] — 에너지를 열로 소산하는 능력 (댐퍼 성분)', font_size=17, fg='#64748B')
-        add_text('  tan(\u03b4) = E\'\'/E\' : 손실 탄젠트 — E\'에 대한 E\'\'의 비율, 에너지 소산 효율의 척도', font_size=17, fg='#64748B')
+        add_text('  \u03c9 : 각진동수 [rad/s] — 고무에 가해지는 진동의 빠르기', font_size=10, fg='#64748B')
+        add_text('  E\'(\u03c9) : 저장 탄성률 [Pa] — 탄성 에너지를 저장하는 능력 (스프링 성분)', font_size=10, fg='#64748B')
+        add_text('  E\'\'(\u03c9) : 손실 탄성률 [Pa] — 에너지를 열로 소산하는 능력 (댐퍼 성분)', font_size=10, fg='#64748B')
+        add_text('  tan(\u03b4) = E\'\'/E\' : 손실 탄젠트 — E\'에 대한 E\'\'의 비율, 에너지 소산 효율의 척도', font_size=10, fg='#64748B')
 
         def _plot_var_dma(ax, np):
             omega = np.logspace(-2, 10, 500)
@@ -17006,8 +17006,8 @@ class PerssonModelGUI_V2:
 
         add_separator()
         add_text('PSD 데이터 (표면 거칠기) — 바닥면의 요철 특성:', bold=True, pady=(6, 0))
-        add_text('  q : 파수 [1/m] — 거칠기의 공간 진동수 (q = 2\u03c0/\u03bb, \u03bb = 파장)', font_size=17, fg='#64748B')
-        add_text('  C(q) : 파워 스펙트럼 밀도 [m\u2074] — 파수 q에서의 거칠기 진폭의 제곱', font_size=17, fg='#64748B')
+        add_text('  q : 파수 [1/m] — 거칠기의 공간 진동수 (q = 2\u03c0/\u03bb, \u03bb = 파장)', font_size=10, fg='#64748B')
+        add_text('  C(q) : 파워 스펙트럼 밀도 [m\u2074] — 파수 q에서의 거칠기 진폭의 제곱', font_size=10, fg='#64748B')
 
         def _plot_var_psd(ax, np):
             q = np.logspace(2, 8, 500)
@@ -17021,9 +17021,9 @@ class PerssonModelGUI_V2:
 
         add_separator()
         add_text('Strain Sweep 데이터 (비선형 보정용, 선택):', bold=True, pady=(6, 0))
-        add_text('  \u03b3 : strain [%] — 변형률 진폭', font_size=17, fg='#64748B')
-        add_text('  f(\u03b3) = E\'(\u03b3)/E\'(0) : 저장 탄성률 감소율 (대변형 → f < 1)', font_size=17, fg='#64748B')
-        add_text('  g(\u03b3) = E\'\'(\u03b3)/E\'\'(0) : 손실 탄성률 변화율 (Payne 효과)', font_size=17, fg='#64748B')
+        add_text('  \u03b3 : strain [%] — 변형률 진폭', font_size=10, fg='#64748B')
+        add_text('  f(\u03b3) = E\'(\u03b3)/E\'(0) : 저장 탄성률 감소율 (대변형 → f < 1)', font_size=10, fg='#64748B')
+        add_text('  g(\u03b3) = E\'\'(\u03b3)/E\'\'(0) : 손실 탄성률 변화율 (Payne 효과)', font_size=10, fg='#64748B')
 
         def _plot_var_strain(ax, np):
             gamma = np.linspace(0, 50, 200)
@@ -17060,14 +17060,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['기호', '의미', '설명']):
             lbl = tk.Label(param_frame, text=header, bg='#1B2A4A', fg='white',
-                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 10, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (sym, meaning, desc) in enumerate(param_data, start=1):
             bg = '#F1F5F9' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([sym, meaning, desc]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(param_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('NanumGothic', 12, weight), padx=12, pady=6, anchor='w')
+                               font=('NanumGothic', 10, weight), padx=12, pady=6, anchor='w')
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         param_frame.columnconfigure(0, weight=1)
         param_frame.columnconfigure(1, weight=2)
@@ -17098,14 +17098,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['변수', '단위', '의존 입력', '물리적 의미 / 역할']):
             lbl = tk.Label(mid_var_frame, text=header, bg='#B45309', fg='white',
-                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 10, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (var, unit, dep, meaning) in enumerate(mid_var_data, start=1):
             bg = '#FFF7ED' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([var, unit, dep, meaning]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(mid_var_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('NanumGothic', 11, weight), padx=10, pady=6, anchor='w',
+                               font=('NanumGothic', 10, weight), padx=10, pady=6, anchor='w',
                                justify=tk.LEFT, wraplength=350 if col_idx == 3 else 200)
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         mid_var_frame.columnconfigure(0, weight=2)
@@ -17131,13 +17131,13 @@ class PerssonModelGUI_V2:
             ax.set_title('G(q) — 탄성 에너지 누적 함수', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_var_G)
 
-        add_text('  [비선형 보정 시]', font_size=17, bold=True, fg='#64748B')
+        add_text('  [비선형 보정 시]', font_size=10, bold=True, fg='#64748B')
         add_equation(r"$E'_{eff} = E' \times f(\varepsilon), \qquad E''_{eff} = E'' \times g(\varepsilon)$", fig_height=0.9)
 
         add_separator()
         add_text('접촉 면적 P(q)와 보정 계수 S(q):', bold=True, pady=(6, 0))
         add_equation(r'$P(q) = \mathrm{erf}\!\left(\frac{1}{2\sqrt{G(q)}}\right)$', fig_height=1.0)
-        add_text('  G \u2192 0 : P \u2192 1 (완전 접촉)  |  G \u2192 \u221e : P \u2192 0 (접촉 없음)', font_size=17, fg='#64748B')
+        add_text('  G \u2192 0 : P \u2192 1 (완전 접촉)  |  G \u2192 \u221e : P \u2192 0 (접촉 없음)', font_size=10, fg='#64748B')
         add_equation(r'$S(q) = \gamma + (1-\gamma) \cdot P^2(q)$', fig_height=0.9)
 
         def _plot_var_PS(ax, np):
@@ -17158,9 +17158,9 @@ class PerssonModelGUI_V2:
         add_separator()
         add_text('표면 거칠기 통계량:', bold=True, pady=(6, 0))
         add_equation(r"$\xi^2(q) = h_{rms}^{\prime\,2}(q) = 2\pi \int_{q_0}^{q} k^3\, C(k)\, dk$", fig_height=1.0)
-        add_text('  \u03be(q) = h\'_rms(q) : 누적 RMS 기울기 (파수 q까지의 표면 경사)', font_size=17, fg='#64748B')
+        add_text('  \u03be(q) = h\'_rms(q) : 누적 RMS 기울기 (파수 q까지의 표면 경사)', font_size=10, fg='#64748B')
         add_equation(r'$\varepsilon(q) = \alpha \cdot \xi(q) \qquad (\alpha \approx 0.5)$', fig_height=0.9)
-        add_text('  \u03b5(q) : 국소 변형률 — 거칠기에 의한 고무의 국소 변형 크기', font_size=17, fg='#64748B')
+        add_text('  \u03b5(q) : 국소 변형률 — 거칠기에 의한 고무의 국소 변형 크기', font_size=10, fg='#64748B')
 
         def _plot_var_xi_eps(ax, np):
             q = np.logspace(2, 8, 500)
@@ -17186,8 +17186,8 @@ class PerssonModelGUI_V2:
             r" d(q) = \frac{2\pi}{q}$",
             fig_height=1.0)
 
-        add_text('  D_th: 열확산도.  Jd: 거시 Peclet 수 (대류/전도 비).  Jh: 표면층 Peclet 수 (고속 포화)', font_size=17, fg='#64748B')
-        add_text('  d(q): 파수 q에서의 접촉 패치 직경.  h=1/q₁: 표면층 두께 (열 침투 깊이 한계)', font_size=17, fg='#64748B')
+        add_text('  D_th: 열확산도.  Jd: 거시 Peclet 수 (대류/전도 비).  Jh: 표면층 Peclet 수 (고속 포화)', font_size=10, fg='#64748B')
+        add_text('  d(q): 파수 q에서의 접촉 패치 직경.  h=1/q₁: 표면층 두께 (열 침투 깊이 한계)', font_size=10, fg='#64748B')
 
         add_equation(
             r"$\delta T(q_i) = \frac{\dot{q}(q_i) \cdot d(q_i)}"
@@ -17196,9 +17196,9 @@ class PerssonModelGUI_V2:
             r", \quad \dot{q}(q_i) = \frac{d\mu_i \cdot \sigma_0 \cdot v}{P(q_i)}$",
             fig_height=1.3)
 
-        add_text('  ΔT(q_i): 파수별 순차 누적 flash 온도 상승 (Greenwood 원형 접촉 보간식)', font_size=17, fg='#64748B')
-        add_text('  q̇(q_i): 파수별 면적 보정 열유속, P(q_i) = 파수 q_i까지의 접촉 면적비', font_size=17, fg='#64748B')
-        add_text('  a_T(T_base+ΔT): WLF 시프트 → E\'\'(ω, T) = E\'\'_master(ω × a_T)', font_size=17, fg='#DC2626')
+        add_text('  ΔT(q_i): 파수별 순차 누적 flash 온도 상승 (Greenwood 원형 접촉 보간식)', font_size=10, fg='#64748B')
+        add_text('  q̇(q_i): 파수별 면적 보정 열유속, P(q_i) = 파수 q_i까지의 접촉 면적비', font_size=10, fg='#64748B')
+        add_text('  a_T(T_base+ΔT): WLF 시프트 → E\'\'(ω, T) = E\'\'_master(ω × a_T)', font_size=10, fg='#DC2626')
 
         def _plot_var_flash(ax, np):
             q = np.logspace(2, 8, 200)
@@ -17223,16 +17223,16 @@ class PerssonModelGUI_V2:
             r'$\mu_{visc} = \frac{1}{2} \int_{q_0}^{q_1} dq\, q^3 C(q)\, P(q)\, S(q)'
             r' \int_{0}^{2\pi} d\phi\, \cos\phi\, \frac{\mathrm{Im}[E(qv\cos\phi)]}{(1-\nu^2)\sigma_0}$',
             fig_height=1.3)
-        add_text('  [선형] G, P, S 계산 → Im[E] = Im[E_linear]', font_size=17, fg='#64748B')
-        add_text('  [비선형] E_eff 사용, G\u00b7P\u00b7S 재계산, Im[E_eff] = Im[E] \u00d7 g(\u03b5)', font_size=17, fg='#64748B')
+        add_text('  [선형] G, P, S 계산 → Im[E] = Im[E_linear]', font_size=10, fg='#64748B')
+        add_text('  [비선형] E_eff 사용, G\u00b7P\u00b7S 재계산, Im[E_eff] = Im[E] \u00d7 g(\u03b5)', font_size=10, fg='#64748B')
 
-        add_text('\n  Flash Temperature 적용 시 (Per-q Sequential):', bold=True, font_size=17, fg='#DC2626')
+        add_text('\n  Flash Temperature 적용 시 (Per-q Sequential):', bold=True, font_size=10, fg='#DC2626')
         add_equation(
             r"$\mu_{hot} = \sum_i d\mu_i(T_{current})"
             r", \qquad \dot{q}(q_i) = \frac{d\mu_i \cdot \sigma_0 \cdot v}{P(q_i)}$",
             fig_height=1.0)
-        add_text('  → 파수별 순차: 각 q[i]에서 누적 T 기반 WLF shift 적용', font_size=17, fg='#64748B')
-        add_text('  → μ_hot < μ_cold (고속 영역에서 flash 연화 효과)', font_size=17, fg='#64748B')
+        add_text('  → 파수별 순차: 각 q[i]에서 누적 T 기반 WLF shift 적용', font_size=10, fg='#64748B')
+        add_text('  → μ_hot < μ_cold (고속 영역에서 flash 연화 효과)', font_size=10, fg='#64748B')
 
         def _plot_var_mu(ax, np):
             v = np.logspace(-6, 2, 500)
@@ -17279,14 +17279,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['단계', '입력', '출력', '설명']):
             lbl = tk.Label(flow_frame, text=header, bg='#7C3AED', fg='white',
-                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 10, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (step, inp, out, desc) in enumerate(flow_data, start=1):
             bg = '#F5F3FF' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([step, inp, out, desc]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(flow_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('NanumGothic', 11, weight), padx=10, pady=6, anchor='w',
+                               font=('NanumGothic', 10, weight), padx=10, pady=6, anchor='w',
                                justify=tk.LEFT, wraplength=350 if col_idx >= 1 else 150)
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         flow_frame.columnconfigure(0, weight=1)
@@ -17332,14 +17332,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['기호', '단위', '의미 / 직관적 설명']):
             lbl = tk.Label(adh_param_frame, text=header, bg='#059669', fg='white',
-                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 10, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (sym, unit, meaning) in enumerate(adh_param_data, start=1):
             bg = '#F0FDF4' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([sym, unit, meaning]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(adh_param_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('NanumGothic', 12, weight), padx=12, pady=6, anchor='w')
+                               font=('NanumGothic', 10, weight), padx=12, pady=6, anchor='w')
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         adh_param_frame.columnconfigure(0, weight=1)
         adh_param_frame.columnconfigure(1, weight=1)
@@ -17390,14 +17390,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['기호', '단위', '의미']):
             lbl = tk.Label(unit_frame, text=header, bg='#1B2A4A', fg='white',
-                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 10, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (sym, unit, meaning) in enumerate(unit_data, start=1):
             bg = '#F1F5F9' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([sym, unit, meaning]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(unit_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('NanumGothic', 12, weight), padx=12, pady=6, anchor='center')
+                               font=('NanumGothic', 10, weight), padx=12, pady=6, anchor='center')
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         for col_idx in range(3):
             unit_frame.columnconfigure(col_idx, weight=1)
@@ -18059,7 +18059,7 @@ class PerssonModelGUI_V2:
 ════════════════════════════════════════════════════════════════════════════════
 """
 
-        text_widget = tk.Text(title_frame, wrap=tk.WORD, font=('NanumGothicCoding', 12), height=50, width=90)
+        text_widget = tk.Text(title_frame, wrap=tk.WORD, font=('NanumGothicCoding', 10), height=50, width=90)
         text_widget.insert(tk.END, content)
         text_widget.config(state='disabled')  # Read-only
         text_widget.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
@@ -21615,7 +21615,7 @@ class PerssonModelGUI_V2:
 
         # ── 4) 결과 요약 ──
         sec4 = self._create_section(left_panel, "4) 결과 요약")
-        self.fm_result_text = tk.Text(sec4, height=12, font=('NanumGothicCoding', 12),
+        self.fm_result_text = tk.Text(sec4, height=12, font=('NanumGothicCoding', 10),
                                        wrap=tk.WORD, state=tk.DISABLED)
         self.fm_result_text.pack(fill=tk.BOTH, expand=True, pady=2)
 
@@ -21685,7 +21685,7 @@ class PerssonModelGUI_V2:
         toolbar.pack(side=tk.TOP, fill=tk.X, padx=2, pady=(2, 0))
         self._fm_3d_toolbar = toolbar
 
-        ttk.Label(toolbar, text="데이터:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 4))
+        ttk.Label(toolbar, text="데이터:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 4))
         self._fm_3d_data_var = tk.StringVar(value="mu_total")
         for label, val in [("mu_total", "mu_total"), ("mu_hys", "mu_visc"),
                            ("mu_adh", "mu_adh"), ("F_total", "F_total"),
@@ -21700,7 +21700,7 @@ class PerssonModelGUI_V2:
         toolbar2.pack(side=tk.TOP, fill=tk.X, padx=2, pady=(0, 2))
         self._fm_3d_toolbar2 = toolbar2
 
-        ttk.Label(toolbar2, text="속도축:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        ttk.Label(toolbar2, text="속도축:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
         self._fm_3d_v_dir = tk.StringVar(value="asc")
         ttk.Radiobutton(toolbar2, text="오름차순",
                         variable=self._fm_3d_v_dir, value="asc",
@@ -21711,7 +21711,7 @@ class PerssonModelGUI_V2:
 
         ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=4)
 
-        ttk.Label(toolbar2, text="온도축:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        ttk.Label(toolbar2, text="온도축:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
         self._fm_3d_T_dir = tk.StringVar(value="asc")
         ttk.Radiobutton(toolbar2, text="오름차순",
                         variable=self._fm_3d_T_dir, value="asc",
@@ -21722,7 +21722,7 @@ class PerssonModelGUI_V2:
 
         ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=4)
 
-        ttk.Label(toolbar2, text="속도 위치:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        ttk.Label(toolbar2, text="속도 위치:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
         self._fm_3d_v_pos = tk.StringVar(value="left")
         ttk.Radiobutton(toolbar2, text="왼쪽",
                         variable=self._fm_3d_v_pos, value="left",
@@ -21733,7 +21733,7 @@ class PerssonModelGUI_V2:
 
         ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=4)
 
-        ttk.Label(toolbar2, text="온도 위치:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        ttk.Label(toolbar2, text="온도 위치:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
         self._fm_3d_T_pos = tk.StringVar(value="right")
         ttk.Radiobutton(toolbar2, text="왼쪽",
                         variable=self._fm_3d_T_pos, value="left",
@@ -21761,7 +21761,7 @@ class PerssonModelGUI_V2:
         ctrl1 = ttk.Frame(parent)
         ctrl1.pack(fill=tk.X, padx=4, pady=(4, 0))
 
-        ttk.Label(ctrl1, text="데이터:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Label(ctrl1, text="데이터:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
         self.fm_graph_data_var = tk.StringVar(value="mu_total")
         for label, val in [("A/A0", "A_A0"), ("tau_s", "tau_f"),
                            ("mu_hys", "mu_visc"), ("mu_adh", "mu_adh"), ("mu_total", "mu_total"),
@@ -21785,7 +21785,7 @@ class PerssonModelGUI_V2:
         ctrl2 = ttk.Frame(parent)
         ctrl2.pack(fill=tk.X, padx=4, pady=(2, 0))
 
-        ttk.Label(ctrl2, text="플롯 모드:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Label(ctrl2, text="플롯 모드:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
         self.fm_graph_mode_var = tk.StringVar(value="fix_T")
         ttk.Radiobutton(ctrl2, text="T 고정 (p0별 비교)", variable=self.fm_graph_mode_var,
                         value="fix_T", command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
@@ -21795,21 +21795,21 @@ class PerssonModelGUI_V2:
                         value="all", command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
 
         ttk.Separator(ctrl2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
-        ttk.Label(ctrl2, text="T:", font=('', 12)).pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Label(ctrl2, text="T:", font=('', 10)).pack(side=tk.LEFT, padx=(0, 2))
         self.fm_graph_T_var = tk.StringVar()
         self.fm_graph_T_combo = ttk.Combobox(ctrl2, textvariable=self.fm_graph_T_var,
                                               width=6, state='readonly')
         self.fm_graph_T_combo.pack(side=tk.LEFT, padx=2)
         self.fm_graph_T_combo.bind('<<ComboboxSelected>>', lambda e: self._update_fm_graph())
-        ttk.Label(ctrl2, text="°C", font=('', 12)).pack(side=tk.LEFT)
+        ttk.Label(ctrl2, text="°C", font=('', 10)).pack(side=tk.LEFT)
 
-        ttk.Label(ctrl2, text="p0:", font=('', 12)).pack(side=tk.LEFT, padx=(8, 2))
+        ttk.Label(ctrl2, text="p0:", font=('', 10)).pack(side=tk.LEFT, padx=(8, 2))
         self.fm_graph_p0_var = tk.StringVar()
         self.fm_graph_p0_combo = ttk.Combobox(ctrl2, textvariable=self.fm_graph_p0_var,
                                                width=6, state='readonly')
         self.fm_graph_p0_combo.pack(side=tk.LEFT, padx=2)
         self.fm_graph_p0_combo.bind('<<ComboboxSelected>>', lambda e: self._update_fm_graph())
-        ttk.Label(ctrl2, text="MPa", font=('', 12)).pack(side=tk.LEFT)
+        ttk.Label(ctrl2, text="MPa", font=('', 10)).pack(side=tk.LEFT)
 
         # ── Figure ──
         plot_frame = ttk.Frame(parent)
@@ -22818,9 +22818,9 @@ class PerssonModelGUI_V2:
         win.geometry("500x400")
         win.transient(self.root)
 
-        ttk.Label(win, text="저장된 마찰맵 목록", font=('', 13, 'bold')).pack(pady=8)
+        ttk.Label(win, text="저장된 마찰맵 목록", font=('', 10, 'bold')).pack(pady=8)
 
-        listbox = tk.Listbox(win, font=('NanumGothicCoding', 11), height=12)
+        listbox = tk.Listbox(win, font=('NanumGothicCoding', 10), height=12)
         listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
 
         for entry in self._friction_map_store:
@@ -25130,11 +25130,11 @@ class PerssonModelGUI_V2:
             guide_canvas.unbind_all('<Button-4>'),
             guide_canvas.unbind_all('<Button-5>')))
 
-        # 4K-friendly font sizes
-        _title_fs = 16
-        _subtitle_fs = 14
-        _body_fs = 13
-        _detail_fs = 12
+        # 1920x1080 기준 10pt 통일
+        _title_fs = 10
+        _subtitle_fs = 10
+        _body_fs = 10
+        _detail_fs = 10
         pad_x = 30
 
         def add_main_title(text):
@@ -25184,7 +25184,7 @@ class PerssonModelGUI_V2:
             label_frame = tk.Frame(bar_frame, bg='white')
             label_frame.pack(side=tk.LEFT)
             for i, lbl in enumerate(labels):
-                tk.Label(label_frame, text=lbl, font=('NanumGothic', _detail_fs - 1),
+                tk.Label(label_frame, text=lbl, font=('NanumGothic', _detail_fs),
                          fg='#64748B', bg='white').pack(side=tk.LEFT, padx=4)
             tk.Label(inner, text=desc_text, font=('NanumGothic', _detail_fs),
                      fg='#475569', bg='white', anchor='w', justify=tk.LEFT,
@@ -25412,20 +25412,20 @@ class PerssonModelGUI_V2:
 
         pad_x = 20
         def add_title(text, fg='#1E293B'):
-            tk.Label(inner, text=text, font=('NanumGothic', 12, 'bold'),
+            tk.Label(inner, text=text, font=('NanumGothic', 10, 'bold'),
                      fg=fg, bg='white', anchor='w', justify=tk.LEFT).pack(fill=tk.X, padx=pad_x, pady=(18, 4))
         def add_text(text, fg='#334155', bold=False):
             w = 'bold' if bold else 'normal'
-            tk.Label(inner, text=text, font=('NanumGothic', 11, w),
+            tk.Label(inner, text=text, font=('NanumGothic', 10, w),
                      fg=fg, bg='white', anchor='w', justify=tk.LEFT,
                      wraplength=900).pack(fill=tk.X, padx=pad_x, pady=1)
         def add_code(text, title=None):
             if title:
-                tk.Label(inner, text=title, font=('NanumGothicCoding', 12, 'bold'),
+                tk.Label(inner, text=title, font=('NanumGothicCoding', 10, 'bold'),
                          fg='#059669', bg='#F0FDF4', anchor='w').pack(fill=tk.X, padx=pad_x + 4, pady=(8, 0))
             code_frame = tk.Frame(inner, bg='#1E293B', padx=2, pady=2)
             code_frame.pack(fill=tk.X, padx=pad_x, pady=(2, 8))
-            ct = tk.Text(code_frame, font=('NanumGothicCoding', 12),
+            ct = tk.Text(code_frame, font=('NanumGothicCoding', 10),
                          fg='#E2E8F0', bg='#1E293B', wrap=tk.NONE,
                          relief=tk.FLAT, padx=12, pady=8, height=text.count('\n') + 1)
             ct.insert('1.0', text)
@@ -25434,7 +25434,7 @@ class PerssonModelGUI_V2:
         def add_box(text, bg_c='#EFF6FF', fg_c='#1E40AF', border_c='#3B82F6'):
             box = tk.Frame(inner, bg=border_c, padx=2, pady=2)
             box.pack(fill=tk.X, padx=pad_x, pady=6)
-            tk.Label(box, text=text, font=('NanumGothic', 12),
+            tk.Label(box, text=text, font=('NanumGothic', 10),
                      fg=fg_c, bg=bg_c, anchor='w', justify=tk.LEFT,
                      wraplength=860, padx=12, pady=8).pack(fill=tk.X)
 
@@ -26482,16 +26482,16 @@ class PerssonModelGUI_V2:
         pad_x = 20
 
         def add_title(text, fg='#1E293B'):
-            lbl = tk.Label(inner, text=text, font=('NanumGothic', 12, 'bold'),
+            lbl = tk.Label(inner, text=text, font=('NanumGothic', 10, 'bold'),
                            fg=fg, bg='white', anchor='w', justify=tk.LEFT)
             lbl.pack(fill=tk.X, padx=pad_x, pady=(18, 4))
 
         def add_subtitle(text, fg='#0369A1'):
-            lbl = tk.Label(inner, text=text, font=('NanumGothic', 12, 'bold'),
+            lbl = tk.Label(inner, text=text, font=('NanumGothic', 10, 'bold'),
                            fg=fg, bg='white', anchor='w', justify=tk.LEFT)
             lbl.pack(fill=tk.X, padx=pad_x, pady=(14, 2))
 
-        def add_text(text, fg='#334155', bold=False, font_size=11):
+        def add_text(text, fg='#334155', bold=False, font_size=10):
             weight = 'bold' if bold else 'normal'
             lbl = tk.Label(inner, text=text,
                            font=('NanumGothic', font_size, weight),
@@ -26502,19 +26502,19 @@ class PerssonModelGUI_V2:
         def add_bullet(text, indent=1, fg='#334155'):
             prefix = '    ' * indent + '• '
             lbl = tk.Label(inner, text=prefix + text,
-                           font=('NanumGothic', 12), fg=fg, bg='white',
+                           font=('NanumGothic', 10), fg=fg, bg='white',
                            anchor='w', justify=tk.LEFT, wraplength=860)
             lbl.pack(fill=tk.X, padx=pad_x, pady=0)
 
         def add_code(text, title=None):
             if title:
                 t_lbl = tk.Label(inner, text=title,
-                                 font=('NanumGothicCoding', 12, 'bold'),
+                                 font=('NanumGothicCoding', 10, 'bold'),
                                  fg='#059669', bg='#F0FDF4', anchor='w')
                 t_lbl.pack(fill=tk.X, padx=pad_x + 4, pady=(8, 0))
             code_frame = tk.Frame(inner, bg='#1E293B', padx=2, pady=2)
             code_frame.pack(fill=tk.X, padx=pad_x, pady=(2, 8))
-            code_text = tk.Text(code_frame, font=('NanumGothicCoding', 12),
+            code_text = tk.Text(code_frame, font=('NanumGothicCoding', 10),
                                 fg='#E2E8F0', bg='#1E293B',
                                 wrap=tk.NONE, relief=tk.FLAT,
                                 padx=12, pady=8, height=text.count('\n') + 1)
@@ -26531,7 +26531,7 @@ class PerssonModelGUI_V2:
             box = tk.Frame(inner, bg=border_color, padx=2, pady=2)
             box.pack(fill=tk.X, padx=pad_x, pady=6)
             inner_box = tk.Label(box, text=text,
-                                  font=('NanumGothic', 12),
+                                  font=('NanumGothic', 10),
                                   fg=fg_color, bg=bg_color,
                                   anchor='w', justify=tk.LEFT,
                                   wraplength=860, padx=12, pady=8)
@@ -26545,7 +26545,7 @@ class PerssonModelGUI_V2:
         add_text("이 교육 자료는 Persson의 고무 마찰 이론(Cold/Hot 마찰 맵)과 "
                  "브러시 모델의 뉴턴 동역학(F = ma)을 결합하여, "
                  "타이어의 제동력과 코너링 포스가 어떻게 발생하는지 "
-                 "단계별로 설명합니다.", font_size=11)
+                 "단계별로 설명합니다.", font_size=10)
 
         add_separator()
 
@@ -26553,14 +26553,14 @@ class PerssonModelGUI_V2:
         add_subtitle("📝 공통 설정 — 2D 브러시 모델의 구조", fg='#0369A1')
 
         add_text("시뮬레이션 전, 타이어 접지면(Footprint)을 2D 격자로 분할하고 "
-                 "각 셀(고무 블록)에 초기값을 부여합니다.", font_size=11)
+                 "각 셀(고무 블록)에 초기값을 부여합니다.", font_size=10)
 
-        add_text("입력 데이터:", bold=True, font_size=11)
+        add_text("입력 데이터:", bold=True, font_size=10)
         add_bullet("접지압 분포 P(x, y) — 주행 모드(Braking/Handling/Acceleration)에 따라 비대칭")
         add_bullet("μ_cold(v), μ_hot(v) — Persson 이론으로 사전 계산된 마찰 맵 (LUT)")
         add_bullet("특성 슬립 거리 s₀ = 0.2 × D_macro — Cold → Hot 전환을 제어하는 거시적 돌기 크기")
 
-        add_text("각 셀이 추적하는 물리량:", bold=True, font_size=11)
+        add_text("각 셀이 추적하는 물리량:", bold=True, font_size=10)
         add_bullet("변위 (u_x, u_y) — 스프링이 늘어난 길이")
         add_bullet("속도 (v_x, v_y) — 블록의 슬립 속도")
         add_bullet("누적 슬립 거리 (s_dist) — 열 발생 추적 → Cold/Hot 전환 제어")
@@ -26593,7 +26593,7 @@ class PerssonModelGUI_V2:
         # ── 제동 시뮬레이션 ──
         add_subtitle("🛑 1. 제동 시뮬레이션 (Braking / Longitudinal Slip)", fg='#DC2626')
 
-        add_text("물리적 상황:", bold=True, font_size=11, fg='#1E293B')
+        add_text("물리적 상황:", bold=True, font_size=10, fg='#1E293B')
         add_text("직진 중 브레이크를 밟습니다. 조향각 θ = 0이므로 횡방향 슬립은 없습니다.")
         add_bullet("차량 속도: v_c  (차체가 앞으로 나가는 속도)")
         add_bullet("바퀴 회전 속도: v_R  (브레이크로 인해 v_c보다 느려짐)")
@@ -26654,7 +26654,7 @@ class PerssonModelGUI_V2:
         # ── 코너링 시뮬레이션 ──
         add_subtitle("🔄 2. 코너링 시뮬레이션 (Cornering / Lateral Slip)", fg='#2563EB')
 
-        add_text("물리적 상황:", bold=True, font_size=11, fg='#1E293B')
+        add_text("물리적 상황:", bold=True, font_size=10, fg='#1E293B')
         add_text("브레이크 없이 일정 속도로 달리며 핸들을 슬립각 α만큼 꺾은 상태입니다.")
         add_bullet("종방향 슬립: v_x = v_c·cos(α) − v_R ≈ 0 (자유 굴림)")
         add_bullet("횡방향 슬립: v_y = v_c·sin(α)  (코너링의 핵심)")
@@ -26724,7 +26724,7 @@ class PerssonModelGUI_V2:
         add_subtitle("🌡️ 3. Cold → Hot 전환 메커니즘", fg='#059669')
 
         add_text("Persson의 마찰 이론에서 마찰계수는 고정값이 아닙니다. "
-                 "슬립이 누적되면 접촉면의 온도가 상승하여 고무의 점탄성 응답이 바뀝니다.", font_size=11)
+                 "슬립이 누적되면 접촉면의 온도가 상승하여 고무의 점탄성 응답이 바뀝니다.", font_size=10)
 
         add_code(
             "# Cold-Hot 블렌딩 공식\n"
@@ -26751,7 +26751,7 @@ class PerssonModelGUI_V2:
         # ── 시각화 가이드 ──
         add_subtitle("📊 4. 시뮬레이션 결과 해석 가이드", fg='#7C3AED')
 
-        add_text("이 탭의 시뮬레이션 결과에서 관찰할 수 있는 현상들:", bold=True, font_size=11)
+        add_text("이 탭의 시뮬레이션 결과에서 관찰할 수 있는 현상들:", bold=True, font_size=10)
 
         add_highlight_box(
             "① 하중 컨투어 (Load Contour)\n"
@@ -26790,7 +26790,7 @@ class PerssonModelGUI_V2:
         # ── 정리 ──
         add_subtitle("📌 5. 요약 — 이 모델이 보여주는 것", fg='#1E293B')
 
-        add_text("Persson 이론 + 브러시 모델의 결합이 설명하는 현상들:", bold=True, font_size=11)
+        add_text("Persson 이론 + 브러시 모델의 결합이 설명하는 현상들:", bold=True, font_size=10)
         add_bullet("타이어 마찰의 속도 의존성 — μ(v) 곡선의 비선형 형태")
         add_bullet("Stick-Slip 전이 — 접지면 내부의 영역별 그립 차이")
         add_bullet("Flash Temperature 효과 — 슬립이 누적되면 마찰이 감소하는 열적 피드백")
@@ -29672,7 +29672,7 @@ class PerssonModelGUI_V2:
 
         self._ts_hud_var = tk.StringVar(value="SA: 0.0°  |  Fy: 0 N")
         ttk.Label(steer_car_frame, textvariable=self._ts_hud_var,
-                  font=('NanumGothicCoding', 12), foreground='#0369A1').pack(pady=1)
+                  font=('NanumGothicCoding', 10), foreground='#0369A1').pack(pady=1)
 
         # ── Bottom row: Footprint contours (left) | Fy graphs (right) ──
         bot_row = ttk.Frame(viz_vpane)
@@ -29900,7 +29900,7 @@ class PerssonModelGUI_V2:
         self.ts_time_slider.pack(fill=tk.X, padx=4)
 
         sec4 = self._create_section(left_panel, "4) 랩타임 결과")
-        self.ts_result_text = tk.Text(sec4, height=12, font=('NanumGothicCoding', 12),
+        self.ts_result_text = tk.Text(sec4, height=12, font=('NanumGothicCoding', 10),
                                        bg='#F8FAFC', relief='flat', wrap='word',
                                        state='disabled')
         self.ts_result_text.pack(fill=tk.X, padx=4, pady=2)
@@ -31696,7 +31696,7 @@ class PerssonModelGUI_V2:
         result_frame.pack(fill=tk.X, pady=3, padx=3)
 
         self.ve_result_text = tk.Text(result_frame, height=22, width=60,
-                                      font=('NanumGothicCoding', 12), wrap=tk.WORD,
+                                      font=('NanumGothicCoding', 10), wrap=tk.WORD,
                                       bg='#F8FAFC', relief='solid', bd=1)
         ve_scroll_r = ttk.Scrollbar(result_frame, orient='vertical',
                                     command=self.ve_result_text.yview)
@@ -32430,7 +32430,7 @@ class PerssonModelGUI_V2:
         self._log_analysis_text.tag_configure('log_system',
             foreground='#94E2D5')  # teal
         self._log_analysis_text.tag_configure('log_header',
-            foreground='#FAB387', font=('NanumGothicCoding', 11, 'bold'))
+            foreground='#FAB387', font=('NanumGothicCoding', 10, 'bold'))
 
         # Write initial header
         self._log_analysis_text.insert('end',
@@ -32785,7 +32785,7 @@ def main():
             pass
 
     # ── Close button (top-right, subtle) ──
-    _close_btn = tk.Label(splash, text='\u00D7', font=('NanumGothic', 12),
+    _close_btn = tk.Label(splash, text='\u00D7', font=('NanumGothic', 10),
                           fg='#555555', bg='#16162a', cursor='hand2',
                           padx=4, pady=0)
     _close_btn.place(relx=1.0, x=-4, y=2, anchor='ne')
