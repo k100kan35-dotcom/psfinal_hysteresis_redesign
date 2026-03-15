@@ -475,7 +475,7 @@ class PerssonModelGUI_V2:
             def _refresh_visible():
                 self._window_resize_after_id = None
                 self.root.update_idletasks()
-                for _, fig, canvas in self._get_all_figures_and_canvases():
+                for fig_attr, fig, canvas in self._get_all_figures_and_canvases():
                     try:
                         widget = canvas.get_tk_widget()
                         if widget.winfo_ismapped():
@@ -484,6 +484,10 @@ class PerssonModelGUI_V2:
                             if w > 1 and h > 1:
                                 fig.set_size_inches(w / fig.dpi, h / fig.dpi,
                                                     forward=False)
+                                # Reapply fixed subplot params if defined
+                                params = self._FIXED_SUBPLOT_PARAMS.get(fig_attr)
+                                if params:
+                                    fig.subplots_adjust(**params)
                             canvas.draw_idle()
                     except Exception:
                         pass
@@ -1273,6 +1277,13 @@ class PerssonModelGUI_V2:
                 if w > 1 and h > 1:
                     fig = canvas.figure
                     fig.set_size_inches(w / fig.dpi, h / fig.dpi, forward=False)
+                    # Reapply fixed subplot params if defined
+                    for fig_attr, _ in self._ALL_FIG_CANVAS_PAIRS:
+                        if getattr(self, fig_attr, None) is fig:
+                            params = self._FIXED_SUBPLOT_PARAMS.get(fig_attr)
+                            if params:
+                                fig.subplots_adjust(**params)
+                            break
                     canvas.draw_idle()
         except Exception:
             pass
@@ -1323,7 +1334,7 @@ class PerssonModelGUI_V2:
         Returns ``(fig, canvas)``.
         """
         if figsize is None:
-            figsize = (10, 7)
+            figsize = (6, 4)
 
         plot_wrapper = ttk.Frame(parent)
         plot_wrapper.pack(fill=tk.BOTH, expand=True)
@@ -1332,7 +1343,7 @@ class PerssonModelGUI_V2:
         setattr(self, fig_attr, fig)
 
         canvas = FigureCanvasTkAgg(fig, master=plot_wrapper)
-        canvas.draw_idle()          # draw_idle: 위젯 크기 확정 전 즉시 렌더 방지
+        # Do NOT draw_idle() here — wait for <Configure> to set correct size
         setattr(self, canvas_attr, canvas)
 
         if with_toolbar:
@@ -1346,10 +1357,15 @@ class PerssonModelGUI_V2:
         # ── Universal auto-resize: figure follows widget geometry ──
         _resize_after_id = [None]
 
-        def _on_canvas_resize(event, _fig=fig, _canvas=canvas):
+        def _on_canvas_resize(event, _fig=fig, _canvas=canvas,
+                              _fig_attr=fig_attr):
             w, h = event.width, event.height
             if w > 1 and h > 1:
                 _fig.set_size_inches(w / _fig.dpi, h / _fig.dpi, forward=False)
+                # Reapply fixed subplot params if defined
+                params = self._FIXED_SUBPLOT_PARAMS.get(_fig_attr)
+                if params:
+                    _fig.subplots_adjust(**params)
                 # Debounce: cancel pending redraw, schedule new one
                 if _resize_after_id[0] is not None:
                     try:
@@ -1764,7 +1780,7 @@ class PerssonModelGUI_V2:
 
         fig, canvas = self._create_plot_frame(
             right_frame, 'fig_psd_profile', 'canvas_psd_profile',
-            figsize=(12, 9))
+            figsize=(6, 4))
 
         # 2x2 subplot layout
         PF = self.PLOT_FONTS
@@ -2975,7 +2991,7 @@ class PerssonModelGUI_V2:
         plot_frame.pack(fill=tk.BOTH, expand=True)
 
         # Create figure with 2x2 subplots
-        self.fig_mc = Figure(figsize=(11, 8), dpi=100)
+        self.fig_mc = Figure(figsize=(6, 4), dpi=100)
 
         # Top-left: Raw data (multi-temperature)
         self.ax_mc_raw = self.fig_mc.add_subplot(221)
@@ -4704,7 +4720,7 @@ class PerssonModelGUI_V2:
         self.calc_status_label.pack()
 
         # Create figure for calculation progress with 2x2 subplots
-        fig, canvas = self._create_plot_frame(right_panel, 'fig_calc_progress', 'canvas_calc_progress', figsize=(12, 10))
+        fig, canvas = self._create_plot_frame(right_panel, 'fig_calc_progress', 'canvas_calc_progress', figsize=(6, 4))
 
         # Top-left: PSD(q) with integration progress
         self.ax_psd_q = self.fig_calc_progress.add_subplot(221)
@@ -5314,7 +5330,7 @@ class PerssonModelGUI_V2:
         plot_frame = ttk.Frame(parent)
         plot_frame.pack(fill=tk.BOTH, expand=True, padx=6, pady=3)
         self._create_plot_frame(plot_frame, 'fig_results', 'canvas_results',
-                                figsize=(16, 10))
+                                figsize=(6, 4))
 
     def _create_log_panel(self):
         """Create a compact activity-log panel at the bottom of the window."""
@@ -15621,7 +15637,7 @@ class PerssonModelGUI_V2:
         plot_frame = ttk.Frame(main_frame)
         plot_frame.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
 
-        self.fig_strain_map = Figure(figsize=(18, 13), dpi=100)
+        self.fig_strain_map = Figure(figsize=(8, 6), dpi=100)
 
         # 3x4 subplots layout:
         # Row 1: Local Strain | E' Storage (linear) | E'' Loss (linear) | E''*g Loss (nonlinear)
@@ -16546,7 +16562,7 @@ class PerssonModelGUI_V2:
         plot_frame.pack(fill=tk.BOTH, expand=True)
 
         # Create figure with 2x2 square subplots (1:1 aspect)
-        self.fig_integrand = Figure(figsize=(10, 10), dpi=100)
+        self.fig_integrand = Figure(figsize=(6, 4), dpi=100)
 
         PF = self.PLOT_FONTS
 
@@ -24331,7 +24347,7 @@ class PerssonModelGUI_V2:
         plot_frame.pack(fill=tk.BOTH, expand=True)
 
         from matplotlib.gridspec import GridSpec
-        self.fig_brush = Figure(figsize=(14, 10), dpi=100)
+        self.fig_brush = Figure(figsize=(6, 4), dpi=100)
         gs = GridSpec(2, 20, figure=self.fig_brush, height_ratios=[1.8, 2.2],
                       hspace=0.50, wspace=2.5,
                       left=0.06, right=0.97, top=0.93, bottom=0.07)
@@ -24401,8 +24417,9 @@ class PerssonModelGUI_V2:
         self.ax_br_friction.tick_params(labelsize=_bf_tick)
 
         self.canvas_brush = FigureCanvasTkAgg(self.fig_brush, plot_frame)
-        self.canvas_brush.draw_idle()
-        self.canvas_brush.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        # Do NOT draw_idle() here — wait for <Configure> to set correct size
+        _br_canvas_widget = self.canvas_brush.get_tk_widget()
+        _br_canvas_widget.pack(fill=tk.BOTH, expand=True)
 
         # Save TRUE original axis positions from GridSpec BEFORE any colorbars
         # are created. This prevents cumulative width shrinkage when the
@@ -24420,17 +24437,29 @@ class PerssonModelGUI_V2:
         toolbar.update()
 
         # ── Auto-resize figure to fill widget on every geometry change ──
+        _br_resize_after_id = [None]
+
         def _on_brush_canvas_resize(event):
             w, h = event.width, event.height
             if w > 1 and h > 1:
                 self.fig_brush.set_size_inches(
                     w / self.fig_brush.dpi, h / self.fig_brush.dpi,
                     forward=False)
+                self.fig_brush.subplots_adjust(
+                    left=0.06, right=0.97, top=0.93, bottom=0.07,
+                    hspace=0.50, wspace=2.5)
                 # Invalidate blit background after resize
                 self._br_blit_bg = None
                 self._br_use_blit = False
-                self.canvas_brush.draw_idle()
-        self.canvas_brush.get_tk_widget().bind('<Configure>', _on_brush_canvas_resize)
+                # Debounce redraw
+                if _br_resize_after_id[0] is not None:
+                    try:
+                        _br_canvas_widget.after_cancel(_br_resize_after_id[0])
+                    except Exception:
+                        pass
+                _br_resize_after_id[0] = _br_canvas_widget.after(
+                    30, lambda: self.canvas_brush.draw_idle())
+        _br_canvas_widget.bind('<Configure>', _on_brush_canvas_resize)
 
         # ── Tab 2: Educational Material ──
         self._create_brush_education_tab(self.br_right_notebook)
@@ -24818,7 +24847,7 @@ class PerssonModelGUI_V2:
         plot_frame.pack(fill=tk.BOTH, expand=True)
 
         from matplotlib.gridspec import GridSpec
-        self.fig_pb = Figure(figsize=(16, 9), dpi=100)
+        self.fig_pb = Figure(figsize=(6, 4), dpi=100)
         gs = GridSpec(2, 20, figure=self.fig_pb, height_ratios=[1.6, 2.4],
                       hspace=0.42, wspace=2.0,
                       left=0.04, right=0.98, top=0.95, bottom=0.05)
@@ -24888,8 +24917,9 @@ class PerssonModelGUI_V2:
         self.ax_pb_friction.tick_params(labelsize=_bf_tick)
 
         self.canvas_pb = FigureCanvasTkAgg(self.fig_pb, plot_frame)
-        self.canvas_pb.draw_idle()
-        self.canvas_pb.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        # Do NOT draw_idle() here — wait for <Configure> to set correct size
+        _pb_canvas_widget = self.canvas_pb.get_tk_widget()
+        _pb_canvas_widget.pack(fill=tk.BOTH, expand=True)
 
         # Save original axis positions from GridSpec BEFORE any colorbars
         self._pb_original_ax_positions = {}
@@ -24905,13 +24935,25 @@ class PerssonModelGUI_V2:
         toolbar.update()
 
         # ── Auto-resize figure to fill widget on every geometry change ──
+        _pb_resize_after_id = [None]
+
         def _on_pb_canvas_resize(event):
             w, h = event.width, event.height
             if w > 1 and h > 1:
                 self.fig_pb.set_size_inches(
                     w / self.fig_pb.dpi, h / self.fig_pb.dpi,
                     forward=False)
-                self.canvas_pb.draw_idle()
+                self.fig_pb.subplots_adjust(
+                    left=0.04, right=0.98, top=0.95, bottom=0.05,
+                    hspace=0.42, wspace=2.0)
+                # Debounce redraw
+                if _pb_resize_after_id[0] is not None:
+                    try:
+                        _pb_canvas_widget.after_cancel(_pb_resize_after_id[0])
+                    except Exception:
+                        pass
+                _pb_resize_after_id[0] = _pb_canvas_widget.after(
+                    30, lambda: self.canvas_pb.draw_idle())
         self.canvas_pb.get_tk_widget().bind('<Configure>', _on_pb_canvas_resize)
 
         # ── Tab 2: Educational Material (ODE explanation) ──
@@ -31664,7 +31706,7 @@ class PerssonModelGUI_V2:
         plot_frame = ttk.Frame(right_panel)
         plot_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.fig_ve_advisor = Figure(figsize=(14, 8), dpi=100)
+        self.fig_ve_advisor = Figure(figsize=(6, 4), dpi=100)
         gs = self.fig_ve_advisor.add_gridspec(2, 3, hspace=0.38, wspace=0.35)
 
         self.ax_ve_Ep = self.fig_ve_advisor.add_subplot(gs[0, 0])
