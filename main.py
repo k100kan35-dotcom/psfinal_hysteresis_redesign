@@ -24618,6 +24618,82 @@ class PerssonModelGUI_V2:
         ttk.Button(export_row, text="CSV 내보내기",
                    command=self._export_pb_csv, width=14).pack(side=tk.LEFT, padx=1)
 
+        # ── 7) Fy 포락선 해석 가이드 ──
+        sec7 = self._create_section(left_panel, "7) Fy 포락선 해석 가이드")
+
+        # --- Zone A: 포락선 기울기 (Cornering Stiffness) ---
+        zone_a_frame = ttk.Frame(sec7)
+        zone_a_frame.pack(fill=tk.X, pady=(2, 4))
+
+        zone_a_header = ttk.Label(zone_a_frame,
+                                   text="Zone A  포락선 기울기 (Cornering Stiffness)",
+                                   font=self.FONTS['body'], foreground='#1565C0')
+        zone_a_header.pack(anchor='w')
+
+        zone_a_text = tk.Text(zone_a_frame, wrap=tk.WORD, height=7, bd=1,
+                              relief='solid', padx=6, pady=4,
+                              font=self.FONTS['small'],
+                              bg='#E3F2FD', fg='#0D47A1')
+        zone_a_text.insert('1.0',
+            "SA가 0에서 증가할 때 Fy가 올라가는 초기 기울기\n"
+            "(= dFy/dSA)를 결정하는 인자:\n\n"
+            "  • ky (횡방향 강성) ↑ → 기울기 ↑\n"
+            "  • L × W (접촉 면적) ↑ → 기울기 ↑\n"
+            "  • Fz (수직하중) ↑ → 접촉 면적 ↑ → 기울기 ↑\n\n"
+            "기울기가 클수록 빠르게 포화(피크)에 도달합니다."
+        )
+        zone_a_text.config(state='disabled')
+        zone_a_text.pack(fill=tk.X, padx=2)
+
+        # --- Zone B: 피크 높이 (Fy Peak) ---
+        zone_b_frame = ttk.Frame(sec7)
+        zone_b_frame.pack(fill=tk.X, pady=(2, 4))
+
+        zone_b_header = ttk.Label(zone_b_frame,
+                                   text="Zone B  피크 높이 (Fy Peak)",
+                                   font=self.FONTS['body'], foreground='#C62828')
+        zone_b_header.pack(anchor='w')
+
+        zone_b_text = tk.Text(zone_b_frame, wrap=tk.WORD, height=7, bd=1,
+                              relief='solid', padx=6, pady=4,
+                              font=self.FONTS['small'],
+                              bg='#FFEBEE', fg='#B71C1C')
+        zone_b_text.insert('1.0',
+            "Fy가 최대가 되는 피크의 높낮이를 결정하는 인자:\n\n"
+            "  • mu(v) × Fz = 마찰력 상한 (가장 직접적)\n"
+            "  • Fz (수직하중) ↑ → 피크 ↑\n"
+            "  • Cold & Hot mu(v) 커브 (점탄성 마찰 특성)\n"
+            "  • 압력 분포 (uniform / parabolic / dual_peak)\n\n"
+            "mu ↑ 또는 Fz ↑ → 피크 높이 ↑"
+        )
+        zone_b_text.config(state='disabled')
+        zone_b_text.pack(fill=tk.X, padx=2)
+
+        # --- Zone C: 피크 이후 감소 (Post-peak decay) ---
+        zone_c_frame = ttk.Frame(sec7)
+        zone_c_frame.pack(fill=tk.X, pady=(2, 4))
+
+        zone_c_header = ttk.Label(zone_c_frame,
+                                   text="Zone C  피크 이후 감소 (Post-peak)",
+                                   font=self.FONTS['body'], foreground='#4A148C')
+        zone_c_header.pack(anchor='w')
+
+        zone_c_text = tk.Text(zone_c_frame, wrap=tk.WORD, height=8, bd=1,
+                              relief='solid', padx=6, pady=4,
+                              font=self.FONTS['small'],
+                              bg='#F3E5F5', fg='#311B92')
+        zone_c_text.insert('1.0',
+            "피크를 지나서 Fy가 줄어드는 정도를 좌우하는 인자:\n\n"
+            "  • D (macro asperity 직경) ↑ → 감소폭 ↑\n"
+            "    (s0 = 0.2D, 슬립 천이 거리)\n"
+            "  • vc (주행 속도) ↑ → 감소폭 ↑\n"
+            "  • Cold → Hot 마찰 전이 (flash temperature ↑)\n"
+            "    v_slip ↑ → mu_hot 지배 → Fy ↓\n\n"
+            "D ↑ 또는 vc ↑ → 피크 이후 감소가 더 커집니다."
+        )
+        zone_c_text.config(state='disabled')
+        zone_c_text.pack(fill=tk.X, padx=2)
+
         # ============== Right Panel: Notebook (Simulation + Education) ==============
         right_panel = layout['right']
 
@@ -25657,104 +25733,44 @@ class PerssonModelGUI_V2:
                 ax_fy.plot(env_sa, env_f, 'r-', lw=2.0, alpha=0.9,
                            label='Envelope', zorder=5)
 
-                # ── Analysis annotations on the envelope ──
+                # ── Zone markers on the envelope ──
                 abs_env = np.abs(env_f)
                 i_peak = np.argmax(abs_env)
                 sa_peak = env_sa[i_peak]
                 fy_peak = env_f[i_peak]
 
-                # Read current parameters for annotation
-                _ann_ky = float(self.pb_ky_var.get())
-                _ann_kx = float(self.pb_kx_var.get())
-                _ann_Fz = float(self.pb_Fz_var.get())
-                _ann_L = float(self.pb_L_var.get())
-                _ann_W = float(self.pb_W_var.get())
-                _ann_D = float(self.pb_D_macro_var.get())
-                _ann_vc = float(self.pb_vc_var.get())
-                _ann_s0 = 0.2 * _ann_D * 1e-3
-                _ann_ptype = self.pb_pressure_type_var.get()
+                y_lo = ax_fy.get_ylim()[0]
+                y_hi = ax_fy.get_ylim()[1]
 
-                # (A) Initial slope (Cornering Stiffness)
-                # Use first few points near SA=0
-                near_zero = np.abs(env_sa) < max(0.3 * np.abs(sa_peak), 1.0)
-                if np.sum(near_zero) >= 2:
-                    sa_nz = env_sa[near_zero]
-                    fy_nz = env_f[near_zero]
-                    sort_idx = np.argsort(sa_nz)
-                    sa_nz, fy_nz = sa_nz[sort_idx], fy_nz[sort_idx]
-                    if sa_nz[-1] - sa_nz[0] > 0.01:
-                        slope = (fy_nz[-1] - fy_nz[0]) / (sa_nz[-1] - sa_nz[0])
-                        # Annotate at ~1/4 of peak SA
-                        sa_annot = sa_peak * 0.25
-                        fy_annot = slope * sa_annot
-                        ax_fy.annotate(
-                            f'Cornering Stiffness  (포락선 기울기)\n'
-                            f'dFy/dSA = {slope:.0f} N/deg\n'
-                            f'결정 인자:\n'
-                            f'  ky={_ann_ky:.0f} N/m (횡강성)\n'
-                            f'  L={_ann_L:.3f}m, W={_ann_W:.3f}m\n'
-                            f'  Fz={_ann_Fz:.0f}N (접촉 면적)\n'
-                            f'ky↑ or L·W↑ → 기울기↑ (빠른 포화)',
-                            xy=(sa_annot, fy_annot),
-                            xytext=(sa_annot + (sa_max - sa_min) * 0.15,
-                                    fy_annot + np.sign(fy_peak) * abs(fy_peak) * 0.3),
-                            fontsize=6.0, color='#1565C0',
-                            arrowprops=dict(arrowstyle='->', color='#1565C0',
-                                            lw=1.2),
-                            bbox=dict(boxstyle='round,pad=0.3', fc='#E3F2FD',
-                                      ec='#1565C0', alpha=0.9),
-                            zorder=10)
+                # (A) Zone A: linear region (0 ~ peak SA) — shaded blue
+                ax_fy.axvspan(env_sa[0], sa_peak, alpha=0.07,
+                              color='#1565C0', zorder=1)
+                ax_fy.text((env_sa[0] + sa_peak) * 0.5,
+                           y_hi - (y_hi - y_lo) * 0.04,
+                           'A', fontsize=11, fontweight='bold',
+                           color='#1565C0', ha='center', va='top',
+                           zorder=10)
 
-                # (B) Peak Fy
-                ax_fy.plot(sa_peak, fy_peak, 'r*', ms=12, zorder=10)
-                _mu_peak_est = abs(fy_peak) / max(_ann_Fz, 1.0)
+                # (B) Zone B: peak marker
+                ax_fy.plot(sa_peak, fy_peak, 'r*', ms=14, zorder=10)
                 ax_fy.annotate(
-                    f'Peak Fy = {fy_peak:.1f} N  (피크 높이)\n'
-                    f'@ SA = {sa_peak:.1f} deg\n'
-                    f'mu_peak ≈ {_mu_peak_est:.3f}\n'
-                    f'결정 인자:\n'
-                    f'  mu(v) × Fz = 마찰력 상한\n'
-                    f'  Fz={_ann_Fz:.0f}N, 압력분포={_ann_ptype}\n'
-                    f'  Cold&Hot mu(v) 커브 (점탄성)\n'
-                    f'mu↑ or Fz↑ → 피크↑',
+                    f'B  Peak {fy_peak:.0f} N',
                     xy=(sa_peak, fy_peak),
-                    xytext=(sa_peak + (sa_max - sa_min) * 0.08,
-                            fy_peak + np.sign(fy_peak) * abs(fy_peak) * 0.15),
-                    fontsize=6.0, color='#C62828',
-                    arrowprops=dict(arrowstyle='->', color='#C62828', lw=1.2),
-                    bbox=dict(boxstyle='round,pad=0.3', fc='#FFEBEE',
-                              ec='#C62828', alpha=0.9),
+                    xytext=(sa_peak + (sa_max - sa_min) * 0.06,
+                            fy_peak + np.sign(fy_peak) * abs(fy_peak) * 0.10),
+                    fontsize=8, fontweight='bold', color='#C62828',
+                    arrowprops=dict(arrowstyle='->', color='#C62828', lw=1.5),
                     zorder=10)
 
-                # (C) Post-peak decay
+                # (C) Zone C: post-peak region — shaded purple
                 if i_peak < len(env_sa) - 2:
-                    # Find a point well past peak
-                    post_region = env_sa[i_peak:]
-                    post_fy = env_f[i_peak:]
-                    i_post = min(len(post_region) - 1,
-                                 max(1, len(post_region) // 2))
-                    sa_post = post_region[i_post]
-                    fy_post = post_fy[i_post]
-                    fy_drop_pct = (1.0 - abs(fy_post) / max(abs(fy_peak), 1e-6)) * 100
-                    if fy_drop_pct > 1.0:
-                        ax_fy.annotate(
-                            f'Post-peak decay  (피크 이후 감소)\n'
-                            f'Fy = {fy_post:.1f} N ({fy_drop_pct:.0f}% drop)\n'
-                            f'결정 인자:\n'
-                            f'  D={_ann_D:.1f}mm → s0={_ann_s0*1e3:.3f}mm\n'
-                            f'  vc={_ann_vc:.1f}m/s (주행속도)\n'
-                            f'  Cold→Hot 마찰 전이 (flash T↑)\n'
-                            f'v_slip↑ → mu_hot 지배 → Fy↓\n'
-                            f'D↑ or vc↑ → 감소폭↑',
-                            xy=(sa_post, fy_post),
-                            xytext=(sa_post - (sa_max - sa_min) * 0.15,
-                                    fy_post - np.sign(fy_peak) * abs(fy_peak) * 0.2),
-                            fontsize=6.0, color='#4A148C',
-                            arrowprops=dict(arrowstyle='->', color='#4A148C',
-                                            lw=1.2),
-                            bbox=dict(boxstyle='round,pad=0.3', fc='#F3E5F5',
-                                      ec='#4A148C', alpha=0.9),
-                            zorder=10)
+                    ax_fy.axvspan(sa_peak, env_sa[-1], alpha=0.07,
+                                  color='#4A148C', zorder=1)
+                    ax_fy.text((sa_peak + env_sa[-1]) * 0.5,
+                               y_hi - (y_hi - y_lo) * 0.04,
+                               'C', fontsize=11, fontweight='bold',
+                               color='#4A148C', ha='center', va='top',
+                               zorder=10)
 
         ax_fy.set_title('Fy vs Slip Angle', fontsize=9, fontweight='bold')
         ax_fy.set_xlabel('SA [deg]', fontsize=8); ax_fy.set_ylabel('Fy [N]', fontsize=8)
