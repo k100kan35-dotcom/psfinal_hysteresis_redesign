@@ -982,6 +982,7 @@ class PerssonModelGUI_V2:
                                     'canvas_ve_advisor',
                                     'canvas_cold_hot',
                                     'canvas_brush',
+                                    'canvas_pb',
                                     'canvas_fm_graph',
                                     'canvas_track',
                                     '_ts_steer_canvas', '_ts_tire_canvas',
@@ -1039,6 +1040,10 @@ class PerssonModelGUI_V2:
                                 hspace=0.45),
         'fig_cold_hot':    dict(left=0.10, right=0.88, top=0.92, bottom=0.08,
                                 hspace=0.40, wspace=0.45),
+        'fig_brush':       dict(left=0.06, right=0.97, top=0.93, bottom=0.07,
+                                hspace=0.50, wspace=2.5),
+        'fig_pb':          dict(left=0.04, right=0.98, top=0.95, bottom=0.05,
+                                hspace=0.42, wspace=2.0),
     }
 
     _ALL_FIG_CANVAS_PAIRS = [
@@ -1053,6 +1058,8 @@ class PerssonModelGUI_V2:
         ('fig_integrand', 'canvas_integrand'),
         ('fig_ve_advisor', 'canvas_ve_advisor'),
         ('fig_cold_hot', 'canvas_cold_hot'),
+        ('fig_brush', 'canvas_brush'),
+        ('fig_pb', 'canvas_pb'),
     ]
 
     def _get_all_figures_and_canvases(self):
@@ -1212,6 +1219,24 @@ class PerssonModelGUI_V2:
             result['right'] = right
 
         return result
+
+    def _redraw_canvas_if_mapped(self, canvas_attr):
+        """Force a canvas redraw after geometry stabilises (tab switch fix)."""
+        canvas = getattr(self, canvas_attr, None)
+        if canvas is None:
+            return
+        try:
+            widget = canvas.get_tk_widget()
+            self.root.update_idletasks()
+            if widget.winfo_ismapped():
+                w = widget.winfo_width()
+                h = widget.winfo_height()
+                if w > 1 and h > 1:
+                    fig = canvas.figure
+                    fig.set_size_inches(w / fig.dpi, h / fig.dpi, forward=False)
+                    canvas.draw_idle()
+        except Exception:
+            pass
 
     def _create_section(self, parent, title, padding=None):
         """Create a consistent LabelFrame section inside a control panel.
@@ -24330,6 +24355,11 @@ class PerssonModelGUI_V2:
         # ── Tab 2: Educational Material ──
         self._create_brush_education_tab(self.br_right_notebook)
 
+        # ── Force redraw when inner notebook tab is selected ──
+        def _on_br_inner_tab_changed(event):
+            self.root.after(50, lambda: self._redraw_canvas_if_mapped('canvas_brush'))
+        self.br_right_notebook.bind('<<NotebookTabChanged>>', _on_br_inner_tab_changed)
+
     # ================================================================
     # ====  PerssonBrush — ODE-based 2D Dynamics Tab  ====
     # ================================================================
@@ -24781,11 +24811,39 @@ class PerssonModelGUI_V2:
         self.canvas_pb.draw_idle()
         self.canvas_pb.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
+        # Save original axis positions from GridSpec BEFORE any colorbars
+        self._pb_original_ax_positions = {}
+        for ax_name in ('ax_pb_stick', 'ax_pb_speed', 'ax_pb_pressure',
+                        'ax_pb_temperature', 'ax_pb_friction',
+                        'ax_pb_input', 'ax_pb_force_t',
+                        'ax_pb_fy_sa', 'ax_pb_fx_sr'):
+            ax = getattr(self, ax_name, None)
+            if ax is not None:
+                self._pb_original_ax_positions[ax_name] = ax.get_position().frozen()
+
         toolbar = NavigationToolbar2Tk(self.canvas_pb, plot_frame)
         toolbar.update()
 
+        # ── Auto-resize figure to fill widget on every geometry change ──
+        def _on_pb_canvas_resize(event):
+            w, h = event.width, event.height
+            if w > 1 and h > 1:
+                self.fig_pb.set_size_inches(
+                    w / self.fig_pb.dpi, h / self.fig_pb.dpi,
+                    forward=False)
+                self.canvas_pb.draw_idle()
+        self.canvas_pb.get_tk_widget().bind('<Configure>', _on_pb_canvas_resize)
+
         # ── Tab 2: Educational Material (ODE explanation) ──
         self._create_pb_education_tab(self.pb_right_notebook)
+
+        # ── Tab 3: Contour Color Guide ──
+        self._create_pb_contour_guide_tab(self.pb_right_notebook)
+
+        # ── Force redraw when inner notebook tab is selected ──
+        def _on_pb_inner_tab_changed(event):
+            self.root.after(50, lambda: self._redraw_canvas_if_mapped('canvas_pb'))
+        self.pb_right_notebook.bind('<<NotebookTabChanged>>', _on_pb_inner_tab_changed)
 
     # ── PerssonBrush: Steering wheel (simplified) ──
 
@@ -24902,6 +24960,313 @@ class PerssonModelGUI_V2:
                 w.writerow([f"{fr['t']:.4f}", f"{fr['SA']:.2f}",
                             f"{fr['SR']:.2f}", f"{fr['Fx']:.2f}", f"{fr['Fy']:.2f}"])
         self._show_status(f"CSV 내보내기 완료: {path}", 'success')
+
+    # ── PerssonBrush: Contour Color Guide tab ──
+
+    def _create_pb_contour_guide_tab(self, notebook):
+        """Create a detailed contour color guide tab for the Persson Brush model.
+
+        Explains what each contour plot shows and what colour transitions mean,
+        designed for readability on 4K monitors.
+        """
+        guide_tab = ttk.Frame(notebook)
+        notebook.add(guide_tab, text='  컨투어 색상 가이드  ')
+
+        canvas_frame = tk.Frame(guide_tab, bg='white')
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
+
+        guide_canvas = tk.Canvas(canvas_frame, bg='white', highlightthickness=0)
+        scrollbar_y = ttk.Scrollbar(canvas_frame, orient='vertical',
+                                     command=guide_canvas.yview)
+        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        guide_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        guide_canvas.configure(yscrollcommand=scrollbar_y.set)
+
+        inner = tk.Frame(guide_canvas, bg='white')
+        inner_id = guide_canvas.create_window((0, 0), window=inner, anchor='nw')
+        inner.bind('<Configure>',
+                   lambda e: guide_canvas.configure(scrollregion=guide_canvas.bbox('all')))
+        guide_canvas.bind('<Configure>',
+                          lambda e: guide_canvas.itemconfig(inner_id, width=e.width))
+
+        # Cross-platform mousewheel
+        def _on_mw(event):
+            if event.delta:
+                guide_canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+            elif event.num == 4:
+                guide_canvas.yview_scroll(-3, 'units')
+            elif event.num == 5:
+                guide_canvas.yview_scroll(3, 'units')
+        guide_canvas.bind('<Enter>', lambda e: (
+            guide_canvas.bind_all('<MouseWheel>', _on_mw),
+            guide_canvas.bind_all('<Button-4>', _on_mw),
+            guide_canvas.bind_all('<Button-5>', _on_mw)))
+        guide_canvas.bind('<Leave>', lambda e: (
+            guide_canvas.unbind_all('<MouseWheel>'),
+            guide_canvas.unbind_all('<Button-4>'),
+            guide_canvas.unbind_all('<Button-5>')))
+
+        # 4K-friendly font sizes
+        _title_fs = 16
+        _subtitle_fs = 14
+        _body_fs = 13
+        _detail_fs = 12
+        pad_x = 30
+
+        def add_main_title(text):
+            tk.Label(inner, text=text, font=('NanumGothic', _title_fs, 'bold'),
+                     fg='#0F172A', bg='white', anchor='w',
+                     justify=tk.LEFT).pack(fill=tk.X, padx=pad_x, pady=(24, 8))
+
+        def add_subtitle(text, fg='#1E40AF'):
+            tk.Label(inner, text=text, font=('NanumGothic', _subtitle_fs, 'bold'),
+                     fg=fg, bg='white', anchor='w',
+                     justify=tk.LEFT).pack(fill=tk.X, padx=pad_x, pady=(18, 4))
+
+        def add_body(text, fg='#334155'):
+            tk.Label(inner, text=text, font=('NanumGothic', _body_fs),
+                     fg=fg, bg='white', anchor='w', justify=tk.LEFT,
+                     wraplength=1200).pack(fill=tk.X, padx=pad_x, pady=2)
+
+        def add_color_row(color_hex, label_text, desc_text):
+            """Add a single color swatch + label + description row."""
+            row = tk.Frame(inner, bg='white')
+            row.pack(fill=tk.X, padx=pad_x + 10, pady=3)
+            # Color swatch
+            swatch = tk.Frame(row, bg=color_hex, width=28, height=28,
+                              highlightbackground='#94A3B8', highlightthickness=1)
+            swatch.pack(side=tk.LEFT, padx=(0, 10))
+            swatch.pack_propagate(False)
+            # Label + description
+            tk.Label(row, text=label_text, font=('NanumGothic', _detail_fs, 'bold'),
+                     fg='#1E293B', bg='white', anchor='w').pack(side=tk.LEFT, padx=(0, 8))
+            tk.Label(row, text=desc_text, font=('NanumGothic', _detail_fs),
+                     fg='#475569', bg='white', anchor='w',
+                     wraplength=900).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        def add_gradient_bar(colors, labels, desc_text):
+            """Add a horizontal gradient bar with min/max labels."""
+            bar_frame = tk.Frame(inner, bg='white')
+            bar_frame.pack(fill=tk.X, padx=pad_x + 10, pady=(4, 2))
+            # Gradient bar using multiple thin color strips
+            grad_container = tk.Frame(bar_frame, bg='#94A3B8', highlightthickness=1,
+                                       highlightbackground='#94A3B8')
+            grad_container.pack(side=tk.LEFT, padx=(0, 12))
+            for c in colors:
+                strip = tk.Frame(grad_container, bg=c, width=16, height=24)
+                strip.pack(side=tk.LEFT)
+                strip.pack_propagate(False)
+            # Labels
+            label_frame = tk.Frame(bar_frame, bg='white')
+            label_frame.pack(side=tk.LEFT)
+            for i, lbl in enumerate(labels):
+                tk.Label(label_frame, text=lbl, font=('NanumGothic', _detail_fs - 1),
+                         fg='#64748B', bg='white').pack(side=tk.LEFT, padx=4)
+            tk.Label(inner, text=desc_text, font=('NanumGothic', _detail_fs),
+                     fg='#475569', bg='white', anchor='w', justify=tk.LEFT,
+                     wraplength=1100).pack(fill=tk.X, padx=pad_x + 10, pady=(0, 6))
+
+        def add_section_box(text, bg_c='#EFF6FF', fg_c='#1E40AF', border_c='#3B82F6'):
+            """Highlighted info box."""
+            box = tk.Frame(inner, bg=border_c, padx=2, pady=2)
+            box.pack(fill=tk.X, padx=pad_x, pady=8)
+            tk.Label(box, text=text, font=('NanumGothic', _body_fs),
+                     fg=fg_c, bg=bg_c, anchor='w', justify=tk.LEFT,
+                     wraplength=1100, padx=16, pady=12).pack(fill=tk.X)
+
+        def add_separator():
+            tk.Frame(inner, bg='#E2E8F0', height=2).pack(fill=tk.X,
+                     padx=pad_x, pady=12)
+
+        # ══════════════════════════════════════════════════════════════
+        # CONTENT
+        # ══════════════════════════════════════════════════════════════
+
+        add_main_title("컨투어 플롯 색상 가이드  —  Persson ODE Brush 모델")
+        add_body("아래 5개의 컨투어 플롯은 타이어 접지면(footprint) 내 각 트레드 블록의 물리적 상태를 "
+                 "실시간으로 시각화합니다. 각 플롯의 색상 변화가 의미하는 바를 상세히 설명합니다.")
+
+        add_separator()
+
+        # ── 1. Adhesion vs Sliding ──
+        add_subtitle("① Adhesion vs Sliding  (부착 vs 미끄럼)", fg='#1565C0')
+        add_body("각 트레드 블록이 노면에 부착(Stick) 상태인지, 미끄러짐(Slip) 상태인지를 "
+                 "2색으로 표시합니다. ODE 모델에서는 슬립 속도 |v_slip|이 임계값을 초과하면 "
+                 "미끄럼으로 분류합니다.")
+        add_color_row('#2196F3', '파란색 (Adhesion, Stick)',
+                      '트레드 블록이 노면에 부착된 상태. 스프링력 < μ×Fz이므로 블록이 '
+                      '노면과 함께 이동합니다. 접지면 전방(Leading edge)에서 주로 나타납니다.')
+        add_color_row('#F44336', '빨간색 (Sliding, Slip)',
+                      '트레드 블록이 노면 위에서 미끄러지는 상태. 스프링력 > μ×Fz이므로 '
+                      '마찰력이 포화되어 블록이 슬립합니다. 접지면 후방(Trailing edge)에서 '
+                      '주로 발생하며, 슬립 각도(SA)가 커질수록 빨간 영역이 확대됩니다.')
+        add_section_box(
+            "해석 포인트:\n"
+            "• 파란색 → 빨간색 경계가 접지면 전방에서 후방으로 이동하면: "
+            "SA 또는 SR이 증가하여 더 많은 블록이 슬립 영역에 진입\n"
+            "• 전체가 빨간색이면: 모든 블록이 미끄러짐 → 포화(saturation) 상태, "
+            "피크 마찰력을 초과한 상태\n"
+            "• 화살표(quiver): 각 블록의 변형 방향과 크기를 표시 "
+            "(흰색 화살표가 클수록 변형이 큼)",
+            bg_c='#E3F2FD', fg_c='#0D47A1', border_c='#1976D2')
+
+        add_separator()
+
+        # ── 2. Slip Velocity ──
+        add_subtitle("② Slip Velocity [m/s]  (슬립 속도)", fg='#C62828')
+        add_body("각 트레드 블록의 노면 대비 상대 미끄럼 속도 |v_slip|을 연속 색상으로 표시합니다. "
+                 "슬립 속도는 Flash Temperature(순간 접촉 온도)와 마찰 계수 μ(v)를 결정하는 "
+                 "핵심 변수입니다.")
+        # jet colormap: blue -> cyan -> green -> yellow -> red
+        jet_colors = ['#00008B', '#0000FF', '#00BFFF', '#00FF00',
+                      '#FFFF00', '#FF8C00', '#FF0000', '#8B0000']
+        add_gradient_bar(jet_colors,
+                         ['최솟값 (≈0)', '→', '→', '→', '→', '→', '→', '최댓값'],
+                         "")
+        add_color_row('#0000FF', '파란색 (낮은 슬립 속도, ≈ 0 m/s)',
+                      '블록이 거의 미끄러지지 않음 → Stick 상태에 가까움. '
+                      'Cold branch 마찰 μ_cold(v)가 지배적이며, 접촉 온도 상승이 미미합니다.')
+        add_color_row('#00FF00', '초록색 (중간 슬립 속도)',
+                      '블록이 적당히 미끄러짐. Cold → Hot 마찰 전이(blending)가 시작되며, '
+                      'w = exp(-s_slip/s₀)에 의해 μ_hot의 비중이 증가합니다.')
+        add_color_row('#FFFF00', '노란색 (높은 슬립 속도)',
+                      '상당한 미끄럼 → Flash Temperature가 크게 상승하여 μ_hot이 지배적. '
+                      '마찰력이 피크에서 감소하기 시작합니다.')
+        add_color_row('#FF0000', '빨간색 (매우 높은 슬립 속도)',
+                      '블록이 격렬히 미끄러짐 → 고무 표면 온도가 급격히 상승. '
+                      'μ_hot(v) 곡선의 감소 구간에 진입하여 마찰력이 현저히 떨어집니다.')
+        add_section_box(
+            "해석 포인트:\n"
+            "• 접지면 후방(trailing edge)에서 빨간색이 나타나면: "
+            "블록 체류시간이 길어 누적 슬립 거리(s_slip)가 커진 것\n"
+            "• 전체적으로 파란색이면: 저슬립 조건 (낮은 SA/SR) → 선형 영역\n"
+            "• Persson 모델에서 v_slip은 μ(v) 곡선을 통해 마찰계수를 직접 결정합니다",
+            bg_c='#FFF3E0', fg_c='#BF360C', border_c='#FF6D00')
+
+        add_separator()
+
+        # ── 3. Contact Pressure ──
+        add_subtitle("③ Contact Pressure [bar]  (접촉 압력)", fg='#2E7D32')
+        add_body("각 트레드 블록에 작용하는 수직 접촉 압력 분포를 표시합니다. "
+                 "압력 분포 유형(균일, 포물선, 타원)에 따라 패턴이 달라집니다.")
+        add_gradient_bar(jet_colors,
+                         ['최소 압력', '→', '→', '→', '→', '→', '→', '최대 압력'],
+                         "")
+        add_color_row('#0000FF', '파란색 (낮은 압력)',
+                      '접지면 가장자리(edge)에 해당. 압력이 낮아 마찰 포화점(μ×p)이 낮으므로 '
+                      '슬립이 먼저 시작되는 영역입니다.')
+        add_color_row('#00FF00', '초록색 (중간 압력)',
+                      '접지면 중간 영역. 적당한 접촉 압력이 작용합니다.')
+        add_color_row('#FF0000', '빨간색 (높은 압력)',
+                      '접지면 중심부. 포물선/타원 분포에서 가장 높은 압력 → '
+                      '마찰 포화점이 높아 Stick 상태를 더 오래 유지합니다.')
+        add_section_box(
+            "해석 포인트:\n"
+            "• 균일 분포: 전체가 동일 색상 (초록~노란색)\n"
+            "• 포물선 분포: 중심이 빨간색, 가장자리가 파란색 → 자연스러운 타이어 압력\n"
+            "• 압력이 높은 곳은 슬립 진입이 늦어지고, 낮은 곳은 빨리 슬립 → "
+            "현실적인 Stick-Slip 경계 형성\n"
+            "• 수직 하중(Fz) ↑ → 전체 압력 ↑ → 피크 마찰력 ↑",
+            bg_c='#E8F5E9', fg_c='#1B5E20', border_c='#43A047')
+
+        add_separator()
+
+        # ── 4. Temperature ──
+        add_subtitle("④ Temperature [°C]  (접촉 온도)", fg='#E65100')
+        add_body("Flash Temperature 모델에 의한 순간 접촉 온도를 표시합니다. "
+                 "슬립 속도와 접촉 압력에 비례하여 온도가 상승하며, "
+                 "이는 Cold → Hot 마찰 전이를 결정합니다.")
+        add_gradient_bar(jet_colors,
+                         ['최저 온도', '→', '→', '→', '→', '→', '→', '최고 온도'],
+                         "")
+        add_color_row('#0000FF', '파란색 (낮은 온도, ≈ 주변 온도)',
+                      '슬립이 거의 없어 마찰열 발생이 미미한 영역. '
+                      'Cold branch 마찰 μ_cold가 그대로 적용됩니다.')
+        add_color_row('#00FF00', '초록색 (약간 상승)',
+                      '마찰열로 인한 온도 상승 시작. 고무의 viscoelastic 특성이 '
+                      '변하기 시작하며, μ가 서서히 감소합니다.')
+        add_color_row('#FFFF00', '노란색 (상당히 상승)',
+                      '접촉면 온도가 상당히 높아짐. Cold → Hot 전이 구간으로, '
+                      'w = exp(-s/s₀)의 blending factor가 0.5 이하로 떨어집니다.')
+        add_color_row('#FF0000', '빨간색 (고온)',
+                      '고무 표면이 매우 뜨거움 → μ_hot(v)가 완전히 지배. '
+                      '마찰계수가 현저히 감소하여 타이어 그립이 저하됩니다. '
+                      '실제 주행에서는 타이어 스모크(smoke)가 발생하는 조건입니다.')
+        add_section_box(
+            "해석 포인트:\n"
+            "• 온도 분포는 슬립 속도 분포와 유사한 패턴을 보임 "
+            "(높은 슬립 → 높은 온도)\n"
+            "• 접지면 후방의 고온 영역이 넓어지면: 타이어 그립 한계에 근접\n"
+            "• D_macro(돌기 직경) ↑ → s₀ ↑ → Cold→Hot 전이가 느려짐 → "
+            "동일 조건에서 온도 영향이 줄어듦\n"
+            "• 온도가 높을수록 고무가 유연해져 접촉 면적은 증가하지만, "
+            "탄성 에너지 손실(히스테리시스)은 감소 → μ_visc ↓",
+            bg_c='#FFF3E0', fg_c='#E65100', border_c='#FB8C00')
+
+        add_separator()
+
+        # ── 5. Friction Force ──
+        add_subtitle("⑤ Friction Force [N/node]  (마찰력)", fg='#6A1B9A')
+        add_body("각 트레드 블록이 노면에 전달하는 마찰력(수평력)의 크기를 표시합니다. "
+                 "이 값은 스프링력 + 댐퍼력의 합력이며, 접지면 전체를 합산하면 "
+                 "타이어의 총 Fx, Fy가 됩니다.")
+        add_gradient_bar(jet_colors,
+                         ['최소 마찰력', '→', '→', '→', '→', '→', '→', '최대 마찰력'],
+                         "")
+        add_color_row('#0000FF', '파란색 (낮은 마찰력)',
+                      'Stick 영역의 전방 블록들 → 아직 큰 변형이 없어 '
+                      '스프링력이 작음. 또는 접촉 압력이 낮은 가장자리 영역.')
+        add_color_row('#00FF00', '초록색 (중간 마찰력)',
+                      '적당한 변형 + 적당한 접촉 압력 → 중간 수준의 마찰력 기여.')
+        add_color_row('#FFFF00', '노란색 (높은 마찰력)',
+                      'Stick-Slip 경계 근처에서 최대 마찰력 발생. '
+                      '스프링력이 μ×p에 근접하여 최대 효율로 힘을 전달합니다.')
+        add_color_row('#FF0000', '빨간색 (최대 마찰력)',
+                      '마찰력이 최대인 블록들. 접촉 압력이 높고 '
+                      'μ×p 한도까지 힘을 전달하는 영역입니다.')
+        add_section_box(
+            "해석 포인트:\n"
+            "• 마찰력 분포의 합 = 타이어 총 횡력(Fy) 또는 종력(Fx)\n"
+            "• 높은 마찰력(빨간색)이 넓게 분포할수록: 타이어가 그립 한계를 "
+            "효율적으로 활용\n"
+            "• Slip 영역(adhesion 빨간색)에서는 마찰력 = μ_kinetic × p → "
+            "Hot branch에 의해 제한됨\n"
+            "• Fy, Fx 텍스트 박스: 접지면 전체의 합산 횡력과 종력을 실시간 표시",
+            bg_c='#F3E5F5', fg_c='#4A148C', border_c='#8E24AA')
+
+        add_separator()
+
+        # ── Summary ──
+        add_main_title("종합 해석 가이드")
+        add_body("5개 컨투어를 함께 관찰하면, 타이어 접지면에서 일어나는 물리 현상을 "
+                 "입체적으로 이해할 수 있습니다:")
+
+        summary_items = [
+            ("SA 증가 시 변화 과정",
+             "① Stick(파란) → Slip(빨간) 영역 확대\n"
+             "② 슬립 속도 상승 (파란→노란→빨간)\n"
+             "③ 접촉 온도 상승 (Cold → Hot 전이)\n"
+             "④ 마찰력 분포 변화 → Fy 증가 후 피크 → 감소",
+             '#E3F2FD', '#0D47A1', '#1565C0'),
+            ("SR 증가 시 변화 과정",
+             "① Slip 영역이 접지면 후방에서 전방으로 확대\n"
+             "② 종방향 슬립 속도 증가\n"
+             "③ 마찰열 → μ_hot 전이 → 마찰력 감소\n"
+             "④ 종력 Fx 증가 후 피크 → 감소 (Lock-up)",
+             '#FFEBEE', '#B71C1C', '#D32F2F'),
+            ("Combined Slip (SA + SR)",
+             "① 종방향 + 횡방향 슬립 벡터 합성\n"
+             "② 마찰원(Friction Circle/Ellipse)에 의해 Fx, Fy 커플링\n"
+             "③ 높은 SR → Fy 감소 (종방향이 마찰 예산 소비)\n"
+             "④ 화살표(quiver)가 대각선 방향으로 변형",
+             '#F3E5F5', '#4A148C', '#7B1FA2'),
+        ]
+        for title, desc, bg_c, fg_c, border_c in summary_items:
+            add_subtitle(f"  ▸ {title}", fg=border_c)
+            add_section_box(desc, bg_c=bg_c, fg_c=fg_c, border_c=border_c)
+
+        # Final spacer
+        tk.Frame(inner, bg='white', height=40).pack(fill=tk.X)
 
     # ── PerssonBrush: Education tab ──
 
