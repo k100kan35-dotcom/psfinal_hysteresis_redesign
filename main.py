@@ -459,6 +459,39 @@ class PerssonModelGUI_V2:
             except Exception:
                 pass
 
+        # ── Bind window-level resize so all visible figures adapt ──
+        self._window_resize_after_id = None
+
+        def _on_window_resize(event):
+            # Only respond to root window resize events
+            if event.widget is not self.root:
+                return
+            if self._window_resize_after_id is not None:
+                try:
+                    self.root.after_cancel(self._window_resize_after_id)
+                except Exception:
+                    pass
+
+            def _refresh_visible():
+                self._window_resize_after_id = None
+                self.root.update_idletasks()
+                for _, fig, canvas in self._get_all_figures_and_canvases():
+                    try:
+                        widget = canvas.get_tk_widget()
+                        if widget.winfo_ismapped():
+                            w = widget.winfo_width()
+                            h = widget.winfo_height()
+                            if w > 1 and h > 1:
+                                fig.set_size_inches(w / fig.dpi, h / fig.dpi,
+                                                    forward=False)
+                            canvas.draw_idle()
+                    except Exception:
+                        pass
+
+            self._window_resize_after_id = self.root.after(150, _refresh_visible)
+
+        self.root.bind('<Configure>', _on_window_resize)
+
     # ================================================================
     #  FONT SETTINGS PERSISTENCE
     # ================================================================
@@ -1060,6 +1093,12 @@ class PerssonModelGUI_V2:
         ('fig_cold_hot', 'canvas_cold_hot'),
         ('fig_brush', 'canvas_brush'),
         ('fig_pb', 'canvas_pb'),
+        ('fig_fm_graph', 'canvas_fm_graph'),
+        ('fig_track', 'canvas_track'),
+        ('_ts_steer_fig', '_ts_steer_canvas'),
+        ('_ts_tire_fig', '_ts_tire_canvas'),
+        ('_ts_contour_fig', '_ts_contour_canvas'),
+        ('_ts_fy_fig', '_ts_fy_canvas'),
     ]
 
     def _get_all_figures_and_canvases(self):
@@ -1301,8 +1340,46 @@ class PerssonModelGUI_V2:
             tb_frame.pack(side=tk.BOTTOM, fill=tk.X)
             NavigationToolbar2Tk(canvas, tb_frame)
 
-        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        canvas_widget = canvas.get_tk_widget()
+        canvas_widget.pack(fill=tk.BOTH, expand=True)
+
+        # ── Universal auto-resize: figure follows widget geometry ──
+        _resize_after_id = [None]
+
+        def _on_canvas_resize(event, _fig=fig, _canvas=canvas):
+            w, h = event.width, event.height
+            if w > 1 and h > 1:
+                _fig.set_size_inches(w / _fig.dpi, h / _fig.dpi, forward=False)
+                # Debounce: cancel pending redraw, schedule new one
+                if _resize_after_id[0] is not None:
+                    try:
+                        canvas_widget.after_cancel(_resize_after_id[0])
+                    except Exception:
+                        pass
+                _resize_after_id[0] = canvas_widget.after(
+                    50, lambda: _canvas.draw_idle())
+
+        canvas_widget.bind('<Configure>', _on_canvas_resize)
+
         return fig, canvas
+
+    def _bind_canvas_auto_resize(self, fig, canvas):
+        """Bind <Configure> to a canvas widget so the figure fills it on resize."""
+        widget = canvas.get_tk_widget()
+        _after_id = [None]
+
+        def _on_resize(event, _fig=fig, _cv=canvas):
+            w, h = event.width, event.height
+            if w > 1 and h > 1:
+                _fig.set_size_inches(w / _fig.dpi, h / _fig.dpi, forward=False)
+                if _after_id[0] is not None:
+                    try:
+                        widget.after_cancel(_after_id[0])
+                    except Exception:
+                        pass
+                _after_id[0] = widget.after(50, lambda: _cv.draw_idle())
+
+        widget.bind('<Configure>', _on_resize)
 
     def _create_fullpage_scrollable(self, parent, bg='white'):
         """Create a full-page scrollable layout (no left/right split).
@@ -21728,6 +21805,9 @@ class PerssonModelGUI_V2:
         self.canvas_fm_graph.draw_idle()
         self.canvas_fm_graph.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
+        # Auto-resize figure on widget geometry change
+        self._bind_canvas_auto_resize(self.fig_fm_graph, self.canvas_fm_graph)
+
         toolbar = NavigationToolbar2Tk(self.canvas_fm_graph, plot_frame)
         toolbar.update()
 
@@ -29609,6 +29689,14 @@ class PerssonModelGUI_V2:
 
         self._ts_fy_canvas = _FCA(self._ts_fy_fig, fy_frame)
         self._ts_fy_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Auto-resize all track-sim figures on widget geometry changes
+        for _fig, _cv in [(self.fig_track, self.canvas_track),
+                          (self._ts_steer_fig, self._ts_steer_canvas),
+                          (self._ts_tire_fig, self._ts_tire_canvas),
+                          (self._ts_contour_fig, self._ts_contour_canvas),
+                          (self._ts_fy_fig, self._ts_fy_canvas)]:
+            self._bind_canvas_auto_resize(_fig, _cv)
 
         # ── Deferred layout: force sash positions & figure sizes on first map ──
         self._ts_layout_initialized = False
