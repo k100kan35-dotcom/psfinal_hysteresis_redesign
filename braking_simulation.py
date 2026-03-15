@@ -116,25 +116,25 @@ def _create_braking_simulation_tab(self, parent):
     self._bk_ax_road.set_facecolor('#4A4A4A')
     self._bk_ax_road.set_ylim(-1.5, 1.5)
     self._bk_ax_road.set_yticks([])
-    self._bk_ax_road.set_xlabel('Distance [m]', fontsize=16, color='#CCC')
-    self._bk_ax_road.set_title('Braking Road View', fontsize=18,
+    self._bk_ax_road.set_xlabel('Distance [m]', fontsize=self.PLOT_FONTS['label'], color='#CCC')
+    self._bk_ax_road.set_title('Braking Road View', fontsize=self.PLOT_FONTS['title'],
                                 fontweight='bold', color='#EEE')
-    self._bk_ax_road.tick_params(labelsize=14, colors='#AAA')
+    self._bk_ax_road.tick_params(labelsize=self.PLOT_FONTS['tick'], colors='#AAA')
 
     # Speed vs Distance
     self._bk_ax_speed = self._bk_road_fig.add_subplot(gs_road[1, 0])
-    self._bk_ax_speed.set_title('Speed vs Distance', fontsize=18, fontweight='bold')
-    self._bk_ax_speed.set_xlabel('Distance [m]', fontsize=16)
-    self._bk_ax_speed.set_ylabel('Speed [km/h]', fontsize=16)
-    self._bk_ax_speed.tick_params(labelsize=14)
+    self._bk_ax_speed.set_title('Speed vs Distance', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+    self._bk_ax_speed.set_xlabel('Distance [m]', fontsize=self.PLOT_FONTS['label'])
+    self._bk_ax_speed.set_ylabel('Speed [km/h]', fontsize=self.PLOT_FONTS['label'])
+    self._bk_ax_speed.tick_params(labelsize=self.PLOT_FONTS['tick'])
     self._bk_ax_speed.grid(True, alpha=0.3)
 
     # Deceleration vs Distance
     self._bk_ax_decel = self._bk_road_fig.add_subplot(gs_road[2, 0])
-    self._bk_ax_decel.set_title('Deceleration vs Distance', fontsize=18, fontweight='bold')
-    self._bk_ax_decel.set_xlabel('Distance [m]', fontsize=16)
-    self._bk_ax_decel.set_ylabel('Decel [g]', fontsize=16)
-    self._bk_ax_decel.tick_params(labelsize=14)
+    self._bk_ax_decel.set_title('Deceleration vs Distance', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+    self._bk_ax_decel.set_xlabel('Distance [m]', fontsize=self.PLOT_FONTS['label'])
+    self._bk_ax_decel.set_ylabel('Decel [g]', fontsize=self.PLOT_FONTS['label'])
+    self._bk_ax_decel.tick_params(labelsize=self.PLOT_FONTS['tick'])
     self._bk_ax_decel.grid(True, alpha=0.3)
 
     self._bk_road_canvas = _FCA(self._bk_road_fig, road_frame)
@@ -162,18 +162,18 @@ def _create_braking_simulation_tab(self, parent):
                       hspace=0.45,
                       left=0.18, right=0.95, top=0.92, bottom=0.10)
     self._bk_abs_ax_sr = self._bk_abs_fig.add_subplot(gs_abs[0, 0])
-    self._bk_abs_ax_sr.set_title('Slip Ratio & ABS', fontsize=18, fontweight='bold')
-    self._bk_abs_ax_sr.set_ylabel('|SR| [%]', fontsize=16)
-    self._bk_abs_ax_sr.tick_params(labelsize=14)
+    self._bk_abs_ax_sr.set_title('Slip Ratio & ABS', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+    self._bk_abs_ax_sr.set_ylabel('|SR| [%]', fontsize=self.PLOT_FONTS['label'])
+    self._bk_abs_ax_sr.tick_params(labelsize=self.PLOT_FONTS['tick'])
     self._bk_abs_ax_sr.grid(True, alpha=0.3)
 
     self._bk_abs_ax_bp = self._bk_abs_fig.add_subplot(gs_abs[1, 0])
-    self._bk_abs_ax_bp.set_title('Brake Pressure', fontsize=18, fontweight='bold')
-    self._bk_abs_ax_bp.set_xlabel('Time [s]', fontsize=16)
-    self._bk_abs_ax_bp.set_ylabel('Brake', fontsize=16)
-    self._bk_abs_ax_bp.tick_params(labelsize=14)
+    self._bk_abs_ax_bp.set_title('Brake Pressure', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+    self._bk_abs_ax_bp.set_xlabel('Time [s]', fontsize=self.PLOT_FONTS['label'])
+    self._bk_abs_ax_bp.set_ylabel('Brake', fontsize=self.PLOT_FONTS['label'])
+    self._bk_abs_ax_bp.tick_params(labelsize=self.PLOT_FONTS['tick'])
     self._bk_abs_ax_bp.set_yticks([0, 1])
-    self._bk_abs_ax_bp.set_yticklabels(['OFF', 'ON'], fontsize=18)
+    self._bk_abs_ax_bp.set_yticklabels(['OFF', 'ON'], fontsize=self.PLOT_FONTS['title'])
     self._bk_abs_ax_bp.grid(True, alpha=0.3)
 
     self._bk_abs_canvas = _FCA(self._bk_abs_fig, pedal_inner)
@@ -209,10 +209,10 @@ def _create_braking_simulation_tab(self, parent):
                        (self._bk_ax_press, 'Contact Pressure [bar]'),
                        (self._bk_ax_temp, 'Temperature [°C]'),
                        (self._bk_ax_fric, 'Friction Force [N/node]')]:
-        ax.set_title(title, fontsize=18, fontweight='bold')
-        ax.set_xlabel('x [m]', fontsize=16)
-        ax.set_ylabel('y [m]', fontsize=16)
-        ax.tick_params(labelsize=14)
+        ax.set_title(title, fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+        ax.set_xlabel('x [m]', fontsize=self.PLOT_FONTS['label'])
+        ax.set_ylabel('y [m]', fontsize=self.PLOT_FONTS['label'])
+        ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
 
     self._bk_contour_canvas = _FCA(self._bk_contour_fig, contour_frame)
     self._bk_contour_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
@@ -226,21 +226,21 @@ def _create_braking_simulation_tab(self, parent):
                      hspace=0.55,
                      left=0.15, right=0.95, top=0.94, bottom=0.08)
     self._bk_ax_fx_sr = self._bk_fx_fig.add_subplot(gs_fx[0, 0])
-    self._bk_ax_fx_sr.set_title('Fx vs Slip Ratio', fontsize=18, fontweight='bold')
-    self._bk_ax_fx_sr.set_xlabel('SR [%]', fontsize=16)
-    self._bk_ax_fx_sr.set_ylabel('Fx [N]', fontsize=16)
+    self._bk_ax_fx_sr.set_title('Fx vs Slip Ratio', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+    self._bk_ax_fx_sr.set_xlabel('SR [%]', fontsize=self.PLOT_FONTS['label'])
+    self._bk_ax_fx_sr.set_ylabel('Fx [N]', fontsize=self.PLOT_FONTS['label'])
     self._bk_ax_fx_sr.grid(True, alpha=0.3)
 
     self._bk_ax_ke_dist = self._bk_fx_fig.add_subplot(gs_fx[1, 0])
-    self._bk_ax_ke_dist.set_title('Kinetic Energy vs Distance', fontsize=18, fontweight='bold')
-    self._bk_ax_ke_dist.set_xlabel('Distance [m]', fontsize=16)
-    self._bk_ax_ke_dist.set_ylabel('Energy [kJ]', fontsize=16)
+    self._bk_ax_ke_dist.set_title('Kinetic Energy vs Distance', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+    self._bk_ax_ke_dist.set_xlabel('Distance [m]', fontsize=self.PLOT_FONTS['label'])
+    self._bk_ax_ke_dist.set_ylabel('Energy [kJ]', fontsize=self.PLOT_FONTS['label'])
     self._bk_ax_ke_dist.grid(True, alpha=0.3)
 
     self._bk_ax_fx_dist = self._bk_fx_fig.add_subplot(gs_fx[2, 0])
-    self._bk_ax_fx_dist.set_title('Fx vs Distance', fontsize=18, fontweight='bold')
-    self._bk_ax_fx_dist.set_xlabel('Distance [m]', fontsize=16)
-    self._bk_ax_fx_dist.set_ylabel('Fx [N]', fontsize=16)
+    self._bk_ax_fx_dist.set_title('Fx vs Distance', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+    self._bk_ax_fx_dist.set_xlabel('Distance [m]', fontsize=self.PLOT_FONTS['label'])
+    self._bk_ax_fx_dist.set_ylabel('Fx [N]', fontsize=self.PLOT_FONTS['label'])
     self._bk_ax_fx_dist.grid(True, alpha=0.3)
 
     self._bk_fx_canvas = _FCA(self._bk_fx_fig, fx_frame)
@@ -988,8 +988,8 @@ def _draw_braking_road_static(self):
     ax.set_facecolor('#4A4A4A')
     ax.set_ylim(-1.5, 1.5)
     ax.set_yticks([])
-    ax.set_title('Braking Road View', fontsize=18, fontweight='bold', color='#EEE')
-    ax.tick_params(labelsize=14, colors='#AAA')
+    ax.set_title('Braking Road View', fontsize=self.PLOT_FONTS['title'], fontweight='bold', color='#EEE')
+    ax.tick_params(labelsize=self.PLOT_FONTS['tick'], colors='#AAA')
 
     d = self._bk_sim_data
     if d is not None:
@@ -997,7 +997,7 @@ def _draw_braking_road_static(self):
     else:
         max_dist = 200
     ax.set_xlim(-10, max_dist + 20)
-    ax.set_xlabel('Distance [m]', fontsize=16, color='#CCC')
+    ax.set_xlabel('Distance [m]', fontsize=self.PLOT_FONTS['label'], color='#CCC')
 
     # Road lanes
     ax.axhline(y=-1.2, color='white', lw=2, zorder=1)
@@ -1010,7 +1010,7 @@ def _draw_braking_road_static(self):
         # Stop marker
         sd = d['stop_dist']
         ax.axvline(x=sd, color='#F44336', lw=2, ls='--', alpha=0.8, zorder=2)
-        ax.text(sd, 1.35, f'STOP\n{sd:.1f}m', fontsize=18, ha='center',
+        ax.text(sd, 1.35, f'STOP\n{sd:.1f}m', fontsize=self.PLOT_FONTS['title'], ha='center',
                 color='#F44336', fontweight='bold', zorder=3)
 
         # Skid marks (based on SR)
@@ -1031,20 +1031,20 @@ def _draw_braking_road_static(self):
     ax_s = self._bk_ax_speed
     ax_d = self._bk_ax_decel
     ax_s.clear(); ax_d.clear()
-    ax_s.set_title('Speed vs Distance', fontsize=18, fontweight='bold')
-    ax_s.set_xlabel('Distance [m]', fontsize=16)
-    ax_s.set_ylabel('Speed [km/h]', fontsize=16)
-    ax_s.tick_params(labelsize=14); ax_s.grid(True, alpha=0.3)
-    ax_d.set_title('Deceleration vs Distance', fontsize=18, fontweight='bold')
-    ax_d.set_xlabel('Distance [m]', fontsize=16)
-    ax_d.set_ylabel('Decel [g]', fontsize=16)
-    ax_d.tick_params(labelsize=14); ax_d.grid(True, alpha=0.3)
+    ax_s.set_title('Speed vs Distance', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+    ax_s.set_xlabel('Distance [m]', fontsize=self.PLOT_FONTS['label'])
+    ax_s.set_ylabel('Speed [km/h]', fontsize=self.PLOT_FONTS['label'])
+    ax_s.tick_params(labelsize=self.PLOT_FONTS['tick']); ax_s.grid(True, alpha=0.3)
+    ax_d.set_title('Deceleration vs Distance', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+    ax_d.set_xlabel('Distance [m]', fontsize=self.PLOT_FONTS['label'])
+    ax_d.set_ylabel('Decel [g]', fontsize=self.PLOT_FONTS['label'])
+    ax_d.tick_params(labelsize=self.PLOT_FONTS['tick']); ax_d.grid(True, alpha=0.3)
 
     if d is not None:
         ax_s.plot(d['dist'], d['v_kmh'], '-', color='#1565C0', lw=1.5, label='Speed')
         ax_d.plot(d['dist'], d['decel_g'], '-', color='#F44336', lw=1.5, label='Decel')
-        ax_s.legend(fontsize=16, loc='upper right')
-        ax_d.legend(fontsize=16, loc='upper right')
+        ax_s.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right')
+        ax_d.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right')
         # Cursor lines
         self._bk_speed_cursor = ax_s.axvline(x=0, color='#FF6600', lw=1, ls='--', alpha=0.7)
         self._bk_decel_cursor = ax_d.axvline(x=0, color='#FF6600', lw=1, ls='--', alpha=0.7)
@@ -1104,12 +1104,12 @@ def _init_braking_contour_artists(self):
 
     def _setup_contour_ax(ax, title):
         ax.clear()
-        ax.set_title(title, fontsize=18, fontweight='bold')
-        ax.set_xlabel('length [mm]', fontsize=16)
-        ax.set_ylabel('width [mm]', fontsize=16)
+        ax.set_title(title, fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+        ax.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label'])
+        ax.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label'])
         ax.set_xlim(-_AX_X_HALF, _AX_X_HALF)
         ax.set_ylim(-_AX_Y_HALF, _AX_Y_HALF)
-        ax.tick_params(labelsize=14)
+        ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
 
     def _make_inset_cb(mappable, ax, key, label='', **extra_kw):
         """Create inset colorbar (horizontal, bottom-right) matching Track Simulator."""
@@ -1117,9 +1117,9 @@ def _init_braking_contour_artists(self):
                          loc='lower right', borderpad=1.5)
         cb = self._bk_contour_fig.colorbar(mappable, cax=cax,
                                             orientation='horizontal', **extra_kw)
-        cb.ax.tick_params(labelsize=12, length=2, pad=1)
+        cb.ax.tick_params(labelsize=self.PLOT_FONTS['legend_sm'], length=2, pad=1)
         if label:
-            cb.set_label(label, fontsize=14)
+            cb.set_label(label, fontsize=self.PLOT_FONTS['legend'])
         self._bk_cbar_axes[key] = cax
         return cb
 
@@ -1140,7 +1140,7 @@ def _init_braking_contour_artists(self):
                  arrowprops=dict(arrowstyle='->', color='#00C853', lw=2.5,
                                  mutation_scale=16), zorder=7)
     self._bk_ax_stick.text(0, _roll_y - W_mm * 0.08, '\u2190 Rolling Dir.',
-             fontsize=18, ha='center', va='top', color='#00C853',
+             fontsize=self.PLOT_FONTS['title'], ha='center', va='top', color='#00C853',
              fontweight='bold', zorder=7)
     # Braking direction arrow (white, longitudinal)
     self._bk_stick_arrow_line, = self._bk_ax_stick.plot(
@@ -1151,7 +1151,7 @@ def _init_braking_contour_artists(self):
     # Legend
     legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Stick (\ubd80\ucc29)'),
                       Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Slip (\ubbf8\ub044\ub7ec)')]
-    self._bk_ax_stick.legend(handles=legend_patches, loc='upper right', fontsize=16,
+    self._bk_ax_stick.legend(handles=legend_patches, loc='upper right', fontsize=self.PLOT_FONTS['label'],
                framealpha=0.9, edgecolor='#999',
                bbox_to_anchor=(0.98, 0.98), borderaxespad=0,
                handlelength=2.5, handletextpad=0.8, columnspacing=1.5)
@@ -1195,11 +1195,11 @@ def _init_braking_contour_artists(self):
                  arrowprops=dict(arrowstyle='->', color='#00C853', lw=2,
                                  mutation_scale=14), zorder=7)
     self._bk_ax_press.text(0, _roll_y3 - W_mm * 0.08, '\u2190 Rolling Dir.',
-             fontsize=18, ha='center', va='top', color='#00C853',
+             fontsize=self.PLOT_FONTS['title'], ha='center', va='top', color='#00C853',
              fontweight='bold', zorder=7)
-    self._bk_ax_press.text(-L_mm * 0.42, 0, 'LE', fontsize=18, ha='right', va='center',
+    self._bk_ax_press.text(-L_mm * 0.42, 0, 'LE', fontsize=self.PLOT_FONTS['title'], ha='right', va='center',
              color='#333', fontweight='bold', fontstyle='italic', zorder=7)
-    self._bk_ax_press.text(L_mm * 0.42, 0, 'TE', fontsize=18, ha='left', va='center',
+    self._bk_ax_press.text(L_mm * 0.42, 0, 'TE', fontsize=self.PLOT_FONTS['title'], ha='left', va='center',
              color='#333', fontweight='bold', fontstyle='italic', zorder=7)
 
     # ── (4) Temperature (pcolormesh with discrete jet levels) ──
@@ -1257,12 +1257,12 @@ def _init_braking_contour_artists(self):
     # ── Fx vs SR plot ──
     ax_sr = self._bk_ax_fx_sr
     ax_sr.clear()
-    ax_sr.set_title('Fx vs Slip Ratio', fontsize=18, fontweight='bold')
-    ax_sr.set_xlabel('SR [%]', fontsize=16)
-    ax_sr.set_ylabel('Fx [N]', fontsize=16)
+    ax_sr.set_title('Fx vs Slip Ratio', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+    ax_sr.set_xlabel('SR [%]', fontsize=self.PLOT_FONTS['label'])
+    ax_sr.set_ylabel('Fx [N]', fontsize=self.PLOT_FONTS['label'])
     ax_sr.grid(True, alpha=0.3)
     ax_sr.plot(d['sr_pct'], d['Fx'], '-', color='#1565C0', lw=1.2, label='Fx')
-    ax_sr.legend(fontsize=16)
+    ax_sr.legend(fontsize=self.PLOT_FONTS['label'])
     self._bk_cursor_fx_sr = ax_sr.axvline(x=0, color='#FF6600', lw=1, ls='--')
     self._bk_marker_fx_sr, = ax_sr.plot([], [], 'o', color='#FF6600', markersize=6, zorder=5)
 
@@ -1275,9 +1275,9 @@ def _init_braking_contour_artists(self):
     KE_arr = 0.5 * mass * (d['v_kmh'] / 3.6)**2
     KE_dissipated = KE_initial - KE_arr
 
-    ax_ke.set_title('Kinetic Energy vs Distance', fontsize=18, fontweight='bold')
-    ax_ke.set_xlabel('Distance [m]', fontsize=16)
-    ax_ke.set_ylabel('Energy [kJ]', fontsize=16)
+    ax_ke.set_title('Kinetic Energy vs Distance', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+    ax_ke.set_xlabel('Distance [m]', fontsize=self.PLOT_FONTS['label'])
+    ax_ke.set_ylabel('Energy [kJ]', fontsize=self.PLOT_FONTS['label'])
     ax_ke.grid(True, alpha=0.3)
     ax_ke.plot(d['dist'], KE_arr / 1000, '-', color='#1565C0', lw=1.5, label='KE remaining')
     ax_ke.fill_between(d['dist'], KE_arr / 1000, KE_initial / 1000,
@@ -1286,20 +1286,20 @@ def _init_braking_contour_artists(self):
                alpha=0.7, label='Cumul. dissipated')
     ax_ke.axhline(y=KE_initial / 1000, color='#999', lw=0.8, ls=':', alpha=0.6)
     ax_ke.text(d['dist'][-1] * 0.02, KE_initial / 1000 * 1.02,
-               f'KE\u2080 = {KE_initial/1000:.1f} kJ', fontsize=18, color='#666')
-    ax_ke.legend(fontsize=16, loc='center right')
+               f'KE\u2080 = {KE_initial/1000:.1f} kJ', fontsize=self.PLOT_FONTS['title'], color='#666')
+    ax_ke.legend(fontsize=self.PLOT_FONTS['label'], loc='center right')
     ax_ke.set_ylim(0, KE_initial / 1000 * 1.15)
     self._bk_cursor_ke_dist = ax_ke.axvline(x=0, color='#FF6600', lw=1, ls='--')
 
     # Fx vs Distance
     ax_fd = self._bk_ax_fx_dist
     ax_fd.clear()
-    ax_fd.set_title('Fx vs Distance', fontsize=18, fontweight='bold')
-    ax_fd.set_xlabel('Distance [m]', fontsize=16)
-    ax_fd.set_ylabel('Fx [N]', fontsize=16)
+    ax_fd.set_title('Fx vs Distance', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+    ax_fd.set_xlabel('Distance [m]', fontsize=self.PLOT_FONTS['label'])
+    ax_fd.set_ylabel('Fx [N]', fontsize=self.PLOT_FONTS['label'])
     ax_fd.grid(True, alpha=0.3)
     ax_fd.plot(d['dist'], d['Fx'], '-', color='#F44336', lw=1.2, label='Fx')
-    ax_fd.legend(fontsize=16)
+    ax_fd.legend(fontsize=self.PLOT_FONTS['label'])
     self._bk_cursor_fx_dist = ax_fd.axvline(x=0, color='#FF6600', lw=1, ls='--')
 
     self._bk_fx_canvas.draw_idle()
@@ -1319,17 +1319,17 @@ def _init_braking_pedal_gauge(self):
     from matplotlib.patches import FancyBboxPatch, Rectangle
     ax.add_patch(Rectangle((-0.4, -1.2), 0.8, 2.0,
                             facecolor='#E0E0E0', edgecolor='#999', lw=2, zorder=1))
-    ax.text(0, 1.1, 'BRAKE', fontsize=18, ha='center', va='top',
+    ax.text(0, 1.1, 'BRAKE', fontsize=self.PLOT_FONTS['title'], ha='center', va='top',
             fontweight='bold', color='#333', zorder=3)
 
     # Pressure bar (dynamic)
     self._bk_pedal_bar = ax.bar([0], [0], width=0.6, bottom=-1.1,
                                  color='#F44336', alpha=0.8, zorder=2)[0]
-    self._bk_pedal_pct_label = ax.text(0, -1.3, '0%', fontsize=18,
+    self._bk_pedal_pct_label = ax.text(0, -1.3, '0%', fontsize=self.PLOT_FONTS['title'],
                                         ha='center', va='top',
                                         fontweight='bold', color='#F44336', zorder=3)
     # SR display
-    self._bk_pedal_sr_label = ax.text(0, -0.0, 'SR: 0%', fontsize=18,
+    self._bk_pedal_sr_label = ax.text(0, -0.0, 'SR: 0%', fontsize=self.PLOT_FONTS['title'],
                                        ha='center', va='center',
                                        fontweight='bold', color='#1565C0', zorder=3)
     self._bk_pedal_canvas.draw()
@@ -1345,17 +1345,17 @@ def _init_braking_abs_graph(self):
     ax_sr.clear()
     ax_bp.clear()
 
-    ax_sr.set_title('Slip Ratio & ABS', fontsize=18, fontweight='bold')
-    ax_sr.set_ylabel('|SR| [%]', fontsize=16)
-    ax_sr.tick_params(labelsize=14)
+    ax_sr.set_title('Slip Ratio & ABS', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+    ax_sr.set_ylabel('|SR| [%]', fontsize=self.PLOT_FONTS['label'])
+    ax_sr.tick_params(labelsize=self.PLOT_FONTS['tick'])
     ax_sr.grid(True, alpha=0.3)
 
-    ax_bp.set_title('Brake Pressure', fontsize=18, fontweight='bold')
-    ax_bp.set_xlabel('Time [s]', fontsize=16)
-    ax_bp.set_ylabel('Brake', fontsize=16)
-    ax_bp.tick_params(labelsize=14)
+    ax_bp.set_title('Brake Pressure', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+    ax_bp.set_xlabel('Time [s]', fontsize=self.PLOT_FONTS['label'])
+    ax_bp.set_ylabel('Brake', fontsize=self.PLOT_FONTS['label'])
+    ax_bp.tick_params(labelsize=self.PLOT_FONTS['tick'])
     ax_bp.set_yticks([0, 1])
-    ax_bp.set_yticklabels(['OFF', 'ON'], fontsize=18)
+    ax_bp.set_yticklabels(['OFF', 'ON'], fontsize=self.PLOT_FONTS['title'])
     ax_bp.grid(True, alpha=0.3)
 
     if d is not None:
@@ -1381,7 +1381,7 @@ def _init_braking_abs_graph(self):
         # Shade optimal zone
         ax_sr.axhspan(sr_lo, sr_up, alpha=0.08, color='#FF9800',
                        label='ABS target zone')
-        ax_sr.legend(fontsize=16.5, loc='upper right')
+        ax_sr.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right')
 
         # Brake pressure ON/OFF plot (step function)
         ax_bp.fill_between(t, bp, step='post', alpha=0.4, color='#F44336')

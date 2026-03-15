@@ -228,53 +228,55 @@ class PerssonModelGUI_V2:
         'highlight':    '#DBEAFE',   # 강조 배경 (연한 블루)
     }
 
-    # Font sizes designed for 96 DPI (100% scaling, 1600×1000 window).
-    # On high-DPI displays, fonts are scaled up so text remains readable.
-    _FONT_SIZE = 12  # Base font size (scaled by _hi_dpi_font_scale at runtime)
+    # Font sizes designed for 96 DPI @ 1920×1080 (reference resolution).
+    # On high-DPI / 4K displays, fonts are scaled up proportionally.
+    _FONT_SIZE = 10  # Base font size (scaled by _hi_dpi_font_scale at runtime)
     FONTS = {
-        'heading':   ('NanumGothic', 12, 'bold'),
-        'subheading':('NanumGothic', 12, 'bold'),
-        'body':      ('NanumGothic', 12),
-        'body_bold': ('NanumGothic', 12, 'bold'),
-        'small':     ('NanumGothic', 12),
-        'small_bold':('NanumGothic', 12, 'bold'),
-        'tiny':      ('NanumGothic', 12),
-        'mono':      ('NanumGothicCoding', 12),
-        'mono_small':('NanumGothicCoding', 12),
+        'heading':   ('NanumGothic', 10, 'bold'),
+        'subheading':('NanumGothic', 10, 'bold'),
+        'body':      ('NanumGothic', 10),
+        'body_bold': ('NanumGothic', 10, 'bold'),
+        'small':     ('NanumGothic', 10),
+        'small_bold':('NanumGothic', 10, 'bold'),
+        'tiny':      ('NanumGothic', 10),
+        'mono':      ('NanumGothicCoding', 10),
+        'mono_small':('NanumGothicCoding', 10),
     }
 
     # ── Standardised Dimensions (pixels, applied uniformly to every tab) ──
+    # Base values tuned for 1920×1080.  Scaled up proportionally for 4K.
     DIMS = {
-        'panel_width':   440,     # Left control-panel width
-        'section_pad':   6,       # LabelFrame internal padding
-        'section_gap_y': 3,       # Vertical gap between sections
+        'panel_width':   380,     # Left control-panel width
+        'section_pad':   5,       # LabelFrame internal padding
+        'section_gap_y': 2,       # Vertical gap between sections
         'row_gap_y':     2,       # Vertical gap between rows within a section
         'entry_width':   12,      # Default Entry width (chars)
         'combo_width':   14,      # Default Combobox width (chars)
-        'btn_padx':      10,      # Button horizontal padding
-        'btn_pady':      4,       # Button vertical padding
-        'header_height': 40,      # Top header bar height
-        'log_height':    90,      # Activity-log panel (expanded)
-        'log_collapsed': 22,      # Activity-log panel (collapsed)
-        'statusbar_height': 28,   # Bottom status bar
-        'logo_height':   60,      # Logo area at bottom of control panel
-        'toolbar_pady':  3,       # Toolbar vertical padding
+        'btn_padx':      8,       # Button horizontal padding
+        'btn_pady':      3,       # Button vertical padding
+        'header_height': 32,      # Top header bar height
+        'log_height':    75,      # Activity-log panel (expanded)
+        'log_collapsed': 20,      # Activity-log panel (collapsed)
+        'statusbar_height': 24,   # Bottom status bar
+        'logo_height':   48,      # Logo area at bottom of control panel
+        'toolbar_pady':  2,       # Toolbar vertical padding
     }
 
     # ── NEXEN TIRE Logo ──
     # Logo loaded from assets/nexen_logo.png at runtime
 
-    # ── Plot Font Size Constants (unified to match UI body font) ──
+    # ── Plot Font Size Constants ──
+    # Base values for 1920×1080.  Scaled up for 4K in main().
     PLOT_FONTS = {
-        'title': 18,
-        'label': 16,
-        'tick': 14,
-        'legend': 14,
-        'suptitle': 20,
-        'annotation': 16,
-        'title_sm': 16,
-        'label_sm': 14,
-        'legend_sm': 12,
+        'title': 14,
+        'label': 12,
+        'tick': 11,
+        'legend': 11,
+        'suptitle': 16,
+        'annotation': 12,
+        'title_sm': 12,
+        'label_sm': 11,
+        'legend_sm': 10,
     }
 
     def __init__(self, root, splash_callback=None):
@@ -305,19 +307,19 @@ class PerssonModelGUI_V2:
 
         if self._ui_scale < 1.0:
             s = self._ui_scale
-            # --- DIMS 축소 ---
-            self.DIMS['header_height'] = max(24, int(40 * s))
-            self.DIMS['log_height'] = max(60, int(90 * s))    # 로그 축소 (최소 60px 보장)
-            self.DIMS['log_collapsed'] = max(16, int(22 * s))
-            self.DIMS['statusbar_height'] = max(18, int(28 * s))
-            self.DIMS['logo_height'] = max(30, int(60 * s))
-            self.DIMS['section_pad'] = max(3, int(6 * s))
-            self.DIMS['section_gap_y'] = max(1, int(3 * s))
+            # --- DIMS 축소 (base values already tuned for 1080p) ---
+            self.DIMS['header_height'] = max(22, int(32 * s))
+            self.DIMS['log_height'] = max(50, int(75 * s))
+            self.DIMS['log_collapsed'] = max(14, int(20 * s))
+            self.DIMS['statusbar_height'] = max(16, int(24 * s))
+            self.DIMS['logo_height'] = max(28, int(48 * s))
+            self.DIMS['section_pad'] = max(3, int(5 * s))
+            self.DIMS['section_gap_y'] = max(1, int(2 * s))
             self.DIMS['row_gap_y'] = max(1, int(2 * s))
-            self.DIMS['btn_pady'] = max(2, int(4 * s))
-            self.DIMS['toolbar_pady'] = max(1, int(3 * s))
+            self.DIMS['btn_pady'] = max(2, int(3 * s))
+            self.DIMS['toolbar_pady'] = max(1, int(2 * s))
             if eff_w < 1600:
-                self.DIMS['panel_width'] = max(400, int(440 * s))
+                self.DIMS['panel_width'] = max(340, int(380 * s))
 
         # ── Load saved layout settings (before theme setup) ──
         self._saved_window_cfg = None
@@ -1889,9 +1891,9 @@ class PerssonModelGUI_V2:
         # Plot 1: Raw profile
         self.ax_profile_raw.clear()
         self.ax_profile_raw.plot(x * 1e3, h * 1e6, 'b-', linewidth=0.5)
-        self.ax_profile_raw.set_title('표면 프로파일', fontweight='bold', fontsize=18)
-        self.ax_profile_raw.set_xlabel('Position (mm)', fontsize=16)
-        self.ax_profile_raw.set_ylabel('Height (μm)', fontsize=16)
+        self.ax_profile_raw.set_title('표면 프로파일', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_profile_raw.set_xlabel('Position (mm)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_profile_raw.set_ylabel('Height (μm)', fontsize=self.PLOT_FONTS['label'])
         self.ax_profile_raw.grid(True, alpha=0.3)
 
         # Plot 2: Height histogram
@@ -1899,9 +1901,9 @@ class PerssonModelGUI_V2:
         h_detrended = h - np.mean(h)
         self.ax_profile_hist.hist(h_detrended * 1e6, bins=50, color='steelblue', edgecolor='white', alpha=0.7)
         self.ax_profile_hist.axvline(x=0, color='r', linestyle='--', linewidth=1, label='Mean')
-        self.ax_profile_hist.set_title('높이 분포 (Detrended)', fontweight='bold', fontsize=18)
-        self.ax_profile_hist.set_xlabel('Height (μm)', fontsize=16)
-        self.ax_profile_hist.set_ylabel('Count', fontsize=16)
+        self.ax_profile_hist.set_title('높이 분포 (Detrended)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_profile_hist.set_xlabel('Height (μm)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_profile_hist.set_ylabel('Count', fontsize=self.PLOT_FONTS['label'])
         self.ax_profile_hist.grid(True, alpha=0.3)
 
         # Mark top region
@@ -1909,7 +1911,7 @@ class PerssonModelGUI_V2:
         phi = n_top / len(h_detrended)
         self.ax_profile_hist.axvspan(0, np.max(h_detrended) * 1e6, alpha=0.2, color='green',
                                       label=f'Top (φ={phi:.2f})')
-        self.ax_profile_hist.legend(fontsize=16, loc='best')
+        self.ax_profile_hist.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
         self.fig_psd_profile.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08, hspace=0.50, wspace=0.35)
         self.canvas_psd_profile.draw()
@@ -2001,11 +2003,11 @@ class PerssonModelGUI_V2:
                 self.ax_hrms_parseval.loglog(q[valid_top], hrms_cumulative_top[valid_top]*1e6, 'r-',
                                              linewidth=2, label='Top PSD', alpha=0.8)
 
-        self.ax_hrms_parseval.set_title('h_rms 거칠기 & Parseval 검증', fontweight='bold', fontsize=18)
-        self.ax_hrms_parseval.set_xlabel('Wavenumber q (1/m)', fontsize=16)
-        self.ax_hrms_parseval.set_ylabel('누적 h_rms (μm)', fontsize=16)
+        self.ax_hrms_parseval.set_title('h_rms 거칠기 & Parseval 검증', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_hrms_parseval.set_xlabel('Wavenumber q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_hrms_parseval.set_ylabel('누적 h_rms (μm)', fontsize=self.PLOT_FONTS['label'])
         self.ax_hrms_parseval.grid(True, alpha=0.3, which='both')
-        self.ax_hrms_parseval.legend(fontsize=16, loc='best')
+        self.ax_hrms_parseval.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
         # Plot 2D isotropic PSD
         self.ax_psd_2d.clear()
@@ -2056,11 +2058,11 @@ class PerssonModelGUI_V2:
             self.ax_psd_2d.loglog(pdata['q'], pdata['C'], 'm-', linewidth=2, alpha=0.7,
                                    label=f'Param PSD (H={pdata["H"]:.3f})')
 
-        self.ax_psd_2d.set_title('2D Isotropic PSD C(q)', fontweight='bold', fontsize=18)
-        self.ax_psd_2d.set_xlabel('Wavenumber q (1/m)', fontsize=16)
-        self.ax_psd_2d.set_ylabel('C(q) (m^4)', fontsize=16)
+        self.ax_psd_2d.set_title('2D Isotropic PSD C(q)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_psd_2d.set_xlabel('Wavenumber q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_psd_2d.set_ylabel('C(q) (m^4)', fontsize=self.PLOT_FONTS['label'])
         self.ax_psd_2d.grid(True, alpha=0.3, which='both')
-        self.ax_psd_2d.legend(fontsize=16, loc='best')
+        self.ax_psd_2d.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
         self.fig_psd_profile.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08, hspace=0.50, wspace=0.35)
         self.canvas_psd_profile.draw()
@@ -2995,34 +2997,34 @@ class PerssonModelGUI_V2:
 
         # Top-left: Raw data (multi-temperature)
         self.ax_mc_raw = self.fig_mc.add_subplot(221)
-        self.ax_mc_raw.set_title('원본 데이터 (온도별)', fontweight='bold', fontsize=18)
-        self.ax_mc_raw.set_xlabel('주파수 f (Hz)', fontsize=16)
-        self.ax_mc_raw.set_ylabel('E\', E\'\' (MPa)', fontsize=16)
+        self.ax_mc_raw.set_title('원본 데이터 (온도별)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_raw.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_raw.set_ylabel('E\', E\'\' (MPa)', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_raw.set_xscale('log')
         self.ax_mc_raw.set_yscale('log')
         self.ax_mc_raw.grid(True, alpha=0.3)
 
         # Top-right: Master curve
         self.ax_mc_master = self.fig_mc.add_subplot(222)
-        self.ax_mc_master.set_title('마스터 커브 (Tref)', fontweight='bold', fontsize=18)
-        self.ax_mc_master.set_xlabel('Reduced Frequency (Hz)', fontsize=16)
-        self.ax_mc_master.set_ylabel('E\', E\'\' (MPa)', fontsize=16)
+        self.ax_mc_master.set_title('마스터 커브 (Tref)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_master.set_xlabel('Reduced Frequency (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_master.set_ylabel('E\', E\'\' (MPa)', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_master.set_xscale('log')
         self.ax_mc_master.set_yscale('log')
         self.ax_mc_master.grid(True, alpha=0.3)
 
         # Bottom-left: aT vs Temperature
         self.ax_mc_aT = self.fig_mc.add_subplot(223)
-        self.ax_mc_aT.set_title('수평 이동 계수 aT', fontweight='bold', fontsize=18)
-        self.ax_mc_aT.set_xlabel('온도 T (°C)', fontsize=16)
-        self.ax_mc_aT.set_ylabel('log10(aT)', fontsize=16)
+        self.ax_mc_aT.set_title('수평 이동 계수 aT', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_aT.set_xlabel('온도 T (°C)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_aT.set_ylabel('log10(aT)', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_aT.grid(True, alpha=0.3)
 
         # Bottom-right: bT vs Temperature
         self.ax_mc_bT = self.fig_mc.add_subplot(224)
-        self.ax_mc_bT.set_title('수직 이동 계수 bT', fontweight='bold', fontsize=18)
-        self.ax_mc_bT.set_xlabel('온도 T (°C)', fontsize=16)
-        self.ax_mc_bT.set_ylabel('bT', fontsize=16)
+        self.ax_mc_bT.set_title('수직 이동 계수 bT', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_bT.set_xlabel('온도 T (°C)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_bT.set_ylabel('bT', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_bT.grid(True, alpha=0.3)
 
         self.fig_mc.tight_layout()
@@ -3131,9 +3133,9 @@ class PerssonModelGUI_V2:
             return
 
         self.ax_mc_raw.clear()
-        self.ax_mc_raw.set_title('원본 데이터 (온도별)', fontweight='bold', fontsize=18)
-        self.ax_mc_raw.set_xlabel('주파수 f (Hz)', fontsize=16)
-        self.ax_mc_raw.set_ylabel('E\', E\'\' (MPa)', fontsize=16)
+        self.ax_mc_raw.set_title('원본 데이터 (온도별)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_raw.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_raw.set_ylabel('E\', E\'\' (MPa)', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_raw.set_xscale('log')
         self.ax_mc_raw.set_yscale('log')
         self.ax_mc_raw.grid(True, alpha=0.3)
@@ -3153,7 +3155,7 @@ class PerssonModelGUI_V2:
 
         # Add legend with limited entries
         if len(temps) <= 8:
-            self.ax_mc_raw.legend(fontsize=16, loc='best', ncol=2)
+            self.ax_mc_raw.legend(fontsize=self.PLOT_FONTS['label'], loc='best', ncol=2)
 
         self.fig_mc.tight_layout()
         self.canvas_mc.draw()
@@ -3403,8 +3405,8 @@ class PerssonModelGUI_V2:
         self.ax_mc_bT.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
         self.ax_mc_bT.axvline(x=T_ref, color='red', linestyle='--', alpha=0.5, label=f'Tref={T_ref:.0f}°C')
 
-        self.ax_mc_bT.set_xlabel('온도 T (°C)', fontsize=16)
-        self.ax_mc_bT.set_ylabel(r'log$_{10}$(aT)', color='blue', fontsize=16)
+        self.ax_mc_bT.set_xlabel('온도 T (°C)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_bT.set_ylabel(r'log$_{10}$(aT)', color='blue', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_bT.tick_params(axis='y', labelcolor='blue')
         self.ax_mc_bT.grid(True, alpha=0.3)
 
@@ -3413,17 +3415,17 @@ class PerssonModelGUI_V2:
             bT = data['bT']
             self._ax_bT_twin = self.ax_mc_bT.twinx()
             line2, = self._ax_bT_twin.plot(T, bT, 'r^-', linewidth=2, markersize=4, label='bT')
-            self._ax_bT_twin.set_ylabel('bT (수직 시프트)', color='red', fontsize=16)
+            self._ax_bT_twin.set_ylabel('bT (수직 시프트)', color='red', fontsize=self.PLOT_FONTS['label'])
             self._ax_bT_twin.tick_params(axis='y', labelcolor='red')
 
             # Combined legend
             lines = [line1, line2]
             labels = [l.get_label() for l in lines]
-            self.ax_mc_bT.legend(lines, labels, loc='best', fontsize=16)
-            self.ax_mc_bT.set_title('시프트 팩터 aT & bT (Persson)', fontweight='bold', fontsize=18)
+            self.ax_mc_bT.legend(lines, labels, loc='best', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mc_bT.set_title('시프트 팩터 aT & bT (Persson)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
         else:
-            self.ax_mc_bT.legend(loc='best', fontsize=16)
-            self.ax_mc_bT.set_title('시프트 팩터 aT (Persson)', fontweight='bold', fontsize=18)
+            self.ax_mc_bT.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mc_bT.set_title('시프트 팩터 aT (Persson)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
 
         self.fig_mc.tight_layout()
         self.canvas_mc.draw()
@@ -3547,10 +3549,10 @@ class PerssonModelGUI_V2:
         if hasattr(self, 'ax_psd_2d'):
             self.ax_psd_2d.clear()
             self.ax_psd_2d.loglog(q, C_q, 'b-', linewidth=2, label='C(q) 직접 로드')
-            self.ax_psd_2d.set_xlabel('파수 q (1/m)', fontsize=16)
-            self.ax_psd_2d.set_ylabel(r'C(q) (m$^4$)', fontsize=16)
-            self.ax_psd_2d.set_title(f"★ PSD 직접 로드: {data['filename']}", fontweight='bold', fontsize=18)
-            self.ax_psd_2d.legend(loc='best', fontsize=16)
+            self.ax_psd_2d.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_psd_2d.set_ylabel(r'C(q) (m$^4$)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_psd_2d.set_title(f"★ PSD 직접 로드: {data['filename']}", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_psd_2d.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_psd_2d.grid(True, alpha=0.3, which='both')
             self.fig_psd_profile.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08, hspace=0.50, wspace=0.35)
             self.canvas_psd_profile.draw()
@@ -3574,19 +3576,19 @@ class PerssonModelGUI_V2:
         self.ax_mc_master.loglog(f, E_storage, 'b-', linewidth=2, label="E' (Persson)")
         self.ax_mc_master.loglog(f, E_loss, 'r-', linewidth=2, label="E'' (Persson)")
 
-        self.ax_mc_master.set_xlabel('주파수 f (Hz)', fontsize=16)
-        self.ax_mc_master.set_ylabel("E', E'' (MPa)", fontsize=16)
-        self.ax_mc_master.set_title(f"★ Persson 정품 마스터 커브: {data['filename']}", fontweight='bold', fontsize=18)
-        self.ax_mc_master.legend(loc='best', fontsize=16)
+        self.ax_mc_master.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_master.set_ylabel("E', E'' (MPa)", fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_master.set_title(f"★ Persson 정품 마스터 커브: {data['filename']}", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_master.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_master.grid(True, alpha=0.3)
 
         # tan δ on the aT plot (bottom-left)
         self.ax_mc_aT.clear()
         self.ax_mc_aT.semilogx(f, tan_delta, 'g-', linewidth=2, label='tan δ (Persson)')
-        self.ax_mc_aT.set_xlabel('주파수 f (Hz)', fontsize=16)
-        self.ax_mc_aT.set_ylabel('tan δ = E\'\'/E\'', fontsize=16)
-        self.ax_mc_aT.set_title('tan δ (Persson 정품)', fontweight='bold', fontsize=18)
-        self.ax_mc_aT.legend(loc='best', fontsize=16)
+        self.ax_mc_aT.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_aT.set_ylabel('tan δ = E\'\'/E\'', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_aT.set_title('tan δ (Persson 정품)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_aT.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_aT.grid(True, alpha=0.3)
         self.ax_mc_aT.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5)
 
@@ -3739,17 +3741,17 @@ class PerssonModelGUI_V2:
         else:
             self.ax_mc_aT.semilogx(f, tan_delta, 'g-', linewidth=2, label='tan δ')
 
-        self.ax_mc_master.set_xlabel('주파수 f (Hz)', fontsize=16)
-        self.ax_mc_master.set_ylabel("E', E'' (MPa)", fontsize=16)
+        self.ax_mc_master.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_master.set_ylabel("E', E'' (MPa)", fontsize=self.PLOT_FONTS['label'])
         smooth_info = f" (w={data.get('smooth_window', 'N/A')})" if data.get('smoothed') else ""
-        self.ax_mc_master.set_title(f"★ Persson 마스터 커브{smooth_info}", fontweight='bold', fontsize=18)
-        self.ax_mc_master.legend(loc='best', fontsize=16)
+        self.ax_mc_master.set_title(f"★ Persson 마스터 커브{smooth_info}", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_master.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_master.grid(True, alpha=0.3)
 
-        self.ax_mc_aT.set_xlabel('주파수 f (Hz)', fontsize=16)
-        self.ax_mc_aT.set_ylabel('tan δ = E\'\'/E\'', fontsize=16)
-        self.ax_mc_aT.set_title('tan δ 비교', fontweight='bold', fontsize=18)
-        self.ax_mc_aT.legend(loc='best', fontsize=16)
+        self.ax_mc_aT.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_aT.set_ylabel('tan δ = E\'\'/E\'', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_aT.set_title('tan δ 비교', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_aT.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_aT.grid(True, alpha=0.3)
         self.ax_mc_aT.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5)
 
@@ -3791,17 +3793,17 @@ class PerssonModelGUI_V2:
             self.ax_mc_master.loglog(f_g, E_gg, 'r--', linewidth=2, label="E'' (생성)", alpha=0.7)
 
         # Configure E' plot
-        self.ax_mc_raw.set_xlabel('주파수 f (Hz)', fontsize=16)
-        self.ax_mc_raw.set_ylabel("E' (MPa)", fontsize=16)
-        self.ax_mc_raw.set_title("E' (저장 탄성률) 비교", fontweight='bold', fontsize=18)
-        self.ax_mc_raw.legend(loc='best', fontsize=16)
+        self.ax_mc_raw.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_raw.set_ylabel("E' (MPa)", fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_raw.set_title("E' (저장 탄성률) 비교", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_raw.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_raw.grid(True, alpha=0.3)
 
         # Configure E'' plot
-        self.ax_mc_master.set_xlabel('주파수 f (Hz)', fontsize=16)
-        self.ax_mc_master.set_ylabel("E'' (MPa)", fontsize=16)
-        self.ax_mc_master.set_title("E'' (손실 탄성률) 비교", fontweight='bold', fontsize=18)
-        self.ax_mc_master.legend(loc='best', fontsize=16)
+        self.ax_mc_master.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_master.set_ylabel("E'' (MPa)", fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_master.set_title("E'' (손실 탄성률) 비교", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_master.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_master.grid(True, alpha=0.3)
 
         # == Plot 3: tan δ comparison ==
@@ -3813,10 +3815,10 @@ class PerssonModelGUI_V2:
             tan_g = E_gg / E_g
             self.ax_mc_aT.semilogx(f_g, tan_g, 'g--', linewidth=2, label='tan δ (생성)', alpha=0.7)
 
-        self.ax_mc_aT.set_xlabel('주파수 f (Hz)', fontsize=16)
-        self.ax_mc_aT.set_ylabel('tan δ = E\'\'/E\'', fontsize=16)
-        self.ax_mc_aT.set_title('tan δ (손실 탄젠트) 비교', fontweight='bold', fontsize=18)
-        self.ax_mc_aT.legend(loc='best', fontsize=16)
+        self.ax_mc_aT.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_aT.set_ylabel('tan δ = E\'\'/E\'', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_aT.set_title('tan δ (손실 탄젠트) 비교', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_aT.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_aT.grid(True, alpha=0.3)
         self.ax_mc_aT.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5, label='tan δ = 1')
 
@@ -3841,10 +3843,10 @@ class PerssonModelGUI_V2:
 
             self.ax_mc_bT.semilogx(f_common, ratio, 'm-', linewidth=2, label="E''정품 / E''생성")
             self.ax_mc_bT.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5)
-            self.ax_mc_bT.set_xlabel('주파수 f (Hz)', fontsize=16)
-            self.ax_mc_bT.set_ylabel("E'' 비율", fontsize=16)
-            self.ax_mc_bT.set_title("E'' 비율 (정품/생성)", fontweight='bold', fontsize=18)
-            self.ax_mc_bT.legend(loc='best', fontsize=16)
+            self.ax_mc_bT.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mc_bT.set_ylabel("E'' 비율", fontsize=self.PLOT_FONTS['label'])
+            self.ax_mc_bT.set_title("E'' 비율 (정품/생성)", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_mc_bT.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_mc_bT.grid(True, alpha=0.3)
 
             # Print comparison summary
@@ -3858,8 +3860,8 @@ class PerssonModelGUI_V2:
             print("="*60)
         else:
             self.ax_mc_bT.text(0.5, 0.5, "비교 데이터 없음\n(정품과 생성 둘 다 필요)",
-                              ha='center', va='center', fontsize=18, transform=self.ax_mc_bT.transAxes)
-            self.ax_mc_bT.set_title("E'' 비율 비교", fontweight='bold', fontsize=18)
+                              ha='center', va='center', fontsize=self.PLOT_FONTS['title'], transform=self.ax_mc_bT.transAxes)
+            self.ax_mc_bT.set_title("E'' 비율 비교", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
 
         self.fig_mc.tight_layout()
         self.canvas_mc.draw()
@@ -3992,9 +3994,9 @@ class PerssonModelGUI_V2:
         colors = plt.cm.coolwarm(np.linspace(0, 1, len(temps)))
 
         # Plot 1: Master curve with shifted data
-        self.ax_mc_master.set_title(f'마스터 커브 (Tref={T_ref}°C, 최적화: {target_display})', fontweight='bold', fontsize=18)
-        self.ax_mc_master.set_xlabel('Reduced Frequency (Hz)', fontsize=16)
-        self.ax_mc_master.set_ylabel('E\', E\'\' (MPa)', fontsize=16)
+        self.ax_mc_master.set_title(f'마스터 커브 (Tref={T_ref}°C, 최적화: {target_display})', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_master.set_xlabel('Reduced Frequency (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_master.set_ylabel('E\', E\'\' (MPa)', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_master.set_xscale('log')
         self.ax_mc_master.set_yscale('log')
         self.ax_mc_master.grid(True, alpha=0.3)
@@ -4012,12 +4014,12 @@ class PerssonModelGUI_V2:
                               'k-', linewidth=2, label="E' (Master)")
         self.ax_mc_master.plot(master_curve['f'], master_curve['E_loss'],
                               'k--', linewidth=2, label="E'' (Master)")
-        self.ax_mc_master.legend(fontsize=16, loc='best')
+        self.ax_mc_master.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
         # Plot 2: aT vs Temperature
-        self.ax_mc_aT.set_title('수평 이동 계수 aT', fontweight='bold', fontsize=18)
-        self.ax_mc_aT.set_xlabel('온도 T (°C)', fontsize=16)
-        self.ax_mc_aT.set_ylabel('log10(aT)', fontsize=16)
+        self.ax_mc_aT.set_title('수평 이동 계수 aT', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_aT.set_xlabel('온도 T (°C)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_aT.set_ylabel('log10(aT)', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_aT.grid(True, alpha=0.3)
 
         log_aT = [np.log10(aT[T]) for T in temps]
@@ -4029,14 +4031,14 @@ class PerssonModelGUI_V2:
             log_aT_fit = -wlf_result['C1'] * (T_fit - T_ref) / (wlf_result['C2'] + (T_fit - T_ref))
             self.ax_mc_aT.plot(T_fit, log_aT_fit, 'r-', linewidth=2,
                               label=f"WLF (C1={wlf_result['C1']:.2f}, C2={wlf_result['C2']:.1f})")
-        self.ax_mc_aT.legend(fontsize=16, loc='best')
+        self.ax_mc_aT.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         self.ax_mc_aT.axhline(0, color='gray', linestyle=':', alpha=0.5)
         self.ax_mc_aT.axvline(T_ref, color='green', linestyle='--', alpha=0.5, label=f'Tref={T_ref}°C')
 
         # Plot 3: bT vs Temperature
-        self.ax_mc_bT.set_title('수직 이동 계수 bT', fontweight='bold', fontsize=18)
-        self.ax_mc_bT.set_xlabel('온도 T (°C)', fontsize=16)
-        self.ax_mc_bT.set_ylabel('bT', fontsize=16)
+        self.ax_mc_bT.set_title('수직 이동 계수 bT', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_bT.set_xlabel('온도 T (°C)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_bT.set_ylabel('bT', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_bT.grid(True, alpha=0.3)
 
         bT_values = [bT[T] for T in temps]
@@ -4049,7 +4051,7 @@ class PerssonModelGUI_V2:
 
         self.ax_mc_bT.axhline(1, color='gray', linestyle=':', alpha=0.5)
         self.ax_mc_bT.axvline(T_ref, color='green', linestyle='--', alpha=0.5)
-        self.ax_mc_bT.legend(fontsize=16, loc='best')
+        self.ax_mc_bT.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
         self.fig_mc.tight_layout()
         self.canvas_mc.draw()
@@ -4183,7 +4185,7 @@ class PerssonModelGUI_V2:
             self.ax_mc_master.plot(self.master_curve_gen.master_f, self.master_curve_gen.master_E_loss,
                                   'k--', linewidth=2, label="E'' (Master)")
 
-        self.ax_mc_master.legend(fontsize=16, loc='best')
+        self.ax_mc_master.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         self.fig_mc.tight_layout()
         self.canvas_mc.draw()
 
@@ -4742,42 +4744,42 @@ class PerssonModelGUI_V2:
             for spine in _ax.spines.values():
                 spine.set_color('#D1D5DB')
                 spine.set_linewidth(0.8)
-            _ax.tick_params(colors='#4B5563', labelsize=14, length=4, width=0.7)
+            _ax.tick_params(colors='#4B5563', labelsize=self.PLOT_FONTS['tick'], length=4, width=0.7)
             _ax.grid(True, alpha=0.18, linewidth=0.6, color='#9CA3AF', linestyle='--')
 
         # Initialize PSD(q) plot - top-left
-        self.ax_psd_q.set_xlabel('파수 q (1/m)', fontsize=16, color='#374151')
-        self.ax_psd_q.set_ylabel(r'C(q) (m$^4$)', fontsize=16, color='#374151')
+        self.ax_psd_q.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+        self.ax_psd_q.set_ylabel(r'C(q) (m$^4$)', fontsize=self.PLOT_FONTS['label'], color='#374151')
         self.ax_psd_q.set_xscale('log')
         self.ax_psd_q.set_yscale('log')
-        self.ax_psd_q.set_title('PSD C(q)', fontweight='bold', fontsize=18, color='#1F2937', pad=8)
+        self.ax_psd_q.set_title('PSD C(q)', fontweight='bold', fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
 
         # Initialize DMA plot - top-right
-        self.ax_dma_progress.set_xlabel('주파수 f (Hz)', fontsize=16, color='#374151')
-        self.ax_dma_progress.set_ylabel('탄성률 (Pa)', fontsize=16, color='#374151')
+        self.ax_dma_progress.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+        self.ax_dma_progress.set_ylabel('탄성률 (Pa)', fontsize=self.PLOT_FONTS['label'], color='#374151')
         self.ax_dma_progress.set_xscale('log')
         self.ax_dma_progress.set_yscale('log')
-        self.ax_dma_progress.set_title('DMA 마스터 곡선', fontweight='bold', fontsize=18, color='#1F2937', pad=8)
+        self.ax_dma_progress.set_title('DMA 마스터 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
 
         # Initialize G(q) live plot - bottom-left
-        self.ax_gq_live.set_xlabel('파수 q (1/m)', fontsize=16, color='#374151')
-        self.ax_gq_live.set_ylabel('G(q)', fontsize=16, color='#374151')
+        self.ax_gq_live.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+        self.ax_gq_live.set_ylabel('G(q)', fontsize=self.PLOT_FONTS['label'], color='#374151')
         self.ax_gq_live.set_xscale('log')
         self.ax_gq_live.set_yscale('log')
-        self.ax_gq_live.set_title('실시간 G(q) 적분 누적', fontweight='bold', fontsize=18, color='#1F2937', pad=8)
+        self.ax_gq_live.set_title('실시간 G(q) 적분 누적', fontweight='bold', fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
         self.ax_gq_live.text(0.5, 0.5, '계산 대기 중...',
                              transform=self.ax_gq_live.transAxes,
-                             ha='center', va='center', fontsize=18,
+                             ha='center', va='center', fontsize=self.PLOT_FONTS['title'],
                              color='#CBD5E1', fontweight='light')
 
         # Initialize contact area live plot - bottom-right
-        self.ax_contact_live.set_xlabel('파수 q (1/m)', fontsize=16, color='#374151')
-        self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontsize=16, color='#374151')
+        self.ax_contact_live.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+        self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontsize=self.PLOT_FONTS['label'], color='#374151')
         self.ax_contact_live.set_xscale('log')
-        self.ax_contact_live.set_title(r'접촉 면적비 A(q)/A$_0$', fontweight='bold', fontsize=18, color='#1F2937', pad=8)
+        self.ax_contact_live.set_title(r'접촉 면적비 A(q)/A$_0$', fontweight='bold', fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
         self.ax_contact_live.text(0.5, 0.5, '계산 대기 중...',
                                   transform=self.ax_contact_live.transAxes,
-                                  ha='center', va='center', fontsize=18,
+                                  ha='center', va='center', fontsize=self.PLOT_FONTS['title'],
                                   color='#CBD5E1', fontweight='light')
 
         self.fig_calc_progress.tight_layout(pad=2.5)
@@ -6110,7 +6112,7 @@ class PerssonModelGUI_V2:
                     for spine in ax.spines.values():
                         spine.set_color('#D1D5DB')
                         spine.set_linewidth(0.8)
-                    ax.tick_params(colors='#4B5563', labelsize=14, length=4, width=0.7)
+                    ax.tick_params(colors='#4B5563', labelsize=self.PLOT_FONTS['tick'], length=4, width=0.7)
                     ax.grid(True, alpha=0.18, linewidth=0.6, color='#9CA3AF', linestyle='--')
 
                 # TOP-LEFT: PSD(q) with integration range
@@ -6148,13 +6150,13 @@ class PerssonModelGUI_V2:
                         x=q_min, color='#EF4444', linestyle='-', linewidth=1.2, alpha=0.0, zorder=5)
 
                     _style_calc_ax(self.ax_psd_q)
-                    self.ax_psd_q.set_xlabel('파수 q (1/m)', fontsize=16, color='#374151')
-                    self.ax_psd_q.set_ylabel(r'C(q) (m$^4$)', fontsize=16, color='#374151')
+                    self.ax_psd_q.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+                    self.ax_psd_q.set_ylabel(r'C(q) (m$^4$)', fontsize=self.PLOT_FONTS['label'], color='#374151')
                     self.ax_psd_q.set_xscale('log'); self.ax_psd_q.set_yscale('log')
-                    self.ax_psd_q.legend(loc='best', fontsize=16, framealpha=0.8,
+                    self.ax_psd_q.legend(loc='best', fontsize=self.PLOT_FONTS['label'], framealpha=0.8,
                                          edgecolor='#E5E7EB', fancybox=False)
                     self.ax_psd_q.set_title('PSD C(q) — 적분 범위', fontweight='bold',
-                                            fontsize=18, color='#1F2937', pad=8)
+                                            fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
 
                 # TOP-RIGHT: DMA master curve
                 if self.material is not None:
@@ -6171,36 +6173,36 @@ class PerssonModelGUI_V2:
                                               linestyle='--', alpha=0.9, label="E''", zorder=3)
 
                     _style_calc_ax(self.ax_dma_progress)
-                    self.ax_dma_progress.set_xlabel('주파수 f (Hz)', fontsize=16, color='#374151')
-                    self.ax_dma_progress.set_ylabel('탄성률 (Pa)', fontsize=16, color='#374151')
+                    self.ax_dma_progress.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+                    self.ax_dma_progress.set_ylabel('탄성률 (Pa)', fontsize=self.PLOT_FONTS['label'], color='#374151')
                     self.ax_dma_progress.set_xscale('log'); self.ax_dma_progress.set_yscale('log')
-                    self.ax_dma_progress.legend(loc='best', fontsize=16, framealpha=0.8,
+                    self.ax_dma_progress.legend(loc='best', fontsize=self.PLOT_FONTS['label'], framealpha=0.8,
                                                 edgecolor='#E5E7EB', fancybox=False)
                     self.ax_dma_progress.set_title('DMA 마스터 곡선 — 주파수 스캔', fontweight='bold',
-                                                   fontsize=18, color='#1F2937', pad=8)
+                                                   fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
 
                 # BOTTOM-LEFT: G(q) live accumulation placeholder
                 _style_calc_ax(self.ax_gq_live)
-                self.ax_gq_live.set_xlabel('파수 q (1/m)', fontsize=16, color='#374151')
-                self.ax_gq_live.set_ylabel('G(q)', fontsize=16, color='#374151')
+                self.ax_gq_live.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+                self.ax_gq_live.set_ylabel('G(q)', fontsize=self.PLOT_FONTS['label'], color='#374151')
                 self.ax_gq_live.set_xscale('log'); self.ax_gq_live.set_yscale('log')
                 self.ax_gq_live.set_title('실시간 G(q) 적분 누적', fontweight='bold',
-                                          fontsize=18, color='#1F2937', pad=8)
+                                          fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
                 self.ax_gq_live.text(0.5, 0.5, '적분 시작 대기 중 …',
                                      transform=self.ax_gq_live.transAxes,
-                                     ha='center', va='center', fontsize=18,
+                                     ha='center', va='center', fontsize=self.PLOT_FONTS['title'],
                                      color='#CBD5E1', fontweight='light')
 
                 # BOTTOM-RIGHT: Contact area placeholder
                 _style_calc_ax(self.ax_contact_live)
-                self.ax_contact_live.set_xlabel('파수 q (1/m)', fontsize=16, color='#374151')
-                self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontsize=16, color='#374151')
+                self.ax_contact_live.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+                self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontsize=self.PLOT_FONTS['label'], color='#374151')
                 self.ax_contact_live.set_xscale('log')
                 self.ax_contact_live.set_title(r'접촉 면적비 A(q)/A$_0$', fontweight='bold',
-                                               fontsize=18, color='#1F2937', pad=8)
+                                               fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
                 self.ax_contact_live.text(0.5, 0.5, '적분 시작 대기 중 …',
                                           transform=self.ax_contact_live.transAxes,
-                                          ha='center', va='center', fontsize=18,
+                                          ha='center', va='center', fontsize=self.PLOT_FONTS['title'],
                                           color='#CBD5E1', fontweight='light')
 
                 self.fig_calc_progress.tight_layout(pad=2.5)
@@ -6304,12 +6306,12 @@ class PerssonModelGUI_V2:
                         if not _placeholder_cleared['gq']:
                             self.ax_gq_live.clear()
                             _style_calc_ax(self.ax_gq_live)
-                            self.ax_gq_live.set_xlabel('파수 q (1/m)', fontsize=16, color='#374151')
-                            self.ax_gq_live.set_ylabel('G(q)', fontsize=16, color='#374151')
+                            self.ax_gq_live.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+                            self.ax_gq_live.set_ylabel('G(q)', fontsize=self.PLOT_FONTS['label'], color='#374151')
                             self.ax_gq_live.set_xscale('log')
                             self.ax_gq_live.set_yscale('log')
                             self.ax_gq_live.set_title('실시간 G(q) 적분 누적', fontweight='bold',
-                                                      fontsize=18, color='#1F2937', pad=8)
+                                                      fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
                             _placeholder_cleared['gq'] = True
 
                         # Remove previous glow line
@@ -6349,7 +6351,7 @@ class PerssonModelGUI_V2:
                             if handles:
                                 self.ax_gq_live.legend(
                                     handles=handles[-5:], loc='upper left',
-                                    fontsize=18, framealpha=0.85,
+                                    fontsize=self.PLOT_FONTS['title'], framealpha=0.85,
                                     edgecolor='#E5E7EB', fancybox=False)
                     except Exception:
                         pass
@@ -6360,11 +6362,11 @@ class PerssonModelGUI_V2:
                         if not _placeholder_cleared['contact']:
                             self.ax_contact_live.clear()
                             _style_calc_ax(self.ax_contact_live)
-                            self.ax_contact_live.set_xlabel('파수 q (1/m)', fontsize=16, color='#374151')
-                            self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontsize=16, color='#374151')
+                            self.ax_contact_live.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+                            self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontsize=self.PLOT_FONTS['label'], color='#374151')
                             self.ax_contact_live.set_xscale('log')
                             self.ax_contact_live.set_title(r'접촉 면적비 A(q)/A$_0$', fontweight='bold',
-                                                           fontsize=18, color='#1F2937', pad=8)
+                                                           fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
                             _placeholder_cleared['contact'] = True
 
                         # Remove previous glow line
@@ -6403,7 +6405,7 @@ class PerssonModelGUI_V2:
                             if handles:
                                 self.ax_contact_live.legend(
                                     handles=handles[-5:], loc='upper right',
-                                    fontsize=18, framealpha=0.85,
+                                    fontsize=self.PLOT_FONTS['title'], framealpha=0.85,
                                     edgecolor='#E5E7EB', fancybox=False)
                     except Exception:
                         pass
@@ -6763,7 +6765,7 @@ class PerssonModelGUI_V2:
                       '높을수록 → 고무가 단단 → 응력 불균일 증가\n'
                       '낮을수록 → 고무가 말랑 → 완전 접촉에 가까움')
             props = dict(boxstyle='round', facecolor='wheat', alpha=0.3)
-            ax5.text(0.98, 0.02, textstr, transform=ax5.transAxes, fontsize=18,
+            ax5.text(0.98, 0.02, textstr, transform=ax5.transAxes, fontsize=self.PLOT_FONTS['title'],
                     verticalalignment='bottom', horizontalalignment='right', bbox=props)
 
             # Fix axis formatter
@@ -6872,7 +6874,7 @@ class PerssonModelGUI_V2:
                           f"(목표 {target_slope_rms} 미달)")
 
             props = dict(boxstyle='round', facecolor='lightyellow', alpha=0.8, edgecolor='black')
-            ax6.text(0.02, 0.98, textstr, transform=ax6.transAxes, fontsize=18,
+            ax6.text(0.02, 0.98, textstr, transform=ax6.transAxes, fontsize=self.PLOT_FONTS['title'],
                     verticalalignment='top', bbox=props)
 
             # Fix axis formatter
@@ -6882,7 +6884,7 @@ class PerssonModelGUI_V2:
                     ha='center', va='center', transform=ax6.transAxes, fontsize=LABEL_FONT)
             ax6.set_title('(f) Parseval 정리', fontweight='bold', fontsize=TITLE_FONT, pad=TITLE_PAD)
 
-        self.fig_results.suptitle('G(q,v) 2D 행렬 계산 결과', fontweight='bold', fontsize=18, y=0.98)
+        self.fig_results.suptitle('G(q,v) 2D 행렬 계산 결과', fontweight='bold', fontsize=self.PLOT_FONTS['title'], y=0.98)
         self.fig_results.subplots_adjust(left=0.08, right=0.95, top=0.92, bottom=0.06, hspace=0.55, wspace=0.38)
         self.canvas_results.draw()
 
@@ -7825,7 +7827,7 @@ class PerssonModelGUI_V2:
             ax = fig.add_subplot(111)
             ax.set_facecolor('#FAFBFC')
             plot_func(ax, np)
-            ax.tick_params(labelsize=14)
+            ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
             for spine in ax.spines.values():
                 spine.set_color('#CBD5E1')
             fig.tight_layout(pad=2.5)
@@ -7908,12 +7910,12 @@ class PerssonModelGUI_V2:
                 omega = q_val * v * np.cos(phi)
                 ax.plot(np.degrees(phi), omega, linewidth=2.5, color=c,
                         label=f'q = {q_val:.0e} (v={v} m/s)')
-            ax.set_xlabel(r'$\phi$ (degrees)', fontsize=16)
-            ax.set_ylabel(r'$\omega$ (rad/s)', fontsize=16)
-            ax.legend(fontsize=16, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel(r'$\phi$ (degrees)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\omega$ (rad/s)', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3)
             ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
-            ax.set_title(r'$\omega = q \cdot v \cdot \cos\phi$ — 각도에 따른 진동수 변화', fontsize=18, pad=10)
+            ax.set_title(r'$\omega = q \cdot v \cdot \cos\phi$ — 각도에 따른 진동수 변화', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_omega_vs_phi)
 
         add_separator()
@@ -7965,9 +7967,9 @@ class PerssonModelGUI_V2:
                        label='C(q) — 프랙탈 PSD')
             ax2.fill_between(q, C_q, alpha=0.08, color='#059669')
 
-            ax.set_xlabel('파수 q (1/m)', fontsize=16)
-            ax.set_ylabel(r'주파수 $\omega$ (rad/s)', fontsize=16, color='#DC2626')
-            ax2.set_ylabel(r'C(q) (m$^4$)', fontsize=16, color='#059669')
+            ax.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'주파수 $\omega$ (rad/s)', fontsize=self.PLOT_FONTS['label'], color='#DC2626')
+            ax2.set_ylabel(r'C(q) (m$^4$)', fontsize=self.PLOT_FONTS['label'], color='#059669')
 
             ax.tick_params(axis='y', labelcolor='#DC2626')
             ax2.tick_params(axis='y', labelcolor='#059669')
@@ -7980,17 +7982,17 @@ class PerssonModelGUI_V2:
             ]:
                 omega_pt = q_pt * v
                 ax.plot(q_pt, omega_pt, 'o', color=color, markersize=10, zorder=5)
-                ax.annotate(label_txt, xy=(q_pt, omega_pt), fontsize=18,
+                ax.annotate(label_txt, xy=(q_pt, omega_pt), fontsize=self.PLOT_FONTS['title'],
                             color=color, fontweight='bold',
                             xytext=(q_pt * 3, omega_pt * 0.25),
                             arrowprops=dict(arrowstyle='->', color=color, lw=1.5))
 
             lines1, labels1 = ax.get_legend_handles_labels()
             lines2, labels2 = ax2.get_legend_handles_labels()
-            ax.legend(lines1 + lines2, labels1 + labels2, fontsize=16,
+            ax.legend(lines1 + lines2, labels1 + labels2, fontsize=self.PLOT_FONTS['label'],
                       loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('프랙탈 노면: 속도 v=1m/s 하나로 다양한 ω 생성', fontsize=18, pad=10)
+            ax.set_title('프랙탈 노면: 속도 v=1m/s 하나로 다양한 ω 생성', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_fractal_omega)
 
         add_separator()
@@ -8043,11 +8045,11 @@ class PerssonModelGUI_V2:
             E_loss = 0.35e9 * (omega / 1e4)**0.5 / (1 + (omega / 1e4)**0.85)
             ax.loglog(omega, E_stor, '-', linewidth=2.5, color='#2563EB', label="E' (저장 탄성률)")
             ax.loglog(omega, E_loss, '--', linewidth=2.5, color='#DC2626', label="E'' (손실 탄성률)")
-            ax.set_xlabel(r'$\omega$ (rad/s)', fontsize=16)
-            ax.set_ylabel('E (Pa)', fontsize=16)
-            ax.legend(fontsize=16, loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel(r'$\omega$ (rad/s)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('E (Pa)', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title("복소 탄성률 마스터 커브 (대표적 형상)", fontsize=18, pad=10)
+            ax.set_title("복소 탄성률 마스터 커브 (대표적 형상)", fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_master_curve)
 
         # ═══════════════════════════════════════════════════════
@@ -8073,11 +8075,11 @@ class PerssonModelGUI_V2:
             q = np.logspace(2, 8, 500)
             G = 0.01 * (q / 1e2)**1.2 / (1 + (q / 1e7)**0.3)
             ax.loglog(q, G, '-', linewidth=2.5, color='#2563EB')
-            ax.set_xlabel('q (1/m)', fontsize=16)
-            ax.set_ylabel('G(q)', fontsize=16)
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('G(q)', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('G(q) — 탄성 에너지 누적 적분', fontsize=18, pad=10)
-            ax.annotate('G 증가 → 접촉면적 감소', xy=(1e6, 50), fontsize=18, color='#DC2626',
+            ax.set_title('G(q) — 탄성 에너지 누적 적분', fontsize=self.PLOT_FONTS['title'], pad=10)
+            ax.annotate('G 증가 → 접촉면적 감소', xy=(1e6, 50), fontsize=self.PLOT_FONTS['title'], color='#DC2626',
                         fontweight='bold')
         add_graph(_plot_G_vs_q)
 
@@ -8173,7 +8175,7 @@ class PerssonModelGUI_V2:
                 aa0_val = erf(1 / (2 * np.sqrt(g_val))) * 100
                 ax.plot(g_val, aa0_val, 'o', color=color, markersize=10, zorder=5)
                 offset_y = 8 if aa0_val > 50 else 5
-                ax.annotate(txt, xy=(g_val, aa0_val), fontsize=18,
+                ax.annotate(txt, xy=(g_val, aa0_val), fontsize=self.PLOT_FONTS['title'],
                             color=color, fontweight='bold',
                             xytext=(g_val * 1.8, aa0_val + offset_y),
                             arrowprops=dict(arrowstyle='->', color=color, lw=1.5))
@@ -8183,12 +8185,12 @@ class PerssonModelGUI_V2:
             ax.axhspan(10, 50, alpha=0.06, color='#F59E0B')
             ax.axhspan(0, 10, alpha=0.06, color='#DC2626')
 
-            ax.set_xlabel('G (무차원 — 탄성 에너지 누적합)', fontsize=16)
-            ax.set_ylabel(r'A/A$_0$ (%)', fontsize=16)
+            ax.set_xlabel('G (무차원 — 탄성 에너지 누적합)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'A/A$_0$ (%)', fontsize=self.PLOT_FONTS['label'])
             ax.set_ylim(-2, 105)
             ax.grid(True, alpha=0.3, which='both')
             ax.set_title(r'G값이 구체적으로 의미하는 접촉면적 — 한눈에 보는 변환표',
-                         fontsize=18, pad=10)
+                         fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_G_to_contact)
 
         add_text('', pady=4)
@@ -8235,18 +8237,18 @@ class PerssonModelGUI_V2:
             ax.fill_between(v, np.minimum(G_S100, np.minimum(G_S120, G_S140)),
                             np.maximum(G_S100, np.maximum(G_S120, G_S140)),
                             alpha=0.08, color='#7C3AED')
-            ax.set_xlabel('슬라이딩 속도 v (m/s)', fontsize=16)
-            ax.set_ylabel(r'G(q$_1$)', fontsize=16)
-            ax.legend(fontsize=16, loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel('슬라이딩 속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'G(q$_1$)', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title(r'실측: 속도별 G(q$_1$) — 속도$\uparrow$ → G$\uparrow$', fontsize=18, pad=10)
+            ax.set_title(r'실측: 속도별 G(q$_1$) — 속도$\uparrow$ → G$\uparrow$', fontsize=self.PLOT_FONTS['title'], pad=10)
             ax.annotate('속도 증가 →\nG 급격히 상승',
-                        xy=(50, G_S100[26]), fontsize=18, color='#DC2626',
+                        xy=(50, G_S100[26]), fontsize=self.PLOT_FONTS['title'], color='#DC2626',
                         fontweight='bold',
                         xytext=(5e-3, 500),
                         arrowprops=dict(arrowstyle='->', color='#DC2626', lw=1.5))
             ax.annotate('고속에서 S120이\nS100을 추월',
-                        xy=(300, G_S120[29]), fontsize=18, color='#2563EB',
+                        xy=(300, G_S120[29]), fontsize=self.PLOT_FONTS['title'], color='#2563EB',
                         fontweight='bold',
                         xytext=(1e-2, 5000),
                         arrowprops=dict(arrowstyle='->', color='#2563EB', lw=1.5))
@@ -8312,18 +8314,18 @@ class PerssonModelGUI_V2:
             ax.axhspan(10, 30, alpha=0.06, color='#F59E0B')
             ax.axhspan(0, 10, alpha=0.06, color='#DC2626')
             ax.axhline(y=10, color='#DC2626', linestyle=':', alpha=0.5, linewidth=1)
-            ax.text(1.5e-5, 14, '중간 접촉', fontsize=18, color='#B45309',
+            ax.text(1.5e-5, 14, '중간 접촉', fontsize=self.PLOT_FONTS['title'], color='#B45309',
                     fontweight='bold', alpha=0.7)
-            ax.text(1.5e-5, 3, '접촉 거의 없음', fontsize=18, color='#DC2626',
+            ax.text(1.5e-5, 3, '접촉 거의 없음', fontsize=self.PLOT_FONTS['title'], color='#DC2626',
                     fontweight='bold', alpha=0.7)
-            ax.set_xlabel('슬라이딩 속도 v (m/s)', fontsize=16)
-            ax.set_ylabel(r'A/A$_0$ (%)', fontsize=16)
+            ax.set_xlabel('슬라이딩 속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'A/A$_0$ (%)', fontsize=self.PLOT_FONTS['label'])
             ax.set_ylim(-1, 22)
-            ax.legend(fontsize=16, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3)
-            ax.set_title(r'G → A/A$_0$ 변환: 속도$\uparrow$ → G$\uparrow$ → 접촉면적 급감', fontsize=18, pad=10)
+            ax.set_title(r'G → A/A$_0$ 변환: 속도$\uparrow$ → G$\uparrow$ → 접촉면적 급감', fontsize=self.PLOT_FONTS['title'], pad=10)
             ax.annotate('S120: 저속 ~17%\n→ 고속 <1%',
-                        xy=(500, P_S120[-2]), fontsize=18, color='#2563EB',
+                        xy=(500, P_S120[-2]), fontsize=self.PLOT_FONTS['title'], color='#2563EB',
                         fontweight='bold',
                         xytext=(1e-2, 18),
                         arrowprops=dict(arrowstyle='->', color='#2563EB', lw=1.5))
@@ -8366,13 +8368,13 @@ class PerssonModelGUI_V2:
             G = np.linspace(0.01, 20, 500)
             P = erf(1 / (2 * np.sqrt(G)))
             ax.plot(G, P, '-', linewidth=2.5, color='#2563EB')
-            ax.set_xlabel('G(q)', fontsize=16)
-            ax.set_ylabel(r'P(q) = A(q)/A$_0$', fontsize=16)
+            ax.set_xlabel('G(q)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'P(q) = A(q)/A$_0$', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3)
             ax.set_ylim(-0.02, 1.05)
-            ax.set_title('P(q) = erf(1/(2√G)) — G 증가에 따른 접촉면적 비율 감소', fontsize=18, pad=10)
-            ax.annotate('G 작음 → 완전접촉', xy=(0.5, 0.92), fontsize=18, color='#059669', fontweight='bold')
-            ax.annotate('G 큼 → 접촉감소', xy=(12, 0.15), fontsize=18, color='#DC2626', fontweight='bold')
+            ax.set_title('P(q) = erf(1/(2√G)) — G 증가에 따른 접촉면적 비율 감소', fontsize=self.PLOT_FONTS['title'], pad=10)
+            ax.annotate('G 작음 → 완전접촉', xy=(0.5, 0.92), fontsize=self.PLOT_FONTS['title'], color='#059669', fontweight='bold')
+            ax.annotate('G 큼 → 접촉감소', xy=(12, 0.15), fontsize=self.PLOT_FONTS['title'], color='#DC2626', fontweight='bold')
         add_graph(_plot_P_erf)
 
         add_text('erf(x) 함수란?', bold=True, fg='#7C3AED', pady=(10, 0))
@@ -8387,13 +8389,13 @@ class PerssonModelGUI_V2:
             from scipy.special import erf
             x = np.linspace(-3, 3, 500)
             ax.plot(x, erf(x), '-', linewidth=2.5, color='#7C3AED')
-            ax.set_xlabel('x', fontsize=16)
-            ax.set_ylabel('erf(x)', fontsize=16)
+            ax.set_xlabel('x', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('erf(x)', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3)
             ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
             ax.axhline(y=1, color='gray', linestyle=':', alpha=0.4)
             ax.axhline(y=-1, color='gray', linestyle=':', alpha=0.4)
-            ax.set_title('erf(x) — 오차 함수', fontsize=18, pad=10)
+            ax.set_title('erf(x) — 오차 함수', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_erf)
 
         add_text('왜 A/A₀ = erf(1/(2√G)) 인가?', bold=True, fg='#7C3AED', pady=(10, 0))
@@ -8429,13 +8431,13 @@ class PerssonModelGUI_V2:
             integrand = q**3 * np.exp(-0.5 * ((np.log10(q) - 5) / 1.2)**2) * 1e-20
             ax.semilogx(q, integrand, '-', linewidth=2.5, color='#DC2626')
             ax.fill_between(q, integrand, alpha=0.15, color='#DC2626')
-            ax.set_xlabel('q (1/m)', fontsize=16)
-            ax.set_ylabel(r'$\mu$ 피적분함수', fontsize=16)
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\mu$ 피적분함수', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3)
-            ax.set_title(r'$\mu_{visc}$ 피적분함수 — 파수별 마찰 기여도', fontsize=18, pad=10)
+            ax.set_title(r'$\mu_{visc}$ 피적분함수 — 파수별 마찰 기여도', fontsize=self.PLOT_FONTS['title'], pad=10)
             peak_idx = np.argmax(integrand)
             ax.annotate('마찰 기여 피크', xy=(q[peak_idx], integrand[peak_idx]),
-                        fontsize=18, fontweight='bold', color='#DC2626',
+                        fontsize=self.PLOT_FONTS['title'], fontweight='bold', color='#DC2626',
                         xytext=(q[peak_idx]*5, integrand[peak_idx]*0.8),
                         arrowprops=dict(arrowstyle='->', color='#DC2626'))
         add_graph(_plot_mu_integrand)
@@ -8449,13 +8451,13 @@ class PerssonModelGUI_V2:
             gamma = 0.5
             S = gamma + (1 - gamma) * P**2
             ax.plot(P, S, '-', linewidth=2.5, color='#059669')
-            ax.set_xlabel('P(q)', fontsize=16)
-            ax.set_ylabel('S(q)', fontsize=16)
+            ax.set_xlabel('P(q)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('S(q)', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3)
             ax.set_ylim(0.4, 1.05)
-            ax.set_title(r'S(q) = $\gamma$ + (1-$\gamma$)P$^2$  (보정 계수, $\gamma$=0.5)', fontsize=18, pad=10)
+            ax.set_title(r'S(q) = $\gamma$ + (1-$\gamma$)P$^2$  (보정 계수, $\gamma$=0.5)', fontsize=self.PLOT_FONTS['title'], pad=10)
             ax.axhline(y=0.5, color='gray', linestyle=':', alpha=0.5)
-            ax.annotate(r'$\gamma$ = 0.5 (최솟값)', xy=(0.05, 0.52), fontsize=18, color='#059669')
+            ax.annotate(r'$\gamma$ = 0.5 (최솟값)', xy=(0.05, 0.52), fontsize=self.PLOT_FONTS['title'], color='#059669')
         add_graph(_plot_S_correction)
 
         add_separator()
@@ -8504,12 +8506,12 @@ class PerssonModelGUI_V2:
             q = np.logspace(2, 8, 500)
             hrms = 1e-5 * (1 - np.exp(-q / 1e4))
             ax.semilogx(q, hrms * 1e6, '-', linewidth=2.5, color='#2563EB')
-            ax.set_xlabel('q (1/m)', fontsize=16)
-            ax.set_ylabel(r'$h_{rms}$ ($\mu$m)', fontsize=16)
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$h_{rms}$ ($\mu$m)', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3)
-            ax.set_title(r'$h_{rms}(q)$ — 누적 RMS 높이 (큰 파장이 지배)', fontsize=18, pad=10)
+            ax.set_title(r'$h_{rms}(q)$ — 누적 RMS 높이 (큰 파장이 지배)', fontsize=self.PLOT_FONTS['title'], pad=10)
             ax.annotate('긴 파장(작은 q)에서\n빠르게 포화', xy=(5e3, hrms[100]*1e6),
-                        fontsize=18, color='#2563EB', fontweight='bold',
+                        fontsize=self.PLOT_FONTS['title'], color='#2563EB', fontweight='bold',
                         xytext=(1e5, hrms[100]*1e6*0.5),
                         arrowprops=dict(arrowstyle='->', color='#2563EB'))
         add_graph(_plot_hrms)
@@ -8529,12 +8531,12 @@ class PerssonModelGUI_V2:
             q = np.logspace(2, 8, 500)
             hrms_slope = 0.001 * (q / 1e2)**0.8
             ax.loglog(q, hrms_slope, '-', linewidth=2.5, color='#DC2626')
-            ax.set_xlabel('q (1/m)', fontsize=16)
-            ax.set_ylabel(r"$h'_{rms} = \xi(q)$", fontsize=16)
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r"$h'_{rms} = \xi(q)$", fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title(r"$h'_{rms}(q)$ — 누적 RMS 기울기 (짧은 파장이 지배)", fontsize=18, pad=10)
+            ax.set_title(r"$h'_{rms}(q)$ — 누적 RMS 기울기 (짧은 파장이 지배)", fontsize=self.PLOT_FONTS['title'], pad=10)
             ax.annotate('짧은 파장(큰 q)에서\n계속 증가', xy=(1e6, 0.5),
-                        fontsize=18, color='#DC2626', fontweight='bold')
+                        fontsize=self.PLOT_FONTS['title'], color='#DC2626', fontweight='bold')
         add_graph(_plot_hrms_slope)
 
         add_separator()
@@ -8561,15 +8563,15 @@ class PerssonModelGUI_V2:
             g_eps = (1 + 2.5 * (eps / 10)) / (1 + 3 * (eps / 10)**1.4)
             ax.plot(eps, f_eps, '-', linewidth=2.5, color='#2563EB', label=r"f($\varepsilon$) — E' 감소율")
             ax.plot(eps, g_eps, '--', linewidth=2.5, color='#DC2626', label=r"g($\varepsilon$) — E'' 변화율")
-            ax.set_xlabel(r'$\varepsilon$ (%)', fontsize=16)
-            ax.set_ylabel('보정 계수', fontsize=16)
-            ax.legend(fontsize=16, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel(r'$\varepsilon$ (%)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('보정 계수', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3)
             ax.set_ylim(0, 1.5)
             ax.axhline(y=1, color='gray', linestyle=':', alpha=0.5)
-            ax.set_title('Payne 효과 — 대변형 시 탄성률 보정 계수', fontsize=18, pad=10)
-            ax.annotate('E\' 연화', xy=(30, f_eps[120]), fontsize=18, color='#2563EB', fontweight='bold')
-            ax.annotate('E\'\' 피크 후 감소', xy=(15, max(g_eps)*0.95), fontsize=18, color='#DC2626', fontweight='bold')
+            ax.set_title('Payne 효과 — 대변형 시 탄성률 보정 계수', fontsize=self.PLOT_FONTS['title'], pad=10)
+            ax.annotate('E\' 연화', xy=(30, f_eps[120]), fontsize=self.PLOT_FONTS['title'], color='#2563EB', fontweight='bold')
+            ax.annotate('E\'\' 피크 후 감소', xy=(15, max(g_eps)*0.95), fontsize=self.PLOT_FONTS['title'], color='#DC2626', fontweight='bold')
         add_graph(_plot_payne_effect)
 
         # ═══════════════════════════════════════════════════════
@@ -8637,14 +8639,14 @@ class PerssonModelGUI_V2:
             ax.semilogx(Jd, dT_Jh10, '--', linewidth=2, color='#2563EB', label='Jh=10')
             ax.semilogx(Jd, dT_Jh100, ':', linewidth=2, color='#059669', label='Jh=100')
             ax.axhline(y=1.0, color='gray', linestyle=':', alpha=0.5)
-            ax.set_xlabel(r'$J_d = v \cdot d / D_{th}$', fontsize=16)
-            ax.set_ylabel(r'$\Delta T \;/\; (\dot{q} d / 2\kappa)$', fontsize=16)
-            ax.legend(fontsize=16, loc='upper right')
+            ax.set_xlabel(r'$J_d = v \cdot d / D_{th}$', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\Delta T \;/\; (\dot{q} d / 2\kappa)$', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right')
             ax.grid(True, alpha=0.3)
-            ax.set_title('Greenwood 원형 보간식: 정규화 ΔT vs Jd (Jh 비교)', fontsize=18, pad=10)
-            ax.annotate('정상 전도\n(Jd \u226a 1)', xy=(0.03, 0.92), fontsize=18,
+            ax.set_title('Greenwood 원형 보간식: 정규화 ΔT vs Jd (Jh 비교)', fontsize=self.PLOT_FONTS['title'], pad=10)
+            ax.annotate('정상 전도\n(Jd \u226a 1)', xy=(0.03, 0.92), fontsize=self.PLOT_FONTS['title'],
                          color='#2563EB', fontweight='bold')
-            ax.annotate('고속 포화\n(Jh 효과)', xy=(1e3, 0.15), fontsize=18,
+            ax.annotate('고속 포화\n(Jh 효과)', xy=(1e3, 0.15), fontsize=self.PLOT_FONTS['title'],
                          color='#DC2626', fontweight='bold')
             ax.set_ylim(0, 1.15)
         add_graph(_plot_greenwood)
@@ -8671,15 +8673,15 @@ class PerssonModelGUI_V2:
             ax.plot(T, log_aT, '-', linewidth=2.5, color='#2563EB')
             ax.axhline(y=0, color='gray', linestyle=':', alpha=0.5)
             ax.axvline(x=T_ref, color='gray', linestyle='--', alpha=0.5)
-            ax.set_xlabel('T (\u00b0C)', fontsize=16)
-            ax.set_ylabel(r'$\log_{10}\, a_T$', fontsize=16)
+            ax.set_xlabel('T (\u00b0C)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\log_{10}\, a_T$', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3)
-            ax.set_title('WLF 시프트 팩터 \u2014 온도에 따른 주파수 시프트', fontsize=18, pad=10)
-            ax.annotate(f'T_ref = {T_ref}\u00b0C', xy=(T_ref + 2, 0.3), fontsize=18, color='#64748B')
+            ax.set_title('WLF 시프트 팩터 \u2014 온도에 따른 주파수 시프트', fontsize=self.PLOT_FONTS['title'], pad=10)
+            ax.annotate(f'T_ref = {T_ref}\u00b0C', xy=(T_ref + 2, 0.3), fontsize=self.PLOT_FONTS['title'], color='#64748B')
             ax.annotate('T\u2191 \u2192 aT\u2193\n주파수 왼쪽 시프트', xy=(80, -5),
-                         fontsize=18, color='#DC2626', fontweight='bold')
+                         fontsize=self.PLOT_FONTS['title'], color='#DC2626', fontweight='bold')
             ax.annotate('T\u2193 \u2192 aT\u2191\n주파수 오른쪽 시프트', xy=(-15, 3),
-                         fontsize=18, color='#2563EB', fontweight='bold')
+                         fontsize=self.PLOT_FONTS['title'], color='#2563EB', fontweight='bold')
         add_graph(_plot_wlf_shift)
 
         # 3-E: Per-q accumulation — the core algorithm
@@ -8754,12 +8756,12 @@ class PerssonModelGUI_V2:
                 if np.max(dT_accum) > 0:
                     dT_accum = dT_accum / np.max(dT_accum) * v_val * 30
                 ax.semilogx(q, dT_accum, '-', linewidth=2, color=color, label=label)
-            ax.set_xlabel('q (1/m)', fontsize=16)
-            ax.set_ylabel(r'$\Delta T(q)$ 누적 (\u00b0C)', fontsize=16)
-            ax.legend(fontsize=16, loc='upper left')
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\Delta T(q)$ 누적 (\u00b0C)', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper left')
             ax.grid(True, alpha=0.3)
-            ax.set_title('파수별 \u0394T 누적 \u2014 속도별 비교 (개념도)', fontsize=18, pad=10)
-            ax.annotate('큰 스케일\n(낮은 q)', xy=(q[20], 0), fontsize=18, color='#64748B')
+            ax.set_title('파수별 \u0394T 누적 \u2014 속도별 비교 (개념도)', fontsize=self.PLOT_FONTS['title'], pad=10)
+            ax.annotate('큰 스케일\n(낮은 q)', xy=(q[20], 0), fontsize=self.PLOT_FONTS['title'], color='#64748B')
         add_graph(_plot_dT_accumulation)
 
         # 3-F: Final hot friction result
@@ -8786,14 +8788,14 @@ class PerssonModelGUI_V2:
             ax.semilogx(v, mu_cold, 'b-', linewidth=2, label=r'$\mu_{cold}$ (Flash OFF)')
             ax.semilogx(v, mu_hot, 'r-', linewidth=2, label=r'$\mu_{hot}$ (Flash ON, per-q)')
             ax.fill_between(v, mu_hot, mu_cold, alpha=0.1, color='red')
-            ax.set_xlabel('v (m/s)', fontsize=16)
-            ax.set_ylabel(r'$\mu_{visc}$', fontsize=16)
-            ax.legend(fontsize=16, loc='upper right')
+            ax.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\mu_{visc}$', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right')
             ax.grid(True, alpha=0.3)
-            ax.set_title(r'Flash Negative Feedback: $\mu_{cold}$ vs $\mu_{hot}$', fontsize=18, pad=10)
+            ax.set_title(r'Flash Negative Feedback: $\mu_{cold}$ vs $\mu_{hot}$', fontsize=self.PLOT_FONTS['title'], pad=10)
             ax.annotate('Flash 감소 영역\n(고속에서 연화)',
                          xy=(1, (mu_cold[200] + mu_hot[200]) / 2),
-                         fontsize=18, color='#DC2626', fontweight='bold')
+                         fontsize=self.PLOT_FONTS['title'], color='#DC2626', fontweight='bold')
         add_graph(_plot_feedback)
 
         add_text('\n  Negative Feedback Loop (고속 영역):', font_size=17, bold=True, fg='#1E293B')
@@ -8874,11 +8876,11 @@ class PerssonModelGUI_V2:
             ax.semilogx(v, mu_total, 'r-', linewidth=2.5, label=r'$\mu_{total}$ (합산)')
             ax.fill_between(v, 0, mu_visc, alpha=0.06, color='blue')
             ax.fill_between(v, mu_visc, mu_total, alpha=0.06, color='green')
-            ax.set_xlabel('v (m/s)', fontsize=16)
-            ax.set_ylabel(r'$\mu$', fontsize=16)
-            ax.legend(fontsize=16, loc='upper right')
+            ax.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\mu$', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right')
             ax.grid(True, alpha=0.3)
-            ax.set_title(r'$\mu_{total} = \mu_{visc} + \mu_{adh}$ (대표적 형상)', fontsize=18, pad=10)
+            ax.set_title(r'$\mu_{total} = \mu_{visc} + \mu_{adh}$ (대표적 형상)', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_mu_adh_components)
 
         # Bottom padding for scroll
@@ -9056,9 +9058,9 @@ class PerssonModelGUI_V2:
         self.ax_rms_slope = self.fig_rms.add_subplot(221)
         self.ax_rms_slope.set_title("① h'rms ξ(q) — 누적 RMS 기울기\n"
             "ξ²=2π∫k³C(k)dk  |  고파수일수록 기울기 기여 ↑",
-            fontweight='bold', fontsize=18, loc='left')
-        self.ax_rms_slope.set_xlabel('파수 q (1/m)', fontsize=16)
-        self.ax_rms_slope.set_ylabel("ξ (h'rms slope)", fontsize=16)
+            fontweight='bold', fontsize=self.PLOT_FONTS['title'], loc='left')
+        self.ax_rms_slope.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_rms_slope.set_ylabel("ξ (h'rms slope)", fontsize=self.PLOT_FONTS['label'])
         self.ax_rms_slope.set_xscale('log')
         self.ax_rms_slope.set_yscale('log')
         self.ax_rms_slope.grid(True, alpha=0.3)
@@ -9067,9 +9069,9 @@ class PerssonModelGUI_V2:
         self.ax_local_strain = self.fig_rms.add_subplot(222)
         self.ax_local_strain.set_title("② Local Strain ε(q) — 고무 국소 변형률\n"
             "ε=factor×ξ  |  고파수 거칠기가 큰 변형 유발",
-            fontweight='bold', fontsize=18, loc='left')
-        self.ax_local_strain.set_xlabel('파수 q (1/m)', fontsize=16)
-        self.ax_local_strain.set_ylabel('ε (%)', fontsize=16)
+            fontweight='bold', fontsize=self.PLOT_FONTS['title'], loc='left')
+        self.ax_local_strain.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_local_strain.set_ylabel('ε (%)', fontsize=self.PLOT_FONTS['label'])
         self.ax_local_strain.set_xscale('log')
         self.ax_local_strain.set_yscale('log')
         self.ax_local_strain.grid(True, alpha=0.3)
@@ -9078,9 +9080,9 @@ class PerssonModelGUI_V2:
         self.ax_rms_height = self.fig_rms.add_subplot(223)
         self.ax_rms_height.set_title("③ RMS Height h_rms(q) — 누적 RMS 높이\n"
             "h²=2π∫kC(k)dk  |  저파수(큰 파장)가 높이 지배",
-            fontweight='bold', fontsize=18, loc='left')
-        self.ax_rms_height.set_xlabel('파수 q (1/m)', fontsize=16)
-        self.ax_rms_height.set_ylabel('h_rms (μm)', fontsize=16)
+            fontweight='bold', fontsize=self.PLOT_FONTS['title'], loc='left')
+        self.ax_rms_height.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_rms_height.set_ylabel('h_rms (μm)', fontsize=self.PLOT_FONTS['label'])
         self.ax_rms_height.set_xscale('log')
         self.ax_rms_height.set_yscale('log')
         self.ax_rms_height.grid(True, alpha=0.3)
@@ -9089,9 +9091,9 @@ class PerssonModelGUI_V2:
         self.ax_psd_ref = self.fig_rms.add_subplot(224)
         self.ax_psd_ref.set_title("④ PSD C(q) — 표면 파워 스펙트럼\n"
             "C(q)∝q^(-2-2H)  |  C↓이지만 k³C↑ → 기울기↑",
-            fontweight='bold', fontsize=18, loc='left')
-        self.ax_psd_ref.set_xlabel('파수 q (1/m)', fontsize=16)
-        self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=16)
+            fontweight='bold', fontsize=self.PLOT_FONTS['title'], loc='left')
+        self.ax_psd_ref.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=self.PLOT_FONTS['label'])
         self.ax_psd_ref.set_xscale('log')
         self.ax_psd_ref.set_yscale('log')
         self.ax_psd_ref.grid(True, alpha=0.3)
@@ -9233,9 +9235,9 @@ class PerssonModelGUI_V2:
         self.ax_rms_slope.set_title(
             "① h'rms ξ(q) — 누적 RMS 기울기\n"
             "ξ²=2π∫k³C(k)dk  |  고파수일수록 기울기 기여 ↑",
-            fontweight='bold', fontsize=18, loc='left')
-        self.ax_rms_slope.set_xlabel('파수 q (1/m)', fontsize=16)
-        self.ax_rms_slope.set_ylabel("ξ (h'rms slope)", fontsize=16)
+            fontweight='bold', fontsize=self.PLOT_FONTS['title'], loc='left')
+        self.ax_rms_slope.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_rms_slope.set_ylabel("ξ (h'rms slope)", fontsize=self.PLOT_FONTS['label'])
         self.ax_rms_slope.grid(True, alpha=0.3)
 
         # Add final value annotation - use target_xi from Tab 2 if available
@@ -9244,12 +9246,12 @@ class PerssonModelGUI_V2:
             self.ax_rms_slope.axhline(y=xi_max_display, color='r', linestyle='--', alpha=0.5)
             self.ax_rms_slope.annotate(f'ξ_max={xi_max_display:.4f}',
                 xy=(q[-1], xi_max_display), xytext=(0.7, 0.85),
-                textcoords='axes fraction', fontsize=18,
+                textcoords='axes fraction', fontsize=self.PLOT_FONTS['title'],
                 arrowprops=dict(arrowstyle='->', color='red', alpha=0.5))
             # 물리적 해석 텍스트 박스
             self.ax_rms_slope.text(0.03, 0.05,
                 "k³ 가중 → 작은 스케일(고파수)이\n기울기를 지배",
-                transform=self.ax_rms_slope.transAxes, fontsize=18.5,
+                transform=self.ax_rms_slope.transAxes, fontsize=self.PLOT_FONTS['title'],
                 verticalalignment='bottom',
                 bbox=dict(boxstyle='round,pad=0.3', facecolor='#DBEAFE', alpha=0.8))
 
@@ -9260,25 +9262,25 @@ class PerssonModelGUI_V2:
         self.ax_local_strain.set_title(
             "② Local Strain ε(q) — 고무 국소 변형률\n"
             "ε=factor×ξ  |  고파수 거칠기가 큰 변형 유발",
-            fontweight='bold', fontsize=18, loc='left')
-        self.ax_local_strain.set_xlabel('파수 q (1/m)', fontsize=16)
-        self.ax_local_strain.set_ylabel('ε (%)', fontsize=16)
+            fontweight='bold', fontsize=self.PLOT_FONTS['title'], loc='left')
+        self.ax_local_strain.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_local_strain.set_ylabel('ε (%)', fontsize=self.PLOT_FONTS['label'])
         self.ax_local_strain.grid(True, alpha=0.3)
 
         # Add strain thresholds with 물리적 의미
         self.ax_local_strain.axhline(y=1, color='g', linestyle=':', alpha=0.5, label='1% (선형 영역)')
         self.ax_local_strain.axhline(y=10, color='orange', linestyle=':', alpha=0.5, label='10% (비선형 시작)')
         self.ax_local_strain.axhline(y=100, color='red', linestyle=':', alpha=0.5, label='100% (극한)')
-        self.ax_local_strain.legend(loc='upper left', fontsize=16)
+        self.ax_local_strain.legend(loc='upper left', fontsize=self.PLOT_FONTS['label'])
 
         if len(strain) > 0 and strain[-1] > 0:
             self.ax_local_strain.annotate(f'ε_max={strain[-1]*100:.2f}%',
                 xy=(q[-1], strain[-1]*100), xytext=(0.7, 0.85),
-                textcoords='axes fraction', fontsize=18,
+                textcoords='axes fraction', fontsize=self.PLOT_FONTS['title'],
                 arrowprops=dict(arrowstyle='->', color='red', alpha=0.5))
             self.ax_local_strain.text(0.03, 0.05,
                 "변형률이 클수록 고무가 비선형\n(Payne 효과: E' 감소, tan δ 변화)",
-                transform=self.ax_local_strain.transAxes, fontsize=18.5,
+                transform=self.ax_local_strain.transAxes, fontsize=self.PLOT_FONTS['title'],
                 verticalalignment='bottom',
                 bbox=dict(boxstyle='round,pad=0.3', facecolor='#FEE2E2', alpha=0.8))
 
@@ -9289,19 +9291,19 @@ class PerssonModelGUI_V2:
         self.ax_rms_height.set_title(
             "③ RMS Height h_rms(q) — 누적 RMS 높이\n"
             "h²=2π∫kC(k)dk  |  저파수(큰 파장)가 높이 지배",
-            fontweight='bold', fontsize=18, loc='left')
-        self.ax_rms_height.set_xlabel('파수 q (1/m)', fontsize=16)
-        self.ax_rms_height.set_ylabel('h_rms (μm)', fontsize=16)
+            fontweight='bold', fontsize=self.PLOT_FONTS['title'], loc='left')
+        self.ax_rms_height.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_rms_height.set_ylabel('h_rms (μm)', fontsize=self.PLOT_FONTS['label'])
         self.ax_rms_height.grid(True, alpha=0.3)
 
         if len(hrms) > 0 and hrms[-1] > 0:
             self.ax_rms_height.annotate(f'h_rms={hrms[-1]*1e6:.2f}μm',
                 xy=(q[-1], hrms[-1]*1e6), xytext=(0.7, 0.85),
-                textcoords='axes fraction', fontsize=18,
+                textcoords='axes fraction', fontsize=self.PLOT_FONTS['title'],
                 arrowprops=dict(arrowstyle='->', color='green', alpha=0.5))
             self.ax_rms_height.text(0.03, 0.05,
                 "k 가중 → 큰 파장이 높이 기여 큼\n(기울기와 반대: 높이≠기울기)",
-                transform=self.ax_rms_height.transAxes, fontsize=18.5,
+                transform=self.ax_rms_height.transAxes, fontsize=self.PLOT_FONTS['title'],
                 verticalalignment='bottom',
                 bbox=dict(boxstyle='round,pad=0.3', facecolor='#DCFCE7', alpha=0.8))
 
@@ -9315,19 +9317,19 @@ class PerssonModelGUI_V2:
             ax2 = self.ax_psd_ref.twinx()
             ax2.loglog(q[valid_C], k3C, color='#2563EB', linewidth=1.2,
                        linestyle='--', alpha=0.7, label='k³C(k)')
-            ax2.set_ylabel('k³C(k) (기울기 피적분함수)', fontsize=16, color='#2563EB')
-            ax2.tick_params(axis='y', labelcolor='#2563EB', labelsize=14)
+            ax2.set_ylabel('k³C(k) (기울기 피적분함수)', fontsize=self.PLOT_FONTS['label'], color='#2563EB')
+            ax2.tick_params(axis='y', labelcolor='#2563EB', labelsize=self.PLOT_FONTS['tick'])
             # 범례 통합
             lines1, labels1 = self.ax_psd_ref.get_legend_handles_labels()
             lines2, labels2 = ax2.get_legend_handles_labels()
             self.ax_psd_ref.legend(lines1 + lines2, labels1 + labels2,
-                                   loc='upper right', fontsize=18)
+                                   loc='upper right', fontsize=self.PLOT_FONTS['title'])
         self.ax_psd_ref.set_title(
             "④ PSD C(q) vs k³C(k) — 기울기의 원인\n"
             "C(q)↓ 이지만 k³C(k)↑ → h'rms가 고파수에서 증가!",
-            fontweight='bold', fontsize=18, loc='left')
-        self.ax_psd_ref.set_xlabel('파수 q (1/m)', fontsize=16)
-        self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=16)
+            fontweight='bold', fontsize=self.PLOT_FONTS['title'], loc='left')
+        self.ax_psd_ref.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=self.PLOT_FONTS['label'])
         self.ax_psd_ref.grid(True, alpha=0.3)
 
         # 핵심 물리 설명 텍스트 박스
@@ -9335,7 +9337,7 @@ class PerssonModelGUI_V2:
             "C(q)는 감소하지만 k³C(k)는 증가!\n"
             "∵ slope = ∇h → 미분 ≈ q×h\n"
             "→ 기울기 ∝ q³C(q) (2D 적분 포함)",
-            transform=self.ax_psd_ref.transAxes, fontsize=18,
+            transform=self.ax_psd_ref.transAxes, fontsize=self.PLOT_FONTS['title'],
             verticalalignment='bottom',
             bbox=dict(boxstyle='round,pad=0.3', facecolor='#FEF9C3', alpha=0.9))
 
@@ -9654,44 +9656,44 @@ class PerssonModelGUI_V2:
 
         # Row 1: ΔT(v) and T_hot(v)
         self.ax_flash_dT = self.fig_flash_temp.add_subplot(321)
-        self.ax_flash_dT.set_title('ΔT(v) - Flash 온도 상승', fontweight='bold', fontsize=18)
-        self.ax_flash_dT.set_xlabel('속도 v (m/s)', fontsize=16)
-        self.ax_flash_dT.set_ylabel('ΔT (°C)', fontsize=16)
+        self.ax_flash_dT.set_title('ΔT(v) - Flash 온도 상승', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_flash_dT.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_flash_dT.set_ylabel('ΔT (°C)', fontsize=self.PLOT_FONTS['label'])
         self.ax_flash_dT.set_xscale('log')
         self.ax_flash_dT.grid(True, alpha=0.3)
 
         self.ax_flash_Thot = self.fig_flash_temp.add_subplot(322)
-        self.ax_flash_Thot.set_title('T_hot(v) - 접촉 온도', fontweight='bold', fontsize=18)
-        self.ax_flash_Thot.set_xlabel('속도 v (m/s)', fontsize=16)
-        self.ax_flash_Thot.set_ylabel('T_hot (°C)', fontsize=16)
+        self.ax_flash_Thot.set_title('T_hot(v) - 접촉 온도', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_flash_Thot.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_flash_Thot.set_ylabel('T_hot (°C)', fontsize=self.PLOT_FONTS['label'])
         self.ax_flash_Thot.set_xscale('log')
         self.ax_flash_Thot.grid(True, alpha=0.3)
 
         # Row 2: Per-q ΔT accumulation curves and heatmap
         self.ax_flash_dT_q = self.fig_flash_temp.add_subplot(323)
-        self.ax_flash_dT_q.set_title('ΔT(q) 파수별 누적', fontweight='bold', fontsize=18)
-        self.ax_flash_dT_q.set_xlabel('파수 q (1/m)', fontsize=16)
-        self.ax_flash_dT_q.set_ylabel('누적 ΔT (°C)', fontsize=16)
+        self.ax_flash_dT_q.set_title('ΔT(q) 파수별 누적', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_flash_dT_q.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_flash_dT_q.set_ylabel('누적 ΔT (°C)', fontsize=self.PLOT_FONTS['label'])
         self.ax_flash_dT_q.set_xscale('log')
         self.ax_flash_dT_q.grid(True, alpha=0.3)
 
         self.ax_flash_heatmap = self.fig_flash_temp.add_subplot(324)
-        self.ax_flash_heatmap.set_title('ΔT(q, v) 히트맵', fontweight='bold', fontsize=18)
-        self.ax_flash_heatmap.set_xlabel('속도 v (m/s)', fontsize=16)
-        self.ax_flash_heatmap.set_ylabel('파수 q (1/m)', fontsize=16)
+        self.ax_flash_heatmap.set_title('ΔT(q, v) 히트맵', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_flash_heatmap.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_flash_heatmap.set_ylabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
         self._flash_heatmap_cb = None  # colorbar reference for cleanup
 
         # Row 3: ζ vs ΔT comparison and A/A0 comparison
         self.ax_flash_zeta_dT = self.fig_flash_temp.add_subplot(325)
-        self.ax_flash_zeta_dT.set_title('ζ vs ΔT (v≈0.6758 m/s)', fontweight='bold', fontsize=18)
-        self.ax_flash_zeta_dT.set_xlabel('log₁₀(ζ) = log₁₀(q/q₀)', fontsize=16)
-        self.ax_flash_zeta_dT.set_ylabel('T (°C)', fontsize=16)
+        self.ax_flash_zeta_dT.set_title('ζ vs ΔT (v≈0.6758 m/s)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_flash_zeta_dT.set_xlabel('log₁₀(ζ) = log₁₀(q/q₀)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_flash_zeta_dT.set_ylabel('T (°C)', fontsize=self.PLOT_FONTS['label'])
         self.ax_flash_zeta_dT.grid(True, alpha=0.3)
 
         self.ax_flash_area_compare = self.fig_flash_temp.add_subplot(326)
-        self.ax_flash_area_compare.set_title('A/A0 Cold vs Hot', fontweight='bold', fontsize=18)
-        self.ax_flash_area_compare.set_xlabel('속도 v (m/s)', fontsize=16)
-        self.ax_flash_area_compare.set_ylabel('A/A0', fontsize=16)
+        self.ax_flash_area_compare.set_title('A/A0 Cold vs Hot', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_flash_area_compare.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_flash_area_compare.set_ylabel('A/A0', fontsize=self.PLOT_FONTS['label'])
         self.ax_flash_area_compare.set_xscale('log')
         self.ax_flash_area_compare.grid(True, alpha=0.3)
 
@@ -9721,10 +9723,10 @@ class PerssonModelGUI_V2:
                                            label='ΔT_cold (WLF 피드백 없음)')
             self.ax_flash_dT.semilogx(v, flash_results['delta_T'], 'r-', linewidth=2.5,
                                        marker='o', markersize=3, label='ΔT_hot (per-q 누적)')
-            self.ax_flash_dT.set_title('ΔT(v) - Flash 온도 상승', fontweight='bold', fontsize=18)
-            self.ax_flash_dT.set_xlabel('속도 v (m/s)', fontsize=16)
-            self.ax_flash_dT.set_ylabel('ΔT (°C)', fontsize=16)
-            self.ax_flash_dT.legend(fontsize=16)
+            self.ax_flash_dT.set_title('ΔT(v) - Flash 온도 상승', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_flash_dT.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_dT.set_ylabel('ΔT (°C)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_dT.legend(fontsize=self.PLOT_FONTS['label'])
             self.ax_flash_dT.grid(True, alpha=0.3)
 
             # === Row 1 Right: T_hot vs velocity ===
@@ -9733,10 +9735,10 @@ class PerssonModelGUI_V2:
                                          marker='s', markersize=3)
             self.ax_flash_Thot.axhline(y=T_base, color='b', linestyle='--', alpha=0.5,
                                         label=f'T_base = {T_base:.1f}°C')
-            self.ax_flash_Thot.set_title('T_hot(v) - 접촉 온도', fontweight='bold', fontsize=18)
-            self.ax_flash_Thot.set_xlabel('속도 v (m/s)', fontsize=16)
-            self.ax_flash_Thot.set_ylabel('T_hot (°C)', fontsize=16)
-            self.ax_flash_Thot.legend(fontsize=16)
+            self.ax_flash_Thot.set_title('T_hot(v) - 접촉 온도', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_flash_Thot.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_Thot.set_ylabel('T_hot (°C)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_Thot.legend(fontsize=self.PLOT_FONTS['label'])
             self.ax_flash_Thot.grid(True, alpha=0.3)
 
             # === Row 2 Left: ΔT(q) accumulation curves (per velocity) ===
@@ -9758,11 +9760,11 @@ class PerssonModelGUI_V2:
                         q_array, dT_curve, '-', color=color, linewidth=1.5,
                         label=f'v={v[j_idx]:.3g} m/s')
 
-                self.ax_flash_dT_q.legend(fontsize=16, loc='upper left', ncol=2)
+                self.ax_flash_dT_q.legend(fontsize=self.PLOT_FONTS['label'], loc='upper left', ncol=2)
 
-            self.ax_flash_dT_q.set_title('ΔT(q) 파수별 누적', fontweight='bold', fontsize=18)
-            self.ax_flash_dT_q.set_xlabel('파수 q (1/m)', fontsize=16)
-            self.ax_flash_dT_q.set_ylabel('누적 ΔT (°C)', fontsize=16)
+            self.ax_flash_dT_q.set_title('ΔT(q) 파수별 누적', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_flash_dT_q.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_dT_q.set_ylabel('누적 ΔT (°C)', fontsize=self.PLOT_FONTS['label'])
             self.ax_flash_dT_q.grid(True, alpha=0.3)
 
             # === Row 2 Right: ΔT(q, v) heatmap ===
@@ -9787,12 +9789,12 @@ class PerssonModelGUI_V2:
                         vmin=0, vmax=dT_max)
                     self._flash_heatmap_cb = self.fig_flash_temp.colorbar(
                         pcm, ax=self.ax_flash_heatmap, pad=0.02)
-                    self._flash_heatmap_cb.set_label('ΔT (°C)', fontsize=16)
-                    self._flash_heatmap_cb.ax.tick_params(labelsize=14)
+                    self._flash_heatmap_cb.set_label('ΔT (°C)', fontsize=self.PLOT_FONTS['label'])
+                    self._flash_heatmap_cb.ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
 
-                self.ax_flash_heatmap.set_xlabel('log₁₀(v) [m/s]', fontsize=16)
-                self.ax_flash_heatmap.set_ylabel('log₁₀(q) [1/m]', fontsize=16)
-            self.ax_flash_heatmap.set_title('ΔT(q, v) 히트맵', fontweight='bold', fontsize=18)
+                self.ax_flash_heatmap.set_xlabel('log₁₀(v) [m/s]', fontsize=self.PLOT_FONTS['label'])
+                self.ax_flash_heatmap.set_ylabel('log₁₀(q) [1/m]', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_heatmap.set_title('ΔT(q, v) 히트맵', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
 
             # === Row 3 Left: ζ vs ΔT (preset comparison at v≈0.6758 m/s) ===
             self.ax_flash_zeta_dT.clear()
@@ -9917,10 +9919,10 @@ class PerssonModelGUI_V2:
                 self.ax_flash_zeta_dT.plot(log_zeta_calc, T_calc, 'b-', linewidth=2,
                                             label=f'계산 (v={v_ref_val:.4f} m/s)')
 
-            self.ax_flash_zeta_dT.set_title(f'ζ vs ΔT (v={v_ref_val:.4f} m/s)', fontweight='bold', fontsize=18)
-            self.ax_flash_zeta_dT.set_xlabel('log₁₀(ζ) = log₁₀(q/q₀)', fontsize=16)
-            self.ax_flash_zeta_dT.set_ylabel('T (°C)', fontsize=16)
-            self.ax_flash_zeta_dT.legend(fontsize=16)
+            self.ax_flash_zeta_dT.set_title(f'ζ vs ΔT (v={v_ref_val:.4f} m/s)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_flash_zeta_dT.set_xlabel('log₁₀(ζ) = log₁₀(q/q₀)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_zeta_dT.set_ylabel('T (°C)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_zeta_dT.legend(fontsize=self.PLOT_FONTS['label'])
             self.ax_flash_zeta_dT.grid(True, alpha=0.3)
 
             # === Row 3 Right: A/A0 cold vs hot ===
@@ -9931,10 +9933,10 @@ class PerssonModelGUI_V2:
             if A_A0_hot is not None:
                 self.ax_flash_area_compare.semilogx(v, A_A0_hot, '-', color='#DC2626', linewidth=2,
                                                      marker='s', markersize=3, label='A/A0 Hot')
-            self.ax_flash_area_compare.set_title('A/A0 Cold vs Hot', fontweight='bold', fontsize=18)
-            self.ax_flash_area_compare.set_xlabel('속도 v (m/s)', fontsize=16)
-            self.ax_flash_area_compare.set_ylabel('A/A0', fontsize=16)
-            self.ax_flash_area_compare.legend(fontsize=16)
+            self.ax_flash_area_compare.set_title('A/A0 Cold vs Hot', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_flash_area_compare.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_area_compare.set_ylabel('A/A0', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_area_compare.legend(fontsize=self.PLOT_FONTS['label'])
             self.ax_flash_area_compare.grid(True, alpha=0.3)
 
             self.canvas_flash_temp.draw_idle()
@@ -11149,32 +11151,32 @@ class PerssonModelGUI_V2:
 
         # Top-left: f,g curves
         self.ax_fg_curves = self.fig_mu_visc.add_subplot(221)
-        self.ax_fg_curves.set_title('f(ε), g(ε) 곡선', fontweight='bold', fontsize=18)
-        self.ax_fg_curves.set_xlabel('변형률 ε (fraction)', fontsize=16)
-        self.ax_fg_curves.set_ylabel('보정 계수', fontsize=16)
+        self.ax_fg_curves.set_title('f(ε), g(ε) 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_fg_curves.set_xlabel('변형률 ε (fraction)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_fg_curves.set_ylabel('보정 계수', fontsize=self.PLOT_FONTS['label'])
         self.ax_fg_curves.grid(True, alpha=0.3)
 
         # Top-right: mu_visc vs velocity
         self.ax_mu_v = self.fig_mu_visc.add_subplot(222)
-        self.ax_mu_v.set_title('μ_visc(v) 곡선', fontweight='bold', fontsize=18)
-        self.ax_mu_v.set_xlabel('속도 v (m/s)', fontsize=16)
-        self.ax_mu_v.set_ylabel('마찰 계수 μ_visc', fontsize=16)
+        self.ax_mu_v.set_title('μ_visc(v) 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mu_v.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mu_v.set_ylabel('마찰 계수 μ_visc', fontsize=self.PLOT_FONTS['label'])
         self.ax_mu_v.set_xscale('log')
         self.ax_mu_v.grid(True, alpha=0.3)
 
         # Bottom-left: Contact Area Ratio vs Velocity
         self.ax_mu_cumulative = self.fig_mu_visc.add_subplot(223)
-        self.ax_mu_cumulative.set_title('실접촉 면적비율 P(v)', fontweight='bold', fontsize=18)
-        self.ax_mu_cumulative.set_xlabel('속도 v (m/s)', fontsize=16)
-        self.ax_mu_cumulative.set_ylabel('평균 P(q)', fontsize=16)
+        self.ax_mu_cumulative.set_title('실접촉 면적비율 P(v)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mu_cumulative.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mu_cumulative.set_ylabel('평균 P(q)', fontsize=self.PLOT_FONTS['label'])
         self.ax_mu_cumulative.set_xscale('log')
         self.ax_mu_cumulative.grid(True, alpha=0.3)
 
         # Bottom-right: P(q) and S(q)
         self.ax_ps = self.fig_mu_visc.add_subplot(224)
-        self.ax_ps.set_title('P(q), S(q) 분포', fontweight='bold', fontsize=18)
-        self.ax_ps.set_xlabel('파수 q (1/m)', fontsize=16)
-        self.ax_ps.set_ylabel('P(q), S(q)', fontsize=16)
+        self.ax_ps.set_title('P(q), S(q) 분포', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_ps.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_ps.set_ylabel('P(q), S(q)', fontsize=self.PLOT_FONTS['label'])
         self.ax_ps.set_xscale('log')
         self.ax_ps.grid(True, alpha=0.3)
 
@@ -11398,9 +11400,9 @@ class PerssonModelGUI_V2:
     def _update_fg_plot_persson_avg(self):
         """Update f,g curves plot with Persson average visualization."""
         self.ax_fg_curves.clear()
-        self.ax_fg_curves.set_title('f(ε), g(ε) Persson Average (RANK1)', fontweight='bold', fontsize=18)
-        self.ax_fg_curves.set_xlabel('변형률 ε (fraction)', fontsize=16)
-        self.ax_fg_curves.set_ylabel('보정 계수', fontsize=16)
+        self.ax_fg_curves.set_title('f(ε), g(ε) Persson Average (RANK1)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_fg_curves.set_xlabel('변형률 ε (fraction)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_fg_curves.set_ylabel('보정 계수', fontsize=self.PLOT_FONTS['label'])
         self.ax_fg_curves.grid(True, alpha=0.3)
 
         # Plot individual temperature curves (thin, low alpha)
@@ -11445,7 +11447,7 @@ class PerssonModelGUI_V2:
 
         self.ax_fg_curves.set_xlim(0, x_max)
         self.ax_fg_curves.set_ylim(0, 1.1)
-        self.ax_fg_curves.legend(loc='best', fontsize=16, ncol=2)
+        self.ax_fg_curves.legend(loc='best', fontsize=self.PLOT_FONTS['label'], ncol=2)
 
         self.canvas_mu_visc.draw()
 
@@ -11882,9 +11884,9 @@ class PerssonModelGUI_V2:
     def _update_fg_plot(self):
         """Update f,g curves plot."""
         self.ax_fg_curves.clear()
-        self.ax_fg_curves.set_title('f(ε), g(ε) 곡선', fontweight='bold', fontsize=18)
-        self.ax_fg_curves.set_xlabel('변형률 ε (fraction)', fontsize=16)
-        self.ax_fg_curves.set_ylabel('보정 계수', fontsize=16)
+        self.ax_fg_curves.set_title('f(ε), g(ε) 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_fg_curves.set_xlabel('변형률 ε (fraction)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_fg_curves.set_ylabel('보정 계수', fontsize=self.PLOT_FONTS['label'])
         self.ax_fg_curves.grid(True, alpha=0.3)
 
         # Plot individual temperature curves
@@ -11911,7 +11913,7 @@ class PerssonModelGUI_V2:
             self.ax_fg_curves.plot(s, g_final, 'r-', linewidth=3.5, label='g(ε) Persson Avg')
             self.ax_fg_curves.axvline(split, color='green', linewidth=2, linestyle=':', alpha=0.8,
                                       label=f'Split @ {split*100:.1f}%')
-            self.ax_fg_curves.legend(loc='best', fontsize=16, ncol=2)
+            self.ax_fg_curves.legend(loc='best', fontsize=self.PLOT_FONTS['label'], ncol=2)
         elif self.fg_averaged is not None:
             s = self.fg_averaged['strain']
             f_avg = self.fg_averaged['f_avg']
@@ -13555,11 +13557,11 @@ class PerssonModelGUI_V2:
                                           color='#DC2626', linewidth=2.5, marker='s',
                                           markersize=4, label='μ_hot (WITH FLASH)')
                     self._mu_plot_lines['mu_hot'] = ln_hot
-                self.ax_mu_v.set_title('μ_visc(v) - Cold vs Hot', fontweight='bold', fontsize=18)
+                self.ax_mu_v.set_title('μ_visc(v) - Cold vs Hot', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
             else:
-                self.ax_mu_v.set_title('μ_visc(v) 곡선', fontweight='bold', fontsize=18)
-            self.ax_mu_v.set_xlabel('속도 v (m/s)', fontsize=16)
-            self.ax_mu_v.set_ylabel('마찰 계수 μ_visc', fontsize=16)
+                self.ax_mu_v.set_title('μ_visc(v) 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_mu_v.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mu_v.set_ylabel('마찰 계수 μ_visc', fontsize=self.PLOT_FONTS['label'])
             self.ax_mu_v.grid(True, alpha=0.3)
 
             # Find peak (handle NaN values) - use hot curve if available, else cold
@@ -13618,7 +13620,7 @@ class PerssonModelGUI_V2:
                 print(f"[DEBUG] 참조 μ_visc 플롯 오류: {e}")
             self._mu_plot_lines['mu_ref'] = mu_ref_artists
 
-            self.ax_mu_v.legend(loc='best', fontsize=16)
+            self.ax_mu_v.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
 
             # Plot 2: Real Contact Area Ratio A/A0 = P(q_max) vs velocity
             P_qmax_array = np.zeros(len(v))
@@ -13688,10 +13690,10 @@ class PerssonModelGUI_V2:
                 print(f"[DEBUG] 참조 A/A0 플롯 오류: {e}")
             self._mu_plot_lines['aa_ref'] = aa_ref_artists
 
-            self.ax_mu_cumulative.set_title(f'실접촉 면적비율 A/A0{title_suffix}', fontweight='bold', fontsize=18)
-            self.ax_mu_cumulative.set_xlabel('속도 v (m/s)', fontsize=16)
-            self.ax_mu_cumulative.set_ylabel('A/A0 = P(q_max)', fontsize=16)
-            self.ax_mu_cumulative.legend(loc='best', fontsize=16)
+            self.ax_mu_cumulative.set_title(f'실접촉 면적비율 A/A0{title_suffix}', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_mu_cumulative.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mu_cumulative.set_ylabel('A/A0 = P(q_max)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mu_cumulative.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_mu_cumulative.grid(True, alpha=0.3)
 
             # Set y-axis to show data with padding (auto-scale based on actual data)
@@ -13729,12 +13731,12 @@ class PerssonModelGUI_V2:
             self.ax_ps.semilogx(q, S, 'r--', linewidth=1.5, label='S(q)')
             ax_twin.semilogx(q, cumulative, 'g-', linewidth=1.5, alpha=0.7, label='누적μ')
 
-            self.ax_ps.set_title('P(q), S(q) / 누적 μ', fontweight='bold', fontsize=18)
-            self.ax_ps.set_xlabel('파수 q (1/m)', fontsize=16)
-            self.ax_ps.set_ylabel('P(q), S(q)', color='blue', fontsize=16)
-            ax_twin.set_ylabel('누적 μ', color='green', fontsize=16)
-            self.ax_ps.legend(loc='best', fontsize=16)
-            ax_twin.legend(loc='best', fontsize=16)
+            self.ax_ps.set_title('P(q), S(q) / 누적 μ', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_ps.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ps.set_ylabel('P(q), S(q)', color='blue', fontsize=self.PLOT_FONTS['label'])
+            ax_twin.set_ylabel('누적 μ', color='green', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ps.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
+            ax_twin.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_ps.grid(True, alpha=0.3)
             self.ax_ps.set_ylim(0, 1.1)
 
@@ -13833,7 +13835,7 @@ class PerssonModelGUI_V2:
             handles, labels = ax.get_legend_handles_labels()
             visible = [(h, l) for h, l in zip(handles, labels) if h.get_visible()]
             if visible:
-                ax.legend(*zip(*visible), loc='best', fontsize=16)
+                ax.legend(*zip(*visible), loc='best', fontsize=self.PLOT_FONTS['label'])
             else:
                 leg = ax.get_legend()
                 if leg:
@@ -13862,16 +13864,16 @@ class PerssonModelGUI_V2:
                           '#42D4F4', '#F032E6', '#BFEF45', '#FABED4', '#469990']
             # Clear and re-plot on mu_v and mu_cumulative axes
             self.ax_mu_v.clear()
-            self.ax_mu_v.set_title('μ_visc(v) 곡선', fontweight='bold', fontsize=18)
-            self.ax_mu_v.set_xlabel('속도 v (m/s)', fontsize=16)
-            self.ax_mu_v.set_ylabel('마찰 계수 μ_visc', fontsize=16)
+            self.ax_mu_v.set_title('μ_visc(v) 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_mu_v.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mu_v.set_ylabel('마찰 계수 μ_visc', fontsize=self.PLOT_FONTS['label'])
             self.ax_mu_v.set_xscale('log')
             self.ax_mu_v.grid(True, alpha=0.3)
 
             self.ax_mu_cumulative.clear()
-            self.ax_mu_cumulative.set_title('실접촉 면적비율 P(v)', fontweight='bold', fontsize=18)
-            self.ax_mu_cumulative.set_xlabel('속도 v (m/s)', fontsize=16)
-            self.ax_mu_cumulative.set_ylabel('평균 P(q)', fontsize=16)
+            self.ax_mu_cumulative.set_title('실접촉 면적비율 P(v)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_mu_cumulative.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mu_cumulative.set_ylabel('평균 P(q)', fontsize=self.PLOT_FONTS['label'])
             self.ax_mu_cumulative.set_xscale('log')
             self.ax_mu_cumulative.grid(True, alpha=0.3)
 
@@ -13889,8 +13891,8 @@ class PerssonModelGUI_V2:
                     self.ax_mu_cumulative.semilogx(10**log_v, area_vals, '-', color=color,
                                                     linewidth=1.8, alpha=0.8, label=f'참조: {name}')
 
-            self.ax_mu_v.legend(loc='best', fontsize=16)
-            self.ax_mu_cumulative.legend(loc='best', fontsize=16)
+            self.ax_mu_v.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mu_cumulative.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.canvas_mu_visc.draw()
         except Exception as e:
             print(f"[DEBUG] _plot_ref_datasets_on_initial_axes error: {e}")
@@ -15680,30 +15682,30 @@ class PerssonModelGUI_V2:
             (self.ax_contact_nonlinear, "A/A0 (nonlinear)")
         ]
         for ax, title in heatmap_axes:
-            ax.set_title(title, fontweight='bold', fontsize=18)
-            ax.set_xlabel('log10(v) [m/s]', fontsize=16)
-            ax.set_ylabel('log10(q) [1/m]', fontsize=16)
+            ax.set_title(title, fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            ax.set_xlabel('log10(v) [m/s]', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('log10(q) [1/m]', fontsize=self.PLOT_FONTS['label'])
             ax.text(0.5, 0.5, 'No data',
                    ha='center', va='center', transform=ax.transAxes,
-                   fontsize=18, color='gray')
+                   fontsize=self.PLOT_FONTS['title'], color='gray')
 
         # f,g factor graph placeholder
-        self.ax_fg_factors.set_title('f(ε), g(ε) Factors', fontweight='bold', fontsize=18)
-        self.ax_fg_factors.set_xlabel('Strain', fontsize=16)
-        self.ax_fg_factors.set_ylabel('Factor', fontsize=16)
+        self.ax_fg_factors.set_title('f(ε), g(ε) Factors', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_fg_factors.set_xlabel('Strain', fontsize=self.PLOT_FONTS['label'])
+        self.ax_fg_factors.set_ylabel('Factor', fontsize=self.PLOT_FONTS['label'])
         self.ax_fg_factors.text(0.5, 0.5, 'No data',
                ha='center', va='center', transform=self.ax_fg_factors.transAxes,
-               fontsize=18, color='gray')
+               fontsize=self.PLOT_FONTS['title'], color='gray')
 
         # G cumulative vs velocity graph placeholders
         for ax, title in [(self.ax_G_cumul_linear, 'G(q_max) vs v (lin)'),
                           (self.ax_G_cumul_nonlinear, 'G(q_max) vs v (nl)')]:
-            ax.set_title(title, fontweight='bold', fontsize=18)
-            ax.set_xlabel('log10(v) [m/s]', fontsize=16)
-            ax.set_ylabel('G(q_max)', fontsize=16)
+            ax.set_title(title, fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            ax.set_xlabel('log10(v) [m/s]', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('G(q_max)', fontsize=self.PLOT_FONTS['label'])
             ax.text(0.5, 0.5, 'No data',
                    ha='center', va='center', transform=ax.transAxes,
-                   fontsize=18, color='gray')
+                   fontsize=self.PLOT_FONTS['title'], color='gray')
 
         self.fig_strain_map.subplots_adjust(left=0.08, right=0.95, top=0.96, bottom=0.06, hspace=0.45, wspace=0.30)
         self.canvas_strain_map.draw()
@@ -16050,39 +16052,39 @@ class PerssonModelGUI_V2:
         strain_pct = np.nan_to_num(strain, nan=0.0) * 100
         im1 = self.ax_strain_contour.pcolormesh(V, Q, strain_pct, cmap=strain_cmap, shading='auto')
         self.ax_strain_contour.set_facecolor('white')
-        self.ax_strain_contour.set_title('Local Strain [%]', fontweight='bold', fontsize=18)
-        self.ax_strain_contour.set_xlabel('log10(v)', fontsize=16)
-        self.ax_strain_contour.set_ylabel('log10(q)', fontsize=16)
+        self.ax_strain_contour.set_title('Local Strain [%]', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_strain_contour.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_strain_contour.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
         cbar1 = self.fig_strain_map.colorbar(im1, ax=self.ax_strain_contour)
-        cbar1.set_label('%', fontsize=16)
+        cbar1.set_label('%', fontsize=self.PLOT_FONTS['label'])
         self._strain_map_colorbars.append(cbar1)
         try:
             cs = self.ax_strain_contour.contour(V, Q, strain_pct,
                                                  levels=[1, 5, 10], colors='k', linewidths=0.5)
-            self.ax_strain_contour.clabel(cs, inline=True, fontsize=18, fmt='%.0f%%')
+            self.ax_strain_contour.clabel(cs, inline=True, fontsize=self.PLOT_FONTS['title'], fmt='%.0f%%')
         except:
             pass
         strain_flat = strain.ravel()
         if len(strain_flat) > 0:
             self.ax_strain_contour.text(0.02, 0.98,
                 f'Mean:{np.mean(strain_flat)*100:.1f}%\nMax:{np.max(strain_flat)*100:.1f}%',
-                transform=self.ax_strain_contour.transAxes, fontsize=18, va='top',
+                transform=self.ax_strain_contour.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
                 bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # Plot 2: E' Storage [MPa] — E' + E'×f 공유 LogNorm
         im2 = self.ax_E_storage.pcolormesh(V, Q, E_s_MPa, cmap=E_storage_cmap, shading='auto',
                                             norm=stor_norm)
         self.ax_E_storage.set_facecolor('white')
-        self.ax_E_storage.set_title("E' Storage [MPa]", fontweight='bold', fontsize=18)
-        self.ax_E_storage.set_xlabel('log10(v)', fontsize=16)
-        self.ax_E_storage.set_ylabel('log10(q)', fontsize=16)
+        self.ax_E_storage.set_title("E' Storage [MPa]", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_E_storage.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_E_storage.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
         cbar2 = self.fig_strain_map.colorbar(im2, ax=self.ax_E_storage)
-        cbar2.set_label('MPa', fontsize=16)
+        cbar2.set_label('MPa', fontsize=self.PLOT_FONTS['label'])
         self._strain_map_colorbars.append(cbar2)
         E_s_at1 = E_s_MPa[:, v_1ms_idx]
         self.ax_E_storage.text(0.02, 0.98,
             f"v=1: {E_s_at1.min():.1f}~{E_s_at1.max():.1f} MPa",
-            transform=self.ax_E_storage.transAxes, fontsize=18, va='top',
+            transform=self.ax_E_storage.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
             bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # Plot 3: E'' Loss [MPa] — E'' + E''×g 공유 LogNorm
@@ -16090,32 +16092,32 @@ class PerssonModelGUI_V2:
             im3 = self.ax_E_loss_linear.pcolormesh(V, Q, E_ll_MPa, cmap=E_loss_cmap, shading='auto',
                                                     norm=loss_norm)
             self.ax_E_loss_linear.set_facecolor('white')
-            self.ax_E_loss_linear.set_title("E'' Loss [MPa]", fontweight='bold', fontsize=18)
-            self.ax_E_loss_linear.set_xlabel('log10(v)', fontsize=16)
-            self.ax_E_loss_linear.set_ylabel('log10(q)', fontsize=16)
+            self.ax_E_loss_linear.set_title("E'' Loss [MPa]", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_E_loss_linear.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_E_loss_linear.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
             cbar3 = self.fig_strain_map.colorbar(im3, ax=self.ax_E_loss_linear)
-            cbar3.set_label('MPa', fontsize=16)
+            cbar3.set_label('MPa', fontsize=self.PLOT_FONTS['label'])
             self._strain_map_colorbars.append(cbar3)
             E_ll_at1 = E_ll_MPa[:, v_1ms_idx]
             self.ax_E_loss_linear.text(0.02, 0.98,
                 f"v=1: {E_ll_at1.min():.2f}~{E_ll_at1.max():.1f} MPa",
-                transform=self.ax_E_loss_linear.transAxes, fontsize=18, va='top',
+                transform=self.ax_E_loss_linear.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
                 bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # Plot 4: E''×g [MPa] — E'' + E''×g 공유 LogNorm
         im4 = self.ax_E_loss_nonlinear.pcolormesh(V, Q, E_lnl_MPa, cmap=E_loss_cmap, shading='auto',
                                                     norm=loss_norm)
         self.ax_E_loss_nonlinear.set_facecolor('white')
-        self.ax_E_loss_nonlinear.set_title("E''×g [MPa]", fontweight='bold', fontsize=18)
-        self.ax_E_loss_nonlinear.set_xlabel('log10(v)', fontsize=16)
-        self.ax_E_loss_nonlinear.set_ylabel('log10(q)', fontsize=16)
+        self.ax_E_loss_nonlinear.set_title("E''×g [MPa]", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_E_loss_nonlinear.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_E_loss_nonlinear.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
         cbar4 = self.fig_strain_map.colorbar(im4, ax=self.ax_E_loss_nonlinear)
-        cbar4.set_label('MPa', fontsize=16)
+        cbar4.set_label('MPa', fontsize=self.PLOT_FONTS['label'])
         self._strain_map_colorbars.append(cbar4)
         E_lnl_at1 = E_lnl_MPa[:, v_1ms_idx]
         self.ax_E_loss_nonlinear.text(0.02, 0.98,
             f"v=1: {E_lnl_at1.min():.2f}~{E_lnl_at1.max():.1f} MPa",
-            transform=self.ax_E_loss_nonlinear.transAxes, fontsize=18, va='top',
+            transform=self.ax_E_loss_nonlinear.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
             bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # ===== Row 2 =====
@@ -16123,16 +16125,16 @@ class PerssonModelGUI_V2:
         im5 = self.ax_E_storage_nonlinear.pcolormesh(V, Q, E_snl_MPa, cmap=E_storage_cmap, shading='auto',
                                                       norm=stor_norm)
         self.ax_E_storage_nonlinear.set_facecolor('white')
-        self.ax_E_storage_nonlinear.set_title("E'×f [MPa]", fontweight='bold', fontsize=18)
-        self.ax_E_storage_nonlinear.set_xlabel('log10(v)', fontsize=16)
-        self.ax_E_storage_nonlinear.set_ylabel('log10(q)', fontsize=16)
+        self.ax_E_storage_nonlinear.set_title("E'×f [MPa]", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_E_storage_nonlinear.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_E_storage_nonlinear.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
         cbar5 = self.fig_strain_map.colorbar(im5, ax=self.ax_E_storage_nonlinear)
-        cbar5.set_label('MPa', fontsize=16)
+        cbar5.set_label('MPa', fontsize=self.PLOT_FONTS['label'])
         self._strain_map_colorbars.append(cbar5)
         E_snl_at1 = E_snl_MPa[:, v_1ms_idx]
         self.ax_E_storage_nonlinear.text(0.02, 0.98,
             f"v=1: {E_snl_at1.min():.1f}~{E_snl_at1.max():.1f} MPa",
-            transform=self.ax_E_storage_nonlinear.transAxes, fontsize=18, va='top',
+            transform=self.ax_E_storage_nonlinear.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
             bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # ===== Y축 크롭: G integrand가 유의미해지는 q부터만 표시 =====
@@ -16162,11 +16164,11 @@ class PerssonModelGUI_V2:
             s_plot = np.linspace(0, 0.5, 200)
             g_vals = np.array([self.g_interpolator(s) for s in s_plot])
             self.ax_fg_factors.plot(s_plot * 100, g_vals, 'r-', linewidth=2, label='g(ε)')
-        self.ax_fg_factors.set_title('f(ε), g(ε) Factors', fontweight='bold', fontsize=18)
-        self.ax_fg_factors.set_xlabel('Strain [%]', fontsize=16)
-        self.ax_fg_factors.set_ylabel('Factor', fontsize=16)
+        self.ax_fg_factors.set_title('f(ε), g(ε) Factors', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_fg_factors.set_xlabel('Strain [%]', fontsize=self.PLOT_FONTS['label'])
+        self.ax_fg_factors.set_ylabel('Factor', fontsize=self.PLOT_FONTS['label'])
         self.ax_fg_factors.set_ylim(0, 1.1)
-        self.ax_fg_factors.legend(fontsize=16, loc='best')
+        self.ax_fg_factors.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         self.ax_fg_factors.grid(True, alpha=0.3)
 
         # G integrand 공유 범위 계산 (linear + nonlinear)
@@ -16189,11 +16191,11 @@ class PerssonModelGUI_V2:
             log_G_lin_masked = _masked(g_lin_log)
             im7a = self.ax_G_integrand_linear.pcolormesh(V, Q, log_G_lin_masked, cmap=g_cmap, shading='auto',
                                                           vmin=g_vmin, vmax=g_vmax)
-            self.ax_G_integrand_linear.set_title('G(q) (lin) [log]', fontweight='bold', fontsize=18)
-            self.ax_G_integrand_linear.set_xlabel('log10(v)', fontsize=16)
-            self.ax_G_integrand_linear.set_ylabel('log10(q)', fontsize=16)
+            self.ax_G_integrand_linear.set_title('G(q) (lin) [log]', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_G_integrand_linear.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_G_integrand_linear.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
             cbar7a = self.fig_strain_map.colorbar(im7a, ax=self.ax_G_integrand_linear)
-            cbar7a.set_label('log10(G)', fontsize=16)
+            cbar7a.set_label('log10(G)', fontsize=self.PLOT_FONTS['label'])
             self._strain_map_colorbars.append(cbar7a)
             crop_axes.append(self.ax_G_integrand_linear)
 
@@ -16202,11 +16204,11 @@ class PerssonModelGUI_V2:
             log_G_nl_masked = _masked(g_nl_log)
             im7b = self.ax_G_integrand.pcolormesh(V, Q, log_G_nl_masked, cmap=g_cmap, shading='auto',
                                                    vmin=g_vmin, vmax=g_vmax)
-            self.ax_G_integrand.set_title('G(q) (nl) [log]', fontweight='bold', fontsize=18)
-            self.ax_G_integrand.set_xlabel('log10(v)', fontsize=16)
-            self.ax_G_integrand.set_ylabel('log10(q)', fontsize=16)
+            self.ax_G_integrand.set_title('G(q) (nl) [log]', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_G_integrand.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_G_integrand.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
             cbar7b = self.fig_strain_map.colorbar(im7b, ax=self.ax_G_integrand)
-            cbar7b.set_label('log10(G)', fontsize=16)
+            cbar7b.set_label('log10(G)', fontsize=self.PLOT_FONTS['label'])
             self._strain_map_colorbars.append(cbar7b)
             crop_axes.append(self.ax_G_integrand)
 
@@ -16219,9 +16221,9 @@ class PerssonModelGUI_V2:
             G_qmax_lin = G_int_lin[-1, :]  # shape (n_v,)
             self.ax_G_cumul_linear.set_facecolor('white')
             self.ax_G_cumul_linear.plot(log_v, G_qmax_lin, 'b-', linewidth=2, label='G(q_max)')
-            self.ax_G_cumul_linear.set_title('G(q_max) vs v (lin)', fontweight='bold', fontsize=18)
-            self.ax_G_cumul_linear.set_xlabel('log10(v) [m/s]', fontsize=16)
-            self.ax_G_cumul_linear.set_ylabel('G(q_max)', fontsize=16)
+            self.ax_G_cumul_linear.set_title('G(q_max) vs v (lin)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_G_cumul_linear.set_xlabel('log10(v) [m/s]', fontsize=self.PLOT_FONTS['label'])
+            self.ax_G_cumul_linear.set_ylabel('G(q_max)', fontsize=self.PLOT_FONTS['label'])
             self.ax_G_cumul_linear.grid(True, alpha=0.3)
             # Add a few intermediate q lines for reference
             n_q_plot = len(q)
@@ -16232,13 +16234,13 @@ class PerssonModelGUI_V2:
                     G_qi = G_int_lin[qi, :]
                     self.ax_G_cumul_linear.plot(log_v, G_qi, color=qc, linewidth=1, alpha=0.6,
                                                 label=f'q={q[qi]:.0e}')
-            self.ax_G_cumul_linear.legend(fontsize=16, loc='best')
+            self.ax_G_cumul_linear.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
             # Annotate max G value
             G_max_lin = np.max(G_qmax_lin)
             v_at_max = log_v[np.argmax(G_qmax_lin)]
             self.ax_G_cumul_linear.text(0.02, 0.98,
                 f'G_max={G_max_lin:.4f}\nv={10**v_at_max:.2e} m/s',
-                transform=self.ax_G_cumul_linear.transAxes, fontsize=18, va='top',
+                transform=self.ax_G_cumul_linear.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
                 bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # Nonlinear G(q_max, v)
@@ -16251,17 +16253,17 @@ class PerssonModelGUI_V2:
                 G_qmax_lin_ref = G_int_lin[-1, :]
                 self.ax_G_cumul_nonlinear.plot(log_v, G_qmax_lin_ref, 'b--', linewidth=1.2,
                                                 alpha=0.5, label='G(q_max) lin')
-            self.ax_G_cumul_nonlinear.set_title('G(q_max) vs v (nl)', fontweight='bold', fontsize=18)
-            self.ax_G_cumul_nonlinear.set_xlabel('log10(v) [m/s]', fontsize=16)
-            self.ax_G_cumul_nonlinear.set_ylabel('G(q_max)', fontsize=16)
+            self.ax_G_cumul_nonlinear.set_title('G(q_max) vs v (nl)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_G_cumul_nonlinear.set_xlabel('log10(v) [m/s]', fontsize=self.PLOT_FONTS['label'])
+            self.ax_G_cumul_nonlinear.set_ylabel('G(q_max)', fontsize=self.PLOT_FONTS['label'])
             self.ax_G_cumul_nonlinear.grid(True, alpha=0.3)
-            self.ax_G_cumul_nonlinear.legend(fontsize=16, loc='best')
+            self.ax_G_cumul_nonlinear.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
             # Annotate max G value
             G_max_nl = np.max(G_qmax_nl)
             v_at_max_nl = log_v[np.argmax(G_qmax_nl)]
             self.ax_G_cumul_nonlinear.text(0.02, 0.98,
                 f'G_max={G_max_nl:.4f}\nv={10**v_at_max_nl:.2e} m/s',
-                transform=self.ax_G_cumul_nonlinear.transAxes, fontsize=18, va='top',
+                transform=self.ax_G_cumul_nonlinear.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
                 bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # Plot 9: A/A0 (linear) — 유효 영역만
@@ -16275,11 +16277,11 @@ class PerssonModelGUI_V2:
                 c_vmin, c_vmax = 0, 1
             im9 = self.ax_contact_linear.pcolormesh(V, Q, c_lin_masked, cmap=contact_cmap, shading='auto',
                                                      vmin=c_vmin, vmax=c_vmax)
-            self.ax_contact_linear.set_title('A/A0 (linear)', fontweight='bold', fontsize=18)
-            self.ax_contact_linear.set_xlabel('log10(v)', fontsize=16)
-            self.ax_contact_linear.set_ylabel('log10(q)', fontsize=16)
+            self.ax_contact_linear.set_title('A/A0 (linear)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_contact_linear.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_contact_linear.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
             cbar9 = self.fig_strain_map.colorbar(im9, ax=self.ax_contact_linear)
-            cbar9.set_label('A/A0', fontsize=16)
+            cbar9.set_label('A/A0', fontsize=self.PLOT_FONTS['label'])
             self._strain_map_colorbars.append(cbar9)
             crop_axes.append(self.ax_contact_linear)
             P_lin_at1 = contact_lin[:, v_1ms_idx]
@@ -16287,7 +16289,7 @@ class PerssonModelGUI_V2:
             if len(P_lin_valid) > 0:
                 self.ax_contact_linear.text(0.02, 0.98,
                     f'v=1: {P_lin_valid.min():.3f}~{P_lin_valid.max():.3f}',
-                    transform=self.ax_contact_linear.transAxes, fontsize=18, va='top',
+                    transform=self.ax_contact_linear.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
                     bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # Plot 10: A/A0 (nonlinear) — 유효 영역만
@@ -16301,11 +16303,11 @@ class PerssonModelGUI_V2:
                 c_nl_vmin, c_nl_vmax = 0, 1
             im10 = self.ax_contact_nonlinear.pcolormesh(V, Q, c_nl_masked, cmap=contact_cmap, shading='auto',
                                                          vmin=c_nl_vmin, vmax=c_nl_vmax)
-            self.ax_contact_nonlinear.set_title('A/A0 (nonlinear)', fontweight='bold', fontsize=18)
-            self.ax_contact_nonlinear.set_xlabel('log10(v)', fontsize=16)
-            self.ax_contact_nonlinear.set_ylabel('log10(q)', fontsize=16)
+            self.ax_contact_nonlinear.set_title('A/A0 (nonlinear)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_contact_nonlinear.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_contact_nonlinear.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
             cbar10 = self.fig_strain_map.colorbar(im10, ax=self.ax_contact_nonlinear)
-            cbar10.set_label('A/A0', fontsize=16)
+            cbar10.set_label('A/A0', fontsize=self.PLOT_FONTS['label'])
             self._strain_map_colorbars.append(cbar10)
             crop_axes.append(self.ax_contact_nonlinear)
             P_nl_at1 = contact_nl[:, v_1ms_idx]
@@ -16313,7 +16315,7 @@ class PerssonModelGUI_V2:
             if len(P_nl_valid) > 0:
                 self.ax_contact_nonlinear.text(0.02, 0.98,
                     f'v=1: {P_nl_valid.min():.3f}~{P_nl_valid.max():.3f}',
-                    transform=self.ax_contact_nonlinear.transAxes, fontsize=18, va='top',
+                    transform=self.ax_contact_nonlinear.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
                     bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # ===== Y축 크롭 적용: G integrand, A/A0 — 유효 데이터 영역만 =====
@@ -16766,8 +16768,8 @@ class PerssonModelGUI_V2:
                     self.integrand_result_text.insert(tk.END, f"  ε(q) = {strain_at_q:.4f}\n")
                 self.integrand_result_text.insert(tk.END, "\n")
 
-            self.ax_angle_integrand.legend(fontsize=16, loc='best')
-            self.ax_mu_integrand.legend(fontsize=16, loc='best')
+            self.ax_angle_integrand.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
+            self.ax_mu_integrand.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
             self.integrand_progress_var.set(50)
             self.root.update_idletasks()
@@ -16826,7 +16828,7 @@ class PerssonModelGUI_V2:
                     self.ax_q_integrand.axvline(q, color='r', linestyle='--', alpha=0.5)
                     self.ax_q_integrand.plot(q, G_integrand_values[idx], 'ro', markersize=8)
 
-            self.ax_q_integrand.legend(fontsize=16, loc='best')
+            self.ax_q_integrand.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
             self.integrand_progress_var.set(70)
             self.root.update_idletasks()
@@ -16853,7 +16855,7 @@ class PerssonModelGUI_V2:
             # Mark current velocity
             self.ax_freq_range.axvline(v, color='g', linestyle='-', linewidth=2, alpha=0.7, label=f'현재 v = {v:.2e}')
 
-            self.ax_freq_range.legend(fontsize=16, loc='lower right')
+            self.ax_freq_range.legend(fontsize=self.PLOT_FONTS['label'], loc='lower right')
 
             # Frequency range info text
             self.freq_range_text.insert(tk.END, f"선택 q = {q_ref:.2e} 1/m, v = {v:.2e} m/s\n")
@@ -16925,7 +16927,7 @@ class PerssonModelGUI_V2:
             ax = fig.add_subplot(111)
             ax.set_facecolor('#FAFBFC')
             plot_func(ax, np)
-            ax.tick_params(labelsize=14)
+            ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
             for spine in ax.spines.values():
                 spine.set_color('#CBD5E1')
             fig.tight_layout(pad=2.5)
@@ -16995,11 +16997,11 @@ class PerssonModelGUI_V2:
             E_loss = 0.35e9 * (omega / 1e4)**0.5 / (1 + (omega / 1e4)**0.85)
             ax.loglog(omega, E_stor, '-', linewidth=2.5, color='#2563EB', label="E' (저장)")
             ax.loglog(omega, E_loss, '--', linewidth=2.5, color='#DC2626', label="E'' (손실)")
-            ax.set_xlabel(r'$\omega$ (rad/s)', fontsize=16)
-            ax.set_ylabel('E (Pa)', fontsize=16)
-            ax.legend(fontsize=16, loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel(r'$\omega$ (rad/s)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('E (Pa)', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('DMA 마스터 커브 — 대표적 형상', fontsize=18, pad=10)
+            ax.set_title('DMA 마스터 커브 — 대표적 형상', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_var_dma)
 
         add_separator()
@@ -17011,10 +17013,10 @@ class PerssonModelGUI_V2:
             q = np.logspace(2, 8, 500)
             C = 1e-10 * (q / 1e2)**(-2.2)
             ax.loglog(q, C, '-', linewidth=2.5, color='#059669')
-            ax.set_xlabel('q (1/m)', fontsize=16)
-            ax.set_ylabel(r'C(q) (m$^4$)', fontsize=16)
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'C(q) (m$^4$)', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('PSD — 파워 스펙트럼 밀도 (대표적 형상)', fontsize=18, pad=10)
+            ax.set_title('PSD — 파워 스펙트럼 밀도 (대표적 형상)', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_var_psd)
 
         add_separator()
@@ -17029,12 +17031,12 @@ class PerssonModelGUI_V2:
             g_g = (1 + 2.5 * (gamma / 10)) / (1 + 3 * (gamma / 10)**1.4)
             ax.plot(gamma, f_g, '-', linewidth=2.5, color='#2563EB', label=r"f($\gamma$) — E' 감소")
             ax.plot(gamma, g_g, '--', linewidth=2.5, color='#DC2626', label=r"g($\gamma$) — E'' 변화")
-            ax.set_xlabel(r'$\gamma$ (%)', fontsize=16)
-            ax.set_ylabel('보정 계수', fontsize=16)
-            ax.legend(fontsize=16, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel(r'$\gamma$ (%)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('보정 계수', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3)
             ax.axhline(y=1, color='gray', linestyle=':', alpha=0.5)
-            ax.set_title('Strain Sweep — Payne 효과', fontsize=18, pad=10)
+            ax.set_title('Strain Sweep — Payne 효과', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_var_strain)
 
         # ═══════════════════════════════════════════════════════
@@ -17123,10 +17125,10 @@ class PerssonModelGUI_V2:
             q = np.logspace(2, 8, 500)
             G = 0.01 * (q / 1e2)**1.2 / (1 + (q / 1e7)**0.3)
             ax.loglog(q, G, '-', linewidth=2.5, color='#2563EB')
-            ax.set_xlabel('q (1/m)', fontsize=16)
-            ax.set_ylabel('G(q)', fontsize=16)
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('G(q)', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('G(q) — 탄성 에너지 누적 함수', fontsize=18, pad=10)
+            ax.set_title('G(q) — 탄성 에너지 누적 함수', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_var_G)
 
         add_text('  [비선형 보정 시]', font_size=17, bold=True, fg='#64748B')
@@ -17146,11 +17148,11 @@ class PerssonModelGUI_V2:
             gamma = 0.5
             S = gamma + (1 - gamma) * P**2
             ax.plot(G, S, '--', linewidth=2.5, color='#059669', label='S(q)')
-            ax.set_xlabel('G(q)', fontsize=16)
-            ax.set_ylabel('값', fontsize=16)
-            ax.legend(fontsize=16, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel('G(q)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('값', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3)
-            ax.set_title('P(q)와 S(q) — G에 따른 변화', fontsize=18, pad=10)
+            ax.set_title('P(q)와 S(q) — G에 따른 변화', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_var_PS)
 
         add_separator()
@@ -17166,11 +17168,11 @@ class PerssonModelGUI_V2:
             eps = 0.5 * xi
             ax.loglog(q, xi, '-', linewidth=2.5, color='#DC2626', label=r"$\xi(q) = h'_{rms}$")
             ax.loglog(q, eps, '--', linewidth=2.5, color='#7C3AED', label=r"$\varepsilon(q) = 0.5 \cdot \xi$")
-            ax.set_xlabel('q (1/m)', fontsize=16)
-            ax.set_ylabel('값', fontsize=16)
-            ax.legend(fontsize=16, loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('값', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title(r"$\xi(q)$와 $\varepsilon(q)$ — 파수에 따른 변화", fontsize=18, pad=10)
+            ax.set_title(r"$\xi(q)$와 $\varepsilon(q)$ — 파수에 따른 변화", fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_var_xi_eps)
 
         # --- Flash Temperature 중간 변수 ---
@@ -17203,13 +17205,13 @@ class PerssonModelGUI_V2:
             dT = 50 * (1 - np.exp(-(q / 1e5)**0.8))
             ax.semilogx(q, dT, '-', linewidth=2.5, color='#DC2626', label=r'$\Delta T(q)$ 누적')
             ax.fill_between(q, 0, dT, alpha=0.1, color='red')
-            ax.set_xlabel('q (1/m)', fontsize=16)
-            ax.set_ylabel(r'$\Delta T$ (\u00b0C)', fontsize=16)
-            ax.legend(fontsize=16, loc='upper left')
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\Delta T$ (\u00b0C)', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper left')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title(r'$\Delta T(q)$ 파수별 누적 온도 상승 (대표적 형상)', fontsize=18, pad=10)
-            ax.annotate('큰 스케일\n(ΔT \u2248 0)', xy=(q[10], 2), fontsize=18, color='#64748B')
-            ax.annotate('미세 스케일\n(ΔT 포화)', xy=(q[-40], dT[-40] * 0.8), fontsize=18, color='#DC2626')
+            ax.set_title(r'$\Delta T(q)$ 파수별 누적 온도 상승 (대표적 형상)', fontsize=self.PLOT_FONTS['title'], pad=10)
+            ax.annotate('큰 스케일\n(ΔT \u2248 0)', xy=(q[10], 2), fontsize=self.PLOT_FONTS['title'], color='#64748B')
+            ax.annotate('미세 스케일\n(ΔT 포화)', xy=(q[-40], dT[-40] * 0.8), fontsize=self.PLOT_FONTS['title'], color='#DC2626')
         add_graph(_plot_var_flash)
 
         # ═══════════════════════════════════════════════════════
@@ -17242,18 +17244,18 @@ class PerssonModelGUI_V2:
             ax.semilogx(v, mu_cold, 'b-', linewidth=2.5, label=r'$\mu_{cold}$ (Flash OFF)')
             ax.semilogx(v, mu_hot, 'r-', linewidth=2.5, label=r'$\mu_{hot}$ (Flash ON)')
             ax.fill_between(v, mu_hot, mu_cold, alpha=0.08, color='red')
-            ax.set_xlabel('v (m/s)', fontsize=16)
-            ax.set_ylabel(r'$\mu_{visc}$', fontsize=16)
-            ax.legend(fontsize=16, loc='upper right')
+            ax.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\mu_{visc}$', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right')
             ax.grid(True, alpha=0.3)
-            ax.set_title(r'$\mu_{cold}$ vs $\mu_{hot}$ \u2014 Flash Temperature 효과', fontsize=18, pad=10)
+            ax.set_title(r'$\mu_{cold}$ vs $\mu_{hot}$ \u2014 Flash Temperature 효과', fontsize=self.PLOT_FONTS['title'], pad=10)
             peak_idx = np.argmax(mu_cold)
             ax.annotate('마찰 피크', xy=(v[peak_idx], mu_cold[peak_idx]),
-                        fontsize=18, fontweight='bold', color='#2563EB',
+                        fontsize=self.PLOT_FONTS['title'], fontweight='bold', color='#2563EB',
                         xytext=(v[peak_idx] * 20, mu_cold[peak_idx] * 0.85),
                         arrowprops=dict(arrowstyle='->', color='#2563EB'))
             ax.annotate('Flash 감소', xy=(v[350], (mu_cold[350] + mu_hot[350]) / 2),
-                        fontsize=18, fontweight='bold', color='#DC2626')
+                        fontsize=self.PLOT_FONTS['title'], fontweight='bold', color='#DC2626')
         add_graph(_plot_var_mu)
 
         # ═══════════════════════════════════════════════════════
@@ -19124,33 +19126,33 @@ class PerssonModelGUI_V2:
 
         # Top-left: τ_f (shear stress) + A/A0 vs velocity (dual y-axis)
         self.ax_adh_tau = self.fig_mu_adh.add_subplot(221)
-        self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v) + A/A0', fontweight='bold', fontsize=18)
-        self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=16)
-        self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=16)
+        self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v) + A/A0', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=self.PLOT_FONTS['label'])
         self.ax_adh_tau.set_xscale('log')
         self.ax_adh_tau.grid(True, alpha=0.3)
 
         # Top-right: μ_adh vs velocity
         self.ax_adh_mu = self.fig_mu_adh.add_subplot(222)
-        self.ax_adh_mu.set_title('μ_adh(v) 곡선', fontweight='bold', fontsize=18)
-        self.ax_adh_mu.set_xlabel('속도 v (m/s)', fontsize=16)
-        self.ax_adh_mu.set_ylabel('마찰 계수 μ_adh', fontsize=16)
+        self.ax_adh_mu.set_title('μ_adh(v) 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_adh_mu.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_mu.set_ylabel('마찰 계수 μ_adh', fontsize=self.PLOT_FONTS['label'])
         self.ax_adh_mu.set_xscale('log')
         self.ax_adh_mu.grid(True, alpha=0.3)
 
         # Bottom-left: μ_total = μ_visc + μ_adh vs velocity
         self.ax_adh_total = self.fig_mu_adh.add_subplot(223)
-        self.ax_adh_total.set_title('μ_total = μ_visc + μ_adh', fontweight='bold', fontsize=18)
-        self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=16)
-        self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=16)
+        self.ax_adh_total.set_title('μ_total = μ_visc + μ_adh', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=self.PLOT_FONTS['label'])
         self.ax_adh_total.set_xscale('log')
         self.ax_adh_total.grid(True, alpha=0.3)
 
         # Bottom-right: aT comparison (master curve aT vs adhesion aT')
         self.ax_adh_area = self.fig_mu_adh.add_subplot(224)
-        self.ax_adh_area.set_title('이동 인자 aT 비교', fontweight='bold', fontsize=18)
-        self.ax_adh_area.set_xlabel('온도 T (°C)', fontsize=16)
-        self.ax_adh_area.set_ylabel('log₁₀(aT)', fontsize=16)
+        self.ax_adh_area.set_title('이동 인자 aT 비교', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_adh_area.set_xlabel('온도 T (°C)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_area.set_ylabel('log₁₀(aT)', fontsize=self.PLOT_FONTS['label'])
         self.ax_adh_area.grid(True, alpha=0.3)
 
         self.fig_mu_adh.subplots_adjust(left=0.10, right=0.90, top=0.96, bottom=0.08,
@@ -19570,9 +19572,9 @@ class PerssonModelGUI_V2:
             self.ax_adh_tau.plot(v[peak_tau_idx], tau_f[peak_tau_idx] / 1e6, 'r*', markersize=12,
                                 label=f'최대: {tau_f[peak_tau_idx]/1e6:.3f} MPa')
             title_suffix = ' (Flash 보정)' if use_flash else ''
-            self.ax_adh_tau.set_title(f'점착 전단 응력 τ_f(v) + A/A0{title_suffix}', fontweight='bold', fontsize=18)
-            self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=16)
-            self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=16, color='r')
+            self.ax_adh_tau.set_title(f'점착 전단 응력 τ_f(v) + A/A0{title_suffix}', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=self.PLOT_FONTS['label'], color='r')
             self.ax_adh_tau.tick_params(axis='y', labelcolor='r')
 
             # A/A0 on secondary y-axis (same plot)
@@ -19580,7 +19582,7 @@ class PerssonModelGUI_V2:
             line_area = self._ax_adh_tau_twin.semilogx(v, A_ratio, 'b--', linewidth=1.5,
                                                         marker='s', markersize=2, alpha=0.7,
                                                         label='A/A0')
-            self._ax_adh_tau_twin.set_ylabel('A/A0 (실접촉 면적비)', fontsize=16, color='b')
+            self._ax_adh_tau_twin.set_ylabel('A/A0 (실접촉 면적비)', fontsize=self.PLOT_FONTS['label'], color='b')
             self._ax_adh_tau_twin.tick_params(axis='y', labelcolor='b')
             y_max_area = np.max(A_ratio) * 1.3
             if not np.isfinite(y_max_area) or y_max_area <= 0:
@@ -19590,7 +19592,7 @@ class PerssonModelGUI_V2:
             # Combined legend
             lines = line_tau + line_area
             labels = [l.get_label() for l in lines]
-            self.ax_adh_tau.legend(lines, labels, loc='best', fontsize=16)
+            self.ax_adh_tau.legend(lines, labels, loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_adh_tau.grid(True, alpha=0.3)
 
             # ── Plot 2: μ_adh vs velocity ──
@@ -19598,10 +19600,10 @@ class PerssonModelGUI_V2:
             peak_mu_idx = np.argmax(mu_adh)
             self.ax_adh_mu.plot(v[peak_mu_idx], mu_adh[peak_mu_idx], 'r*', markersize=15,
                                 label=f'최대: μ={smart_fmt(mu_adh[peak_mu_idx])} @ v={v[peak_mu_idx]:.4f}')
-            self.ax_adh_mu.set_title('μ_adh(v) 곡선', fontweight='bold', fontsize=18)
-            self.ax_adh_mu.set_xlabel('속도 v (m/s)', fontsize=16)
-            self.ax_adh_mu.set_ylabel('마찰 계수 μ_adh', fontsize=16)
-            self.ax_adh_mu.legend(loc='best', fontsize=16)
+            self.ax_adh_mu.set_title('μ_adh(v) 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_adh_mu.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_adh_mu.set_ylabel('마찰 계수 μ_adh', fontsize=self.PLOT_FONTS['label'])
+            self.ax_adh_mu.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_adh_mu.grid(True, alpha=0.3)
 
             # ── Plot 3: μ_total = μ_visc + μ_adh ──
@@ -19635,7 +19637,7 @@ class PerssonModelGUI_V2:
             else:
                 self.ax_adh_total.semilogx(v, mu_adh, 'g-', linewidth=2, label='μ_adh')
                 self.ax_adh_total.text(0.5, 0.95, 'μ_visc 결과 없음 - μ_adh만 표시',
-                                        ha='center', va='top', fontsize=18, color='#64748B',
+                                        ha='center', va='top', fontsize=self.PLOT_FONTS['title'], color='#64748B',
                                         transform=self.ax_adh_total.transAxes)
 
             # Overlay measured μ_dry data points (if available)
@@ -19645,10 +19647,10 @@ class PerssonModelGUI_V2:
                                         markeredgecolor='darkred', markeredgewidth=1.5,
                                         zorder=20, label=f'실측 μ_dry ({len(v_meas)}점)')
 
-            self.ax_adh_total.set_title('μ_total(cold) = μ_visc + μ_adh', fontweight='bold', fontsize=18)
-            self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=16)
-            self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=16)
-            self.ax_adh_total.legend(loc='best', fontsize=16)
+            self.ax_adh_total.set_title('μ_total(cold) = μ_visc + μ_adh', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=self.PLOT_FONTS['label'])
+            self.ax_adh_total.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_adh_total.grid(True, alpha=0.3)
 
             # ── Plot 4: aT comparison (master curve aT vs adhesion Arrhenius aT') ──
@@ -19714,10 +19716,10 @@ class PerssonModelGUI_V2:
                 except Exception:
                     pass
 
-            self.ax_adh_area.set_title('이동 인자 aT 비교', fontweight='bold', fontsize=18)
-            self.ax_adh_area.set_xlabel('온도 T (°C)', fontsize=16)
-            self.ax_adh_area.set_ylabel('log₁₀(aT)', fontsize=16)
-            self.ax_adh_area.legend(loc='best', fontsize=16)
+            self.ax_adh_area.set_title('이동 인자 aT 비교', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_adh_area.set_xlabel('온도 T (°C)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_adh_area.set_ylabel('log₁₀(aT)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_adh_area.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_adh_area.grid(True, alpha=0.3)
             self.ax_adh_area.axhline(y=0, color='gray', linestyle=':', alpha=0.5)
 
@@ -20563,18 +20565,18 @@ class PerssonModelGUI_V2:
             ax.set_xscale('log')
             ax.grid(True, alpha=0.3)
         self.ax_adh_area.grid(True, alpha=0.3)  # aT plot uses linear x-axis
-        self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v) + A/A0', fontweight='bold', fontsize=18)
-        self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=16)
-        self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=16)
-        self.ax_adh_mu.set_title('μ_adh(v) 곡선', fontweight='bold', fontsize=18)
-        self.ax_adh_mu.set_xlabel('속도 v (m/s)', fontsize=16)
-        self.ax_adh_mu.set_ylabel('마찰 계수 μ_adh', fontsize=16)
-        self.ax_adh_total.set_title('μ_total = μ_visc + μ_adh', fontweight='bold', fontsize=18)
-        self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=16)
-        self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=16)
-        self.ax_adh_area.set_title('이동 인자 aT 비교', fontweight='bold', fontsize=18)
-        self.ax_adh_area.set_xlabel('온도 T (°C)', fontsize=16)
-        self.ax_adh_area.set_ylabel('log₁₀(aT)', fontsize=16)
+        self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v) + A/A0', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_mu.set_title('μ_adh(v) 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_adh_mu.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_mu.set_ylabel('마찰 계수 μ_adh', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_total.set_title('μ_total = μ_visc + μ_adh', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_area.set_title('이동 인자 aT 비교', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_adh_area.set_xlabel('온도 T (°C)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_area.set_ylabel('log₁₀(aT)', fontsize=self.PLOT_FONTS['label'])
         self.canvas_mu_adh.draw_idle()
 
         # Clear result text
@@ -20818,33 +20820,33 @@ class PerssonModelGUI_V2:
 
         # Top-left: Cold vs Hot Branch (μ_hys)
         self.ax_ch_hys = self.fig_cold_hot.add_subplot(221)
-        self.ax_ch_hys.set_title('μ_hys: Cold vs Hot Branch', fontweight='bold', fontsize=18)
-        self.ax_ch_hys.set_xlabel('v (m/s)', fontsize=16)
-        self.ax_ch_hys.set_ylabel('μ_hys', fontsize=16)
+        self.ax_ch_hys.set_title('μ_hys: Cold vs Hot Branch', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_ch_hys.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_ch_hys.set_ylabel('μ_hys', fontsize=self.PLOT_FONTS['label'])
         self.ax_ch_hys.set_xscale('log')
         self.ax_ch_hys.grid(True, alpha=0.3)
 
         # Top-right: Cold vs Hot Adhesion (μ_ad with Arrhenius aT)
         self.ax_ch_adh = self.fig_cold_hot.add_subplot(222)
-        self.ax_ch_adh.set_title('μ_ad: Cold vs Hot (Arrhenius aT)', fontweight='bold', fontsize=18)
-        self.ax_ch_adh.set_xlabel('v (m/s)', fontsize=16)
-        self.ax_ch_adh.set_ylabel('μ_ad', fontsize=16)
+        self.ax_ch_adh.set_title('μ_ad: Cold vs Hot (Arrhenius aT)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_ch_adh.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_ch_adh.set_ylabel('μ_ad', fontsize=self.PLOT_FONTS['label'])
         self.ax_ch_adh.set_xscale('log')
         self.ax_ch_adh.grid(True, alpha=0.3)
 
         # Bottom-left: Flash temperature ΔT + A/A0
         self.ax_ch_flash = self.fig_cold_hot.add_subplot(223)
-        self.ax_ch_flash.set_title('ΔT(v) + A/A0', fontweight='bold', fontsize=18)
-        self.ax_ch_flash.set_xlabel('v (m/s)', fontsize=16)
-        self.ax_ch_flash.set_ylabel('ΔT (°C)', fontsize=16)
+        self.ax_ch_flash.set_title('ΔT(v) + A/A0', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_ch_flash.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_ch_flash.set_ylabel('ΔT (°C)', fontsize=self.PLOT_FONTS['label'])
         self.ax_ch_flash.set_xscale('log')
         self.ax_ch_flash.grid(True, alpha=0.3)
 
         # Bottom-right: μ_total Cold vs Hot
         self.ax_ch_total = self.fig_cold_hot.add_subplot(224)
-        self.ax_ch_total.set_title('μ_total: Cold vs Hot', fontweight='bold', fontsize=18)
-        self.ax_ch_total.set_xlabel('v (m/s)', fontsize=16)
-        self.ax_ch_total.set_ylabel('μ_total', fontsize=16)
+        self.ax_ch_total.set_title('μ_total: Cold vs Hot', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_ch_total.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_ch_total.set_ylabel('μ_total', fontsize=self.PLOT_FONTS['label'])
         self.ax_ch_total.set_xscale('log')
         self.ax_ch_total.grid(True, alpha=0.3)
 
@@ -21238,10 +21240,10 @@ class PerssonModelGUI_V2:
             self.ax_ch_hys.plot(v[hot_peak], r['mu_hot_hys'][hot_peak], 'r*',
                                 markersize=12,
                                 label=f'Hot max: {smart_fmt(r["mu_hot_hys"][hot_peak])}')
-            self.ax_ch_hys.set_title('μ_hys: Cold vs Hot Branch', fontweight='bold', fontsize=18)
-            self.ax_ch_hys.set_xlabel('v (m/s)', fontsize=16)
-            self.ax_ch_hys.set_ylabel('μ_hys', fontsize=16)
-            self.ax_ch_hys.legend(loc='best', fontsize=16)
+            self.ax_ch_hys.set_title('μ_hys: Cold vs Hot Branch', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_ch_hys.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ch_hys.set_ylabel('μ_hys', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ch_hys.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_ch_hys.grid(True, alpha=0.3)
 
             # ── Plot 2: μ_ad Cold vs Hot (Arrhenius aT) ──
@@ -21258,10 +21260,10 @@ class PerssonModelGUI_V2:
             self.ax_ch_adh.plot(v[hot_ad_peak], r['mu_hot_ad'][hot_ad_peak],
                                 'r*', markersize=12,
                                 label=f'Hot max: {smart_fmt(r["mu_hot_ad"][hot_ad_peak])}')
-            self.ax_ch_adh.set_title('μ_ad: Cold vs Hot (Arrhenius aT)', fontweight='bold', fontsize=18)
-            self.ax_ch_adh.set_xlabel('v (m/s)', fontsize=16)
-            self.ax_ch_adh.set_ylabel('μ_ad', fontsize=16)
-            self.ax_ch_adh.legend(loc='best', fontsize=16)
+            self.ax_ch_adh.set_title('μ_ad: Cold vs Hot (Arrhenius aT)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_ch_adh.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ch_adh.set_ylabel('μ_ad', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ch_adh.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_ch_adh.grid(True, alpha=0.3)
 
             # ── Plot 3: A/A0 + τ_f (shear stress) dual y-axis ──
@@ -21270,9 +21272,9 @@ class PerssonModelGUI_V2:
             line_ah = self.ax_ch_flash.semilogx(v, r['A_A0_hot'], '-', color='#DC2626',
                                                   linewidth=2, marker='s', markersize=3,
                                                   label='A/A0 (Hot)')
-            self.ax_ch_flash.set_title('A/A0 + τ_f: Cold vs Hot', fontweight='bold', fontsize=18)
-            self.ax_ch_flash.set_xlabel('v (m/s)', fontsize=16)
-            self.ax_ch_flash.set_ylabel('A/A0', fontsize=16, color='b')
+            self.ax_ch_flash.set_title('A/A0 + τ_f: Cold vs Hot', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_ch_flash.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ch_flash.set_ylabel('A/A0', fontsize=self.PLOT_FONTS['label'], color='b')
             self.ax_ch_flash.tick_params(axis='y', labelcolor='b')
 
             # τ_f (shear stress) on twin axis
@@ -21284,12 +21286,12 @@ class PerssonModelGUI_V2:
             line_th = self._ax_ch_flash_twin.semilogx(v, tau_f_hot_MPa, '--', color='#DC2626',
                                                        linewidth=1.5, alpha=0.7,
                                                        label='τ_f Hot (MPa)')
-            self._ax_ch_flash_twin.set_ylabel('τ_f (MPa)', fontsize=16, color='#666666')
+            self._ax_ch_flash_twin.set_ylabel('τ_f (MPa)', fontsize=self.PLOT_FONTS['label'], color='#666666')
             self._ax_ch_flash_twin.tick_params(axis='y', labelcolor='#666666')
 
             lines = line_ac + line_ah + line_tc + line_th
             labels = [l.get_label() for l in lines]
-            self.ax_ch_flash.legend(lines, labels, loc='best', fontsize=16)
+            self.ax_ch_flash.legend(lines, labels, loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_ch_flash.grid(True, alpha=0.3)
 
             # ── Plot 4: μ_total Cold vs Hot ──
@@ -21315,10 +21317,10 @@ class PerssonModelGUI_V2:
             self.ax_ch_total.plot(v[hot_total_peak], r['mu_hot_total'][hot_total_peak],
                                   'r*', markersize=12,
                                   label=f'Hot max: {smart_fmt(r["mu_hot_total"][hot_total_peak])}')
-            self.ax_ch_total.set_title('μ_total: Cold vs Hot (hys+ad)', fontweight='bold', fontsize=18)
-            self.ax_ch_total.set_xlabel('v (m/s)', fontsize=16)
-            self.ax_ch_total.set_ylabel('μ_total', fontsize=16)
-            self.ax_ch_total.legend(loc='best', fontsize=16)
+            self.ax_ch_total.set_title('μ_total: Cold vs Hot (hys+ad)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_ch_total.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ch_total.set_ylabel('μ_total', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ch_total.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_ch_total.grid(True, alpha=0.3)
 
             self.fig_cold_hot.subplots_adjust(left=0.10, right=0.90, top=0.96, bottom=0.08,
@@ -21983,12 +21985,12 @@ class PerssonModelGUI_V2:
         mode_desc = {'fix_T': f'T={T_arr[T_indices[0]]:.0f}°C 고정',
                      'fix_p0': f'p₀={p0_arr[p0_indices[0]]:.3g} MPa 고정',
                      'all': '전체'}
-        ax.set_xlabel('Velocity v (m/s)', fontsize=16)
-        ax.set_ylabel(y_labels.get(data_key, data_key), fontsize=16)
+        ax.set_xlabel('Velocity v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        ax.set_ylabel(y_labels.get(data_key, data_key), fontsize=self.PLOT_FONTS['label'])
         ax.set_title(f'{y_labels.get(data_key, data_key)}  [{branch.upper()}]  —  {mode_desc.get(mode, "")}',
-                     fontweight='bold', fontsize=18)
+                     fontweight='bold', fontsize=self.PLOT_FONTS['title'])
         ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=16, loc='best')
+        ax.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
         self.canvas_fm_graph.draw_idle()
 
@@ -23109,15 +23111,15 @@ class PerssonModelGUI_V2:
                                 cmap=cmap_name, alpha=0.85,
                                 rasterized=True, vmin=z_lo, vmax=z_hi)
             ax.set_zlim(z_lo, z_hi)
-            ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=16, labelpad=6)
-            ax.set_ylabel(r'$\log_{10}(v)$', fontsize=16, labelpad=6)
-            ax.set_zlabel(z_label, fontsize=16, labelpad=6)
+            ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=self.PLOT_FONTS['label'], labelpad=6)
+            ax.set_ylabel(r'$\log_{10}(v)$', fontsize=self.PLOT_FONTS['label'], labelpad=6)
+            ax.set_zlabel(z_label, fontsize=self.PLOT_FONTS['label'], labelpad=6)
             title_color = '#1565C0' if label == 'Cold' else '#C62828'
             ax.set_title(f'{label}  $p_0$={p0:.3g} MPa\n'
                          f'{z_label}: {Z.min():.4f} ~ {Z.max():.4f}',
-                         fontsize=18, fontweight='bold', color=title_color)
+                         fontsize=self.PLOT_FONTS['title'], fontweight='bold', color=title_color)
             ax.view_init(elev=25, azim=azim)
-            ax.tick_params(labelsize=14)
+            ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
             # Axis direction: invert if descending
             if not v_asc:
                 ax.invert_yaxis()
@@ -23484,15 +23486,15 @@ class PerssonModelGUI_V2:
                         'F_adh': r'$F_{adh}$ (MPa)'}
             z_label = z_labels.get(data_type, data_type)
 
-            ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=18, labelpad=8)
-            ax.set_ylabel(r'$\log_{10}(v)$', fontsize=18, labelpad=8)
-            ax.set_zlabel(z_label, fontsize=18, labelpad=8)
+            ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=self.PLOT_FONTS['title'], labelpad=8)
+            ax.set_ylabel(r'$\log_{10}(v)$', fontsize=self.PLOT_FONTS['title'], labelpad=8)
+            ax.set_zlabel(z_label, fontsize=self.PLOT_FONTS['title'], labelpad=8)
             title_color = '#1565C0' if branch == 'cold' else '#C62828'
             ax.set_title(f'{branch.capitalize()}  $p_0$={p0:.3g} MPa\n'
                          f'{z_label}: {Z_slice.min():.4f} ~ {Z_slice.max():.4f}',
-                         fontsize=14, fontweight='bold', color=title_color)
+                         fontsize=self.PLOT_FONTS['legend'], fontweight='bold', color=title_color)
             ax.view_init(elev=25, azim=225)
-            ax.tick_params(labelsize=14)
+            ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
 
             v_asc = self._fm_3d_v_dir.get() == "asc"
             T_asc = self._fm_3d_T_dir.get() == "asc"
@@ -23617,15 +23619,15 @@ class PerssonModelGUI_V2:
                         ax.plot_surface(T_mesh, V_mesh, Z_slice,
                                         cmap=cmap, alpha=0.85)
 
-                    ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=18, labelpad=8)
-                    ax.set_ylabel(r'$\log_{10}(v)$', fontsize=18, labelpad=8)
-                    ax.set_zlabel(z_label, fontsize=18, labelpad=8)
+                    ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=self.PLOT_FONTS['title'], labelpad=8)
+                    ax.set_ylabel(r'$\log_{10}(v)$', fontsize=self.PLOT_FONTS['title'], labelpad=8)
+                    ax.set_zlabel(z_label, fontsize=self.PLOT_FONTS['title'], labelpad=8)
                     title_color = '#1565C0' if branch == 'cold' else '#C62828'
                     ax.set_title(f'{branch.capitalize()}  $p_0$={p0:.3g} MPa\n'
                                  f'{z_label}: {Z_slice.min():.4f} ~ {Z_slice.max():.4f}',
-                                 fontsize=14, fontweight='bold', color=title_color)
+                                 fontsize=self.PLOT_FONTS['legend'], fontweight='bold', color=title_color)
                     ax.view_init(elev=25, azim=225)
-                    ax.tick_params(labelsize=14)
+                    ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
                     if not v_asc:
                         ax.invert_yaxis()
                     if not T_asc:
@@ -23803,15 +23805,15 @@ class PerssonModelGUI_V2:
                     ax.plot_surface(T_mesh, V_mesh, Z_slice,
                                     cmap=cmap, alpha=0.85)
 
-                ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=18, labelpad=8)
-                ax.set_ylabel(r'$\log_{10}(v)$', fontsize=18, labelpad=8)
-                ax.set_zlabel(z_label, fontsize=18, labelpad=8)
+                ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=self.PLOT_FONTS['title'], labelpad=8)
+                ax.set_ylabel(r'$\log_{10}(v)$', fontsize=self.PLOT_FONTS['title'], labelpad=8)
+                ax.set_zlabel(z_label, fontsize=self.PLOT_FONTS['title'], labelpad=8)
                 title_color = '#1565C0' if branch == 'cold' else '#C62828'
                 ax.set_title(f'{branch.capitalize()}  $p_0$={p0:.3g} MPa\n'
                              f'{z_label}: {Z_slice.min():.4f} ~ {Z_slice.max():.4f}',
-                             fontsize=14, fontweight='bold', color=title_color)
+                             fontsize=self.PLOT_FONTS['legend'], fontweight='bold', color=title_color)
                 ax.view_init(elev=25, azim=225)
-                ax.tick_params(labelsize=14)
+                ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
                 if not v_asc:
                     ax.invert_yaxis()
                 if not T_asc:
@@ -24353,9 +24355,9 @@ class PerssonModelGUI_V2:
                       left=0.06, right=0.97, top=0.93, bottom=0.07)
 
         # Top row: 4 time-history / characteristic plots
-        _bf_title = 12
-        _bf_label = 12
-        _bf_tick = 12
+        _bf_title = self.PLOT_FONTS['title_sm']
+        _bf_label = self.PLOT_FONTS['label_sm']
+        _bf_tick = self.PLOT_FONTS['legend_sm']
 
         self.ax_br_input = self.fig_brush.add_subplot(gs[0, :5])
         self.ax_br_input.set_xlabel('time [s]', fontsize=_bf_label)
@@ -24852,9 +24854,9 @@ class PerssonModelGUI_V2:
                       hspace=0.42, wspace=2.0,
                       left=0.04, right=0.98, top=0.95, bottom=0.05)
 
-        _bf_title = 12
-        _bf_label = 12
-        _bf_tick = 12
+        _bf_title = self.PLOT_FONTS['title_sm']
+        _bf_label = self.PLOT_FONTS['label_sm']
+        _bf_tick = self.PLOT_FONTS['legend_sm']
 
         # Top row: 4 time-history / characteristic plots
         self.ax_pb_input = self.fig_pb.add_subplot(gs[0, :5])
@@ -24987,7 +24989,7 @@ class PerssonModelGUI_V2:
                           '-', color='#333', lw=3.5, zorder=2)
             self._pb_spoke_lines.append(sp)
         self._pb_steer_arc, = ax.plot([], [], '-', color='#FF6600', lw=3, alpha=0.8, zorder=5)
-        self._pb_steer_sa_label = ax.text(0, -1.35, 'SA=0.0', fontsize=18,
+        self._pb_steer_sa_label = ax.text(0, -1.35, 'SA=0.0', fontsize=self.PLOT_FONTS['title'],
                                            ha='center', va='top', fontweight='bold', zorder=6)
         self._pb_steer_canvas.draw_idle()
 
@@ -25038,7 +25040,7 @@ class PerssonModelGUI_V2:
         # Force arrow
         self._pb_force_arrow, = ax.plot([], [], '->', color='#FF4444',
                                          lw=2.5, markersize=8, zorder=10)
-        self._pb_tire_sa_text = ax.text(0, 3.5, '', fontsize=11, ha='center',
+        self._pb_tire_sa_text = ax.text(0, 3.5, '', fontsize=self.PLOT_FONTS['legend_sm'], ha='center',
                                          color='#FFD54F', fontweight='bold', zorder=10)
         self._pb_tire_canvas.draw_idle()
 
@@ -26048,11 +26050,11 @@ class PerssonModelGUI_V2:
             x_edges, y_edges, nan_base.T, cmap=cmap_sa, norm=norm_sa,
             shading='flat', zorder=1)
         ax1.set_title('Adhesion vs Sliding', fontsize=_fs, fontweight='bold')
-        ax1.set_xlabel('length [mm]', fontsize=12)
-        ax1.set_ylabel('width [mm]', fontsize=12)
+        ax1.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label_sm'])
+        ax1.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label_sm'])
         legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Adhesion (부착, Stick)'),
                           Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Sliding (미끄럼, Slip)')]
-        ax1.legend(handles=legend_patches, loc='upper right', fontsize=12,
+        ax1.legend(handles=legend_patches, loc='upper right', fontsize=self.PLOT_FONTS['label_sm'],
                    framealpha=0.9, edgecolor='#999')
         # Contact patch outline (drawn once)
         Z_mask = np.where(mask_fill, 1.0, 0.0)
@@ -26088,8 +26090,8 @@ class PerssonModelGUI_V2:
                                norm=norm_sp, shading='flat', zorder=1)
         ax2.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.0)
         ax2.set_title('Slip Velocity [m/s]', fontsize=_fs, fontweight='bold')
-        ax2.set_xlabel('length [mm]', fontsize=12)
-        ax2.set_ylabel('width [mm]', fontsize=12)
+        ax2.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label_sm'])
+        ax2.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label_sm'])
         ax2.tick_params(labelsize=6)
         cax2 = inset_axes(ax2, width="40%", height="5%", loc='lower right', borderpad=1.2)
         self.fig_pb.colorbar(pm_sp, cax=cax2, orientation='horizontal')
@@ -26108,8 +26110,8 @@ class PerssonModelGUI_V2:
                                norm=norm_pr, shading='flat', zorder=1)
         ax3.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.0)
         ax3.set_title('contact pressure [bar]', fontsize=_fs, fontweight='bold')
-        ax3.set_xlabel('length [mm]', fontsize=12)
-        ax3.set_ylabel('width [mm]', fontsize=12)
+        ax3.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label_sm'])
+        ax3.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label_sm'])
         ax3.tick_params(labelsize=6)
         cax3 = inset_axes(ax3, width="40%", height="5%", loc='lower right', borderpad=1.2)
         self.fig_pb.colorbar(pm_pr, cax=cax3, orientation='horizontal')
@@ -26129,8 +26131,8 @@ class PerssonModelGUI_V2:
                               norm=norm_t, shading='flat', zorder=1)
         ax4.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.0)
         ax4.set_title('temperature [\u00b0C]', fontsize=_fs, fontweight='bold')
-        ax4.set_xlabel('length [mm]', fontsize=12)
-        ax4.set_ylabel('width [mm]', fontsize=12)
+        ax4.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label_sm'])
+        ax4.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label_sm'])
         ax4.tick_params(labelsize=6)
         cax4 = inset_axes(ax4, width="40%", height="5%", loc='lower right', borderpad=1.2)
         self.fig_pb.colorbar(pm_t, cax=cax4, orientation='horizontal')
@@ -26149,8 +26151,8 @@ class PerssonModelGUI_V2:
                               norm=norm_f, shading='flat', zorder=1)
         ax5.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.0)
         ax5.set_title('friction force', fontsize=_fs, fontweight='bold')
-        ax5.set_xlabel('length [mm]', fontsize=12)
-        ax5.set_ylabel('width [mm]', fontsize=12)
+        ax5.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label_sm'])
+        ax5.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label_sm'])
         ax5.tick_params(labelsize=6)
         cax5 = inset_axes(ax5, width="40%", height="5%", loc='lower right', borderpad=1.2)
         self.fig_pb.colorbar(pm_f, cax=cax5, orientation='horizontal')
@@ -26160,10 +26162,10 @@ class PerssonModelGUI_V2:
 
         # Force annotations (will be updated per frame)
         self._pb_fy_text = ax5.text(0.02, 0.98, '', transform=ax5.transAxes,
-            fontsize=12, fontweight='bold', color='blue', va='top', ha='left',
+            fontsize=self.PLOT_FONTS['label_sm'], fontweight='bold', color='blue', va='top', ha='left',
             bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='blue', alpha=0.8))
         self._pb_fx_text = ax5.text(0.98, 0.98, '', transform=ax5.transAxes,
-            fontsize=12, fontweight='bold', color='red', va='top', ha='right',
+            fontsize=self.PLOT_FONTS['label_sm'], fontweight='bold', color='red', va='top', ha='right',
             bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='red', alpha=0.8))
 
         self._pb_contour_ready = True
@@ -26176,9 +26178,9 @@ class PerssonModelGUI_V2:
         ax_in.clear()
         ax_in.plot(t, self._pb_SA, 'r-', lw=1.5, label='SA [deg]')
         ax_in.plot(t, self._pb_SR, color='#E68A00', lw=1.5, label='SR [%]')
-        ax_in.set_title('SA / SR Input', fontsize=14, fontweight='bold')
-        ax_in.set_xlabel('time [s]', fontsize=14); ax_in.set_ylabel('slip', fontsize=14)
-        ax_in.tick_params(labelsize=12); ax_in.legend(fontsize=12)
+        ax_in.set_title('SA / SR Input', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
+        ax_in.set_xlabel('time [s]', fontsize=self.PLOT_FONTS['legend']); ax_in.set_ylabel('slip', fontsize=self.PLOT_FONTS['legend'])
+        ax_in.tick_params(labelsize=self.PLOT_FONTS['legend_sm']); ax_in.legend(fontsize=self.PLOT_FONTS['label_sm'])
         ax_in.grid(True, alpha=0.3); ax_in.set_xlim(t[0], t[-1])
         self._pb_cursor_in = ax_in.axvline(x=0, color='k', lw=1.2, alpha=0.7)
 
@@ -26186,9 +26188,9 @@ class PerssonModelGUI_V2:
         ax_f.clear()
         ax_f.plot(t, self._pb_Fy_hist, 'r-', lw=1.5, label='Fy')
         ax_f.plot(t, self._pb_Fx_hist, color='#E68A00', lw=1.5, label='Fx')
-        ax_f.set_title('Fx / Fy Output', fontsize=14, fontweight='bold')
-        ax_f.set_xlabel('time [s]', fontsize=14); ax_f.set_ylabel('force [N]', fontsize=14)
-        ax_f.tick_params(labelsize=12); ax_f.legend(fontsize=12)
+        ax_f.set_title('Fx / Fy Output', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
+        ax_f.set_xlabel('time [s]', fontsize=self.PLOT_FONTS['legend']); ax_f.set_ylabel('force [N]', fontsize=self.PLOT_FONTS['legend'])
+        ax_f.tick_params(labelsize=self.PLOT_FONTS['legend_sm']); ax_f.legend(fontsize=self.PLOT_FONTS['label_sm'])
         ax_f.grid(True, alpha=0.3); ax_f.set_xlim(t[0], t[-1])
         self._pb_cursor_ft = ax_f.axvline(x=0, color='k', lw=1.2, alpha=0.7)
 
@@ -26238,7 +26240,7 @@ class PerssonModelGUI_V2:
                               color='#1565C0', zorder=1)
                 ax_fy.text((env_sa[0] + sa_peak) * 0.5,
                            y_hi - (y_hi - y_lo) * 0.04,
-                           'A', fontsize=11, fontweight='bold',
+                           'A', fontsize=self.PLOT_FONTS['legend_sm'], fontweight='bold',
                            color='#1565C0', ha='center', va='top',
                            zorder=10)
 
@@ -26249,7 +26251,7 @@ class PerssonModelGUI_V2:
                     xy=(sa_peak, fy_peak),
                     xytext=(sa_peak + (sa_max - sa_min) * 0.06,
                             fy_peak + np.sign(fy_peak) * abs(fy_peak) * 0.10),
-                    fontsize=14, fontweight='bold', color='#C62828',
+                    fontsize=self.PLOT_FONTS['legend'], fontweight='bold', color='#C62828',
                     arrowprops=dict(arrowstyle='->', color='#C62828', lw=1.5),
                     zorder=10)
 
@@ -26259,22 +26261,22 @@ class PerssonModelGUI_V2:
                                   color='#4A148C', zorder=1)
                     ax_fy.text((sa_peak + env_sa[-1]) * 0.5,
                                y_hi - (y_hi - y_lo) * 0.04,
-                               'C', fontsize=11, fontweight='bold',
+                               'C', fontsize=self.PLOT_FONTS['legend_sm'], fontweight='bold',
                                color='#4A148C', ha='center', va='top',
                                zorder=10)
 
-        ax_fy.set_title('Fy vs Slip Angle', fontsize=14, fontweight='bold')
-        ax_fy.set_xlabel('SA [deg]', fontsize=14); ax_fy.set_ylabel('Fy [N]', fontsize=14)
-        ax_fy.tick_params(labelsize=12); ax_fy.grid(True, alpha=0.3)
+        ax_fy.set_title('Fy vs Slip Angle', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
+        ax_fy.set_xlabel('SA [deg]', fontsize=self.PLOT_FONTS['legend']); ax_fy.set_ylabel('Fy [N]', fontsize=self.PLOT_FONTS['legend'])
+        ax_fy.tick_params(labelsize=self.PLOT_FONTS['legend_sm']); ax_fy.grid(True, alpha=0.3)
         ax_fy.legend(fontsize=6, loc='best')
         self._pb_cursor_fy = ax_fy.axvline(x=0, color='k', lw=1.2, alpha=0.7)
 
         ax_fx = self.ax_pb_fx_sr
         ax_fx.clear()
         ax_fx.plot(self._pb_SR, self._pb_Fx_hist, color='#E68A00', lw=1.2, alpha=0.6)
-        ax_fx.set_title('Fx vs Slip Ratio', fontsize=14, fontweight='bold')
-        ax_fx.set_xlabel('SR [%]', fontsize=14); ax_fx.set_ylabel('Fx [N]', fontsize=14)
-        ax_fx.tick_params(labelsize=12); ax_fx.grid(True, alpha=0.3)
+        ax_fx.set_title('Fx vs Slip Ratio', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
+        ax_fx.set_xlabel('SR [%]', fontsize=self.PLOT_FONTS['legend']); ax_fx.set_ylabel('Fx [N]', fontsize=self.PLOT_FONTS['legend'])
+        ax_fx.tick_params(labelsize=self.PLOT_FONTS['legend_sm']); ax_fx.grid(True, alpha=0.3)
         self._pb_cursor_fx = ax_fx.axvline(x=0, color='k', lw=1.2, alpha=0.7)
 
         self.canvas_pb.draw_idle()
@@ -27964,11 +27966,11 @@ class PerssonModelGUI_V2:
         ax_in.clear()
         ax_in.plot(t, self._brush_SA, 'r-', linewidth=1.5, label='SA [deg]')
         ax_in.plot(t, self._brush_SR, color='#E68A00', linewidth=1.5, label='SR [%]')
-        ax_in.set_title('SA / SR Input', fontsize=14, fontweight='bold')
-        ax_in.set_xlabel('time [s]', fontsize=14)
-        ax_in.set_ylabel('slip', fontsize=14)
-        ax_in.tick_params(labelsize=12)
-        ax_in.legend(loc='upper right', fontsize=12, framealpha=0.9,
+        ax_in.set_title('SA / SR Input', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
+        ax_in.set_xlabel('time [s]', fontsize=self.PLOT_FONTS['legend'])
+        ax_in.set_ylabel('slip', fontsize=self.PLOT_FONTS['legend'])
+        ax_in.tick_params(labelsize=self.PLOT_FONTS['legend_sm'])
+        ax_in.legend(loc='upper right', fontsize=self.PLOT_FONTS['label_sm'], framealpha=0.9,
                      bbox_to_anchor=(0.98, 0.98), borderaxespad=0)
         ax_in.grid(True, alpha=0.3)
         ax_in.set_xlim(t[0], t[-1])
@@ -27983,11 +27985,11 @@ class PerssonModelGUI_V2:
         ax_f.clear()
         ax_f.plot(t, self._brush_Fy_hist, 'r-', linewidth=1.5, label='Fy')
         ax_f.plot(t, self._brush_Fx_hist, color='#E68A00', linewidth=1.5, label='Fx')
-        ax_f.set_title('Fx / Fy Output', fontsize=14, fontweight='bold')
-        ax_f.set_xlabel('time [s]', fontsize=14)
-        ax_f.set_ylabel('force [N]', fontsize=14)
-        ax_f.tick_params(labelsize=12)
-        ax_f.legend(loc='upper right', fontsize=12, framealpha=0.9,
+        ax_f.set_title('Fx / Fy Output', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
+        ax_f.set_xlabel('time [s]', fontsize=self.PLOT_FONTS['legend'])
+        ax_f.set_ylabel('force [N]', fontsize=self.PLOT_FONTS['legend'])
+        ax_f.tick_params(labelsize=self.PLOT_FONTS['legend_sm'])
+        ax_f.legend(loc='upper right', fontsize=self.PLOT_FONTS['label_sm'], framealpha=0.9,
                     bbox_to_anchor=(0.98, 0.98), borderaxespad=0)
         ax_f.grid(True, alpha=0.3)
         ax_f.set_xlim(t[0], t[-1])
@@ -28013,11 +28015,11 @@ class PerssonModelGUI_V2:
             _Fy_smooth = _Fy_plot
         ax_fy.plot(_SA_plot, _Fy_smooth, 'b-', linewidth=1.5, label='Fy [N]')
         ax_fy.plot(_SA_plot, _Fy_plot, 'b-', linewidth=0.4, alpha=0.25)
-        ax_fy.set_xlabel('SA [deg]', fontsize=14)
-        ax_fy.set_ylabel('Fy [N]', fontsize=14)
-        ax_fy.tick_params(labelsize=12)
-        ax_fy.set_title('Fy vs Slip Angle', fontsize=14, fontweight='bold')
-        ax_fy.legend(loc='upper left', fontsize=12, framealpha=0.9)
+        ax_fy.set_xlabel('SA [deg]', fontsize=self.PLOT_FONTS['legend'])
+        ax_fy.set_ylabel('Fy [N]', fontsize=self.PLOT_FONTS['legend'])
+        ax_fy.tick_params(labelsize=self.PLOT_FONTS['legend_sm'])
+        ax_fy.set_title('Fy vs Slip Angle', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
+        ax_fy.legend(loc='upper left', fontsize=self.PLOT_FONTS['label_sm'], framealpha=0.9)
         ax_fy.grid(True, alpha=0.3)
         self._br_cursor_fy_sa = ax_fy.axvline(x=self._brush_SA[0], color='k',
                                                 linewidth=1.2, alpha=0.7)
@@ -28040,11 +28042,11 @@ class PerssonModelGUI_V2:
             _Fx_smooth = _Fx_plot
         ax_fx.plot(_SR_plot, _Fx_smooth, color='#E68A00', linewidth=1.5, label='Fx [N]')
         ax_fx.plot(_SR_plot, _Fx_plot, color='#E68A00', linewidth=0.4, alpha=0.25)
-        ax_fx.set_xlabel('SR [%]', fontsize=14)
-        ax_fx.set_ylabel('Fx [N]', fontsize=14)
-        ax_fx.tick_params(labelsize=12)
-        ax_fx.set_title('Fx vs Slip Ratio', fontsize=14, fontweight='bold')
-        ax_fx.legend(loc='upper left', fontsize=12, framealpha=0.9)
+        ax_fx.set_xlabel('SR [%]', fontsize=self.PLOT_FONTS['legend'])
+        ax_fx.set_ylabel('Fx [N]', fontsize=self.PLOT_FONTS['legend'])
+        ax_fx.tick_params(labelsize=self.PLOT_FONTS['legend_sm'])
+        ax_fx.set_title('Fx vs Slip Ratio', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
+        ax_fx.legend(loc='upper left', fontsize=self.PLOT_FONTS['label_sm'], framealpha=0.9)
         ax_fx.grid(True, alpha=0.3)
         self._br_cursor_fx_sr = ax_fx.axvline(x=self._brush_SR[0], color='k',
                                                 linewidth=1.2, alpha=0.7)
@@ -28125,13 +28127,13 @@ class PerssonModelGUI_V2:
                                     alpha=0.8, zorder=5)
         # SA label
         self._steer_sa_label = ax.text(0, -1.35, 'SA=0.0°',
-                                        fontsize=18, ha='center', va='top',
+                                        fontsize=self.PLOT_FONTS['title'], ha='center', va='top',
                                         fontweight='bold', zorder=6)
         # L/R indicators
-        self._steer_left_label = ax.text(-1.35, 0, 'L', fontsize=18, ha='center',
+        self._steer_left_label = ax.text(-1.35, 0, 'L', fontsize=self.PLOT_FONTS['title'], ha='center',
                                           va='center', fontweight='bold',
                                           color='#BBBBBB', zorder=6)
-        self._steer_right_label = ax.text(1.35, 0, 'R', fontsize=18, ha='center',
+        self._steer_right_label = ax.text(1.35, 0, 'R', fontsize=self.PLOT_FONTS['title'], ha='center',
                                            va='center', fontweight='bold',
                                            color='#BBBBBB', zorder=6)
         # Store base angles for hand positions
@@ -28420,7 +28422,7 @@ class PerssonModelGUI_V2:
                                        markersize=12, linestyle='', zorder=15)
         self._tire_Fy_line.set_visible(False)
         self._tire_Fy_head.set_visible(False)
-        self._tire_Fy_label = ax.text(0, 0, '', fontsize=18, ha='center',
+        self._tire_Fy_label = ax.text(0, 0, '', fontsize=self.PLOT_FONTS['title'], ha='center',
                                        va='bottom', fontweight='bold',
                                        color='#FF6644',
                                        bbox=dict(boxstyle='round,pad=0.12',
@@ -28434,7 +28436,7 @@ class PerssonModelGUI_V2:
                                        markersize=11, linestyle='', zorder=15)
         self._tire_Fx_line.set_visible(False)
         self._tire_Fx_head.set_visible(False)
-        self._tire_Fx_label = ax.text(0, 0, '', fontsize=18, ha='left',
+        self._tire_Fx_label = ax.text(0, 0, '', fontsize=self.PLOT_FONTS['title'], ha='left',
                                        va='center', fontweight='bold',
                                        color='#44FF44',
                                        bbox=dict(boxstyle='round,pad=0.10',
@@ -28445,17 +28447,17 @@ class PerssonModelGUI_V2:
         # SA arc indicator
         self._tire_sa_arc, = ax.plot([], [], '-', color='#FFD54F', lw=1.5,
                                       alpha=0.8, zorder=12)
-        self._tire_sa_label = ax.text(0, 0, '', fontsize=18, ha='center',
+        self._tire_sa_label = ax.text(0, 0, '', fontsize=self.PLOT_FONTS['title'], ha='center',
                                        va='center', color='#FFD54F',
                                        fontweight='bold', zorder=12)
 
         # HUD text
         self._tire_speed_label = ax.text(
-            -2.85, 3.7, '', fontsize=18.5, ha='left', va='top',
+            -2.85, 3.7, '', fontsize=self.PLOT_FONTS['title'], ha='left', va='top',
             color='#AAFFAA', fontweight='bold',
             fontfamily='monospace', zorder=20)
 
-        ax.text(0, 3.8, 'Racing View', fontsize=18, ha='center', va='top',
+        ax.text(0, 3.8, 'Racing View', fontsize=self.PLOT_FONTS['title'], ha='center', va='top',
                 fontweight='bold', color='#EEEEEE', zorder=20)
 
         self._tire_rotation_deg = 0.0
@@ -28748,13 +28750,13 @@ class PerssonModelGUI_V2:
         _AX_Y_HALF = W_mm / 2 + _AX_MARGIN_MM
 
         def _setup_ax(ax, title, has_colorbar_space=False):
-            ax.set_title(title, fontsize=18, fontweight='bold')
-            ax.set_xlabel('length [mm]', fontsize=18)
-            ax.set_ylabel('width [mm]', fontsize=18)
+            ax.set_title(title, fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+            ax.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['title'])
+            ax.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['title'])
             # Use footprint-proportional axis limits to prevent white gaps
             ax.set_xlim(-_AX_X_HALF, _AX_X_HALF)
             ax.set_ylim(-_AX_Y_HALF, _AX_Y_HALF)
-            ax.tick_params(labelsize=12)
+            ax.tick_params(labelsize=self.PLOT_FONTS['legend_sm'])
 
         def _add_contact_outline(ax):
             """Add a contact patch outline that can be updated per-frame.
@@ -28790,7 +28792,7 @@ class PerssonModelGUI_V2:
                 cb = self.fig_brush.colorbar(mappable, cax=cax,
                                               orientation='horizontal',
                                               **extra_kw)
-            cb.ax.tick_params(labelsize=12, length=2, pad=1)
+            cb.ax.tick_params(labelsize=self.PLOT_FONTS['legend_sm'], length=2, pad=1)
             return cb
 
         # Build mesh edges for pcolormesh (needs N+1 edges for N centers)
@@ -28826,7 +28828,7 @@ class PerssonModelGUI_V2:
                                                color='white', markersize=14,
                                                linestyle='', zorder=6)
         self._br_stick_arrow_label = ax1.text(
-            0, W_mm * 0.42, '', fontsize=18, ha='center',
+            0, W_mm * 0.42, '', fontsize=self.PLOT_FONTS['title'], ha='center',
             va='bottom', color='white', fontweight='bold',
             zorder=7)
         self._br_stick_arrow_label.set_visible(False)
@@ -28839,12 +28841,12 @@ class PerssonModelGUI_V2:
                                      mutation_scale=16),
                      zorder=7)
         ax1.text(0, _roll_arrow_y - W_mm * 0.08, '\u2190 Rolling Dir.',
-                 fontsize=18, ha='center', va='top', color='#00C853',
+                 fontsize=self.PLOT_FONTS['title'], ha='center', va='top', color='#00C853',
                  fontweight='bold', zorder=7)
         # Legend
         legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Stick (부착)'),
                           Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Slip (미끄럼)')]
-        ax1.legend(handles=legend_patches, loc='upper right', fontsize=16,
+        ax1.legend(handles=legend_patches, loc='upper right', fontsize=self.PLOT_FONTS['label'],
                    framealpha=0.9, edgecolor='#999',
                    bbox_to_anchor=(0.98, 0.98), borderaxespad=0,
                    handlelength=2.5, handletextpad=0.8, columnspacing=1.5)
@@ -28885,7 +28887,7 @@ class PerssonModelGUI_V2:
             scale=max(sp_hi * 8.0, 0.1), headwidth=4, headlength=5, headaxislength=4,
             linewidth=0.6, alpha=0.9, zorder=3)
         self._cb_br_speed = _make_cb(self._br_quiver_speed, ax2, 'speed')
-        self._cb_br_speed.set_label('m/s', fontsize=14)
+        self._cb_br_speed.set_label('m/s', fontsize=self.PLOT_FONTS['legend'])
         sp_centers = 0.5 * (sp_boundaries[:-1] + sp_boundaries[1:])
         self._cb_br_speed.set_ticks(sp_centers[::2])
         self._cb_br_speed.set_ticklabels([f'{v:.1f}' for v in sp_centers[::2]])
@@ -28906,7 +28908,7 @@ class PerssonModelGUI_V2:
         self._br_outline_patches.append(_outline3)
         self._br_pm_pres.set_clip_path(_outline3)
         self._cb_br_pres = _make_cb(self._br_pm_pres, ax3, 'pressure')
-        self._cb_br_pres.set_label('bar', fontsize=14)
+        self._cb_br_pres.set_label('bar', fontsize=self.PLOT_FONTS['legend'])
         pr_centers = 0.5 * (pr_boundaries[:-1] + pr_boundaries[1:])
         self._cb_br_pres.set_ticks(pr_centers[::2])
         self._cb_br_pres.set_ticklabels([f'{v:.1f}' for v in pr_centers[::2]])
@@ -28927,7 +28929,7 @@ class PerssonModelGUI_V2:
         self._br_outline_patches.append(_outline4)
         self._br_pm_temp.set_clip_path(_outline4)
         self._cb_br_temp = _make_cb(self._br_pm_temp, ax4, 'temperature')
-        self._cb_br_temp.set_label('\u00b0C', fontsize=14)
+        self._cb_br_temp.set_label('\u00b0C', fontsize=self.PLOT_FONTS['legend'])
         t_centers = 0.5 * (t_boundaries[:-1] + t_boundaries[1:])
         self._cb_br_temp.set_ticks(t_centers[::2])
         self._cb_br_temp.set_ticklabels([f'{v:.1f}' for v in t_centers[::2]])
@@ -28948,7 +28950,7 @@ class PerssonModelGUI_V2:
         self._br_outline_patches.append(_outline5)
         self._br_pm_fric.set_clip_path(_outline5)
         self._cb_br_fric = _make_cb(self._br_pm_fric, ax5, 'friction')
-        self._cb_br_fric.set_label('N/node', fontsize=14)
+        self._cb_br_fric.set_label('N/node', fontsize=self.PLOT_FONTS['legend'])
         fric_centers = 0.5 * (fric_boundaries[:-1] + fric_boundaries[1:])
         self._cb_br_fric.set_ticks(fric_centers[::2])
         self._cb_br_fric.set_ticklabels([f'{v:.0e}' for v in fric_centers[::2]])
@@ -28957,13 +28959,13 @@ class PerssonModelGUI_V2:
         # ── Real-time Fy / Fx text labels on friction force plot ──
         self._br_fric_fy_text = ax5.text(
             0.02, 0.98, '', transform=ax5.transAxes,
-            fontsize=16, fontweight='bold', color='#1565C0',
+            fontsize=self.PLOT_FONTS['label'], fontweight='bold', color='#1565C0',
             va='top', ha='left', zorder=10,
             bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
                       edgecolor='#1565C0', alpha=0.85))
         self._br_fric_fx_text = ax5.text(
             0.02, 0.88, '', transform=ax5.transAxes,
-            fontsize=16, fontweight='bold', color='#C62828',
+            fontsize=self.PLOT_FONTS['label'], fontweight='bold', color='#C62828',
             va='top', ha='left', zorder=10,
             bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
                       edgecolor='#C62828', alpha=0.85))
@@ -29700,10 +29702,10 @@ class PerssonModelGUI_V2:
                            (self._ts_ax_press, 'Contact Pressure [bar]'),
                            (self._ts_ax_temp, 'Temperature [\u00b0C]'),
                            (self._ts_ax_fric, 'Friction Force [N/node]')]:
-            ax.set_title(title, fontsize=18, fontweight='bold')
-            ax.set_xlabel('x [m]', fontsize=16)
-            ax.set_ylabel('y [m]', fontsize=16)
-            ax.tick_params(labelsize=14)
+            ax.set_title(title, fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+            ax.set_xlabel('x [m]', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('y [m]', fontsize=self.PLOT_FONTS['label'])
+            ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
 
         self._ts_contour_canvas = _FCA(self._ts_contour_fig, contour_frame)
         self._ts_contour_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
@@ -29718,15 +29720,15 @@ class PerssonModelGUI_V2:
                          left=0.15, right=0.95, top=0.92, bottom=0.12)
 
         self._ts_ax_fy_sa = self._ts_fy_fig.add_subplot(gs_fy[0, 0])
-        self._ts_ax_fy_sa.set_title('Fy vs Slip Angle', fontsize=18, fontweight='bold')
-        self._ts_ax_fy_sa.set_xlabel('SA [deg]', fontsize=16)
-        self._ts_ax_fy_sa.set_ylabel('Fy [N]', fontsize=16)
+        self._ts_ax_fy_sa.set_title('Fy vs Slip Angle', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+        self._ts_ax_fy_sa.set_xlabel('SA [deg]', fontsize=self.PLOT_FONTS['label'])
+        self._ts_ax_fy_sa.set_ylabel('Fy [N]', fontsize=self.PLOT_FONTS['label'])
         self._ts_ax_fy_sa.grid(True, alpha=0.3)
 
         self._ts_ax_fy_dist = self._ts_fy_fig.add_subplot(gs_fy[1, 0])
-        self._ts_ax_fy_dist.set_title('Fy vs Distance', fontsize=18, fontweight='bold')
-        self._ts_ax_fy_dist.set_xlabel('Distance [m]', fontsize=16)
-        self._ts_ax_fy_dist.set_ylabel('Fy [N]', fontsize=16)
+        self._ts_ax_fy_dist.set_title('Fy vs Distance', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+        self._ts_ax_fy_dist.set_xlabel('Distance [m]', fontsize=self.PLOT_FONTS['label'])
+        self._ts_ax_fy_dist.set_ylabel('Fy [N]', fontsize=self.PLOT_FONTS['label'])
         self._ts_ax_fy_dist.grid(True, alpha=0.3)
 
         self._ts_fy_canvas = _FCA(self._ts_fy_fig, fy_frame)
@@ -30013,7 +30015,7 @@ class PerssonModelGUI_V2:
             track = self._get_yeongam_track_points()
         except Exception as e:
             ax.text(0.5, 0.5, f"트랙 오류: {e}", transform=ax.transAxes,
-                    ha='center', va='center', color='white', fontsize=18)
+                    ha='center', va='center', color='white', fontsize=self.PLOT_FONTS['title'])
             self.canvas_track.draw_idle()
             return
 
@@ -30065,14 +30067,14 @@ class PerssonModelGUI_V2:
             ax.annotate(f'{i+1:02d}', (tx[idx], ty[idx]),
                         xytext=(nx_v * 16 + 3, ny_v * 16 + 3),
                         textcoords='offset points', color='white',
-                        fontsize=18, fontweight='bold', zorder=6)
+                        fontsize=self.PLOT_FONTS['title'], fontweight='bold', zorder=6)
 
         # Start/Finish
         ax.plot(tx[0], ty[0], 'o', color='#FFD700', markersize=10,
                 markeredgecolor='white', markeredgewidth=1.5, zorder=7)
         ax.annotate('Start', (tx[0], ty[0]), xytext=(15, -22),
                     textcoords='offset points', color='#FFD700',
-                    fontsize=18, fontweight='bold', zorder=7)
+                    fontsize=self.PLOT_FONTS['title'], fontweight='bold', zorder=7)
 
         # Direction arrows
         for frac in [0.15, 0.35, 0.55, 0.75, 0.92]:
@@ -30083,7 +30085,7 @@ class PerssonModelGUI_V2:
                                         lw=2, mutation_scale=18), zorder=4)
 
         ax.set_title('Korean International Circuit – 영암 (5.615 km)',
-                      color='white', fontsize=18, fontweight='bold', pad=4)
+                      color='white', fontsize=self.PLOT_FONTS['title'], fontweight='bold', pad=4)
 
         from matplotlib.lines import Line2D
         legend_elements = [
@@ -30091,7 +30093,7 @@ class PerssonModelGUI_V2:
             Line2D([0], [0], color='#DC3545', lw=4, label='Sector 2 (기술)'),
             Line2D([0], [0], color='#28A745', lw=4, label='Sector 3 (중속 굴곡)'),
         ]
-        ax.legend(handles=legend_elements, loc='lower right', fontsize=16,
+        ax.legend(handles=legend_elements, loc='lower right', fontsize=self.PLOT_FONTS['label'],
                   facecolor='#2A2A4A', edgecolor='#606090', labelcolor='white')
 
         # Tight padding: minimal margin so track fills the available space
@@ -30123,12 +30125,12 @@ class PerssonModelGUI_V2:
 
         # HUD text
         self._ts_hud_speed = ax.text(
-            0.02, 0.98, '', transform=ax.transAxes, fontsize=18,
+            0.02, 0.98, '', transform=ax.transAxes, fontsize=self.PLOT_FONTS['title'],
             fontweight='bold', color='#00FF88', family='monospace', va='top',
             bbox=dict(boxstyle='round,pad=0.3', facecolor='#000000CC',
                       edgecolor='#00FF88', lw=1), zorder=15)
         self._ts_hud_lap = ax.text(
-            0.98, 0.98, '', transform=ax.transAxes, fontsize=18,
+            0.98, 0.98, '', transform=ax.transAxes, fontsize=self.PLOT_FONTS['title'],
             fontweight='bold', color='#FFD700', family='monospace',
             ha='right', va='top',
             bbox=dict(boxstyle='round,pad=0.3', facecolor='#000000CC',
@@ -30467,14 +30469,14 @@ class PerssonModelGUI_V2:
                        lw=2.5, alpha=0.85, label='2D Brush Model')
 
         ax_fy.plot(sa_arr, Fy_arr, 'b-', lw=1.2, alpha=0.6, label='Track Fy')
-        ax_fy.set_xlabel('SA [deg]', fontsize=16)
-        ax_fy.set_ylabel('Fy [N]', fontsize=16)
+        ax_fy.set_xlabel('SA [deg]', fontsize=self.PLOT_FONTS['label'])
+        ax_fy.set_ylabel('Fy [N]', fontsize=self.PLOT_FONTS['label'])
         _fm_label = d.get('friction_map_name', '')
         _fy_title = 'Fy vs Slip Angle'
         if _fm_label and _fm_label != '(현재 계산 결과)':
             _fy_title += f'  [{_fm_label}]'
-        ax_fy.set_title(_fy_title, fontsize=11, fontweight='bold')
-        ax_fy.legend(fontsize=16, loc='upper left')
+        ax_fy.set_title(_fy_title, fontsize=self.PLOT_FONTS['legend_sm'], fontweight='bold')
+        ax_fy.legend(fontsize=self.PLOT_FONTS['label'], loc='upper left')
         ax_fy.grid(True, alpha=0.3)
         # Auto-scale Y axis to fit actual data range with 10% margin
         all_fy_vals = Fy_arr[np.isfinite(Fy_arr)]
@@ -30496,10 +30498,10 @@ class PerssonModelGUI_V2:
         dist_arr = d['dist']
         ax_fd.plot(dist_arr, Fy_arr, 'b-', lw=0.8, alpha=0.5)
         ax_fd.fill_between(dist_arr, Fy_arr, alpha=0.2, color='#1E90FF')
-        ax_fd.set_xlabel('Distance [m]', fontsize=16)
-        ax_fd.set_ylabel('Fy [N]', fontsize=16)
+        ax_fd.set_xlabel('Distance [m]', fontsize=self.PLOT_FONTS['label'])
+        ax_fd.set_ylabel('Fy [N]', fontsize=self.PLOT_FONTS['label'])
         _fd_title = f'Fy vs Distance  (|Fy|max={np.max(np.abs(Fy_arr)):.0f} N)'
-        ax_fd.set_title(_fd_title, fontsize=16, fontweight='bold')
+        ax_fd.set_title(_fd_title, fontsize=self.PLOT_FONTS['label'], fontweight='bold')
         ax_fd.grid(True, alpha=0.3)
         # Auto-scale Y axis for Fy vs Distance too
         if len(all_fy_vals) > 0:
@@ -30532,12 +30534,12 @@ class PerssonModelGUI_V2:
 
         def _setup_contour_ax(ax, title):
             ax.clear()
-            ax.set_title(title, fontsize=18, fontweight='bold')
-            ax.set_xlabel('length [mm]', fontsize=16)
-            ax.set_ylabel('width [mm]', fontsize=16)
+            ax.set_title(title, fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+            ax.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label'])
             ax.set_xlim(-_AX_X_HALF, _AX_X_HALF)
             ax.set_ylim(-_AX_Y_HALF, _AX_Y_HALF)
-            ax.tick_params(labelsize=14)
+            ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
 
         def _make_inset_cb(mappable, ax, key, label='', **extra_kw):
             """Create inset colorbar (horizontal, bottom-right) matching 2D Brush tab."""
@@ -30545,9 +30547,9 @@ class PerssonModelGUI_V2:
                              loc='lower right', borderpad=1.5)
             cb = self._ts_contour_fig.colorbar(mappable, cax=cax,
                                                 orientation='horizontal', **extra_kw)
-            cb.ax.tick_params(labelsize=12, length=2, pad=1)
+            cb.ax.tick_params(labelsize=self.PLOT_FONTS['legend_sm'], length=2, pad=1)
             if label:
-                cb.set_label(label, fontsize=14)
+                cb.set_label(label, fontsize=self.PLOT_FONTS['legend'])
             self._ts_cbar_axes[key] = cax
             return cb
 
@@ -30568,7 +30570,7 @@ class PerssonModelGUI_V2:
                      arrowprops=dict(arrowstyle='->', color='#00C853', lw=2.5,
                                      mutation_scale=16), zorder=7)
         self._ts_ax_stick.text(0, _roll_y - W_mm * 0.08, '\u2190 Rolling Dir.',
-                 fontsize=18, ha='center', va='top', color='#00C853',
+                 fontsize=self.PLOT_FONTS['title'], ha='center', va='top', color='#00C853',
                  fontweight='bold', zorder=7)
         # Friction direction arrow (white, matching 2D Brush tab)
         self._ts_stick_arrow_line, = self._ts_ax_stick.plot(
@@ -30577,13 +30579,13 @@ class PerssonModelGUI_V2:
             [], [], marker=(3, 0, 0), color='white', markersize=14,
             linestyle='', zorder=6)
         self._ts_stick_arrow_label = self._ts_ax_stick.text(
-            0, W_mm * 0.42, '', fontsize=18, ha='center',
+            0, W_mm * 0.42, '', fontsize=self.PLOT_FONTS['title'], ha='center',
             va='bottom', color='white', fontweight='bold', zorder=7)
         self._ts_stick_arrow_label.set_visible(False)
         # Legend (matching 2D Brush tab)
         legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Stick (\ubd80\ucc29)'),
                           Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Slip (\ubbf8\ub044\ub7ec)')]
-        self._ts_ax_stick.legend(handles=legend_patches, loc='upper right', fontsize=16,
+        self._ts_ax_stick.legend(handles=legend_patches, loc='upper right', fontsize=self.PLOT_FONTS['label'],
                    framealpha=0.9, edgecolor='#999',
                    bbox_to_anchor=(0.98, 0.98), borderaxespad=0,
                    handlelength=2.5, handletextpad=0.8, columnspacing=1.5)
@@ -30646,11 +30648,11 @@ class PerssonModelGUI_V2:
                      arrowprops=dict(arrowstyle='->', color='#00C853', lw=2,
                                      mutation_scale=14), zorder=7)
         self._ts_ax_press.text(0, _roll_y3 - W_mm * 0.08, '\u2190 Rolling Dir.',
-                 fontsize=18, ha='center', va='top', color='#00C853',
+                 fontsize=self.PLOT_FONTS['title'], ha='center', va='top', color='#00C853',
                  fontweight='bold', zorder=7)
-        self._ts_ax_press.text(-L_mm * 0.42, 0, 'LE', fontsize=18, ha='right', va='center',
+        self._ts_ax_press.text(-L_mm * 0.42, 0, 'LE', fontsize=self.PLOT_FONTS['title'], ha='right', va='center',
                  color='#333', fontweight='bold', fontstyle='italic', zorder=7)
-        self._ts_ax_press.text(L_mm * 0.42, 0, 'TE', fontsize=18, ha='left', va='center',
+        self._ts_ax_press.text(L_mm * 0.42, 0, 'TE', fontsize=self.PLOT_FONTS['title'], ha='left', va='center',
                  color='#333', fontweight='bold', fontstyle='italic', zorder=7)
 
         # ── (4) Temperature (pcolormesh with discrete jet levels) ──
@@ -31429,11 +31431,11 @@ class PerssonModelGUI_V2:
                 self._ts_sw_hands.append(dot)
 
         self._ts_sw_arc, = ax.plot([], [], '-', color='#FF6600', lw=3, alpha=0.8, zorder=5)
-        self._ts_sw_sa_label = ax.text(0, -1.35, 'SA=0.0°', fontsize=18,
+        self._ts_sw_sa_label = ax.text(0, -1.35, 'SA=0.0°', fontsize=self.PLOT_FONTS['title'],
                                         ha='center', va='top', fontweight='bold', zorder=6)
-        self._ts_sw_L = ax.text(-1.35, 0, 'L', fontsize=18, ha='center', va='center',
+        self._ts_sw_L = ax.text(-1.35, 0, 'L', fontsize=self.PLOT_FONTS['title'], ha='center', va='center',
                                  fontweight='bold', color='#BBB', zorder=6)
-        self._ts_sw_R = ax.text(1.35, 0, 'R', fontsize=18, ha='center', va='center',
+        self._ts_sw_R = ax.text(1.35, 0, 'R', fontsize=self.PLOT_FONTS['title'], ha='center', va='center',
                                  fontweight='bold', color='#BBB', zorder=6)
         self._ts_sw_base_angles = [np.radians(140), np.radians(40)]
         self._ts_steer_canvas.draw()
@@ -31534,9 +31536,9 @@ class PerssonModelGUI_V2:
                 treads.append(tl)
             self._ts_tire_treads.append(treads)
 
-        self._ts_tire_hud = ax.text(-2.85, 3.7, '', fontsize=18.5, ha='left', va='top',
+        self._ts_tire_hud = ax.text(-2.85, 3.7, '', fontsize=self.PLOT_FONTS['title'], ha='left', va='top',
                                      color='#AAFFAA', fontweight='bold', fontfamily='monospace', zorder=20)
-        ax.text(0, 3.8, 'Racing View', fontsize=18, ha='center', va='top',
+        ax.text(0, 3.8, 'Racing View', fontsize=self.PLOT_FONTS['title'], ha='center', va='top',
                 fontweight='bold', color='#EEE', zorder=20)
         self._ts_tire_canvas.draw()
 
@@ -31726,7 +31728,7 @@ class PerssonModelGUI_V2:
             (self.ax_ve_temp_Ep, "E'(T) @10Hz"),
             (self.ax_ve_temp_Epp, "E''(T) @10Hz"),
         ]:
-            ax.set_title(title, fontweight='bold', fontsize=18)
+            ax.set_title(title, fontweight='bold', fontsize=self.PLOT_FONTS['title'])
             ax.grid(True, alpha=0.3)
 
         # GridSpec already handles spacing via hspace/wspace, so skip tight_layout
@@ -32217,8 +32219,8 @@ class PerssonModelGUI_V2:
         ax.loglog(f_hz, Ep_sugg, 'r--', linewidth=2, label="제안 E'", alpha=0.8)
         ax.set_xlabel('f (Hz)')
         ax.set_ylabel("E' (Pa)")
-        ax.set_title("E'(f) 저장 탄성률", fontweight='bold', fontsize=18)
-        ax.legend(fontsize=16, loc='best')
+        ax.set_title("E'(f) 저장 탄성률", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        ax.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         ax.grid(True, alpha=0.3)
 
         # ── Plot 2: E''(f) comparison ──
@@ -32237,8 +32239,8 @@ class PerssonModelGUI_V2:
 
         ax.set_xlabel('f (Hz)')
         ax.set_ylabel("E'' (Pa)")
-        ax.set_title("E''(f) 손실 탄성률", fontweight='bold', fontsize=18)
-        ax.legend(fontsize=16, loc='best')
+        ax.set_title("E''(f) 손실 탄성률", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        ax.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         ax.grid(True, alpha=0.3)
 
         # ── Plot 3: Frequency sensitivity W(f) ──
@@ -32255,8 +32257,8 @@ class PerssonModelGUI_V2:
 
         ax.set_xlabel('f (Hz)')
         ax.set_ylabel('W(f) 감도 가중치')
-        ax.set_title("주파수 감도 스펙트럼 W(f)", fontweight='bold', fontsize=18)
-        ax.legend(fontsize=16, loc='best')
+        ax.set_title("주파수 감도 스펙트럼 W(f)", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        ax.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         ax.grid(True, alpha=0.3)
 
         # ── Plot 4: mu_visc comparison ──
@@ -32283,8 +32285,8 @@ class PerssonModelGUI_V2:
 
         ax.set_xlabel('v (m/s)')
         ax.set_ylabel('\u03bc_visc')
-        ax.set_title("\u03bc_visc 현재 vs 제안", fontweight='bold', fontsize=18)
-        ax.legend(fontsize=16, loc='best')
+        ax.set_title("\u03bc_visc 현재 vs 제안", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        ax.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         ax.grid(True, alpha=0.3)
 
         # ── Plot 5: E'(T) @10Hz ──
@@ -32301,13 +32303,13 @@ class PerssonModelGUI_V2:
                            label=f'핵심 대역 ({T_band_lo:.0f}~{T_band_hi:.0f}\u00b0C)')
             ax.set_xlabel('Temperature (\u00b0C)')
             ax.set_ylabel("E' (Pa)")
-            ax.set_title("E'(T) @10 Hz", fontweight='bold', fontsize=18)
-            ax.legend(fontsize=16, loc='best')
+            ax.set_title("E'(T) @10 Hz", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         else:
             ax.text(0.5, 0.5, 'aT 데이터 필요\n(마스터커브 탭에서 로드)',
                     transform=ax.transAxes, ha='center', va='center',
-                    fontsize=18, color='gray')
-            ax.set_title("E'(T) @10 Hz", fontweight='bold', fontsize=18)
+                    fontsize=self.PLOT_FONTS['title'], color='gray')
+            ax.set_title("E'(T) @10 Hz", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
         ax.grid(True, alpha=0.3)
 
         # ── Plot 6: E''(T) @10Hz ──
@@ -32333,13 +32335,13 @@ class PerssonModelGUI_V2:
 
             ax.set_xlabel('Temperature (\u00b0C)')
             ax.set_ylabel("E'' (Pa)")
-            ax.set_title("E''(T) @10 Hz", fontweight='bold', fontsize=18)
-            ax.legend(fontsize=16, loc='best')
+            ax.set_title("E''(T) @10 Hz", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         else:
             ax.text(0.5, 0.5, 'aT 데이터 필요\n(마스터커브 탭에서 로드)',
                     transform=ax.transAxes, ha='center', va='center',
-                    fontsize=18, color='gray')
-            ax.set_title("E''(T) @10 Hz", fontweight='bold', fontsize=18)
+                    fontsize=self.PLOT_FONTS['title'], color='gray')
+            ax.set_title("E''(T) @10 Hz", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
         ax.grid(True, alpha=0.3)
 
         self.fig_ve_advisor.subplots_adjust(left=0.08, right=0.97, top=0.96, bottom=0.06, hspace=0.45)
@@ -32648,11 +32650,12 @@ bind_vehicle_test_matching(PerssonModelGUI_V2)
 def _compute_hidpi_font_scale(root):
     """Compute a font scale factor for high-DPI / 4K monitors.
 
-    On monitors with >1920 horizontal pixels the default 12pt fonts become
+    On monitors with >1920 horizontal pixels the default 10pt fonts become
     too small to read (because Tk scaling is forced to 1.0).  We scale fonts
     proportionally to the screen width, capped at a reasonable maximum.
 
-    Returns a multiplier (>= 1.0) that should be applied to every font size.
+    Returns a multiplier (>= 1.0) that should be applied to every font size
+    and PLOT_FONTS.  Pixel dimensions (DIMS) use a separate linear scale.
     """
     try:
         scr_w = root.winfo_screenwidth()
@@ -32685,21 +32688,38 @@ def main():
     # (e.g. 1.25× on a 125% display), making everything too large.
     root.tk.call('tk', 'scaling', 1.0)
 
-    # ── High-DPI font scaling for 4K / QHD monitors ──
-    _hi_scale = _compute_hidpi_font_scale(root)
-    if _hi_scale > 1.05:
+    # ── High-DPI scaling for 4K / QHD monitors ──
+    # Two separate scale factors:
+    #   _font_scale  – damped (fonts don't need 1:1 pixel scaling)
+    #   _dim_scale   – linear (pixel dimensions should keep proportions)
+    _font_scale = _compute_hidpi_font_scale(root)
+    try:
+        _scr_w = root.winfo_screenwidth()
+    except Exception:
+        _scr_w = 1920
+    _dim_scale = min(max(_scr_w / 1920, 1.0), 2.5)
+
+    if _font_scale > 1.05:
+        # --- Scale UI fonts (damped) ---
         _base = PerssonModelGUI_V2._FONT_SIZE
-        _new_sz = int(round(_base * _hi_scale))
+        _new_sz = int(round(_base * _font_scale))
         PerssonModelGUI_V2._FONT_SIZE = _new_sz
         for key in PerssonModelGUI_V2.FONTS:
             fam, sz, *rest = PerssonModelGUI_V2.FONTS[key]
             PerssonModelGUI_V2.FONTS[key] = (fam, _new_sz, *rest)
-        # Scale dimensions too
-        PerssonModelGUI_V2.DIMS['panel_width'] = int(440 * _hi_scale)
-        PerssonModelGUI_V2.DIMS['header_height'] = int(40 * _hi_scale)
-        PerssonModelGUI_V2.DIMS['statusbar_height'] = int(28 * _hi_scale)
-        PerssonModelGUI_V2.DIMS['log_height'] = int(90 * _hi_scale)
-        PerssonModelGUI_V2.DIMS['logo_height'] = int(60 * _hi_scale)
+        # --- Scale plot fonts (damped) ---
+        for key in PerssonModelGUI_V2.PLOT_FONTS:
+            PerssonModelGUI_V2.PLOT_FONTS[key] = int(round(
+                PerssonModelGUI_V2.PLOT_FONTS[key] * _font_scale))
+
+    if _dim_scale > 1.05:
+        # --- Scale pixel dimensions (linear, preserves screen proportions) ---
+        _D = PerssonModelGUI_V2.DIMS
+        for _dk in ('panel_width', 'header_height', 'statusbar_height',
+                     'log_height', 'log_collapsed', 'logo_height',
+                     'section_pad', 'section_gap_y', 'row_gap_y',
+                     'btn_padx', 'btn_pady', 'toolbar_pady'):
+            _D[_dk] = int(_D[_dk] * _dim_scale)
 
     # ── Splash screen ──
     root.withdraw()  # Hide main window completely during loading

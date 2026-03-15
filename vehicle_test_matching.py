@@ -1172,7 +1172,7 @@ def _vtm_plot_heatmap(self, all_results):
     if not items_with_corr:
         ax = fig.add_subplot(111)
         ax.text(0.5, 0.5, "표시할 데이터가 없습니다.",
-                ha='center', va='center', fontsize=14, transform=ax.transAxes)
+                ha='center', va='center', fontsize=self.PLOT_FONTS['legend'], transform=ax.transAxes)
         ax.set_axis_off()
         self._vtm_canvas_heatmap.draw()
         return
@@ -1193,19 +1193,19 @@ def _vtm_plot_heatmap(self, all_results):
         offset = 0.02 if corr_val >= 0 else -0.02
         ha = 'left' if corr_val >= 0 else 'right'
         ax.text(xpos + offset, bar_obj.get_y() + bar_obj.get_height()/2,
-                f'{corr_val:+.3f}', ha=ha, va='center', fontsize=16, fontweight='bold')
+                f'{corr_val:+.3f}', ha=ha, va='center', fontsize=self.PLOT_FONTS['label'], fontweight='bold')
 
     ax.set_yticks(x)
-    ax.set_yticklabels(names, fontsize=16)
-    ax.set_xlabel('Pearson r (실차 인덱스 vs 마찰맵 mu 인덱스)', fontsize=11)
-    ax.set_title("항목별 상관계수 (실차 평가 ↔ 마찰맵)", fontsize=13, fontweight='bold')
+    ax.set_yticklabels(names, fontsize=self.PLOT_FONTS['label'])
+    ax.set_xlabel('Pearson r (실차 인덱스 vs 마찰맵 mu 인덱스)', fontsize=self.PLOT_FONTS['legend_sm'])
+    ax.set_title("항목별 상관계수 (실차 평가 ↔ 마찰맵)", fontsize=self.PLOT_FONTS['title_sm'], fontweight='bold')
     ax.axvline(x=0, color='black', linewidth=0.8)
     ax.axvline(x=self._vtm_threshold, color='green', linewidth=1, linestyle='--', alpha=0.6,
                label=f'임계값 +{self._vtm_threshold}')
     ax.axvline(x=-self._vtm_threshold, color='green', linewidth=1, linestyle='--', alpha=0.6,
                label=f'임계값 -{self._vtm_threshold}')
     ax.set_xlim(-1.1, 1.1)
-    ax.legend(fontsize=14)
+    ax.legend(fontsize=self.PLOT_FONTS['legend'])
     ax.invert_yaxis()
 
     fig.tight_layout()
@@ -1223,7 +1223,7 @@ def _vtm_plot_index_comparison(self, all_results):
     if not items_with_data:
         ax = fig.add_subplot(111)
         ax.text(0.5, 0.5, "표시할 데이터가 없습니다.",
-                ha='center', va='center', fontsize=14, transform=ax.transAxes)
+                ha='center', va='center', fontsize=self.PLOT_FONTS['legend'], transform=ax.transAxes)
         ax.set_axis_off()
         self._vtm_canvas_index.draw()
         return
@@ -1246,13 +1246,13 @@ def _vtm_plot_index_comparison(self, all_results):
     bars = ax.bar(x, vals, color=colors[:n_samples], edgecolor='gray', linewidth=0.5)
     for bar_obj, val in zip(bars, vals):
         ax.text(bar_obj.get_x() + bar_obj.get_width()/2, bar_obj.get_height() + 0.5,
-                f'{val:.1f}', ha='center', va='bottom', fontsize=14)
+                f'{val:.1f}', ha='center', va='bottom', fontsize=self.PLOT_FONTS['legend'])
     ax.set_xticks(x)
-    ax.set_xticklabels(self._vtm_samples, fontsize=14)
-    ax.set_ylabel('인덱스', fontsize=14)
+    ax.set_xticklabels(self._vtm_samples, fontsize=self.PLOT_FONTS['legend'])
+    ax.set_ylabel('인덱스', fontsize=self.PLOT_FONTS['legend'])
     mu_src = all_results[0].get('mu_source', 'map') if all_results else 'map'
     ax.set_title(f"마찰맵 mu ({'맵' if mu_src == 'map' else '측정'})",
-                 fontsize=16, fontweight='bold', color='#0369A1')
+                 fontsize=self.PLOT_FONTS['label'], fontweight='bold', color='#0369A1')
     ax.axhline(y=100, color='red', linestyle='--', alpha=0.5, linewidth=0.8)
 
     # Remaining subplots: evaluation items
@@ -1267,14 +1267,14 @@ def _vtm_plot_index_comparison(self, all_results):
         bars = ax.bar(x, vals, color=colors[:n_samples], edgecolor='gray', linewidth=0.5)
         for bar_obj, val in zip(bars, vals):
             ax.text(bar_obj.get_x() + bar_obj.get_width()/2, bar_obj.get_height() + 0.5,
-                    f'{val:.1f}', ha='center', va='bottom', fontsize=14)
+                    f'{val:.1f}', ha='center', va='bottom', fontsize=self.PLOT_FONTS['legend'])
         ax.set_xticks(x)
-        ax.set_xticklabels(self._vtm_samples, fontsize=14)
-        ax.set_ylabel('인덱스', fontsize=14)
+        ax.set_xticklabels(self._vtm_samples, fontsize=self.PLOT_FONTS['legend'])
+        ax.set_ylabel('인덱스', fontsize=self.PLOT_FONTS['legend'])
 
         corr = res['correlation']
         corr_str = f"r={corr:+.3f}" if corr is not None else ""
-        ax.set_title(f"{res['item_name']} {corr_str}", fontsize=16, fontweight='bold')
+        ax.set_title(f"{res['item_name']} {corr_str}", fontsize=self.PLOT_FONTS['label'], fontweight='bold')
         ax.axhline(y=100, color='red', linestyle='--', alpha=0.5, linewidth=0.8)
 
     # Hide unused subplots
@@ -1283,7 +1283,7 @@ def _vtm_plot_index_comparison(self, all_results):
         col = idx % n_cols
         axes[row][col].set_visible(False)
 
-    fig.suptitle("실차 평가 인덱스 비교", fontsize=13, fontweight='bold')
+    fig.suptitle("실차 평가 인덱스 비교", fontsize=self.PLOT_FONTS['title_sm'], fontweight='bold')
     fig.tight_layout()
     self._vtm_canvas_index.draw()
 
@@ -1305,7 +1305,7 @@ def _vtm_plot_match_detail(self, all_results):
     if not items_with_corr:
         ax = fig.add_subplot(111)
         ax.text(0.5, 0.5, "매칭 결과가 없습니다.",
-                ha='center', va='center', fontsize=14, transform=ax.transAxes)
+                ha='center', va='center', fontsize=self.PLOT_FONTS['legend'], transform=ax.transAxes)
         ax.set_axis_off()
         self._vtm_canvas_detail.draw()
         return
@@ -1340,7 +1340,7 @@ def _vtm_plot_match_detail(self, all_results):
             ax.scatter(mx, ty, s=100, c=[colors[i]], edgecolors='black',
                        linewidth=0.8, zorder=5)
             ax.annotate(s, (mx, ty), textcoords="offset points",
-                        xytext=(8, 8), fontsize=16, fontweight='bold',
+                        xytext=(8, 8), fontsize=self.PLOT_FONTS['label'], fontweight='bold',
                         color=colors[i])
 
         # Trend line
@@ -1351,8 +1351,8 @@ def _vtm_plot_match_detail(self, all_results):
             x_line = np.linspace(mu_vals.min() - 5, mu_vals.max() + 5, 50)
             ax.plot(x_line, p(x_line), 'r--', alpha=0.7, linewidth=1.5)
 
-        ax.set_xlabel('mu 인덱스 (마찰맵)', fontsize=14)
-        ax.set_ylabel(f'{res["item_name"]} 인덱스', fontsize=14)
+        ax.set_xlabel('mu 인덱스 (마찰맵)', fontsize=self.PLOT_FONTS['legend'])
+        ax.set_ylabel(f'{res["item_name"]} 인덱스', fontsize=self.PLOT_FONTS['legend'])
 
         # 상관성 정보 상세 표시
         strength = "매우 강함" if abs(corr) >= 0.9 else \
@@ -1360,7 +1360,7 @@ def _vtm_plot_match_detail(self, all_results):
                    "보통" if abs(corr) >= 0.5 else "약함"
         sign_str = "(+)" if corr > 0 else "(-)"
         ax.set_title(f"{res['item_name']}\nr = {corr:+.4f}  [{strength} {sign_str}]",
-                     fontsize=16, fontweight='bold')
+                     fontsize=self.PLOT_FONTS['label'], fontweight='bold')
 
         # 기준선
         ax.axhline(y=100, color='gray', linestyle=':', alpha=0.4)
@@ -1377,7 +1377,7 @@ def _vtm_plot_match_detail(self, all_results):
         if info_lines:
             info_text = '\n'.join(info_lines)
             ax.text(0.02, 0.98, info_text, transform=ax.transAxes,
-                    fontsize=12, verticalalignment='top',
+                    fontsize=self.PLOT_FONTS['label'], verticalalignment='top',
                     bbox=dict(boxstyle='round,pad=0.3', facecolor='lightyellow',
                               alpha=0.8, edgecolor='gray'))
 
@@ -1390,7 +1390,7 @@ def _vtm_plot_match_detail(self, all_results):
         axes[row][col].set_visible(False)
 
     fig.suptitle("항목별 상관성 상세 (마찰맵 mu 인덱스 vs 실차 인덱스)",
-                 fontsize=13, fontweight='bold')
+                 fontsize=self.PLOT_FONTS['title_sm'], fontweight='bold')
     fig.tight_layout()
     self._vtm_canvas_detail.draw()
 
@@ -1666,15 +1666,15 @@ def _vtm_plot_map_conditions(self, all_results):
                            edgecolors='black', linewidth=1.5,
                            zorder=20)
                 ax.text(bc_x, bc_y, bc_z * 1.03,
-                        'Best Fit', fontsize=14, fontweight='bold',
+                        'Best Fit', fontsize=self.PLOT_FONTS['legend'], fontweight='bold',
                         color='black', ha='center', zorder=21)
 
-        ax.set_xlabel(x_label, fontsize=11, labelpad=6)
-        ax.set_ylabel(y_label, fontsize=11, labelpad=6)
-        ax.set_zlabel(z_label, fontsize=11, labelpad=6)
+        ax.set_xlabel(x_label, fontsize=self.PLOT_FONTS['legend_sm'], labelpad=6)
+        ax.set_ylabel(y_label, fontsize=self.PLOT_FONTS['legend_sm'], labelpad=6)
+        ax.set_zlabel(z_label, fontsize=self.PLOT_FONTS['legend_sm'], labelpad=6)
         ax.set_zlim(z_min, z_max)
         ax.view_init(elev=25, azim=225)
-        ax.tick_params(labelsize=14)
+        ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
 
         # Title
         if slice_mode == 'velocity':
@@ -1687,7 +1687,7 @@ def _vtm_plot_map_conditions(self, all_results):
         pass_info = f"({n_pass_slice}개 통과)" if n_pass_slice > 0 else "(통과 없음)"
         ax.set_title(f'{branch_disp}  {slice_label}={title_val} {slice_unit}\n'
                      f'{z_label}: {Z_slice.min():.4f} ~ {Z_slice.max():.4f}  {pass_info}',
-                     fontsize=18, fontweight='bold',
+                     fontsize=self.PLOT_FONTS['title'], fontweight='bold',
                      color='#1565C0' if display_branch == 'cold' else '#C62828')
 
     # ── Text box with range info ──
@@ -1717,13 +1717,13 @@ def _vtm_plot_map_conditions(self, all_results):
 
     info_text = '\n'.join(info_lines)
     fig.text(0.99, 0.01, info_text,
-             fontsize=16, family='monospace',
+             fontsize=self.PLOT_FONTS['label'], family='monospace',
              verticalalignment='bottom', horizontalalignment='right',
              bbox=dict(boxstyle='round,pad=0.6', facecolor='lightyellow',
                        alpha=0.95, edgecolor='#444'))
 
     fig.suptitle(f"마찰맵 3D 표면 — 상관성 통과 영역 표시 ({slice_label}별, {display_branch.capitalize()})",
-                 fontsize=14, fontweight='bold')
+                 fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
 
     # ── Scrollable canvas (Friction Map 탭과 동일 패턴) ──
     scroll_frame = tk.Frame(plot_frame, bg='white')
