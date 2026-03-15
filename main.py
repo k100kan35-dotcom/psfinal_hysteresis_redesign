@@ -1375,7 +1375,7 @@ class PerssonModelGUI_V2:
                 _resize_after_id[0] = canvas_widget.after(
                     50, lambda: _canvas.draw_idle())
 
-        canvas_widget.bind('<Configure>', _on_canvas_resize)
+        canvas_widget.bind('<Configure>', _on_canvas_resize, add='+')
 
         return fig, canvas
 
@@ -1395,7 +1395,7 @@ class PerssonModelGUI_V2:
                         pass
                 _after_id[0] = widget.after(50, lambda: _cv.draw_idle())
 
-        widget.bind('<Configure>', _on_resize)
+        widget.bind('<Configure>', _on_resize, add='+')
 
     def _create_fullpage_scrollable(self, parent, bg='white'):
         """Create a full-page scrollable layout (no left/right split).
@@ -24459,7 +24459,7 @@ class PerssonModelGUI_V2:
                         pass
                 _br_resize_after_id[0] = _br_canvas_widget.after(
                     30, lambda: self.canvas_brush.draw_idle())
-        _br_canvas_widget.bind('<Configure>', _on_brush_canvas_resize)
+        _br_canvas_widget.bind('<Configure>', _on_brush_canvas_resize, add='+')
 
         # ── Tab 2: Educational Material ──
         self._create_brush_education_tab(self.br_right_notebook)
@@ -24954,7 +24954,7 @@ class PerssonModelGUI_V2:
                         pass
                 _pb_resize_after_id[0] = _pb_canvas_widget.after(
                     30, lambda: self.canvas_pb.draw_idle())
-        self.canvas_pb.get_tk_widget().bind('<Configure>', _on_pb_canvas_resize)
+        self.canvas_pb.get_tk_widget().bind('<Configure>', _on_pb_canvas_resize, add='+')
 
         # ── Tab 2: Educational Material (ODE explanation) ──
         self._create_pb_education_tab(self.pb_right_notebook)
