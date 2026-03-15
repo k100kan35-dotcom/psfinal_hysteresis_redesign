@@ -485,7 +485,7 @@ def _run_braking_simulation(self):
     dt = 0.001  # 1 ms time step
 
     # Build friction LUT
-    lut_cold, lut_hot = self._build_brush_lut()
+    lut_cold, lut_hot, _, _ = self._build_brush_lut()
     chr_ = self.cold_hot_results
 
     try:
@@ -715,7 +715,7 @@ def _compute_braking_brush_data(self, sr_arr_pct, v_arr, Fz_arr, T_amb):
     from scipy.interpolate import interp1d
     from scipy.ndimage import binary_dilation
 
-    lut_cold, lut_hot = self._build_brush_lut()
+    lut_cold, lut_hot, _, _ = self._build_brush_lut()
     chr_ = self.cold_hot_results
     T0_base = T_amb  # Use user-specified ambient temperature
 
