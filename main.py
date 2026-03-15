@@ -24991,18 +24991,15 @@ class PerssonModelGUI_V2:
             "w = exp(-s_slip / s0)             # s0 = 0.2 * D_macro\n"
             "mu_kinetic = w * mu_cold + (1-w) * mu_hot\n"
             "\n"
-            "# Stick↔Slip 전환 스무딩 (chattering 방지)\n"
-            "blend = clip((v_slip - v_tol) / v_smooth, 0, 1)\n"
-            "mu_eff = mu_static*(1-blend) + mu_kinetic*blend\n"
+            "# Persson 연속 동역학 (No true stick)\n"
+            "mu_eff = w * mu_cold(v) + (1-w) * mu_hot(v)\n"
             "\n"
-            "# Karnopp Stick/Slip 마찰 모델\n"
+            "# 마찰력: μ(v) × Fz, 슬립 방향 반대\n"
             "F_spring = k*(x_rim - x_block) + c*(v_rim - v_block)\n"
-            "if v_slip < v_tol AND |F_spring| < mu_static * Fz:\n"
-            "    F_fric = -F_spring   # Stick: 완벽한 고착\n"
-            "else:\n"
-            "    dir = v_block/|v_block| if |v_block|>v_tol\n"
-            "          else F_spring/|F_spring|  # 전환 안정화\n"
-            "    F_fric = -mu_eff * Fz * dir     # Slip\n"
+            "dir = v_block/|v_block| if |v|>v_micro\n"
+            "      else F_spring/|F_spring|  # 방향 폴백\n"
+            "F_fric = -mu_eff * Fz * dir\n"
+            "# 근평형 보정: |F_fric| ≤ |F_spring| (v≈0)\n"
             "\n"
             "# 출력 힘 = 스프링 + 댐퍼 (완전 점탄성)\n"
             "F_out = k*(x_rim-x_block) + c*(v_rim-v_block)\n"
@@ -25192,13 +25189,13 @@ class PerssonModelGUI_V2:
         dT_interp = interp1d(chr_['v'], _dT_arr, kind='linear',
                              bounds_error=False, fill_value=(_dT_arr[0], _dT_arr[-1]))
 
-        eps = 1e-9
-        # Karnopp stick/slip parameters
-        v_tol = 1e-3  # velocity threshold for stick detection [m/s]
-        v_smooth = 3.0 * v_tol  # smoothing band for mu transition
-        # Static friction: use LUT at near-zero speed (peak μ at low v)
-        mu_static_val = float(max(lut_cold(0.001), lut_hot(0.001)))
-        self._log('CALC', f'LUT 빌드 완료: mu_static={mu_static_val:.4f}')
+        eps = 1e-15
+        # Persson continuous dynamics: no Karnopp stick/slip.
+        # The Persson μ(v) curve from the LUT already encodes the full
+        # velocity-dependent friction behavior including the low-speed regime.
+        # No artificial static friction threshold or velocity deadband is used.
+        v_micro = 1e-6  # numerical threshold for direction fallback only [m/s]
+        self._log('CALC', f'LUT 빌드 완료 (Persson 연속 동역학 모드)')
         self._log('CALC', f'노드별: kx_node={kx_node:.1f}, ky_node={ky_node:.1f}, m_node={m_node:.6f}kg')
         self._log('CALC', f'감쇠: cx_node={cx_node:.3f}, cy_node={cy_node:.3f}')
         self._log('CALC', f'활성 노드 수: {int(n_active)}/{Nx*Ny}')
@@ -25230,50 +25227,57 @@ class PerssonModelGUI_V2:
         y_rim = vy_rim_vel_0 * t_contact
 
         # Warmup: run n_ode_steps to reach initial steady state
+        # Persson continuous dynamics — no binary stick/slip partition.
+        # μ(v) from the Persson LUT is the sole determinant of friction.
         for step in range(n_ode_steps):
             v_slip_mag = np.sqrt(vx_block**2 + vy_block**2)
             s_slip += v_slip_mag * dt_ode
             w = np.exp(-s_slip / max(s0, 1e-10))
-            v_lut = np.clip(v_slip_mag, v_tol, None)
-            mu_cold_v = lut_cold(v_lut)
-            mu_hot_v = lut_hot(v_lut)
-            mu_kinetic = w * mu_cold_v + (1.0 - w) * mu_hot_v
-            # Smooth static→kinetic blending near v_tol to prevent chattering
-            blend = np.clip((v_slip_mag - v_tol) / v_smooth, 0.0, 1.0)
-            mu_eff = mu_static_val * (1.0 - blend) + mu_kinetic * blend
+            # Persson μ(v): query LUT at actual slip velocity (no artificial clipping).
+            # The Persson theory already provides a continuous μ(v) that naturally
+            # decreases toward zero at low speeds via molecular binding/stretching.
+            mu_cold_v = lut_cold(v_slip_mag)
+            mu_hot_v = lut_hot(v_slip_mag)
+            mu_eff = w * mu_cold_v + (1.0 - w) * mu_hot_v
 
             # Spring + damper force
             Fx_spring = kx_node * (x_rim - x_block) + cx_node * (vx_rim_vel_0 - vx_block)
             Fy_spring = ky_node * (y_rim - y_block) + cy_node * (vy_rim_vel_0 - vy_block)
             F_spring_mag = np.sqrt(Fx_spring**2 + Fy_spring**2)
 
-            # Karnopp stick/slip friction
-            is_slow = v_slip_mag < v_tol
-            F_static_cap = mu_static_val * Fz_ij
-            is_stick = is_slow & (F_spring_mag < F_static_cap)
-
-            # Slip: Coulomb friction opposing motion
+            # Friction force: μ(v) × Fz opposing slip direction.
+            # Direction: use velocity when moving, spring force at near-zero
+            # velocity (friction opposes tendency of motion, not a static threshold).
             F_fric_limit = mu_eff * Fz_ij
-            # Use velocity direction when moving; fall back to spring direction
-            # at near-zero velocity to avoid zero-friction at stick→slip transition
-            use_vel_dir = v_slip_mag > v_tol
-            dir_x = np.where(use_vel_dir, vx_block / (v_slip_mag + eps),
+            dir_x = np.where(v_slip_mag > v_micro,
+                             vx_block / (v_slip_mag + eps),
                              Fx_spring / (F_spring_mag + eps))
-            dir_y = np.where(use_vel_dir, vy_block / (v_slip_mag + eps),
+            dir_y = np.where(v_slip_mag > v_micro,
+                             vy_block / (v_slip_mag + eps),
                              Fy_spring / (F_spring_mag + eps))
-            Fx_fric_slip = -F_fric_limit * dir_x
-            Fy_fric_slip = -F_fric_limit * dir_y
-            # Stick: friction exactly balances spring (net force = 0)
-            Fx_fric = np.where(is_stick, -Fx_spring, Fx_fric_slip)
-            Fy_fric = np.where(is_stick, -Fy_spring, Fy_fric_slip)
+            Fx_fric = -F_fric_limit * dir_x
+            Fy_fric = -F_fric_limit * dir_y
+
+            # At near-zero velocity, cap friction magnitude at spring magnitude
+            # to prevent numerical overshoot (friction cannot exceed driving force
+            # at quasi-equilibrium). This is NOT a stick condition — the block
+            # still has micro-slip governed by Persson μ(v).
+            fric_mag = np.sqrt(Fx_fric**2 + Fy_fric**2)
+            cap = np.where((v_slip_mag < v_micro) & (fric_mag > F_spring_mag),
+                           F_spring_mag / (fric_mag + eps), 1.0)
+            Fx_fric *= cap
+            Fy_fric *= cap
 
             ax_b = (Fx_spring + Fx_fric) / m_node
             ay_b = (Fy_spring + Fy_fric) / m_node
-            vx_block += ax_b * dt_ode
-            vy_block += ay_b * dt_ode
-            # Clamp velocity to zero in stick zone to prevent drift
-            vx_block = np.where(is_stick, 0.0, vx_block)
-            vy_block = np.where(is_stick, 0.0, vy_block)
+            vx_new = vx_block + ax_b * dt_ode
+            vy_new = vy_block + ay_b * dt_ode
+            # Anti-reversal projection: friction dissipates kinetic energy
+            # but cannot reverse the direction of motion.
+            vx_block = np.where((vx_block != 0) & (np.sign(vx_new) != np.sign(vx_block)),
+                                0.0, vx_new)
+            vy_block = np.where((vy_block != 0) & (np.sign(vy_new) != np.sign(vy_block)),
+                                0.0, vy_new)
             x_block += vx_block * dt_ode
             y_block += vy_block * dt_ode
             x_rim += vx_rim_vel_0 * dt_ode
@@ -25292,7 +25296,7 @@ class PerssonModelGUI_V2:
 
         self._log('CALC', f'Warmup 완료: {n_ode_steps} ODE steps')
         v_slip_warmup = np.sqrt(vx_block**2 + vy_block**2)
-        n_sliding_warmup = np.sum((v_slip_warmup > v_tol) & cmask)
+        n_sliding_warmup = np.sum((v_slip_warmup > v_micro) & cmask)
         self._log('CALC', f'Warmup 후 상태: sliding={int(n_sliding_warmup)}/{int(n_active)} 노드, '
                   f'max v_slip={np.max(v_slip_warmup*cmask):.4f} m/s')
 
@@ -25331,46 +25335,43 @@ class PerssonModelGUI_V2:
                     v_slip_mag = np.sqrt(vx_block**2 + vy_block**2)
                     s_slip += v_slip_mag * dt_ode
                     w = np.exp(-s_slip / max(s0, 1e-10))
-                    v_lut = np.clip(v_slip_mag, v_tol, None)
-                    mu_cold_v = lut_cold(v_lut)
-                    mu_hot_v = lut_hot(v_lut)
-                    mu_kinetic = w * mu_cold_v + (1.0 - w) * mu_hot_v
-                    # Smooth static→kinetic blending near v_tol
-                    blend = np.clip((v_slip_mag - v_tol) / v_smooth, 0.0, 1.0)
-                    mu_eff = mu_static_val * (1.0 - blend) + mu_kinetic * blend
+                    # Persson μ(v): query LUT at actual slip velocity
+                    mu_cold_v = lut_cold(v_slip_mag)
+                    mu_hot_v = lut_hot(v_slip_mag)
+                    mu_eff = w * mu_cold_v + (1.0 - w) * mu_hot_v
 
                     # Spring + damper force
                     Fx_spring = kx_node * (x_rim - x_block) + cx_node * (vx_rim_vel - vx_block)
                     Fy_spring = ky_node * (y_rim - y_block) + cy_node * (vy_rim_vel - vy_block)
                     F_spring_mag = np.sqrt(Fx_spring**2 + Fy_spring**2)
 
-                    # Karnopp stick/slip friction
-                    is_slow = v_slip_mag < v_tol
-                    F_static_cap = mu_static_val * Fz_ij
-                    is_stick = is_slow & (F_spring_mag < F_static_cap)
-
-                    # Slip: Coulomb friction opposing motion
+                    # Friction: μ(v) × Fz opposing slip direction
                     F_fric_limit = mu_eff * Fz_ij
-                    # Use velocity direction when moving; fall back to spring direction
-                    # at near-zero velocity to avoid zero-friction at stick→slip transition
-                    use_vel_dir = v_slip_mag > v_tol
-                    dir_x = np.where(use_vel_dir, vx_block / (v_slip_mag + eps),
+                    dir_x = np.where(v_slip_mag > v_micro,
+                                     vx_block / (v_slip_mag + eps),
                                      Fx_spring / (F_spring_mag + eps))
-                    dir_y = np.where(use_vel_dir, vy_block / (v_slip_mag + eps),
+                    dir_y = np.where(v_slip_mag > v_micro,
+                                     vy_block / (v_slip_mag + eps),
                                      Fy_spring / (F_spring_mag + eps))
-                    Fx_fric_slip = -F_fric_limit * dir_x
-                    Fy_fric_slip = -F_fric_limit * dir_y
-                    # Stick: friction exactly balances spring (net force = 0)
-                    Fx_fric = np.where(is_stick, -Fx_spring, Fx_fric_slip)
-                    Fy_fric = np.where(is_stick, -Fy_spring, Fy_fric_slip)
+                    Fx_fric = -F_fric_limit * dir_x
+                    Fy_fric = -F_fric_limit * dir_y
+
+                    # Cap friction at spring magnitude near equilibrium
+                    fric_mag = np.sqrt(Fx_fric**2 + Fy_fric**2)
+                    cap = np.where((v_slip_mag < v_micro) & (fric_mag > F_spring_mag),
+                                   F_spring_mag / (fric_mag + eps), 1.0)
+                    Fx_fric *= cap
+                    Fy_fric *= cap
 
                     ax_b = (Fx_spring + Fx_fric) / m_node
                     ay_b = (Fy_spring + Fy_fric) / m_node
-                    vx_block += ax_b * dt_ode
-                    vy_block += ay_b * dt_ode
-                    # Clamp velocity to zero in stick zone
-                    vx_block = np.where(is_stick, 0.0, vx_block)
-                    vy_block = np.where(is_stick, 0.0, vy_block)
+                    vx_new = vx_block + ax_b * dt_ode
+                    vy_new = vy_block + ay_b * dt_ode
+                    # Anti-reversal: friction cannot reverse motion direction
+                    vx_block = np.where((vx_block != 0) & (np.sign(vx_new) != np.sign(vx_block)),
+                                        0.0, vx_new)
+                    vy_block = np.where((vy_block != 0) & (np.sign(vy_new) != np.sign(vy_block)),
+                                        0.0, vy_new)
                     x_block += vx_block * dt_ode
                     y_block += vy_block * dt_ode
                     x_rim += vx_rim_vel * dt_ode
@@ -25399,7 +25400,10 @@ class PerssonModelGUI_V2:
                      + cy_node * (vy_rim_now - vy_block)) * cmask
             mu_eff_final = mu_eff * cmask
 
-            is_sliding = (v_slip_final > v_tol) & cmask
+            # Persson: all nodes have micro-slip; visualize as sliding
+            # intensity gradient rather than binary stick/slip partition.
+            # Use v_micro threshold only for numerical noise filtering.
+            is_sliding = (v_slip_final > v_micro) & cmask
 
             Fx_total = -np.sum(Fx_sp)
             Fy_total = np.sum(Fy_sp)
