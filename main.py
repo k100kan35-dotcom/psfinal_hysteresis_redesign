@@ -1077,6 +1077,8 @@ class PerssonModelGUI_V2:
                                 hspace=0.55, wspace=0.40),
         'fig_ve_advisor':  dict(left=0.08, right=0.97, top=0.96, bottom=0.06,
                                 hspace=0.45),
+        'fig_calc_progress': dict(left=0.10, right=0.95, top=0.93, bottom=0.08,
+                                hspace=0.50, wspace=0.35),
         'fig_cold_hot':    dict(left=0.10, right=0.88, top=0.92, bottom=0.08,
                                 hspace=0.40, wspace=0.45),
         'fig_brush':       dict(left=0.06, right=0.97, top=0.93, bottom=0.07,
@@ -4782,7 +4784,7 @@ class PerssonModelGUI_V2:
                                   ha='center', va='center', fontsize=self.PLOT_FONTS['title'],
                                   color='#CBD5E1', fontweight='light')
 
-        self.fig_calc_progress.tight_layout(pad=2.5)
+        self.fig_calc_progress.subplots_adjust(**self._FIXED_SUBPLOT_PARAMS['fig_calc_progress'])
 
         # Save button for calculation progress plot in left panel
         save_btn_frame = ttk.Frame(left_panel)
@@ -6205,7 +6207,7 @@ class PerssonModelGUI_V2:
                                           ha='center', va='center', fontsize=self.PLOT_FONTS['title'],
                                           color='#CBD5E1', fontweight='light')
 
-                self.fig_calc_progress.tight_layout(pad=2.5)
+                self.fig_calc_progress.subplots_adjust(**self._FIXED_SUBPLOT_PARAMS['fig_calc_progress'])
                 self.canvas_calc_progress.draw()
             except Exception as e:
                 print(f"Error initializing plots: {e}")
@@ -6412,7 +6414,7 @@ class PerssonModelGUI_V2:
 
                 # Redraw canvas once per callback
                 try:
-                    self.fig_calc_progress.tight_layout(pad=2.5)
+                    self.fig_calc_progress.subplots_adjust(**self._FIXED_SUBPLOT_PARAMS['fig_calc_progress'])
                     self.canvas_calc_progress.draw()
                 except Exception:
                     pass
@@ -6467,7 +6469,7 @@ class PerssonModelGUI_V2:
                     foreground='#059669'
                 )
 
-                self.fig_calc_progress.tight_layout(pad=2.5)
+                self.fig_calc_progress.subplots_adjust(**self._FIXED_SUBPLOT_PARAMS['fig_calc_progress'])
                 self.canvas_calc_progress.draw()
             except Exception as e:
                 print(f"Error clearing highlights: {e}")
