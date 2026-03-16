@@ -181,7 +181,7 @@ def _create_braking_simulation_tab(self, parent):
 
     self._bk_hud_var = tk.StringVar(value="SR: 0.0%  |  Fx: 0 N")
     ttk.Label(pedal_tire_frame, textvariable=self._bk_hud_var,
-              font=('NanumGothicCoding', 10), foreground='#0369A1').pack(pady=1)
+              font=('NanumGothicCoding', 12), foreground='#0369A1').pack(pady=1)
 
     # ── Bottom row ──
     bot_row = ttk.Frame(viz_vpane)
@@ -432,7 +432,7 @@ def _create_braking_simulation_tab(self, parent):
     self.bk_time_slider.pack(fill=tk.X, padx=4)
 
     sec4 = self._create_section(left_panel, "4) 제동 결과")
-    self.bk_result_text = tk.Text(sec4, height=14, font=('NanumGothicCoding', 10),
+    self.bk_result_text = tk.Text(sec4, height=14, font=('NanumGothicCoding', 12),
                                    bg='#F8FAFC', relief='flat', wrap='word',
                                    state='disabled')
     self.bk_result_text.pack(fill=tk.X, padx=4, pady=2)

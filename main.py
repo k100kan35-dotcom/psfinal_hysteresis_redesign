@@ -232,15 +232,15 @@ class PerssonModelGUI_V2:
     # On high-DPI / 4K displays, fonts are scaled up proportionally.
     _FONT_SIZE = 10  # Base font size (scaled by _hi_dpi_font_scale at runtime)
     FONTS = {
-        'heading':   ('NanumGothic', 10, 'bold'),
-        'subheading':('NanumGothic', 10, 'bold'),
-        'body':      ('NanumGothic', 10),
-        'body_bold': ('NanumGothic', 10, 'bold'),
-        'small':     ('NanumGothic', 10),
-        'small_bold':('NanumGothic', 10, 'bold'),
-        'tiny':      ('NanumGothic', 10),
-        'mono':      ('NanumGothicCoding', 10),
-        'mono_small':('NanumGothicCoding', 10),
+        'heading':   ('NanumGothic', 12, 'bold'),
+        'subheading':('NanumGothic', 12, 'bold'),
+        'body':      ('NanumGothic', 12),
+        'body_bold': ('NanumGothic', 12, 'bold'),
+        'small':     ('NanumGothic', 12),
+        'small_bold':('NanumGothic', 12, 'bold'),
+        'tiny':      ('NanumGothic', 12),
+        'mono':      ('NanumGothicCoding', 12),
+        'mono_small':('NanumGothicCoding', 12),
     }
 
     # ── Standardised Dimensions (pixels, applied uniformly to every tab) ──
@@ -7069,7 +7069,7 @@ class PerssonModelGUI_V2:
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Title
-        ttk.Label(main_frame, text="Available Graph Data", font=('NanumGothic', 10, 'bold')).pack(anchor=tk.W)
+        ttk.Label(main_frame, text="Available Graph Data", font=('NanumGothic', 12, 'bold')).pack(anchor=tk.W)
         ttk.Label(main_frame, text="Select data to export as txt files", font=self.FONTS['body']).pack(anchor=tk.W)
 
         # Listbox with scrollbar
@@ -7227,15 +7227,15 @@ class PerssonModelGUI_V2:
                                   spacing1=10, spacing3=4)
         text_widget.tag_configure('section', font=self.FONTS['heading'], foreground='#7C3AED',
                                   spacing1=12, spacing3=4)
-        text_widget.tag_configure('subsection', font=('NanumGothic', 10, 'bold'), foreground='#059669',
+        text_widget.tag_configure('subsection', font=('NanumGothic', 12, 'bold'), foreground='#059669',
                                   spacing1=8, spacing3=2, lmargin1=10, lmargin2=10)
         text_widget.tag_configure('body', font=self.FONTS['tiny'], foreground='#1E293B',
                                   spacing1=1, spacing3=1, lmargin1=15, lmargin2=15)
         text_widget.tag_configure('indent', font=self.FONTS['tiny'], foreground='#64748B',
                                   lmargin1=30, lmargin2=30, spacing1=1, spacing3=1)
-        text_widget.tag_configure('feature', font=('NanumGothic', 10, 'bold'), foreground='#2563EB',
+        text_widget.tag_configure('feature', font=('NanumGothic', 12, 'bold'), foreground='#2563EB',
                                   lmargin1=30, lmargin2=30, spacing1=1, spacing3=1)
-        text_widget.tag_configure('note', font=('NanumGothic', 10, 'italic'), foreground='#DC2626',
+        text_widget.tag_configure('note', font=('NanumGothic', 12, 'italic'), foreground='#DC2626',
                                   lmargin1=15, lmargin2=15, spacing1=2, spacing3=2)
 
         def add(text, tag='body'):
@@ -7790,7 +7790,7 @@ class PerssonModelGUI_V2:
             frame = tk.Frame(scrollable_frame, bg=bg_color, padx=15, pady=12)
             frame.pack(fill=tk.X, padx=10, pady=(18, 4))
             tk.Label(frame, text=title_text, bg=bg_color, fg=fg_color,
-                     font=('NanumGothic', 10, 'bold')).pack(anchor=tk.W)
+                     font=('NanumGothic', 12, 'bold')).pack(anchor=tk.W)
 
         def add_text(text, font_size=10, fg='#1E293B', bold=False, padx=20, pady=4):
             """Add a plain text label."""
@@ -7848,7 +7848,7 @@ class PerssonModelGUI_V2:
         title_frame.pack(fill=tk.X, padx=10)
         tk.Label(title_frame, text='Persson 마찰 이론 - 계산 수식 정리',
                  bg='white', fg='#1B2A4A',
-                 font=('NanumGothic', 10, 'bold')).pack(anchor='w', padx=10)
+                 font=('NanumGothic', 12, 'bold')).pack(anchor='w', padx=10)
 
         # ═══════════════════════════════════════════════════════
         # 핵심 수식 요약 테이블
@@ -7875,14 +7875,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['섹션', '수식 이름', '핵심 수식 (간략)', '물리적 의미']):
             lbl = tk.Label(eq_summary_frame, text=header, bg='#7C3AED', fg='white',
-                           font=('NanumGothic', 10, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (sec, name, formula, meaning) in enumerate(eq_summary_data, start=1):
             bg = '#F5F3FF' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([sec, name, formula, meaning]):
                 weight = 'bold' if col_idx <= 1 else 'normal'
                 lbl = tk.Label(eq_summary_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('NanumGothic', 10, weight), padx=10, pady=6, anchor='w',
+                               font=('NanumGothic', 12, weight), padx=10, pady=6, anchor='w',
                                wraplength=400 if col_idx >= 2 else 200)
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         eq_summary_frame.columnconfigure(0, weight=1)
@@ -8017,14 +8017,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['기호', '단위', '이름', '물리적 의미']):
             lbl = tk.Label(phys_frame, text=header, bg='#1B2A4A', fg='white',
-                           font=('NanumGothic', 10, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (sym, unit, name, meaning) in enumerate(phys_data, start=1):
             bg = '#F1F5F9' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([sym, unit, name, meaning]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(phys_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('NanumGothic', 10, weight), padx=10, pady=6, anchor='w',
+                               font=('NanumGothic', 12, weight), padx=10, pady=6, anchor='w',
                                wraplength=400 if col_idx == 3 else 200)
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         phys_frame.columnconfigure(0, weight=1)
@@ -11123,7 +11123,7 @@ class PerssonModelGUI_V2:
 
         toggle_cmd = lambda: self._toggle_mu_plot_visibility()
 
-        ttk.Label(chk_frame, text="μ_visc:", font=('NanumGothic', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 0))
+        ttk.Label(chk_frame, text="μ_visc:", font=('NanumGothic', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 0))
         self.show_mu_cold_var = tk.BooleanVar(value=True)
         self.show_mu_hot_var = tk.BooleanVar(value=True)
         self.show_mu_peak_var = tk.BooleanVar(value=True)
@@ -11137,7 +11137,7 @@ class PerssonModelGUI_V2:
 
         ttk.Separator(chk_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=4, pady=1)
 
-        ttk.Label(chk_frame, text="A/A0:", font=('NanumGothic', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 0))
+        ttk.Label(chk_frame, text="A/A0:", font=('NanumGothic', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 0))
         self.show_aa_cold_var = tk.BooleanVar(value=True)
         self.show_aa_hot_var = tk.BooleanVar(value=True)
         self.show_aa_ref_var = tk.BooleanVar(value=True)
@@ -14022,7 +14022,7 @@ class PerssonModelGUI_V2:
         text_frame = ttk.Frame(dialog, padding=10)
         text_frame.pack(fill=tk.BOTH, expand=True)
 
-        text = tk.Text(text_frame, wrap=tk.WORD, font=('NanumGothicCoding', 10))
+        text = tk.Text(text_frame, wrap=tk.WORD, font=('NanumGothicCoding', 12))
         scrollbar = ttk.Scrollbar(text_frame, orient=tk.VERTICAL, command=text.yview)
         text.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -16892,7 +16892,7 @@ class PerssonModelGUI_V2:
             frame = tk.Frame(scrollable_frame, bg=bg_color, padx=15, pady=12)
             frame.pack(fill=tk.X, padx=10, pady=(18, 4))
             tk.Label(frame, text=title_text, bg=bg_color, fg=fg_color,
-                     font=('NanumGothic', 10, 'bold')).pack(anchor=tk.W)
+                     font=('NanumGothic', 12, 'bold')).pack(anchor=tk.W)
 
         def add_text(text, font_size=10, fg='#1E293B', bold=False, padx=20, pady=4):
             weight = 'bold' if bold else 'normal'
@@ -16948,7 +16948,7 @@ class PerssonModelGUI_V2:
         title_frame.pack(fill=tk.X, padx=10)
         tk.Label(title_frame, text='Persson 마찰 이론 - 변수 관계도',
                  bg='white', fg='#1B2A4A',
-                 font=('NanumGothic', 10, 'bold')).pack(anchor='w', padx=10)
+                 font=('NanumGothic', 12, 'bold')).pack(anchor='w', padx=10)
 
         # ═══════════════════════════════════════════════════════
         # Section 1: 입력 데이터
@@ -16969,14 +16969,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['데이터 종류', '핵심 변수', '단위', '역할', '상세 설명']):
             lbl = tk.Label(input_summary_frame, text=header, bg='#0E7490', fg='white',
-                           font=('NanumGothic', 10, 'bold'), padx=10, pady=7, anchor='center')
+                           font=('NanumGothic', 12, 'bold'), padx=10, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (dtype, var, unit, role, desc) in enumerate(input_summary_data, start=1):
             bg = '#ECFEFF' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([dtype, var, unit, role, desc]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(input_summary_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('NanumGothic', 10, weight), padx=10, pady=6, anchor='w',
+                               font=('NanumGothic', 12, weight), padx=10, pady=6, anchor='w',
                                justify=tk.LEFT, wraplength=350 if col_idx == 4 else 180)
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         input_summary_frame.columnconfigure(0, weight=2)
@@ -17062,14 +17062,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['기호', '의미', '설명']):
             lbl = tk.Label(param_frame, text=header, bg='#1B2A4A', fg='white',
-                           font=('NanumGothic', 10, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (sym, meaning, desc) in enumerate(param_data, start=1):
             bg = '#F1F5F9' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([sym, meaning, desc]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(param_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('NanumGothic', 10, weight), padx=12, pady=6, anchor='w')
+                               font=('NanumGothic', 12, weight), padx=12, pady=6, anchor='w')
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         param_frame.columnconfigure(0, weight=1)
         param_frame.columnconfigure(1, weight=2)
@@ -17100,14 +17100,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['변수', '단위', '의존 입력', '물리적 의미 / 역할']):
             lbl = tk.Label(mid_var_frame, text=header, bg='#B45309', fg='white',
-                           font=('NanumGothic', 10, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (var, unit, dep, meaning) in enumerate(mid_var_data, start=1):
             bg = '#FFF7ED' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([var, unit, dep, meaning]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(mid_var_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('NanumGothic', 10, weight), padx=10, pady=6, anchor='w',
+                               font=('NanumGothic', 12, weight), padx=10, pady=6, anchor='w',
                                justify=tk.LEFT, wraplength=350 if col_idx == 3 else 200)
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         mid_var_frame.columnconfigure(0, weight=2)
@@ -17281,14 +17281,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['단계', '입력', '출력', '설명']):
             lbl = tk.Label(flow_frame, text=header, bg='#7C3AED', fg='white',
-                           font=('NanumGothic', 10, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (step, inp, out, desc) in enumerate(flow_data, start=1):
             bg = '#F5F3FF' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([step, inp, out, desc]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(flow_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('NanumGothic', 10, weight), padx=10, pady=6, anchor='w',
+                               font=('NanumGothic', 12, weight), padx=10, pady=6, anchor='w',
                                justify=tk.LEFT, wraplength=350 if col_idx >= 1 else 150)
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         flow_frame.columnconfigure(0, weight=1)
@@ -17334,14 +17334,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['기호', '단위', '의미 / 직관적 설명']):
             lbl = tk.Label(adh_param_frame, text=header, bg='#059669', fg='white',
-                           font=('NanumGothic', 10, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (sym, unit, meaning) in enumerate(adh_param_data, start=1):
             bg = '#F0FDF4' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([sym, unit, meaning]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(adh_param_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('NanumGothic', 10, weight), padx=12, pady=6, anchor='w')
+                               font=('NanumGothic', 12, weight), padx=12, pady=6, anchor='w')
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         adh_param_frame.columnconfigure(0, weight=1)
         adh_param_frame.columnconfigure(1, weight=1)
@@ -17392,14 +17392,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['기호', '단위', '의미']):
             lbl = tk.Label(unit_frame, text=header, bg='#1B2A4A', fg='white',
-                           font=('NanumGothic', 10, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (sym, unit, meaning) in enumerate(unit_data, start=1):
             bg = '#F1F5F9' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([sym, unit, meaning]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(unit_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('NanumGothic', 10, weight), padx=12, pady=6, anchor='center')
+                               font=('NanumGothic', 12, weight), padx=12, pady=6, anchor='center')
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         for col_idx in range(3):
             unit_frame.columnconfigure(col_idx, weight=1)
@@ -18061,7 +18061,7 @@ class PerssonModelGUI_V2:
 ════════════════════════════════════════════════════════════════════════════════
 """
 
-        text_widget = tk.Text(title_frame, wrap=tk.WORD, font=('NanumGothicCoding', 10), height=50, width=90)
+        text_widget = tk.Text(title_frame, wrap=tk.WORD, font=('NanumGothicCoding', 12), height=50, width=90)
         text_widget.insert(tk.END, content)
         text_widget.config(state='disabled')  # Read-only
         text_widget.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
@@ -21617,7 +21617,7 @@ class PerssonModelGUI_V2:
 
         # ── 4) 결과 요약 ──
         sec4 = self._create_section(left_panel, "4) 결과 요약")
-        self.fm_result_text = tk.Text(sec4, height=12, font=('NanumGothicCoding', 10),
+        self.fm_result_text = tk.Text(sec4, height=12, font=('NanumGothicCoding', 12),
                                        wrap=tk.WORD, state=tk.DISABLED)
         self.fm_result_text.pack(fill=tk.BOTH, expand=True, pady=2)
 
@@ -21687,7 +21687,7 @@ class PerssonModelGUI_V2:
         toolbar.pack(side=tk.TOP, fill=tk.X, padx=2, pady=(2, 0))
         self._fm_3d_toolbar = toolbar
 
-        ttk.Label(toolbar, text="데이터:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 4))
+        ttk.Label(toolbar, text="데이터:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 4))
         self._fm_3d_data_var = tk.StringVar(value="mu_total")
         for label, val in [("mu_total", "mu_total"), ("mu_hys", "mu_visc"),
                            ("mu_adh", "mu_adh"), ("F_total", "F_total"),
@@ -21702,7 +21702,7 @@ class PerssonModelGUI_V2:
         toolbar2.pack(side=tk.TOP, fill=tk.X, padx=2, pady=(0, 2))
         self._fm_3d_toolbar2 = toolbar2
 
-        ttk.Label(toolbar2, text="속도축:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        ttk.Label(toolbar2, text="속도축:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
         self._fm_3d_v_dir = tk.StringVar(value="asc")
         ttk.Radiobutton(toolbar2, text="오름차순",
                         variable=self._fm_3d_v_dir, value="asc",
@@ -21713,7 +21713,7 @@ class PerssonModelGUI_V2:
 
         ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=4)
 
-        ttk.Label(toolbar2, text="온도축:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        ttk.Label(toolbar2, text="온도축:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
         self._fm_3d_T_dir = tk.StringVar(value="asc")
         ttk.Radiobutton(toolbar2, text="오름차순",
                         variable=self._fm_3d_T_dir, value="asc",
@@ -21724,7 +21724,7 @@ class PerssonModelGUI_V2:
 
         ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=4)
 
-        ttk.Label(toolbar2, text="속도 위치:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        ttk.Label(toolbar2, text="속도 위치:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
         self._fm_3d_v_pos = tk.StringVar(value="left")
         ttk.Radiobutton(toolbar2, text="왼쪽",
                         variable=self._fm_3d_v_pos, value="left",
@@ -21735,7 +21735,7 @@ class PerssonModelGUI_V2:
 
         ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=4)
 
-        ttk.Label(toolbar2, text="온도 위치:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        ttk.Label(toolbar2, text="온도 위치:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
         self._fm_3d_T_pos = tk.StringVar(value="right")
         ttk.Radiobutton(toolbar2, text="왼쪽",
                         variable=self._fm_3d_T_pos, value="left",
@@ -21763,7 +21763,7 @@ class PerssonModelGUI_V2:
         ctrl1 = ttk.Frame(parent)
         ctrl1.pack(fill=tk.X, padx=4, pady=(4, 0))
 
-        ttk.Label(ctrl1, text="데이터:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Label(ctrl1, text="데이터:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
         self.fm_graph_data_var = tk.StringVar(value="mu_total")
         for label, val in [("A/A0", "A_A0"), ("tau_s", "tau_f"),
                            ("mu_hys", "mu_visc"), ("mu_adh", "mu_adh"), ("mu_total", "mu_total"),
@@ -21787,7 +21787,7 @@ class PerssonModelGUI_V2:
         ctrl2 = ttk.Frame(parent)
         ctrl2.pack(fill=tk.X, padx=4, pady=(2, 0))
 
-        ttk.Label(ctrl2, text="플롯 모드:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Label(ctrl2, text="플롯 모드:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
         self.fm_graph_mode_var = tk.StringVar(value="fix_T")
         ttk.Radiobutton(ctrl2, text="T 고정 (p0별 비교)", variable=self.fm_graph_mode_var,
                         value="fix_T", command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
@@ -21797,21 +21797,21 @@ class PerssonModelGUI_V2:
                         value="all", command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
 
         ttk.Separator(ctrl2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
-        ttk.Label(ctrl2, text="T:", font=('', 10)).pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Label(ctrl2, text="T:", font=('', 12)).pack(side=tk.LEFT, padx=(0, 2))
         self.fm_graph_T_var = tk.StringVar()
         self.fm_graph_T_combo = ttk.Combobox(ctrl2, textvariable=self.fm_graph_T_var,
                                               width=6, state='readonly')
         self.fm_graph_T_combo.pack(side=tk.LEFT, padx=2)
         self.fm_graph_T_combo.bind('<<ComboboxSelected>>', lambda e: self._update_fm_graph())
-        ttk.Label(ctrl2, text="°C", font=('', 10)).pack(side=tk.LEFT)
+        ttk.Label(ctrl2, text="°C", font=('', 12)).pack(side=tk.LEFT)
 
-        ttk.Label(ctrl2, text="p0:", font=('', 10)).pack(side=tk.LEFT, padx=(8, 2))
+        ttk.Label(ctrl2, text="p0:", font=('', 12)).pack(side=tk.LEFT, padx=(8, 2))
         self.fm_graph_p0_var = tk.StringVar()
         self.fm_graph_p0_combo = ttk.Combobox(ctrl2, textvariable=self.fm_graph_p0_var,
                                                width=6, state='readonly')
         self.fm_graph_p0_combo.pack(side=tk.LEFT, padx=2)
         self.fm_graph_p0_combo.bind('<<ComboboxSelected>>', lambda e: self._update_fm_graph())
-        ttk.Label(ctrl2, text="MPa", font=('', 10)).pack(side=tk.LEFT)
+        ttk.Label(ctrl2, text="MPa", font=('', 12)).pack(side=tk.LEFT)
 
         # ── Figure ──
         plot_frame = ttk.Frame(parent)
@@ -22820,9 +22820,9 @@ class PerssonModelGUI_V2:
         win.geometry("500x400")
         win.transient(self.root)
 
-        ttk.Label(win, text="저장된 마찰맵 목록", font=('', 10, 'bold')).pack(pady=8)
+        ttk.Label(win, text="저장된 마찰맵 목록", font=('', 12, 'bold')).pack(pady=8)
 
-        listbox = tk.Listbox(win, font=('NanumGothicCoding', 10), height=12)
+        listbox = tk.Listbox(win, font=('NanumGothicCoding', 12), height=12)
         listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
 
         for entry in self._friction_map_store:
@@ -25414,20 +25414,20 @@ class PerssonModelGUI_V2:
 
         pad_x = 20
         def add_title(text, fg='#1E293B'):
-            tk.Label(inner, text=text, font=('NanumGothic', 10, 'bold'),
+            tk.Label(inner, text=text, font=('NanumGothic', 12, 'bold'),
                      fg=fg, bg='white', anchor='w', justify=tk.LEFT).pack(fill=tk.X, padx=pad_x, pady=(18, 4))
         def add_text(text, fg='#334155', bold=False):
             w = 'bold' if bold else 'normal'
-            tk.Label(inner, text=text, font=('NanumGothic', 10, w),
+            tk.Label(inner, text=text, font=('NanumGothic', 12, w),
                      fg=fg, bg='white', anchor='w', justify=tk.LEFT,
                      wraplength=900).pack(fill=tk.X, padx=pad_x, pady=1)
         def add_code(text, title=None):
             if title:
-                tk.Label(inner, text=title, font=('NanumGothicCoding', 10, 'bold'),
+                tk.Label(inner, text=title, font=('NanumGothicCoding', 12, 'bold'),
                          fg='#059669', bg='#F0FDF4', anchor='w').pack(fill=tk.X, padx=pad_x + 4, pady=(8, 0))
             code_frame = tk.Frame(inner, bg='#1E293B', padx=2, pady=2)
             code_frame.pack(fill=tk.X, padx=pad_x, pady=(2, 8))
-            ct = tk.Text(code_frame, font=('NanumGothicCoding', 10),
+            ct = tk.Text(code_frame, font=('NanumGothicCoding', 12),
                          fg='#E2E8F0', bg='#1E293B', wrap=tk.NONE,
                          relief=tk.FLAT, padx=12, pady=8, height=text.count('\n') + 1)
             ct.insert('1.0', text)
@@ -25436,7 +25436,7 @@ class PerssonModelGUI_V2:
         def add_box(text, bg_c='#EFF6FF', fg_c='#1E40AF', border_c='#3B82F6'):
             box = tk.Frame(inner, bg=border_c, padx=2, pady=2)
             box.pack(fill=tk.X, padx=pad_x, pady=6)
-            tk.Label(box, text=text, font=('NanumGothic', 10),
+            tk.Label(box, text=text, font=('NanumGothic', 12),
                      fg=fg_c, bg=bg_c, anchor='w', justify=tk.LEFT,
                      wraplength=860, padx=12, pady=8).pack(fill=tk.X)
 
@@ -26484,12 +26484,12 @@ class PerssonModelGUI_V2:
         pad_x = 20
 
         def add_title(text, fg='#1E293B'):
-            lbl = tk.Label(inner, text=text, font=('NanumGothic', 10, 'bold'),
+            lbl = tk.Label(inner, text=text, font=('NanumGothic', 12, 'bold'),
                            fg=fg, bg='white', anchor='w', justify=tk.LEFT)
             lbl.pack(fill=tk.X, padx=pad_x, pady=(18, 4))
 
         def add_subtitle(text, fg='#0369A1'):
-            lbl = tk.Label(inner, text=text, font=('NanumGothic', 10, 'bold'),
+            lbl = tk.Label(inner, text=text, font=('NanumGothic', 12, 'bold'),
                            fg=fg, bg='white', anchor='w', justify=tk.LEFT)
             lbl.pack(fill=tk.X, padx=pad_x, pady=(14, 2))
 
@@ -26504,19 +26504,19 @@ class PerssonModelGUI_V2:
         def add_bullet(text, indent=1, fg='#334155'):
             prefix = '    ' * indent + '• '
             lbl = tk.Label(inner, text=prefix + text,
-                           font=('NanumGothic', 10), fg=fg, bg='white',
+                           font=('NanumGothic', 12), fg=fg, bg='white',
                            anchor='w', justify=tk.LEFT, wraplength=860)
             lbl.pack(fill=tk.X, padx=pad_x, pady=0)
 
         def add_code(text, title=None):
             if title:
                 t_lbl = tk.Label(inner, text=title,
-                                 font=('NanumGothicCoding', 10, 'bold'),
+                                 font=('NanumGothicCoding', 12, 'bold'),
                                  fg='#059669', bg='#F0FDF4', anchor='w')
                 t_lbl.pack(fill=tk.X, padx=pad_x + 4, pady=(8, 0))
             code_frame = tk.Frame(inner, bg='#1E293B', padx=2, pady=2)
             code_frame.pack(fill=tk.X, padx=pad_x, pady=(2, 8))
-            code_text = tk.Text(code_frame, font=('NanumGothicCoding', 10),
+            code_text = tk.Text(code_frame, font=('NanumGothicCoding', 12),
                                 fg='#E2E8F0', bg='#1E293B',
                                 wrap=tk.NONE, relief=tk.FLAT,
                                 padx=12, pady=8, height=text.count('\n') + 1)
@@ -26533,7 +26533,7 @@ class PerssonModelGUI_V2:
             box = tk.Frame(inner, bg=border_color, padx=2, pady=2)
             box.pack(fill=tk.X, padx=pad_x, pady=6)
             inner_box = tk.Label(box, text=text,
-                                  font=('NanumGothic', 10),
+                                  font=('NanumGothic', 12),
                                   fg=fg_color, bg=bg_color,
                                   anchor='w', justify=tk.LEFT,
                                   wraplength=860, padx=12, pady=8)
@@ -29674,7 +29674,7 @@ class PerssonModelGUI_V2:
 
         self._ts_hud_var = tk.StringVar(value="SA: 0.0°  |  Fy: 0 N")
         ttk.Label(steer_car_frame, textvariable=self._ts_hud_var,
-                  font=('NanumGothicCoding', 10), foreground='#0369A1').pack(pady=1)
+                  font=('NanumGothicCoding', 12), foreground='#0369A1').pack(pady=1)
 
         # ── Bottom row: Footprint contours (left) | Fy graphs (right) ──
         bot_row = ttk.Frame(viz_vpane)
@@ -29902,7 +29902,7 @@ class PerssonModelGUI_V2:
         self.ts_time_slider.pack(fill=tk.X, padx=4)
 
         sec4 = self._create_section(left_panel, "4) 랩타임 결과")
-        self.ts_result_text = tk.Text(sec4, height=12, font=('NanumGothicCoding', 10),
+        self.ts_result_text = tk.Text(sec4, height=12, font=('NanumGothicCoding', 12),
                                        bg='#F8FAFC', relief='flat', wrap='word',
                                        state='disabled')
         self.ts_result_text.pack(fill=tk.X, padx=4, pady=2)
@@ -31698,7 +31698,7 @@ class PerssonModelGUI_V2:
         result_frame.pack(fill=tk.X, pady=3, padx=3)
 
         self.ve_result_text = tk.Text(result_frame, height=22, width=60,
-                                      font=('NanumGothicCoding', 10), wrap=tk.WORD,
+                                      font=('NanumGothicCoding', 12), wrap=tk.WORD,
                                       bg='#F8FAFC', relief='solid', bd=1)
         ve_scroll_r = ttk.Scrollbar(result_frame, orient='vertical',
                                     command=self.ve_result_text.yview)
@@ -32404,7 +32404,7 @@ class PerssonModelGUI_V2:
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
         self._log_analysis_text = tk.Text(
-            text_frame, wrap=tk.NONE, font=('NanumGothicCoding', 10),
+            text_frame, wrap=tk.NONE, font=('NanumGothicCoding', 12),
             bg='#1E1E2E', fg='#CDD6F4', insertbackground='white',
             selectbackground='#45475A', selectforeground='#CDD6F4',
             yscrollcommand=scrollbar.set, state='normal',
@@ -32432,7 +32432,7 @@ class PerssonModelGUI_V2:
         self._log_analysis_text.tag_configure('log_system',
             foreground='#94E2D5')  # teal
         self._log_analysis_text.tag_configure('log_header',
-            foreground='#FAB387', font=('NanumGothicCoding', 10, 'bold'))
+            foreground='#FAB387', font=('NanumGothicCoding', 12, 'bold'))
 
         # Write initial header
         self._log_analysis_text.insert('end',
@@ -32787,7 +32787,7 @@ def main():
             pass
 
     # ── Close button (top-right, subtle) ──
-    _close_btn = tk.Label(splash, text='\u00D7', font=('NanumGothic', 10),
+    _close_btn = tk.Label(splash, text='\u00D7', font=('NanumGothic', 12),
                           fg='#555555', bg='#16162a', cursor='hand2',
                           padx=4, pady=0)
     _close_btn.place(relx=1.0, x=-4, y=2, anchor='ne')

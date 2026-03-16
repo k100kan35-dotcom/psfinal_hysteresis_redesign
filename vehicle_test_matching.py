@@ -79,7 +79,7 @@ def _create_vehicle_test_matching_tab(self, parent):
     ttk.Button(row_add3, text="선택 삭제", command=self._vtm_remove_selected_item).pack(side=tk.LEFT, padx=2)
 
     # Items listbox
-    self._vtm_items_listbox = tk.Listbox(sec1, height=5, font=('NanumGothicCoding', 10),
+    self._vtm_items_listbox = tk.Listbox(sec1, height=5, font=('NanumGothicCoding', 12),
                                           selectmode=tk.SINGLE)
     self._vtm_items_listbox.pack(fill=tk.X, pady=2)
 
@@ -192,7 +192,7 @@ def _create_vehicle_test_matching_tab(self, parent):
 
     # ── 5) 결과 요약 ──
     sec4 = self._create_section(left_panel, "5) 결과 요약")
-    self._vtm_result_text = tk.Text(sec4, height=15, font=('NanumGothicCoding', 10),
+    self._vtm_result_text = tk.Text(sec4, height=15, font=('NanumGothicCoding', 12),
                                      wrap=tk.WORD, state=tk.DISABLED)
     self._vtm_result_text.pack(fill=tk.BOTH, expand=True, pady=2)
 
@@ -292,7 +292,7 @@ def _vtm_create_sample_map_table(self):
 
     # Header
     ttk.Label(self._vtm_sample_map_frame, text="샘플 ↔ 마찰맵 연결:",
-              font=('', 10, 'bold')).pack(anchor='w', pady=(2, 4))
+              font=('', 12, 'bold')).pack(anchor='w', pady=(2, 4))
 
     for sample in samples:
         row = ttk.Frame(self._vtm_sample_map_frame)
@@ -471,15 +471,15 @@ def _vtm_create_data_table(self):
     scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
     # Header row
-    ttk.Label(table_inner, text="항목 \\ 샘플", font=('', 10, 'bold'),
+    ttk.Label(table_inner, text="항목 \\ 샘플", font=('', 12, 'bold'),
               width=18).grid(row=0, column=0, padx=2, pady=1, sticky='w')
     for j, sample in enumerate(samples):
-        ttk.Label(table_inner, text=sample, font=('', 10, 'bold'),
+        ttk.Label(table_inner, text=sample, font=('', 12, 'bold'),
                   width=10).grid(row=0, column=j+1, padx=2, pady=1)
 
     # Row 1: Optional measured mu (마찰계수) — 선택사항
     lbl = ttk.Label(table_inner, text="측정 마찰계수 (선택)",
-                    font=('', 10), foreground='#64748B', width=22)
+                    font=('', 12), foreground='#64748B', width=22)
     lbl.grid(row=1, column=0, padx=2, pady=1, sticky='w')
     for j, sample in enumerate(samples):
         var = tk.StringVar(value='')
@@ -495,7 +495,7 @@ def _vtm_create_data_table(self):
     for i, item in enumerate(self._vtm_items):
         dir_mark = "↓" if item['direction'] == 'lower_better' else "↑"
         ttk.Label(table_inner, text=f"{dir_mark} {item['name']} [{item['unit']}]",
-                  font=('', 10), width=22).grid(row=i+3, column=0, padx=2, pady=1, sticky='w')
+                  font=('', 12), width=22).grid(row=i+3, column=0, padx=2, pady=1, sticky='w')
         for j, sample in enumerate(samples):
             var = tk.StringVar(value=str(item.get('values', {}).get(sample, '')))
             self._vtm_entry_vars[(i, j)] = var
