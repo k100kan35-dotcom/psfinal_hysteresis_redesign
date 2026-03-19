@@ -11593,7 +11593,7 @@ class PerssonModelGUI_V2:
         try:
             fg_data = load_fg_curve_file(
                 filename,
-                strain_is_percent=self.strain_is_percent_var.get()
+                strain_is_percent=False
             )
 
             if fg_data is None:
