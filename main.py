@@ -11614,6 +11614,10 @@ class PerssonModelGUI_V2:
                 'g_avg': fg_data['g'] if fg_data['g'] is not None else fg_data['f']
             }
 
+            # Reset previous computation state so plot shows newly loaded data
+            self.piecewise_result = None
+            self.fg_by_T = None
+
             # Update label
             self.fg_file_label.config(text=os.path.basename(filename))
 
@@ -18711,20 +18715,14 @@ class PerssonModelGUI_V2:
             preset_dir = self._get_preset_data_dir('fg_curve')
             filepath = os.path.join(preset_dir, selected)
 
-            # 다중 인코딩 시도
-            fg_raw = None
-            for enc in ['utf-8', 'cp949', 'euc-kr', 'latin-1']:
-                try:
-                    fg_raw = np.loadtxt(filepath, comments='#', encoding=enc)
-                    break
-                except UnicodeDecodeError:
-                    continue
-            if fg_raw is None:
-                raise ValueError("파일 인코딩을 인식할 수 없습니다.")
+            # Use load_fg_curve_file for robust parsing (supports Fortran D notation)
+            fg_data = load_fg_curve_file(filepath, strain_is_percent=False)
+            if fg_data is None:
+                raise ValueError("유효한 f,g 데이터를 찾을 수 없습니다.")
 
-            strain = fg_raw[:, 0]
-            f_vals = fg_raw[:, 1]
-            g_vals = fg_raw[:, 2] if fg_raw.shape[1] >= 3 else f_vals.copy()
+            strain = fg_data['strain']
+            f_vals = fg_data['f']
+            g_vals = fg_data['g'] if fg_data['g'] is not None else f_vals.copy()
 
             # Create interpolators
             self.f_interpolator, self.g_interpolator = create_fg_interpolator(
@@ -18737,6 +18735,10 @@ class PerssonModelGUI_V2:
                 'f_avg': f_vals,
                 'g_avg': g_vals
             }
+
+            # Reset previous computation state so plot shows newly loaded data
+            self.piecewise_result = None
+            self.fg_by_T = None
 
             self.fg_file_label.config(text=f"내장: {selected} ({len(strain)}pts)")
             self._update_fg_plot()
