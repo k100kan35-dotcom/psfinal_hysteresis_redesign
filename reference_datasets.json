@@ -10039,5 +10039,54 @@
     ],
     "saved_date": "2026-03-05 20:35",
     "source": "FrictionMap T=20°C p0=0.5MPa cold"
+  },
+  "R20_mu_dry_total (Asphalt)": {
+    "mu_log_v": [
+      -4.0,
+      -3.33724,
+      -2.69897,
+      -2.0,
+      -1.33724,
+      -0.67778
+    ],
+    "mu_vals": [
+      0.897,
+      1.549,
+      1.61,
+      1.896,
+      1.97,
+      1.799
+    ],
+    "area_log_v": [],
+    "area_vals": [],
+    "saved_date": "2026-03-19 19:22"
+  },
+  "R20_mu_hysteresis(low)": {
+    "mu_log_v": [
+      -2.698970004,
+      -2.0,
+      -1.33724
+    ],
+    "mu_vals": [
+      0.31,
+      0.4725,
+      0.5105
+    ],
+    "area_log_v": [],
+    "area_vals": [],
+    "saved_date": "2026-03-19 19:22"
+  },
+  "R20_mu_hysteresis(High)": {
+    "mu_log_v": [
+      -2.0,
+      -1.33724
+    ],
+    "mu_vals": [
+      1.193,
+      1.237
+    ],
+    "area_log_v": [],
+    "area_vals": [],
+    "saved_date": "2026-03-19 19:23"
   }
 }
