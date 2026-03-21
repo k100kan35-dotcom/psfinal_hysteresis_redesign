@@ -1040,15 +1040,29 @@ class MonteCarloTab:
         sec1 = self._make_section(left, "1) 화강암 비눗물 μ (하한)")
         self._q1_granite_v = self._make_entry_row(sec1, "속도점 (m/s):", "0.002, 0.01, 0.046", width=20)
         self._q1_granite_mu = {}
+        _granite_defaults = {
+            'R0': '0.313, 0.439, 0.475',
+            'R20': '0.310, 0.472, 0.510',
+            'R40': '0.320, 0.492, 0.508',
+            'R60': '0.347, 0.599, 0.600',
+        }
         for name in self.COMPOUND_NAMES:
-            self._q1_granite_mu[name] = self._make_entry_row(sec1, f"  {name}:", "", width=20)
+            self._q1_granite_mu[name] = self._make_entry_row(
+                sec1, f"  {name}:", _granite_defaults.get(name, ""), width=20)
 
         # ── 아스팔트(상한) ──
         sec1b = self._make_section(left, "   아스팔트 비눗물 μ (상한)")
         self._q1_asphalt_v = self._make_entry_row(sec1b, "속도점 (m/s):", "0.01, 0.046", width=20)
         self._q1_asphalt_mu = {}
+        _asphalt_defaults = {
+            'R0': '1.144, 1.227',
+            'R20': '1.193, 1.237',
+            'R40': '1.247, 1.327',
+            'R60': '1.406, 1.545',
+        }
         for name in self.COMPOUND_NAMES:
-            self._q1_asphalt_mu[name] = self._make_entry_row(sec1b, f"  {name}:", "", width=20)
+            self._q1_asphalt_mu[name] = self._make_entry_row(
+                sec1b, f"  {name}:", _asphalt_defaults.get(name, ""), width=20)
 
         btn_csv = ttk.Frame(left)
         btn_csv.pack(fill=tk.X, pady=2, padx=2)
@@ -1167,67 +1181,85 @@ class MonteCarloTab:
         return None
 
     def _run_q1_prescan(self):
-        """평균 C(q)로 q₁ 유효 범위 사전 탐색."""
+        """평균 C(q)로 q₁ 유효 범위 사전 탐색 (스레드)."""
         if self.C_pool is None or self.q_grid is None:
             messagebox.showwarning("q₁ 탐색", "먼저 PSD 앙상블을 생성하세요.")
             return
 
+        # 파라미터 미리 읽기 (메인 스레드)
         try:
-            self._q1_range_label.config(text="탐색 중...")
-            self.app.root.update_idletasks()
-
             q1_min = float(self._q1_min_var.get())
             q1_max = float(self._q1_max_var.get())
             n_scan = int(self._q1_n_scan.get())
+        except ValueError as e:
+            messagebox.showerror("오류", f"파라미터 오류: {e}")
+            return
 
-            q1_candidates = np.logspace(np.log10(q1_min), np.log10(q1_max), n_scan)
-            C_mean = np.mean(self.C_pool, axis=0)
+        self._q1_range_label.config(text="탐색 중... 0%")
+        self.app.root.update_idletasks()
 
-            # 각 q₁에서 μ_hys 계산 (첫 번째 컴파운드만)
-            mu_vs_q1 = []
-            for q1 in q1_candidates:
-                mu = self._compute_mu_hys_for_q1(q1, C_mean, self.q_grid, 0)
-                mu_vs_q1.append(mu if mu is not None else 0.0)
+        def _worker():
+            try:
+                q1_candidates = np.logspace(np.log10(q1_min),
+                                            np.log10(q1_max), n_scan)
+                C_mean = np.mean(self.C_pool, axis=0)
 
-            mu_vs_q1 = np.array(mu_vs_q1)
+                mu_vs_q1 = []
+                for idx, q1 in enumerate(q1_candidates):
+                    mu = self._compute_mu_hys_for_q1(q1, C_mean, self.q_grid, 0)
+                    mu_vs_q1.append(mu if mu is not None else 0.0)
+                    # 진행률 업데이트
+                    pct = int((idx + 1) / n_scan * 100)
+                    self.app.root.after(0, lambda p=pct:
+                        self._q1_range_label.config(text=f"탐색 중... {p}%"))
 
-            # 유효 범위: μ > 0인 q₁ 구간
-            valid = mu_vs_q1 > 0
-            if not np.any(valid):
-                self._q1_range_label.config(text="유효 범위 없음 — 파라미터 확인 필요")
-                return
+                mu_vs_q1 = np.array(mu_vs_q1)
 
-            valid_q1 = q1_candidates[valid]
-            self.q1_valid_range = (valid_q1.min(), valid_q1.max())
-            self._q1_range_label.config(
-                text=f"유효 범위: [{valid_q1.min():.2e}, {valid_q1.max():.2e}] 1/m")
+                # 결과를 메인 스레드에서 처리
+                self.app.root.after(0, lambda: self._q1_prescan_done(
+                    q1_candidates, mu_vs_q1))
 
-            # 플롯
-            ax = self._ax_q1
-            ax.clear()
-            ax.set_title('μ_hys vs q₁ (평균 PSD)', fontweight='bold')
-            ax.set_xlabel('q₁ (1/m)')
-            ax.set_ylabel('μ_hys')
-            ax.set_xscale('log')
-            ax.grid(True, alpha=0.3)
-            ax.plot(q1_candidates, mu_vs_q1, 'o-', color='#2563EB', linewidth=1.5,
-                    markersize=3, label='μ_hys (compound 0)')
-            if self.q1_valid_range:
-                ax.axvspan(self.q1_valid_range[0], self.q1_valid_range[1],
-                          alpha=0.1, color='green', label='유효 범위')
-            ax.legend(loc='best')
-            self._fig_q1.tight_layout(pad=2.0)
-            self._canvas_q1.draw_idle()
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                self.app.root.after(0, lambda: (
+                    self._q1_range_label.config(text=f"오류: {e}"),
+                    messagebox.showerror("오류", f"q₁ 탐색 실패:\n{e}")))
 
-            self.app._show_status(
-                f"q₁ 사전 탐색 완료: [{valid_q1.min():.2e}, {valid_q1.max():.2e}]",
-                'success')
+        threading.Thread(target=_worker, daemon=True).start()
 
-        except Exception as e:
-            self._q1_range_label.config(text=f"오류: {e}")
-            messagebox.showerror("오류", f"q₁ 탐색 실패:\n{e}")
-            import traceback
-            traceback.print_exc()
+    def _q1_prescan_done(self, q1_candidates, mu_vs_q1):
+        """사전 탐색 완료 후 메인 스레드에서 플롯/결과 처리."""
+        valid = mu_vs_q1 > 0
+        if not np.any(valid):
+            self._q1_range_label.config(text="유효 범위 없음 — 파라미터 확인 필요")
+            return
+
+        valid_q1 = q1_candidates[valid]
+        self.q1_valid_range = (valid_q1.min(), valid_q1.max())
+        self._q1_range_label.config(
+            text=f"유효 범위: [{valid_q1.min():.2e}, {valid_q1.max():.2e}] 1/m")
+
+        # 플롯
+        ax = self._ax_q1
+        ax.clear()
+        ax.set_title('μ_hys vs q₁ (평균 PSD)', fontweight='bold')
+        ax.set_xlabel('q₁ (1/m)')
+        ax.set_ylabel('μ_hys')
+        ax.set_xscale('log')
+        ax.grid(True, alpha=0.3)
+        ax.plot(q1_candidates, mu_vs_q1, 'o-', color='#2563EB', linewidth=1.5,
+                markersize=3, label='μ_hys (compound 0)')
+        if self.q1_valid_range:
+            ax.axvspan(self.q1_valid_range[0], self.q1_valid_range[1],
+                      alpha=0.1, color='green', label='유효 범위')
+        ax.legend(loc='best')
+        self._fig_q1.tight_layout(pad=2.0)
+        self._canvas_q1.draw_idle()
+
+        self.app._show_status(
+            f"q₁ 사전 탐색 완료: [{valid_q1.min():.2e}, {valid_q1.max():.2e}]",
+            'success')
 
     def _generate_q1_pool(self):
         """유효 범위에서 log-uniform q₁ 풀 생성."""
