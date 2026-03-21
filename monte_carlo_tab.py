@@ -56,9 +56,14 @@ class PSDComputer:
         """노면 프로파일 로드 (포맷 자동 감지).
 
         지원 포맷:
-          1) IDADA 포맷: 5줄 헤더 (이름, 플래그, N, dx, unit) + 'x  h' 데이터
-          2) 선 거칠기 CSV: 헤더 "X(μm)","Z(μm)" + 콤마 구분 데이터 (μm 단위)
-          3) 일반 2열 데이터: x, h (m 단위) — CSV 또는 공백/탭 구분
+          1) 선 거칠기 CSV: 헤더에 "X(" 포함 → μm 단위 2열
+          2) IDADA 포맷 (기본값): k100kan35-dotcom/psd 레퍼런스와 동일
+             Line 0: 프로파일 이름
+             Line 1: 플래그
+             Line 2: 데이터 포인트 수
+             Line 3: dx (간격, m)
+             Line 4: 단위 변환 계수 (→ m)
+             Line 5+: x_value  h_value
         """
         with open(filepath, 'r', encoding='utf-8-sig') as f:
             lines = f.readlines()
@@ -68,27 +73,13 @@ class PSDComputer:
 
         first_line = lines[0].strip()
 
-        # ── 포맷 감지 ──
-        # (A) 선 거칠기 CSV: 헤더에 "X(" 또는 "Z(" 포함
-        if 'X(' in first_line.upper() or 'Z(' in first_line.upper():
+        # 선 거칠기 CSV 감지: 헤더에 "X(" 포함
+        if 'X(' in first_line.upper():
             return self._load_line_roughness_csv(filepath, lines)
 
-        # (B) IDADA 포맷: 3번째 줄이 큰 정수 (데이터 포인트 수)
-        try:
-            if len(lines) >= 5:
-                n_check = int(lines[2].strip())
-                dx_check = float(lines[3].strip())
-                if n_check > 10 and dx_check > 0:
-                    return self._load_idada_format(lines)
-        except (ValueError, IndexError):
-            pass
-
-        # (C) 일반 2열 데이터 (x, h)
-        return self._load_generic_xy(filepath)
-
-    def _load_idada_format(self, lines):
-        """IDADA 포맷 파일 파싱."""
+        # 기본: IDADA 포맷 (레퍼런스 repo와 동일한 로직)
         self.profile_name = lines[0].strip()
+        n_points_header = int(lines[2].strip())
         self.dx = float(lines[3].strip())
         self.unit_factor = float(lines[4].strip())
 
@@ -96,10 +87,7 @@ class PSDComputer:
         for line in lines[5:]:
             parts = line.strip().split()
             if len(parts) >= 2:
-                try:
-                    h_list.append(float(parts[1]))
-                except ValueError:
-                    continue
+                h_list.append(float(parts[1]))
 
         self.h_raw = np.array(h_list) * self.unit_factor
         self.N = len(self.h_raw)
@@ -111,6 +99,8 @@ class PSDComputer:
             'dx_um': self.dx * 1e6,
             'L_mm': self.L * 1e3,
             'h_rms_um': np.std(self.h_raw) * 1e6,
+            'h_min_um': np.min(self.h_raw) * 1e6,
+            'h_max_um': np.max(self.h_raw) * 1e6,
             'q_min': 2 * np.pi / self.L,
             'q_max': np.pi / self.dx,
         }
@@ -147,45 +137,6 @@ class PSDComputer:
 
         self.dx = np.median(np.diff(x_arr))
         self.unit_factor = 1.0  # 이미 m 단위
-        self.h_raw = h_arr
-        self.N = len(self.h_raw)
-        self.L = self.N * self.dx
-        self.profile_name = os.path.splitext(os.path.basename(filepath))[0]
-
-        return {
-            'name': self.profile_name,
-            'n_points': self.N,
-            'dx_um': self.dx * 1e6,
-            'L_mm': self.L * 1e3,
-            'h_rms_um': np.std(self.h_raw) * 1e6,
-            'q_min': 2 * np.pi / self.L,
-            'q_max': np.pi / self.dx,
-        }
-
-    def _load_generic_xy(self, filepath):
-        """일반 2열 (x, h) 데이터 파일 로드 (m 단위 가정)."""
-        # 구분자 자동 감지
-        with open(filepath, 'r', encoding='utf-8-sig') as f:
-            first_data = ''
-            for line in f:
-                s = line.strip()
-                if s and not s.startswith('#') and not s[0].isalpha():
-                    first_data = s
-                    break
-        delim = ',' if ',' in first_data else None
-        data = np.loadtxt(filepath, delimiter=delim, comments='#',
-                          encoding='utf-8-sig')
-
-        if data.ndim != 2 or data.shape[1] < 2:
-            raise ValueError(f"2열 이상 데이터 필요 (현재 shape: {data.shape})")
-        if len(data) < 10:
-            raise ValueError(f"유효 데이터 부족: {len(data)}개")
-
-        x_arr = data[:, 0]
-        h_arr = data[:, 1]
-
-        self.dx = np.median(np.diff(x_arr))
-        self.unit_factor = 1.0
         self.h_raw = h_arr
         self.N = len(self.h_raw)
         self.L = self.N * self.dx
