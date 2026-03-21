@@ -197,6 +197,7 @@ matplotlib.rcParams['figure.titlesize'] = 20
 
 from braking_simulation import bind_braking_simulation
 from vehicle_test_matching import bind_vehicle_test_matching
+from monte_carlo_tab import bind_monte_carlo_tab
 
 
 class PerssonModelGUI_V2:
@@ -422,6 +423,9 @@ class PerssonModelGUI_V2:
         self.psd_q0_var = tk.StringVar(value="500")
         self.psd_q1_var = tk.StringVar(value="1e5")
         self.psd_Cq0_var = tk.StringVar(value="3.5e-13")
+
+        # Bind Monte Carlo tab (must be before _create_main_layout)
+        bind_monte_carlo_tab(self)
 
         # Create UI
         self._splash_cb("메뉴 생성 중...", 10)
@@ -962,6 +966,7 @@ class PerssonModelGUI_V2:
             ('tab_friction_factors','영향 인자',           self._create_friction_factors_tab),
             ('tab_vtm',             '실차 매칭',           self._create_vehicle_test_matching_tab),
             ('tab_log_analysis',    'Log 분석',            self._create_log_analysis_tab),
+            ('tab_monte_carlo',    'Monte Carlo',         self._create_monte_carlo_tab),
         ]
 
         # 기본 숨김 탭 목록
