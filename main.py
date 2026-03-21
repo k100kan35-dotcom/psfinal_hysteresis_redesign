@@ -198,6 +198,8 @@ matplotlib.rcParams['figure.titlesize'] = 20
 from braking_simulation import bind_braking_simulation
 from vehicle_test_matching import bind_vehicle_test_matching
 from monte_carlo_tab import bind_monte_carlo_tab
+from data_input_tab import bind_data_input_tab
+from results_overview_tab import bind_results_overview_tab
 
 
 class PerssonModelGUI_V2:
@@ -423,6 +425,17 @@ class PerssonModelGUI_V2:
         self.psd_q0_var = tk.StringVar(value="500")
         self.psd_q1_var = tk.StringVar(value="1e5")
         self.psd_Cq0_var = tk.StringVar(value="3.5e-13")
+
+        # Multi-compound data state (for Data Input tab)
+        self.compound_count = 1
+        self.compound_data = []           # list of CompoundData objects
+        self.shared_psd_model = None
+        self.all_compound_results = []    # list of result dicts per compound
+        self.data_input_finalized = False
+
+        # Bind Data Input & Results Overview tabs (must be before _create_main_layout)
+        bind_data_input_tab(self)
+        bind_results_overview_tab(self)
 
         # Bind Monte Carlo tab (must be before _create_main_layout)
         bind_monte_carlo_tab(self)
@@ -943,6 +956,8 @@ class PerssonModelGUI_V2:
 
         # ── Tab definitions ──
         tabs = [
+            ('tab_data_input',       '데이터 입력',         self._create_data_input_tab),
+            ('tab_results_overview', '계산 결과',           self._create_results_overview_tab),
             ('tab_psd_profile',     'PSD 생성',           self._create_psd_profile_tab),
             ('tab_master_curve',    '마스터 커브',         self._create_master_curve_tab),
             ('tab_parameters',      '계산 설정',           self._create_parameters_tab),
