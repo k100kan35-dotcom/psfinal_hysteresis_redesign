@@ -53,19 +53,41 @@ class PSDComputer:
         self.unit_factor = 1e-6
 
     def load_profile(self, filepath):
-        """IDADA 포맷 노면 프로파일 로드.
+        """노면 프로파일 로드 (포맷 자동 감지).
 
-        파일 형식:
-          Line 1: 프로파일 이름
-          Line 2: 플래그
-          Line 3: 데이터 포인트 수
-          Line 4: dx (간격, m)
-          Line 5: 단위 변환 계수 (→ m)
-          Line 6+: x_value  h_value
+        지원 포맷:
+          1) IDADA 포맷: 5줄 헤더 (이름, 플래그, N, dx, unit) + 'x  h' 데이터
+          2) 선 거칠기 CSV: 헤더 "X(μm)","Z(μm)" + 콤마 구분 데이터 (μm 단위)
+          3) 일반 2열 데이터: x, h (m 단위) — CSV 또는 공백/탭 구분
         """
-        with open(filepath, 'r') as f:
+        with open(filepath, 'r', encoding='utf-8-sig') as f:
             lines = f.readlines()
 
+        if not lines:
+            raise ValueError(f"빈 파일: {filepath}")
+
+        first_line = lines[0].strip()
+
+        # ── 포맷 감지 ──
+        # (A) 선 거칠기 CSV: 헤더에 "X(" 또는 "Z(" 포함
+        if 'X(' in first_line.upper() or 'Z(' in first_line.upper():
+            return self._load_line_roughness_csv(filepath, lines)
+
+        # (B) IDADA 포맷: 3번째 줄이 큰 정수 (데이터 포인트 수)
+        try:
+            if len(lines) >= 5:
+                n_check = int(lines[2].strip())
+                dx_check = float(lines[3].strip())
+                if n_check > 10 and dx_check > 0:
+                    return self._load_idada_format(lines)
+        except (ValueError, IndexError):
+            pass
+
+        # (C) 일반 2열 데이터 (x, h)
+        return self._load_generic_xy(filepath)
+
+    def _load_idada_format(self, lines):
+        """IDADA 포맷 파일 파싱."""
         self.profile_name = lines[0].strip()
         self.dx = float(lines[3].strip())
         self.unit_factor = float(lines[4].strip())
@@ -74,11 +96,100 @@ class PSDComputer:
         for line in lines[5:]:
             parts = line.strip().split()
             if len(parts) >= 2:
-                h_list.append(float(parts[1]))
+                try:
+                    h_list.append(float(parts[1]))
+                except ValueError:
+                    continue
 
         self.h_raw = np.array(h_list) * self.unit_factor
         self.N = len(self.h_raw)
         self.L = self.N * self.dx
+
+        return {
+            'name': self.profile_name,
+            'n_points': self.N,
+            'dx_um': self.dx * 1e6,
+            'L_mm': self.L * 1e3,
+            'h_rms_um': np.std(self.h_raw) * 1e6,
+            'q_min': 2 * np.pi / self.L,
+            'q_max': np.pi / self.dx,
+        }
+
+    def _load_line_roughness_csv(self, filepath, lines):
+        """선 거칠기 CSV 파싱: "X(μm)","Z(μm)" 형식.
+
+        μm 단위 → m 변환, 빈 값은 NaN으로 처리 후 제거.
+        """
+        import csv as csv_mod
+        x_list, h_list = [], []
+
+        reader = csv_mod.reader(lines[1:])  # 헤더 스킵
+        for row in reader:
+            if len(row) < 2:
+                continue
+            x_str = row[0].strip().strip('"')
+            h_str = row[1].strip().strip('"')
+            if not x_str or not h_str:
+                continue
+            try:
+                x_val = float(x_str)
+                h_val = float(h_str)
+                x_list.append(x_val)
+                h_list.append(h_val)
+            except ValueError:
+                continue
+
+        if len(x_list) < 10:
+            raise ValueError(f"유효 데이터 부족: {len(x_list)}개")
+
+        x_arr = np.array(x_list) * 1e-6   # μm → m
+        h_arr = np.array(h_list) * 1e-6   # μm → m
+
+        self.dx = np.median(np.diff(x_arr))
+        self.unit_factor = 1.0  # 이미 m 단위
+        self.h_raw = h_arr
+        self.N = len(self.h_raw)
+        self.L = self.N * self.dx
+        self.profile_name = os.path.splitext(os.path.basename(filepath))[0]
+
+        return {
+            'name': self.profile_name,
+            'n_points': self.N,
+            'dx_um': self.dx * 1e6,
+            'L_mm': self.L * 1e3,
+            'h_rms_um': np.std(self.h_raw) * 1e6,
+            'q_min': 2 * np.pi / self.L,
+            'q_max': np.pi / self.dx,
+        }
+
+    def _load_generic_xy(self, filepath):
+        """일반 2열 (x, h) 데이터 파일 로드 (m 단위 가정)."""
+        # 구분자 자동 감지
+        with open(filepath, 'r', encoding='utf-8-sig') as f:
+            first_data = ''
+            for line in f:
+                s = line.strip()
+                if s and not s.startswith('#') and not s[0].isalpha():
+                    first_data = s
+                    break
+        delim = ',' if ',' in first_data else None
+        data = np.loadtxt(filepath, delimiter=delim, comments='#',
+                          encoding='utf-8-sig')
+
+        if data.ndim != 2 or data.shape[1] < 2:
+            raise ValueError(f"2열 이상 데이터 필요 (현재 shape: {data.shape})")
+        if len(data) < 10:
+            raise ValueError(f"유효 데이터 부족: {len(data)}개")
+
+        x_arr = data[:, 0]
+        h_arr = data[:, 1]
+
+        self.dx = np.median(np.diff(x_arr))
+        self.unit_factor = 1.0
+        self.h_raw = h_arr
+        self.N = len(self.h_raw)
+        self.L = self.N * self.dx
+        self.profile_name = os.path.splitext(os.path.basename(filepath))[0]
 
         return {
             'name': self.profile_name,
@@ -443,6 +554,7 @@ class MonteCarloTab:
 
             new_scans = []
             loaded_names = []
+            skip_msgs = []
             for fpath in fpaths:
                 try:
                     comp = PSDComputer()
@@ -458,12 +570,15 @@ class MonteCarloTab:
                         loaded_names.append(
                             info.get('name', os.path.basename(fpath)))
                 except Exception as e:
-                    print(f"  [Profile] 스킵: {os.path.basename(fpath)} — {e}")
+                    import traceback
+                    traceback.print_exc()
+                    skip_msgs.append(f"{os.path.basename(fpath)}: {e}")
                     continue
 
             if not new_scans:
+                detail = "\n".join(skip_msgs[:10]) if skip_msgs else "알 수 없는 오류"
                 messagebox.showwarning("프로파일 로드",
-                    "유효한 프로파일을 찾을 수 없습니다.")
+                    f"유효한 프로파일을 찾을 수 없습니다.\n\n{detail}")
                 return
 
             self.psd_scans.extend(new_scans)
