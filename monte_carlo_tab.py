@@ -292,10 +292,12 @@ class MonteCarloTab:
 
         ttk.Button(sec1, text="Tab 0 PSD 사용",
                    command=self._load_psd_from_app).pack(fill=tk.X, pady=2)
-        ttk.Button(sec1, text="PSD 파일 폴더 (CSV/TXT)",
-                   command=self._load_psd_folder).pack(fill=tk.X, pady=2)
-        ttk.Button(sec1, text="노면 프로파일 폴더",
-                   command=self._load_profile_folder).pack(fill=tk.X, pady=2)
+        ttk.Button(sec1, text="PSD 파일 추가 (CSV/TXT)",
+                   command=self._load_psd_files).pack(fill=tk.X, pady=2)
+        ttk.Button(sec1, text="노면 프로파일 추가",
+                   command=self._load_profile_files).pack(fill=tk.X, pady=2)
+        ttk.Button(sec1, text="스캔 초기화",
+                   command=self._clear_psd_scans).pack(fill=tk.X, pady=2)
 
         self._psd_scan_label = ttk.Label(sec1, text="로드된 스캔: 0개",
                                          font=self.app.FONTS['small'],
@@ -366,26 +368,27 @@ class MonteCarloTab:
         except Exception as e:
             messagebox.showerror("오류", f"PSD 로드 실패:\n{e}")
 
-    def _load_psd_folder(self):
-        """CSV/TXT 폴더에서 PSD 스캔 로드 (q, C 두 열)."""
-        folder = filedialog.askdirectory(title="PSD 파일 폴더 선택")
-        if not folder:
+    def _clear_psd_scans(self):
+        """로드된 PSD 스캔 초기화."""
+        self.psd_scans = []
+        self._psd_scan_label.config(text="로드된 스캔: 0개")
+        self._ax_psd_orig.clear()
+        self._ax_psd_orig.set_title("원본 PSD 스캔")
+        self._canvas_psd.draw_idle()
+        self.app._show_status("PSD 스캔 초기화됨", 'info')
+
+    def _load_psd_files(self):
+        """CSV/TXT 파일 선택으로 PSD 스캔 추가 (중복 선택 가능)."""
+        fpaths = filedialog.askopenfilenames(
+            title="PSD 파일 선택 (복수 선택 가능)",
+            filetypes=[("CSV/TXT 파일", "*.csv *.txt"),
+                       ("모든 파일", "*.*")])
+        if not fpaths:
             return
         try:
-            scans = []
-            data_files = sorted([
-                f for f in os.listdir(folder)
-                if f.lower().endswith(('.csv', '.txt'))
-            ])
-            if not data_files:
-                messagebox.showwarning("PSD 로드",
-                    "폴더에 CSV/TXT 파일이 없습니다.")
-                return
-
-            for fname in data_files:
-                fpath = os.path.join(folder, fname)
+            new_scans = []
+            for fpath in fpaths:
                 try:
-                    # 구분자 자동 감지: 콤마 or 공백/탭
                     with open(fpath, 'r', encoding='utf-8-sig') as f:
                         first_data = ''
                         for line in f:
@@ -403,54 +406,44 @@ class MonteCarloTab:
                     C = data[:, 1]
                     mask = (q > 0) & (C > 0)
                     if np.sum(mask) >= 5:
-                        scans.append((q[mask], C[mask]))
+                        new_scans.append((q[mask], C[mask]))
 
-            if not scans:
+            if not new_scans:
                 messagebox.showwarning("PSD 로드",
                     "유효한 PSD 데이터를 찾을 수 없습니다.")
                 return
 
-            self.psd_scans = scans
+            self.psd_scans.extend(new_scans)
             self._psd_scan_label.config(
-                text=f"로드된 스캔: {len(scans)}개 ({os.path.basename(folder)})")
+                text=f"로드된 스캔: {len(self.psd_scans)}개 (추가 {len(new_scans)}개)")
             self._plot_psd_originals()
             self.app._show_status(
-                f"PSD 스캔 {len(scans)}개 로드 완료", 'success')
+                f"PSD 스캔 {len(new_scans)}개 추가 (총 {len(self.psd_scans)}개)",
+                'success')
 
         except Exception as e:
-            messagebox.showerror("오류", f"PSD 폴더 로드 실패:\n{e}")
+            messagebox.showerror("오류", f"PSD 파일 로드 실패:\n{e}")
 
-    def _load_profile_folder(self):
-        """노면 프로파일 폴더에서 PSD 계산하여 로드.
-
-        PSDComputer를 사용하여 각 프로파일에서 C(q)를 계산한다.
-        지원 확장자: .dat, .csv, .txt
-        """
-        folder = filedialog.askdirectory(title="노면 프로파일 폴더 선택")
-        if not folder:
+    def _load_profile_files(self):
+        """노면 프로파일 파일 선택으로 PSD 계산하여 추가 (중복 선택 가능)."""
+        fpaths = filedialog.askopenfilenames(
+            title="노면 프로파일 파일 선택 (복수 선택 가능)",
+            filetypes=[("프로파일 파일", "*.dat *.csv *.txt"),
+                       ("모든 파일", "*.*")])
+        if not fpaths:
             return
         try:
-            exts = ('.dat', '.csv', '.txt')
-            files = sorted([
-                os.path.join(folder, f) for f in os.listdir(folder)
-                if f.lower().endswith(exts) and not f.startswith('.')
-            ])
-            if not files:
-                messagebox.showwarning("프로파일 로드",
-                    "폴더에 프로파일 파일이 없습니다 (.dat/.csv/.txt)")
-                return
-
             detrend = self._psd_detrend_var.get()
             n_bins = int(self._psd_nbins_var.get())
             corr = float(self._psd_corr_var.get())
 
             self._psd_status_label.config(
-                text=f"프로파일 {len(files)}개 PSD 계산 중...")
+                text=f"프로파일 {len(fpaths)}개 PSD 계산 중...")
             self.app.root.update_idletasks()
 
-            scans = []
+            new_scans = []
             loaded_names = []
-            for fpath in files:
+            for fpath in fpaths:
                 try:
                     comp = PSDComputer()
                     info = comp.load_profile(fpath)
@@ -461,26 +454,27 @@ class MonteCarloTab:
                         correction_factor=corr, n_bins=n_bins,
                     )
                     if len(q_bin) >= 5:
-                        scans.append((q_bin, C_bin))
+                        new_scans.append((q_bin, C_bin))
                         loaded_names.append(
                             info.get('name', os.path.basename(fpath)))
                 except Exception as e:
                     print(f"  [Profile] 스킵: {os.path.basename(fpath)} — {e}")
                     continue
 
-            if not scans:
+            if not new_scans:
                 messagebox.showwarning("프로파일 로드",
                     "유효한 프로파일을 찾을 수 없습니다.")
                 return
 
-            self.psd_scans = scans
+            self.psd_scans.extend(new_scans)
             self._psd_scan_label.config(
-                text=f"로드된 스캔: {len(scans)}개 ({os.path.basename(folder)})")
+                text=f"로드된 스캔: {len(self.psd_scans)}개 (추가 {len(new_scans)}개)")
             self._plot_psd_originals()
             self._psd_status_label.config(
-                text=f"프로파일 {len(scans)}개 PSD 계산 완료")
+                text=f"프로파일 {len(new_scans)}개 PSD 계산 완료")
             self.app._show_status(
-                f"노면 프로파일 {len(scans)}개 → PSD 계산 완료\n"
+                f"노면 프로파일 {len(new_scans)}개 → PSD 계산 완료 "
+                f"(총 {len(self.psd_scans)}개)\n"
                 f"  파일: {', '.join(loaded_names[:5])}"
                 + (f" 외 {len(loaded_names)-5}개" if len(loaded_names) > 5 else ""),
                 'success')
