@@ -290,38 +290,30 @@ class MonteCarloTab:
         # ── 섹션 1: 입력 ──
         sec1 = self._make_section(left, "1) 입력 파일")
 
-        btn_row1 = ttk.Frame(sec1)
-        btn_row1.pack(fill=tk.X, pady=2)
-        ttk.Button(btn_row1, text="Tab 0 PSD 사용",
-                   command=self._load_psd_from_app).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_row1, text="CSV 폴더",
-                   command=self._load_psd_folder).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_row1, text="IDADA 프로파일 폴더",
-                   command=self._load_idada_folder).pack(side=tk.LEFT, padx=2)
+        ttk.Button(sec1, text="Tab 0 PSD 사용",
+                   command=self._load_psd_from_app).pack(fill=tk.X, pady=2)
+        ttk.Button(sec1, text="PSD 파일 폴더 (CSV/TXT)",
+                   command=self._load_psd_folder).pack(fill=tk.X, pady=2)
+        ttk.Button(sec1, text="노면 프로파일 폴더",
+                   command=self._load_profile_folder).pack(fill=tk.X, pady=2)
 
         self._psd_scan_label = ttk.Label(sec1, text="로드된 스캔: 0개",
                                          font=self.app.FONTS['small'],
                                          foreground='#64748B')
         self._psd_scan_label.pack(anchor='w', pady=2)
 
-        # PSD 계산 파라미터 (IDADA용)
-        psd_param_frame = ttk.Frame(sec1)
-        psd_param_frame.pack(fill=tk.X, pady=2)
-        ttk.Label(psd_param_frame, text="PSD 파라미터:",
-                  font=self.app.FONTS['small'],
-                  foreground='#64748B').pack(anchor='w')
-        psd_p_row = ttk.Frame(sec1)
+        # 노면 프로파일 PSD 계산 파라미터
+        psd_plf = ttk.LabelFrame(sec1, text="프로파일 → PSD 파라미터", padding=4)
+        psd_plf.pack(fill=tk.X, pady=2)
+        psd_p_row = ttk.Frame(psd_plf)
         psd_p_row.pack(fill=tk.X, pady=1)
         ttk.Label(psd_p_row, text="Detrend:").pack(side=tk.LEFT)
         self._psd_detrend_var = tk.StringVar(value='linear')
         ttk.Combobox(psd_p_row, textvariable=self._psd_detrend_var, width=10,
                      values=['none', 'mean', 'linear', 'quadratic'],
-                     state='readonly').pack(side=tk.LEFT, padx=2)
-        ttk.Label(psd_p_row, text="Bins:").pack(side=tk.LEFT)
-        self._psd_nbins_var = tk.StringVar(value='88')
-        ttk.Entry(psd_p_row, textvariable=self._psd_nbins_var,
-                  width=4).pack(side=tk.LEFT, padx=2)
-        self._psd_corr_var = self._make_entry_row(sec1, "보정계수 (1D→2D):", "1.1615")
+                     state='readonly').pack(side=tk.RIGHT, padx=2)
+        self._psd_nbins_var = self._make_entry_row(psd_plf, "Log-bin 수:", "88", width=6)
+        self._psd_corr_var = self._make_entry_row(psd_plf, "보정계수 (1D→2D):", "1.1615")
 
         # ── 섹션 2: PCA 설정 ──
         sec2 = self._make_section(left, "2) PCA 설정")
@@ -375,22 +367,37 @@ class MonteCarloTab:
             messagebox.showerror("오류", f"PSD 로드 실패:\n{e}")
 
     def _load_psd_folder(self):
-        """CSV 폴더에서 모든 PSD 스캔 로드 (q, C 두 열 CSV)."""
-        folder = filedialog.askdirectory(title="PSD CSV 폴더 선택")
+        """CSV/TXT 폴더에서 PSD 스캔 로드 (q, C 두 열)."""
+        folder = filedialog.askdirectory(title="PSD 파일 폴더 선택")
         if not folder:
             return
         try:
             scans = []
-            csv_files = sorted([f for f in os.listdir(folder)
-                               if f.lower().endswith('.csv')])
-            if not csv_files:
-                messagebox.showwarning("PSD 로드", "폴더에 CSV 파일이 없습니다.")
+            data_files = sorted([
+                f for f in os.listdir(folder)
+                if f.lower().endswith(('.csv', '.txt'))
+            ])
+            if not data_files:
+                messagebox.showwarning("PSD 로드",
+                    "폴더에 CSV/TXT 파일이 없습니다.")
                 return
 
-            for fname in csv_files:
+            for fname in data_files:
                 fpath = os.path.join(folder, fname)
-                data = np.loadtxt(fpath, delimiter=',', comments='#',
-                                  encoding='utf-8-sig')
+                try:
+                    # 구분자 자동 감지: 콤마 or 공백/탭
+                    with open(fpath, 'r', encoding='utf-8-sig') as f:
+                        first_data = ''
+                        for line in f:
+                            s = line.strip()
+                            if s and not s.startswith('#'):
+                                first_data = s
+                                break
+                    delim = ',' if ',' in first_data else None
+                    data = np.loadtxt(fpath, delimiter=delim, comments='#',
+                                      encoding='utf-8-sig')
+                except Exception:
+                    continue
                 if data.ndim == 2 and data.shape[1] >= 2:
                     q = data[:, 0]
                     C = data[:, 1]
@@ -413,33 +420,32 @@ class MonteCarloTab:
         except Exception as e:
             messagebox.showerror("오류", f"PSD 폴더 로드 실패:\n{e}")
 
-    def _load_idada_folder(self):
-        """IDADA 포맷 노면 프로파일 폴더에서 PSD 계산하여 로드.
+    def _load_profile_folder(self):
+        """노면 프로파일 폴더에서 PSD 계산하여 로드.
 
         PSDComputer를 사용하여 각 프로파일에서 C(q)를 계산한다.
         지원 확장자: .dat, .csv, .txt
         """
-        folder = filedialog.askdirectory(title="IDADA 프로파일 폴더 선택")
+        folder = filedialog.askdirectory(title="노면 프로파일 폴더 선택")
         if not folder:
             return
         try:
-            # 프로파일 파일 검색
             exts = ('.dat', '.csv', '.txt')
             files = sorted([
                 os.path.join(folder, f) for f in os.listdir(folder)
                 if f.lower().endswith(exts) and not f.startswith('.')
             ])
             if not files:
-                messagebox.showwarning("IDADA 로드",
+                messagebox.showwarning("프로파일 로드",
                     "폴더에 프로파일 파일이 없습니다 (.dat/.csv/.txt)")
                 return
 
-            # PSD 계산 파라미터
             detrend = self._psd_detrend_var.get()
             n_bins = int(self._psd_nbins_var.get())
             corr = float(self._psd_corr_var.get())
 
-            self._psd_status_label.config(text=f"프로파일 {len(files)}개 PSD 계산 중...")
+            self._psd_status_label.config(
+                text=f"프로파일 {len(files)}개 PSD 계산 중...")
             self.app.root.update_idletasks()
 
             scans = []
@@ -456,30 +462,31 @@ class MonteCarloTab:
                     )
                     if len(q_bin) >= 5:
                         scans.append((q_bin, C_bin))
-                        loaded_names.append(info.get('name', os.path.basename(fpath)))
+                        loaded_names.append(
+                            info.get('name', os.path.basename(fpath)))
                 except Exception as e:
-                    print(f"  [IDADA] 스킵: {os.path.basename(fpath)} — {e}")
+                    print(f"  [Profile] 스킵: {os.path.basename(fpath)} — {e}")
                     continue
 
             if not scans:
-                messagebox.showwarning("IDADA 로드",
+                messagebox.showwarning("프로파일 로드",
                     "유효한 프로파일을 찾을 수 없습니다.")
                 return
 
             self.psd_scans = scans
             self._psd_scan_label.config(
-                text=f"로드된 스캔: {len(scans)}개 (IDADA, {os.path.basename(folder)})")
+                text=f"로드된 스캔: {len(scans)}개 ({os.path.basename(folder)})")
             self._plot_psd_originals()
             self._psd_status_label.config(
-                text=f"IDADA 프로파일 {len(scans)}개 PSD 계산 완료")
+                text=f"프로파일 {len(scans)}개 PSD 계산 완료")
             self.app._show_status(
-                f"IDADA 프로파일 {len(scans)}개 → PSD 계산 완료\n"
-                f"  프로파일: {', '.join(loaded_names[:5])}"
+                f"노면 프로파일 {len(scans)}개 → PSD 계산 완료\n"
+                f"  파일: {', '.join(loaded_names[:5])}"
                 + (f" 외 {len(loaded_names)-5}개" if len(loaded_names) > 5 else ""),
                 'success')
 
         except Exception as e:
-            messagebox.showerror("오류", f"IDADA 프로파일 로드 실패:\n{e}")
+            messagebox.showerror("오류", f"프로파일 로드 실패:\n{e}")
             import traceback
             traceback.print_exc()
 
