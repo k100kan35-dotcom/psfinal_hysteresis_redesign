@@ -21,6 +21,9 @@ from persson_model.core.viscoelastic import ViscoelasticMaterial
 from persson_model.core.g_calculator import GCalculator
 from persson_model.core.friction import FrictionCalculator
 
+# PSD computation & ensemble from psd repo
+from psd_ensemble import PSDEnsemble
+
 
 def bind_monte_carlo_tab(app):
     """Monte Carlo 탭을 app에 바인딩한다."""
@@ -41,6 +44,8 @@ class MonteCarloTab:
 
         # 원본 스캔 데이터
         self._raw_scans = []     # list of (q, C_q) tuples
+        self._idada_files = []   # IDADA 프로파일 파일 경로 목록
+        self._ensemble = None    # PSDEnsemble 인스턴스
 
         # 실험 데이터 (q₁ 탭)
         self._granite_data = {}  # {compound: {v_array, mu_array}}
@@ -107,25 +112,108 @@ class MonteCarloTab:
         main = ttk.Frame(parent)
         main.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
 
-        # 좌측 제어판
-        left = ttk.Frame(main, width=340)
+        # 좌측 제어판 (스크롤 가능)
+        left = ttk.Frame(main, width=360)
         left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 4))
         left.pack_propagate(False)
 
+        psd_canvas = tk.Canvas(left, highlightthickness=0)
+        psd_sb = ttk.Scrollbar(left, orient='vertical', command=psd_canvas.yview)
+        psd_content = ttk.Frame(psd_canvas)
+        psd_content.bind('<Configure>',
+                         lambda e: psd_canvas.configure(scrollregion=psd_canvas.bbox('all')))
+        psd_canvas.create_window((0, 0), window=psd_content, anchor='nw', width=340)
+        psd_canvas.configure(yscrollcommand=psd_sb.set)
+        psd_sb.pack(side=tk.RIGHT, fill=tk.Y)
+        psd_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        def _mw(event):
+            if event.delta:
+                psd_canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+            elif event.num == 4:
+                psd_canvas.yview_scroll(-1, 'units')
+            elif event.num == 5:
+                psd_canvas.yview_scroll(1, 'units')
+        psd_canvas.bind('<Enter>', lambda e: (
+            psd_canvas.bind_all('<MouseWheel>', _mw),
+            psd_canvas.bind_all('<Button-4>', _mw),
+            psd_canvas.bind_all('<Button-5>', _mw)))
+        psd_canvas.bind('<Leave>', lambda e: (
+            psd_canvas.unbind_all('<MouseWheel>'),
+            psd_canvas.unbind_all('<Button-4>'),
+            psd_canvas.unbind_all('<Button-5>')))
+
         # --- 섹션 1: 입력 파일 ---
-        sec1 = ttk.LabelFrame(left, text="1) 입력 파일", padding=6)
+        sec1 = ttk.LabelFrame(psd_content, text="1) 입력 데이터", padding=6)
         sec1.pack(fill=tk.X, pady=3, padx=2)
 
+        ttk.Label(sec1, text="── 기존 PSD 로드 ──",
+                  font=FONTS['small'], foreground='#64748B').pack(anchor=tk.W, pady=(0, 1))
         ttk.Button(sec1, text="Tab 0 PSD 사용",
                    command=self._load_psd_from_tab0).pack(fill=tk.X, pady=1)
-        ttk.Button(sec1, text="CSV 폴더 선택",
+        ttk.Button(sec1, text="PSD CSV 폴더 선택",
                    command=self._load_psd_folder).pack(fill=tk.X, pady=1)
+
+        ttk.Label(sec1, text="── IDADA 프로파일 → PSD 계산 ──",
+                  font=FONTS['small'], foreground='#64748B').pack(anchor=tk.W, pady=(6, 1))
+        ttk.Button(sec1, text="IDADA 프로파일 폴더 선택",
+                   command=self._load_idada_folder).pack(fill=tk.X, pady=1)
+        ttk.Button(sec1, text="IDADA 파일 개별 선택",
+                   command=self._load_idada_files).pack(fill=tk.X, pady=1)
 
         self._psd_scan_label = ttk.Label(sec1, text="스캔 수: 0", font=FONTS['body'])
         self._psd_scan_label.pack(anchor=tk.W, pady=2)
 
-        # --- 섹션 2: PCA 설정 ---
-        sec2 = ttk.LabelFrame(left, text="2) PCA 설정", padding=6)
+        # --- 섹션 1b: PSD 계산 파라미터 (IDADA 전용) ---
+        sec1b = ttk.LabelFrame(psd_content, text="1b) PSD 계산 파라미터 (IDADA)", padding=6)
+        sec1b.pack(fill=tk.X, pady=3, padx=2)
+
+        r = ttk.Frame(sec1b); r.pack(fill=tk.X, pady=1)
+        ttk.Label(r, text="Detrend:", font=FONTS['body']).pack(side=tk.LEFT)
+        self._psd_detrend_var = tk.StringVar(value='linear')
+        ttk.Combobox(r, textvariable=self._psd_detrend_var, width=12,
+                     values=['none', 'mean', 'linear', 'quadratic'],
+                     state='readonly').pack(side=tk.RIGHT)
+
+        r = ttk.Frame(sec1b); r.pack(fill=tk.X, pady=1)
+        ttk.Label(r, text="Window:", font=FONTS['body']).pack(side=tk.LEFT)
+        self._psd_window_var = tk.StringVar(value='none')
+        ttk.Combobox(r, textvariable=self._psd_window_var, width=12,
+                     values=['none', 'hanning', 'hamming', 'blackman'],
+                     state='readonly').pack(side=tk.RIGHT)
+
+        r = ttk.Frame(sec1b); r.pack(fill=tk.X, pady=1)
+        ttk.Label(r, text="Top PSD:", font=FONTS['body']).pack(side=tk.LEFT)
+        self._psd_top_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(r, variable=self._psd_top_var).pack(side=tk.RIGHT)
+
+        r = ttk.Frame(sec1b); r.pack(fill=tk.X, pady=1)
+        ttk.Label(r, text="1D→2D 변환:", font=FONTS['body']).pack(side=tk.LEFT)
+        self._psd_conv_var = tk.StringVar(value='standard')
+        ttk.Combobox(r, textvariable=self._psd_conv_var, width=12,
+                     values=['standard', 'gamma', 'sqrt'],
+                     state='readonly').pack(side=tk.RIGHT)
+
+        r = ttk.Frame(sec1b); r.pack(fill=tk.X, pady=1)
+        ttk.Label(r, text="보정계수:", font=FONTS['body']).pack(side=tk.LEFT)
+        self._psd_corr_var = tk.StringVar(value="1.1615")
+        ttk.Entry(r, textvariable=self._psd_corr_var, width=8).pack(side=tk.RIGHT)
+
+        r = ttk.Frame(sec1b); r.pack(fill=tk.X, pady=1)
+        ttk.Label(r, text="Hurst H:", font=FONTS['body']).pack(side=tk.LEFT)
+        self._psd_hurst_var = tk.StringVar(value="0.80")
+        ttk.Entry(r, textvariable=self._psd_hurst_var, width=6).pack(side=tk.RIGHT)
+
+        r = ttk.Frame(sec1b); r.pack(fill=tk.X, pady=1)
+        ttk.Label(r, text="Log bins:", font=FONTS['body']).pack(side=tk.LEFT)
+        self._psd_nbins_var = tk.StringVar(value="88")
+        ttk.Entry(r, textvariable=self._psd_nbins_var, width=6).pack(side=tk.RIGHT)
+
+        ttk.Button(sec1b, text="IDADA → PSD 계산",
+                   command=self._compute_psd_from_idada).pack(fill=tk.X, pady=2)
+
+        # --- 섹션 2: PCA 앙상블 설정 ---
+        sec2 = ttk.LabelFrame(psd_content, text="2) PCA 앙상블 설정", padding=6)
         sec2.pack(fill=tk.X, pady=3, padx=2)
 
         r1 = ttk.Frame(sec2); r1.pack(fill=tk.X, pady=1)
@@ -158,12 +246,14 @@ class MonteCarloTab:
         ttk.Entry(r5, textvariable=self._mono_tol_var, width=5).pack(side=tk.LEFT, padx=2)
 
         # --- 섹션 3: 실행 ---
-        sec3 = ttk.LabelFrame(left, text="3) 실행", padding=6)
+        sec3 = ttk.LabelFrame(psd_content, text="3) 앙상블 생성", padding=6)
         sec3.pack(fill=tk.X, pady=3, padx=2)
 
-        ttk.Button(sec3, text="PSD 앙상블 생성",
-                   command=self._run_psd_ensemble,
+        ttk.Button(sec3, text="PSD 앙상블 생성 (PSDEnsemble)",
+                   command=self._run_psd_ensemble_via_class,
                    style='Accent.TButton').pack(fill=tk.X, pady=2)
+        ttk.Button(sec3, text="PSD 앙상블 생성 (인라인 PCA)",
+                   command=self._run_psd_ensemble).pack(fill=tk.X, pady=1)
         self._psd_progress_label = ttk.Label(sec3, text="", font=FONTS['small'])
         self._psd_progress_label.pack(anchor=tk.W)
 
@@ -245,6 +335,177 @@ class MonteCarloTab:
         ax.tick_params(labelsize=PF.get('tick', 8))
         ax.grid(True, alpha=0.3)
         self._canvas_psd.draw_idle()
+
+    # ── IDADA 프로파일 로드 ──
+    def _load_idada_folder(self):
+        """IDADA 프로파일 폴더 선택"""
+        folder = filedialog.askdirectory(title="IDADA 프로파일 폴더 선택")
+        if not folder:
+            return
+        exts = ('.csv', '.dat', '.txt')
+        files = sorted([
+            os.path.join(folder, f)
+            for f in os.listdir(folder)
+            if f.lower().endswith(exts)
+        ])
+        if not files:
+            self._show_status("프로파일 파일이 없습니다.", 'warning')
+            return
+        self._idada_files = files
+        self._psd_scan_label.config(
+            text=f"IDADA 프로파일: {len(files)}개 ({os.path.basename(folder)})")
+        self._show_status(f"IDADA 프로파일 {len(files)}개 선택됨", 'success')
+
+    def _load_idada_files(self):
+        """IDADA 프로파일 개별 파일 선택"""
+        files = filedialog.askopenfilenames(
+            title="IDADA 프로파일 파일 선택",
+            filetypes=[("All", "*.*"), ("CSV", "*.csv"), ("DAT", "*.dat")])
+        if not files:
+            return
+        self._idada_files = list(files)
+        self._psd_scan_label.config(text=f"IDADA 프로파일: {len(files)}개")
+        self._show_status(f"IDADA 프로파일 {len(files)}개 선택됨", 'success')
+
+    def _get_psd_params(self):
+        """PSD 계산 파라미터 딕셔너리 반환"""
+        return {
+            'detrend': self._psd_detrend_var.get(),
+            'window': self._psd_window_var.get(),
+            'use_top_psd': self._psd_top_var.get(),
+            'conversion_method': self._psd_conv_var.get(),
+            'hurst': float(self._psd_hurst_var.get()),
+            'correction_factor': float(self._psd_corr_var.get()),
+            'n_bins': int(self._psd_nbins_var.get()),
+        }
+
+    def _compute_psd_from_idada(self):
+        """IDADA 프로파일 파일 → PSDComputer로 PSD 계산 → _raw_scans에 저장"""
+        if not self._idada_files:
+            self._show_status("IDADA 프로파일을 먼저 선택하세요.", 'warning')
+            return
+
+        from psd_generator import PSDComputer
+
+        psd_params = self._get_psd_params()
+        scans = []
+        errors = []
+
+        self._psd_progress_label.config(text="IDADA PSD 계산 중...")
+        self.app.root.update_idletasks()
+
+        for fpath in self._idada_files:
+            try:
+                comp = PSDComputer()
+                comp.load_profile(fpath)
+                q_bin, C2D_bin, *_ = comp.compute_psd(**psd_params)
+                if len(q_bin) >= 10:
+                    scans.append((q_bin, C2D_bin))
+            except Exception as e:
+                errors.append(f"{os.path.basename(fpath)}: {e}")
+
+        if not scans:
+            self._show_status(f"유효한 PSD 없음. 오류: {len(errors)}개", 'error')
+            return
+
+        self._raw_scans = scans
+        msg = f"IDADA PSD 계산 완료: {len(scans)}개 성공"
+        if errors:
+            msg += f", {len(errors)}개 실패"
+        self._psd_scan_label.config(text=f"스캔 수: {len(scans)} (IDADA)")
+        self._psd_progress_label.config(text=msg)
+        self._show_status(msg, 'success')
+        self._plot_raw_scans()
+
+    def _run_psd_ensemble_via_class(self):
+        """PSDEnsemble 클래스를 사용한 PCA 앙상블 생성"""
+        # IDADA 파일이 있으면 PSDEnsemble.load_profiles() 사용
+        # 아니면 _raw_scans 기반 커스텀 경로 사용
+        try:
+            threshold = float(self._pca_threshold_var.get())
+            n_samples = int(self._n_samples_var.get())
+            seed = int(self._pca_seed_var.get())
+        except ValueError:
+            self._show_status("PCA 설정값을 확인하세요.", 'error')
+            return
+
+        if self._idada_files and len(self._idada_files) >= 2:
+            # IDADA 파일 → PSDEnsemble 풀 파이프라인
+            self._psd_progress_label.config(text="PSDEnsemble: 프로파일 로드 중...")
+            self.app.root.update_idletasks()
+
+            psd_params = self._get_psd_params()
+            ens = PSDEnsemble(psd_params=psd_params)
+
+            try:
+                ens.load_profiles(self._idada_files)
+            except Exception as e:
+                self._show_status(f"프로파일 로드 실패: {e}", 'error')
+                return
+
+            self._psd_progress_label.config(text="PSDEnsemble: PCA 분해 중...")
+            self.app.root.update_idletasks()
+
+            ens.fit_pca(var_threshold=threshold)
+
+            self._psd_progress_label.config(text=f"PSDEnsemble: {n_samples}개 샘플 생성 중...")
+            self.app.root.update_idletasks()
+
+            samples = ens.generate_samples(n_samples=n_samples, random_seed=seed)
+
+            # 결과를 내부 변수에 저장
+            self._ensemble = ens
+            self.q_grid = ens.q_grid
+            self.C_pool = samples
+
+            # _raw_scans도 업데이트 (원본 프로파일의 PSD)
+            self._raw_scans = [
+                (ens.q_grid, ens.C_matrix[i]) for i in range(ens.n_profiles)
+            ]
+
+            msg = (f"PSDEnsemble 완료: {len(samples)}개 생성 "
+                   f"(PC={ens.K}, 프로파일={ens.n_profiles})")
+            self._psd_progress_label.config(text=msg)
+            self._show_status(msg, 'success')
+            self._plot_raw_scans()
+            self._plot_generated_samples()
+
+        elif self._raw_scans:
+            # _raw_scans 기반: 수동 PCA (기존 로직과 유사하지만 PSDEnsemble 스타일)
+            if len(self._raw_scans) < 2:
+                self._show_status("PSDEnsemble에는 2개 이상 프로파일 필요. "
+                                  "인라인 PCA를 사용하세요.", 'warning')
+                return
+
+            self._psd_progress_label.config(text="PCA 앙상블 생성 중 (raw scans)...")
+            self.app.root.update_idletasks()
+
+            q_common = self._make_common_q_grid(n_points=100)
+            if q_common is None:
+                self._show_status("q 범위 교집합이 없습니다.", 'error')
+                return
+
+            C_matrix = self._interpolate_scans_to_grid(q_common)
+
+            # PSDEnsemble 스타일 PCA
+            ens = PSDEnsemble()
+            ens.q_grid = q_common
+            ens.C_matrix = C_matrix
+            ens.n_profiles = C_matrix.shape[0]
+            ens.fit_pca(var_threshold=threshold)
+            samples = ens.generate_samples(n_samples=n_samples, random_seed=seed)
+
+            self._ensemble = ens
+            self.q_grid = q_common
+            self.C_pool = samples
+
+            msg = (f"PCA 앙상블 완료: {len(samples)}개 생성 "
+                   f"(PC={ens.K}, 스캔={ens.n_profiles})")
+            self._psd_progress_label.config(text=msg)
+            self._show_status(msg, 'success')
+            self._plot_generated_samples()
+        else:
+            self._show_status("데이터를 먼저 로드하세요.", 'warning')
 
     def _make_common_q_grid(self, n_points=100):
         """모든 스캔의 q 범위 교집합으로 공통 그리드 생성"""
