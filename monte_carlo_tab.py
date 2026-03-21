@@ -21,10 +21,136 @@ from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
 
 from scipy.interpolate import interp1d
+from scipy.fft import fft, fftfreq
+from scipy.signal import detrend as scipy_detrend
+from scipy.special import gamma as gamma_func
 
 from persson_model.core.psd_models import MeasuredPSD
 from persson_model.core.g_calculator import GCalculator
 from persson_model.core.friction import FrictionCalculator
+
+# numpy >= 2.0 renamed trapz → trapezoid
+_trapz = getattr(np, 'trapezoid', getattr(np, 'trapz', None))
+
+
+# ================================================================
+# ====  PSDComputer — IDADA 프로파일 → PSD 계산 (psd repo 동일)  ====
+# ================================================================
+
+class PSDComputer:
+    """1D 노면 프로파일에서 2D PSD C(q)를 계산한다.
+
+    psd_generator.py (k100kan35-dotcom/psd)와 동일한 파이프라인:
+      detrend → (top profile) → window → FFT → 1D→2D 변환 → log-bin
+    """
+
+    def __init__(self):
+        self.profile_name = ""
+        self.h_raw = None
+        self.dx = None
+        self.N = None
+        self.L = None
+        self.unit_factor = 1e-6
+
+    def load_profile(self, filepath):
+        """IDADA 포맷 노면 프로파일 로드.
+
+        파일 형식:
+          Line 1: 프로파일 이름
+          Line 2: 플래그
+          Line 3: 데이터 포인트 수
+          Line 4: dx (간격, m)
+          Line 5: 단위 변환 계수 (→ m)
+          Line 6+: x_value  h_value
+        """
+        with open(filepath, 'r') as f:
+            lines = f.readlines()
+
+        self.profile_name = lines[0].strip()
+        self.dx = float(lines[3].strip())
+        self.unit_factor = float(lines[4].strip())
+
+        h_list = []
+        for line in lines[5:]:
+            parts = line.strip().split()
+            if len(parts) >= 2:
+                h_list.append(float(parts[1]))
+
+        self.h_raw = np.array(h_list) * self.unit_factor
+        self.N = len(self.h_raw)
+        self.L = self.N * self.dx
+
+        return {
+            'name': self.profile_name,
+            'n_points': self.N,
+            'dx_um': self.dx * 1e6,
+            'L_mm': self.L * 1e3,
+            'h_rms_um': np.std(self.h_raw) * 1e6,
+            'q_min': 2 * np.pi / self.L,
+            'q_max': np.pi / self.dx,
+        }
+
+    def compute_psd(self, detrend='linear', window='none', use_top_psd=False,
+                    conversion_method='standard', hurst=0.8,
+                    correction_factor=1.1615, n_bins=88):
+        """전체 PSD 파이프라인: detrend → window → FFT → 1D→2D → log-bin."""
+        if self.h_raw is None:
+            raise ValueError("No profile loaded")
+        h = self.h_raw.copy()
+
+        # Detrend
+        if detrend == 'mean':
+            h = h - np.mean(h)
+        elif detrend == 'linear':
+            h = scipy_detrend(h, type='linear')
+        elif detrend == 'quadratic':
+            x_idx = np.arange(len(h), dtype=np.float64)
+            coeffs = np.polyfit(x_idx, h, 2)
+            h = h - np.polyval(coeffs, x_idx)
+
+        # Top profile
+        if use_top_psd:
+            h_c = h - np.mean(h)
+            h_c[h_c < 0] = 0.0
+            h = h_c
+
+        # Window
+        N = self.N
+        if window in ('hanning', 'hamming', 'blackman'):
+            w = getattr(np, window)(N)
+            correction = np.sqrt(N / np.sum(w ** 2))
+            h = h * w * correction
+
+        # FFT → 1D PSD
+        H_fft = fft(h)
+        freqs = fftfreq(N, d=self.dx)
+        q = 2.0 * np.pi * freqs
+        C1D = (self.dx / (2.0 * np.pi * N)) * np.abs(H_fft) ** 2
+        mask = q > 0
+        q_pos, C1D_pos = q[mask], C1D[mask]
+
+        # 1D → 2D 변환
+        if conversion_method == 'standard':
+            C2D = C1D_pos / (np.pi * q_pos) * correction_factor
+        elif conversion_method == 'gamma':
+            f_g = gamma_func(1.0 + hurst) / (np.sqrt(np.pi) * gamma_func(hurst + 0.5))
+            C2D = (C1D_pos / q_pos) * f_g
+        elif conversion_method == 'sqrt':
+            C2D = (C1D_pos / q_pos) * np.sqrt(1.0 + 3.0 * hurst)
+        else:
+            C2D = C1D_pos / (np.pi * q_pos) * correction_factor
+
+        # Log-bin
+        log_q = np.log10(q_pos)
+        edges = np.linspace(log_q.min(), log_q.max(), n_bins + 1)
+        centers = (edges[:-1] + edges[1:]) / 2.0
+        C_binned = np.full(n_bins, np.nan)
+        for i in range(n_bins):
+            m = (log_q >= edges[i]) & (log_q < edges[i + 1])
+            if np.any(m):
+                C_binned[i] = np.mean(C2D[m])
+        valid = ~np.isnan(C_binned) & (C_binned > 0)
+        return 10.0 ** centers[valid], C_binned[valid]
 
 
 # ================================================================
@@ -168,13 +294,34 @@ class MonteCarloTab:
         btn_row1.pack(fill=tk.X, pady=2)
         ttk.Button(btn_row1, text="Tab 0 PSD 사용",
                    command=self._load_psd_from_app).pack(side=tk.LEFT, padx=2)
-        ttk.Button(btn_row1, text="CSV 폴더 선택",
+        ttk.Button(btn_row1, text="CSV 폴더",
                    command=self._load_psd_folder).pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_row1, text="IDADA 프로파일 폴더",
+                   command=self._load_idada_folder).pack(side=tk.LEFT, padx=2)
 
         self._psd_scan_label = ttk.Label(sec1, text="로드된 스캔: 0개",
                                          font=self.app.FONTS['small'],
                                          foreground='#64748B')
         self._psd_scan_label.pack(anchor='w', pady=2)
+
+        # PSD 계산 파라미터 (IDADA용)
+        psd_param_frame = ttk.Frame(sec1)
+        psd_param_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(psd_param_frame, text="PSD 파라미터:",
+                  font=self.app.FONTS['small'],
+                  foreground='#64748B').pack(anchor='w')
+        psd_p_row = ttk.Frame(sec1)
+        psd_p_row.pack(fill=tk.X, pady=1)
+        ttk.Label(psd_p_row, text="Detrend:").pack(side=tk.LEFT)
+        self._psd_detrend_var = tk.StringVar(value='linear')
+        ttk.Combobox(psd_p_row, textvariable=self._psd_detrend_var, width=10,
+                     values=['none', 'mean', 'linear', 'quadratic'],
+                     state='readonly').pack(side=tk.LEFT, padx=2)
+        ttk.Label(psd_p_row, text="Bins:").pack(side=tk.LEFT)
+        self._psd_nbins_var = tk.StringVar(value='88')
+        ttk.Entry(psd_p_row, textvariable=self._psd_nbins_var,
+                  width=4).pack(side=tk.LEFT, padx=2)
+        self._psd_corr_var = self._make_entry_row(sec1, "보정계수 (1D→2D):", "1.1615")
 
         # ── 섹션 2: PCA 설정 ──
         sec2 = self._make_section(left, "2) PCA 설정")
@@ -228,7 +375,7 @@ class MonteCarloTab:
             messagebox.showerror("오류", f"PSD 로드 실패:\n{e}")
 
     def _load_psd_folder(self):
-        """CSV 폴더에서 모든 PSD 스캔 로드."""
+        """CSV 폴더에서 모든 PSD 스캔 로드 (q, C 두 열 CSV)."""
         folder = filedialog.askdirectory(title="PSD CSV 폴더 선택")
         if not folder:
             return
@@ -266,9 +413,90 @@ class MonteCarloTab:
         except Exception as e:
             messagebox.showerror("오류", f"PSD 폴더 로드 실패:\n{e}")
 
+    def _load_idada_folder(self):
+        """IDADA 포맷 노면 프로파일 폴더에서 PSD 계산하여 로드.
+
+        PSDComputer를 사용하여 각 프로파일에서 C(q)를 계산한다.
+        지원 확장자: .dat, .csv, .txt
+        """
+        folder = filedialog.askdirectory(title="IDADA 프로파일 폴더 선택")
+        if not folder:
+            return
+        try:
+            # 프로파일 파일 검색
+            exts = ('.dat', '.csv', '.txt')
+            files = sorted([
+                os.path.join(folder, f) for f in os.listdir(folder)
+                if f.lower().endswith(exts) and not f.startswith('.')
+            ])
+            if not files:
+                messagebox.showwarning("IDADA 로드",
+                    "폴더에 프로파일 파일이 없습니다 (.dat/.csv/.txt)")
+                return
+
+            # PSD 계산 파라미터
+            detrend = self._psd_detrend_var.get()
+            n_bins = int(self._psd_nbins_var.get())
+            corr = float(self._psd_corr_var.get())
+
+            self._psd_status_label.config(text=f"프로파일 {len(files)}개 PSD 계산 중...")
+            self.app.root.update_idletasks()
+
+            scans = []
+            loaded_names = []
+            for fpath in files:
+                try:
+                    comp = PSDComputer()
+                    info = comp.load_profile(fpath)
+                    q_bin, C_bin = comp.compute_psd(
+                        detrend=detrend, window='none',
+                        use_top_psd=False,
+                        conversion_method='standard',
+                        correction_factor=corr, n_bins=n_bins,
+                    )
+                    if len(q_bin) >= 5:
+                        scans.append((q_bin, C_bin))
+                        loaded_names.append(info.get('name', os.path.basename(fpath)))
+                except Exception as e:
+                    print(f"  [IDADA] 스킵: {os.path.basename(fpath)} — {e}")
+                    continue
+
+            if not scans:
+                messagebox.showwarning("IDADA 로드",
+                    "유효한 프로파일을 찾을 수 없습니다.")
+                return
+
+            self.psd_scans = scans
+            self._psd_scan_label.config(
+                text=f"로드된 스캔: {len(scans)}개 (IDADA, {os.path.basename(folder)})")
+            self._plot_psd_originals()
+            self._psd_status_label.config(
+                text=f"IDADA 프로파일 {len(scans)}개 PSD 계산 완료")
+            self.app._show_status(
+                f"IDADA 프로파일 {len(scans)}개 → PSD 계산 완료\n"
+                f"  프로파일: {', '.join(loaded_names[:5])}"
+                + (f" 외 {len(loaded_names)-5}개" if len(loaded_names) > 5 else ""),
+                'success')
+
+        except Exception as e:
+            messagebox.showerror("오류", f"IDADA 프로파일 로드 실패:\n{e}")
+            import traceback
+            traceback.print_exc()
+
     # ── PSD 앙상블 생성 ──
     def _run_psd_ensemble(self):
-        """PCA 기반 PSD 앙상블 생성."""
+        """PCA 기반 PSD 앙상블 생성.
+
+        PSDEnsemble (k100kan35-dotcom/psd)과 동일한 파이프라인:
+          1. C(q) → ln() 변환 (자연로그 기반 — psd_ensemble.py와 동일)
+          2. 공통 q 그리드에 log-log 보간
+          3. 평균 + 편차 행렬
+          4. SVD → 고유값/고유벡터
+          5. K 선택 (누적분산 ≥ threshold)
+          6. z_k ~ N(0, sqrt(eigenvalue_k)) 샘플링
+          7. Y_new = Y_mean + z @ Vt[:K] → C_new = exp(Y_new)
+          8. 물리 필터: rms ±3σ + 단조감소 위반
+        """
         if not self.psd_scans:
             messagebox.showwarning("PSD 앙상블", "먼저 PSD 스캔을 로드하세요.")
             return
@@ -283,9 +511,7 @@ class MonteCarloTab:
             rms_n_sigma = float(self._pca_rms_sigma.get())
             mono_tol = float(self._pca_mono_tol.get())
 
-            rng = np.random.RandomState(seed)
-
-            # 1) 공통 q 그리드 생성 (교집합 범위, 100 포인트)
+            # 1) 공통 q 그리드 (교집합 범위, 100 포인트)
             q_mins = [np.min(s[0]) for s in self.psd_scans]
             q_maxs = [np.max(s[0]) for s in self.psd_scans]
             q_lo = max(q_mins)
@@ -296,66 +522,83 @@ class MonteCarloTab:
             n_q = 100
             q_common = np.logspace(np.log10(q_lo), np.log10(q_hi), n_q)
 
-            # 2) log-log 보간하여 행렬 구성
+            # 2) log-log 보간 → C_matrix (선형 스케일)
             N = len(self.psd_scans)
-            Y = np.zeros((N, n_q))
+            C_matrix = np.zeros((N, n_q))
             for i, (q_i, C_i) in enumerate(self.psd_scans):
-                log_interp = interp1d(np.log10(q_i), np.log10(C_i),
-                                      kind='linear', bounds_error=False,
-                                      fill_value='extrapolate')
-                Y[i, :] = log_interp(np.log10(q_common))
+                log_C_interp = np.interp(np.log10(q_common),
+                                         np.log10(q_i), np.log10(C_i))
+                C_matrix[i] = 10.0 ** log_C_interp
 
-            # 3) 평균
-            Y_mean = np.mean(Y, axis=0)
-
-            # 4) 편차 행렬
-            dY = Y - Y_mean
+            # 3) ln 변환 (PSDEnsemble과 동일 — 자연로그)
+            Y = np.log(C_matrix)        # shape (N, n_q)
+            Y_mean = np.mean(Y, axis=0)  # shape (n_q,)
+            dY = Y - Y_mean              # shape (N, n_q)
 
             if N < 2:
-                # 스캔이 1개면 PCA 불가 → 약간의 노이즈로 앙상블 생성
+                # 스캔 1개 → PCA 불가, 노이즈로 앙상블 생성
+                rng = np.random.default_rng(seed)
                 C_pool_list = []
-                C_mean = 10.0 ** Y_mean
                 for _ in range(n_samples):
                     noise = rng.normal(0, 0.05, n_q)
-                    C_new = 10.0 ** (Y_mean + noise)
+                    C_new = np.exp(Y_mean + noise)
                     C_pool_list.append(C_new)
                 self.C_pool = np.array(C_pool_list)
                 self.q_grid = q_common
                 K = 0
             else:
-                # 5) SVD
+                # 4) SVD
                 U, S, Vt = np.linalg.svd(dY, full_matrices=False)
                 eigenvalues = S ** 2 / (N - 1)
+                eigenvectors = Vt  # shape (n_components, n_q)
 
-                # 6) K 선택
-                cumvar = np.cumsum(eigenvalues) / np.sum(eigenvalues)
-                K = int(np.argmax(cumvar >= threshold)) + 1
+                # 5) K 선택
+                total_var = np.sum(eigenvalues)
+                cumvar = np.cumsum(eigenvalues) / total_var
+                K = int(np.searchsorted(cumvar, threshold) + 1)
                 K = min(K, len(eigenvalues))
 
-                # 7) 원본 rms roughness 통계 (필터용)
+                # PCA 결과 저장 (플롯용)
+                self._pca_eigenvalues = eigenvalues
+                self._pca_eigenvectors = eigenvectors
+                self._pca_Y_mean = Y_mean
+                self._pca_C_matrix = C_matrix
+
+                # 6) 원본 rms roughness 통계 (필터용)
                 rms_orig = np.array([
-                    np.sqrt(2 * np.pi * np.trapz(10.0 ** Y[i] * q_common, q_common))
+                    np.sqrt(_trapz(C_matrix[i], q_common))
                     for i in range(N)
                 ])
                 rms_mean = np.mean(rms_orig)
-                rms_std = np.std(rms_orig) if N > 1 else rms_mean * 0.1
+                rms_std = np.std(rms_orig, ddof=0)
+                rms_lo = rms_mean - rms_n_sigma * rms_std
+                rms_hi = rms_mean + rms_n_sigma * rms_std
 
-                # 8) N_samples 생성 + 필터
+                # 7) 샘플 생성 + 물리 필터
+                rng = np.random.default_rng(seed)
+                std_k = np.sqrt(eigenvalues[:K])
+                ev_k = eigenvectors[:K]  # shape (K, n_q)
+
                 C_pool_list = []
-                for _ in range(n_samples * 3):  # 여유분
-                    z_k = rng.normal(0, np.sqrt(eigenvalues[:K]))
-                    Y_new = Y_mean + z_k @ Vt[:K, :]
-                    C_new = 10.0 ** Y_new
+                n_rejected = 0
+                max_attempts = n_samples * 50
 
-                    # 필터 1: rms roughness
-                    rms_new = np.sqrt(2 * np.pi * np.trapz(C_new * q_common, q_common))
-                    if abs(rms_new - rms_mean) > rms_n_sigma * rms_std:
+                for attempt in range(max_attempts):
+                    z = rng.normal(0.0, std_k)      # shape (K,)
+                    Y_new = Y_mean + z @ ev_k        # shape (n_q,)
+                    C_new = np.exp(Y_new)
+
+                    # 필터 1: rms roughness ±Nσ
+                    rms_new = np.sqrt(_trapz(C_new, q_common))
+                    if rms_new < rms_lo or rms_new > rms_hi:
+                        n_rejected += 1
                         continue
 
-                    # 필터 2: 단조감소 위반 비율
-                    diffs = np.diff(C_new)
-                    violation = np.sum(diffs > 0) / max(len(diffs), 1)
-                    if violation > mono_tol:
+                    # 필터 2: 단조감소 위반 (평균 기울기 양수 → 거부)
+                    dC = np.diff(C_new)
+                    violation_ratio = np.sum(dC > 0) / max(len(dC), 1)
+                    if violation_ratio > mono_tol:
+                        n_rejected += 1
                         continue
 
                     C_pool_list.append(C_new)
@@ -364,6 +607,11 @@ class MonteCarloTab:
 
                 self.C_pool = np.array(C_pool_list)
                 self.q_grid = q_common
+
+                print(f"[PSD Ensemble] {len(C_pool_list)} accepted, "
+                      f"{n_rejected} rejected ({attempt+1} attempts)")
+                print(f"  PCA: K={K}, eigenvalues={eigenvalues[:K]}")
+                print(f"  RMS filter: [{rms_lo:.4e}, {rms_hi:.4e}]")
 
             n_valid = len(self.C_pool)
             self._psd_status_label.config(
