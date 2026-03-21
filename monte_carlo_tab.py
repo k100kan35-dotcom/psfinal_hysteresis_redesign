@@ -18,7 +18,7 @@ import threading
 import time
 
 from matplotlib.figure import Figure
-from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg
+from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 from scipy.interpolate import interp1d
 from scipy.fft import fft, fftfreq
