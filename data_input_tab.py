@@ -48,13 +48,27 @@ class CompoundData:
         self.name = name
         self.material = None           # ViscoelasticMaterial
         self.dma_file = None           # DMA 파일 경로
-        self.strain_data = None        # strain sweep raw data {T: [...]}
-        self.fg_by_T = None            # f,g by temperature
+
+        # aT shift factor
+        self.aT_data = None            # dict: {T, aT, log_aT, bT, T_ref, has_bT}
+        self.aT_interp = None          # interp1d(T -> log10(aT))
+        self.bT_interp = None          # interp1d(T -> bT) (optional)
+        self.aT_file = None            # aT 파일 경로
+
+        # Strain sweep / f,g curves (two input modes)
+        self.strain_mode = None        # 'raw' (온도별) or 'fg' (완성된 f,g 파일)
+        self.strain_data = None        # strain sweep raw data {T: [...]} (raw mode)
+        self.fg_by_T = None            # f,g by temperature (raw mode)
+        self.fg_raw = None             # dict: {strain, f, g} (fg mode)
         self.f_interpolator = None     # f(strain) callable
         self.g_interpolator = None     # g(strain) callable
-        self.strain_file = None        # strain sweep 파일 경로
+        self.strain_file = None        # strain/f,g 파일 경로
+
+        # mu_dry
         self.mu_dry_data = None        # (log10_v, mu_dry) arrays
         self.mu_dry_file = None        # mu_dry 파일 경로
+
+        # Results
         self.results = None            # calculation results dict
 
 
@@ -304,7 +318,7 @@ class DataInputTab:
             name_var.trace_add('write', lambda *a, idx=i, v=name_var: self._on_name_changed(idx, v))
             widgets['name_var'] = name_var
 
-            # Master curve
+            # Master curve (필수)
             row_mc = ttk.Frame(lf)
             row_mc.pack(fill=tk.X, pady=1)
             ttk.Button(row_mc, text="마스터커브 (DMA)", width=18,
@@ -313,16 +327,31 @@ class DataInputTab:
             mc_label.pack(side=tk.LEFT, padx=4)
             widgets['mc_label'] = mc_label
 
-            # Strain sweep (optional)
-            row_str = ttk.Frame(lf)
-            row_str.pack(fill=tk.X, pady=1)
-            ttk.Button(row_str, text="Strain sweep", width=18,
-                       command=lambda idx=i: self._load_strain(idx)).pack(side=tk.LEFT)
-            str_label = ttk.Label(row_str, text="-", font=F['small'], foreground=C['text_secondary'])
-            str_label.pack(side=tk.LEFT, padx=4)
+            # aT shift factor (선택)
+            row_at = ttk.Frame(lf)
+            row_at.pack(fill=tk.X, pady=1)
+            ttk.Button(row_at, text="aT 시프트 팩터", width=18,
+                       command=lambda idx=i: self._load_aT(idx)).pack(side=tk.LEFT)
+            at_label = ttk.Label(row_at, text="-", font=F['small'], foreground=C['text_secondary'])
+            at_label.pack(side=tk.LEFT, padx=4)
+            widgets['at_label'] = at_label
+
+            # Strain / f,g curves (선택) — 2가지 모드
+            row_str_header = ttk.Frame(lf)
+            row_str_header.pack(fill=tk.X, pady=(4, 0))
+            ttk.Label(row_str_header, text="Strain 보정:", font=F['small_bold']).pack(side=tk.LEFT)
+
+            row_str_btns = ttk.Frame(lf)
+            row_str_btns.pack(fill=tk.X, pady=1)
+            ttk.Button(row_str_btns, text="온도별 sweep", width=14,
+                       command=lambda idx=i: self._load_strain_raw(idx)).pack(side=tk.LEFT, padx=(0, 2))
+            ttk.Button(row_str_btns, text="f,g 파일", width=10,
+                       command=lambda idx=i: self._load_fg_file(idx)).pack(side=tk.LEFT)
+            str_label = ttk.Label(lf, text="-", font=F['small'], foreground=C['text_secondary'])
+            str_label.pack(fill=tk.X, pady=1)
             widgets['str_label'] = str_label
 
-            # mu_dry (optional)
+            # mu_dry (선택)
             row_mud = ttk.Frame(lf)
             row_mud.pack(fill=tk.X, pady=1)
             ttk.Button(row_mud, text="μ_dry (실측)", width=18,
@@ -409,9 +438,71 @@ class DataInputTab:
         except Exception as e:
             messagebox.showerror("DMA 로드 실패", str(e))
 
-    def _load_strain(self, idx):
+    def _load_aT(self, idx):
+        """aT shift factor 파일 로드. 형식: T(°C), aT [, bT]"""
         fp = filedialog.askopenfilename(
-            title=f"Strain sweep 파일 ({self.compounds[idx].name})",
+            title=f"aT 시프트 팩터 ({self.compounds[idx].name})",
+            filetypes=[("CSV/TXT", "*.csv *.txt"), ("All", "*.*")])
+        if not fp:
+            return
+        try:
+            import pandas as pd
+            from scipy.interpolate import interp1d
+
+            df = None
+            for sep in [r'\s+', '\t', ',', ';']:
+                try:
+                    df = pd.read_csv(fp, sep=sep, skipinitialspace=True,
+                                     comment='#', header=None, engine='python')
+                    if len(df.columns) >= 2:
+                        break
+                except Exception:
+                    continue
+
+            if df is None or len(df.columns) < 2:
+                raise ValueError("2열 이상 (T, aT [, bT]) 형식이 필요합니다.")
+
+            df = df.apply(pd.to_numeric, errors='coerce').dropna()
+            if len(df) < 2:
+                raise ValueError("유효한 데이터 행이 부족합니다.")
+
+            T = df.iloc[:, 0].values
+            aT = df.iloc[:, 1].values
+            has_bT = len(df.columns) >= 3
+            bT = df.iloc[:, 2].values if has_bT else np.ones_like(T)
+
+            log_aT = np.log10(np.maximum(aT, 1e-20))
+            sort_idx = np.argsort(T)
+            T, aT, log_aT, bT = T[sort_idx], aT[sort_idx], log_aT[sort_idx], bT[sort_idx]
+
+            ref_idx = np.argmin(np.abs(aT - 1.0))
+            T_ref = T[ref_idx]
+
+            cpd = self.compounds[idx]
+            cpd.aT_data = {
+                'T': T, 'aT': aT, 'log_aT': log_aT,
+                'bT': bT, 'T_ref': T_ref, 'has_bT': has_bT,
+            }
+            cpd.aT_interp = interp1d(T, log_aT, kind='linear',
+                                     bounds_error=False, fill_value='extrapolate')
+            cpd.bT_interp = interp1d(T, bT, kind='linear',
+                                     bounds_error=False, fill_value='extrapolate')
+            cpd.aT_file = fp
+
+            fname = os.path.basename(fp)
+            bT_str = ", +bT" if has_bT else ""
+            w = self._compound_widgets.get(idx, {})
+            if 'at_label' in w:
+                w['at_label'].config(
+                    text=f"✓ {fname} ({len(T)}pts, Tref={T_ref:.0f}°C{bT_str})",
+                    foreground=self.app.COLORS['success'])
+        except Exception as e:
+            messagebox.showerror("aT 로드 실패", str(e))
+
+    def _load_strain_raw(self, idx):
+        """온도별 strain sweep 원시 데이터 로드 → f,g 계산."""
+        fp = filedialog.askopenfilename(
+            title=f"Strain sweep (온도별) ({self.compounds[idx].name})",
             filetypes=[("CSV/TXT", "*.csv *.txt"), ("All", "*.*")])
         if not fp:
             return
@@ -423,20 +514,58 @@ class DataInputTab:
             f_interp, g_interp = create_fg_interpolator(
                 fg_avg['strain'], fg_avg['f'], fg_avg.get('g'))
 
-            self.compounds[idx].strain_data = data_by_T
-            self.compounds[idx].fg_by_T = fg_by_T
-            self.compounds[idx].f_interpolator = f_interp
-            self.compounds[idx].g_interpolator = g_interp
-            self.compounds[idx].strain_file = fp
+            cpd = self.compounds[idx]
+            cpd.strain_mode = 'raw'
+            cpd.strain_data = data_by_T
+            cpd.fg_by_T = fg_by_T
+            cpd.fg_raw = None
+            cpd.f_interpolator = f_interp
+            cpd.g_interpolator = g_interp
+            cpd.strain_file = fp
 
             fname = os.path.basename(fp)
             n_T = len(fg_by_T)
             w = self._compound_widgets.get(idx, {})
             if 'str_label' in w:
-                w['str_label'].config(text=f"✓ {fname} ({n_T}T)",
+                w['str_label'].config(text=f"✓ [sweep] {fname} ({n_T}T)",
                                       foreground=self.app.COLORS['success'])
         except Exception as e:
-            messagebox.showerror("Strain 로드 실패", str(e))
+            messagebox.showerror("Strain sweep 로드 실패", str(e))
+
+    def _load_fg_file(self, idx):
+        """완성된 f,g 커브 파일 로드 (strain, f [, g])."""
+        fp = filedialog.askopenfilename(
+            title=f"f,g 커브 파일 ({self.compounds[idx].name})",
+            filetypes=[("CSV/TXT", "*.csv *.txt"), ("All", "*.*")])
+        if not fp:
+            return
+        try:
+            fg_data = load_fg_curve_file(fp)
+            if fg_data is None:
+                raise ValueError("f,g 파일 파싱에 실패했습니다.")
+
+            f_interp, g_interp = create_fg_interpolator(
+                fg_data['strain'], fg_data['f'], fg_data.get('g'))
+
+            cpd = self.compounds[idx]
+            cpd.strain_mode = 'fg'
+            cpd.fg_raw = fg_data
+            cpd.strain_data = None
+            cpd.fg_by_T = None
+            cpd.f_interpolator = f_interp
+            cpd.g_interpolator = g_interp
+            cpd.strain_file = fp
+
+            fname = os.path.basename(fp)
+            n_pts = len(fg_data['strain'])
+            has_g = fg_data.get('g') is not None
+            g_str = "f+g" if has_g else "f only"
+            w = self._compound_widgets.get(idx, {})
+            if 'str_label' in w:
+                w['str_label'].config(text=f"✓ [f,g] {fname} ({n_pts}pts, {g_str})",
+                                      foreground=self.app.COLORS['success'])
+        except Exception as e:
+            messagebox.showerror("f,g 파일 로드 실패", str(e))
 
     def _load_mu_dry(self, idx):
         fp = filedialog.askopenfilename(
@@ -521,9 +650,21 @@ class DataInputTab:
             for ci, cpd in enumerate(self.compounds):
                 self._update_status(f"[{ci+1}/{n_compounds}] {cpd.name}: G(q,v) 계산 중...")
 
-                # Create modulus function
-                def modulus_func(omega, mat=cpd.material):
-                    return mat.get_modulus(omega, temperature=temperature)
+                # ── aT temperature shift ──
+                # If aT data is available, shift frequency: ω_eff = ω * aT(T)
+                # E*(ω, T) = E*(ω·aT, T_ref), so modulus_func uses shifted ω
+                has_aT = cpd.aT_interp is not None
+                if has_aT:
+                    log_aT_val = float(cpd.aT_interp(temperature))
+                    aT_val = 10 ** log_aT_val
+                    T_ref = cpd.aT_data['T_ref']
+                else:
+                    aT_val = 1.0
+                    T_ref = temperature
+
+                # Create modulus function (with aT shift applied)
+                def modulus_func(omega, mat=cpd.material, _aT=aT_val, _Tref=T_ref):
+                    return mat.get_modulus(omega * _aT, temperature=_Tref)
 
                 # Create G calculator
                 g_calc = GCalculator(
@@ -539,8 +680,10 @@ class DataInputTab:
                 if use_nonlinear and cpd.f_interpolator is not None and cpd.g_interpolator is not None:
                     fixed_strain = 0.01
                     strain_for_G = np.full(len(q_array), fixed_strain)
-                    g_calc.storage_modulus_func = lambda w, m=cpd.material: m.get_storage_modulus(w, temperature=temperature)
-                    g_calc.loss_modulus_func = lambda w, m=cpd.material: m.get_loss_modulus(w, temperature=temperature)
+                    g_calc.storage_modulus_func = lambda w, m=cpd.material, _aT=aT_val, _Tref=T_ref: \
+                        m.get_storage_modulus(w * _aT, temperature=_Tref)
+                    g_calc.loss_modulus_func = lambda w, m=cpd.material, _aT=aT_val, _Tref=T_ref: \
+                        m.get_loss_modulus(w * _aT, temperature=_Tref)
                     g_calc.set_nonlinear_correction(
                         f_interpolator=cpd.f_interpolator,
                         g_interpolator=cpd.g_interpolator,
@@ -565,8 +708,9 @@ class DataInputTab:
                 # ── mu_visc calculation ──
                 self._update_status(f"[{ci+1}/{n_compounds}] {cpd.name}: μ_visc 계산 중...")
 
-                def loss_mod_func(omega, T, mat=cpd.material):
-                    return mat.get_loss_modulus(omega, temperature=T)
+                # Loss modulus with aT shift
+                def loss_mod_func(omega, T, mat=cpd.material, _aT=aT_val, _Tref=T_ref):
+                    return mat.get_loss_modulus(omega * _aT, temperature=_Tref)
 
                 g_interp = cpd.g_interpolator if (use_nonlinear and cpd.g_interpolator) else None
 
