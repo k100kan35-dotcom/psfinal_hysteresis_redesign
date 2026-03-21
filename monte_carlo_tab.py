@@ -106,24 +106,60 @@ class PSDComputer:
         }
 
     def _load_line_roughness_csv(self, filepath, lines):
-        """선 거칠기 CSV 파싱: "X(μm)","Z(μm)" 형식.
+        """선 거칠기 파일 파싱: X, Z 두 열 (μm 단위).
 
-        μm 단위 → m 변환, 빈 값은 NaN으로 처리 후 제거.
+        지원 구분자: 콤마, 탭, 공백
+        빈 Z 값은 건너뛰고, 유효한 (X, Z) 쌍만 사용.
+        X 전체에서 dx를 계산하고, Z가 있는 행만 프로파일로 사용.
         """
-        import csv as csv_mod
-        x_list, h_list = [], []
+        # 구분자 감지: 헤더(첫 줄) 기준
+        header = lines[0]
+        if '\t' in header:
+            delim = '\t'
+        elif ',' in header:
+            delim = ','
+        else:
+            delim = None  # 공백 split
 
-        reader = csv_mod.reader(lines[1:])  # 헤더 스킵
-        for row in reader:
-            if len(row) < 2:
+        all_x = []   # dx 계산용 (모든 X)
+        x_list = []  # 유효 데이터
+        h_list = []
+
+        for line in lines[1:]:
+            line = line.strip()
+            if not line:
                 continue
-            x_str = row[0].strip().strip('"')
-            h_str = row[1].strip().strip('"')
-            if not x_str or not h_str:
+
+            # 분리
+            if delim:
+                parts = line.split(delim)
+            else:
+                parts = line.split()
+
+            if len(parts) < 2:
+                # Z 열이 아예 없는 행 → X만 수집
+                x_str = parts[0].strip().strip('"').strip()
+                try:
+                    all_x.append(float(x_str))
+                except ValueError:
+                    pass
                 continue
+
+            x_str = parts[0].strip().strip('"').strip()
+            z_str = parts[1].strip().strip('"').strip()
+
+            # X 값 수집 (dx 계산용)
             try:
                 x_val = float(x_str)
-                h_val = float(h_str)
+                all_x.append(x_val)
+            except ValueError:
+                continue
+
+            # Z 값이 비어있으면 건너뛰기
+            if not z_str:
+                continue
+            try:
+                h_val = float(z_str)
                 x_list.append(x_val)
                 h_list.append(h_val)
             except ValueError:
@@ -135,8 +171,14 @@ class PSDComputer:
         x_arr = np.array(x_list) * 1e-6   # μm → m
         h_arr = np.array(h_list) * 1e-6   # μm → m
 
-        self.dx = np.median(np.diff(x_arr))
-        self.unit_factor = 1.0  # 이미 m 단위
+        # dx: 전체 X 간격에서 계산 (빈 Z 행 포함)
+        if len(all_x) >= 2:
+            all_x_arr = np.array(all_x) * 1e-6
+            self.dx = np.median(np.diff(all_x_arr))
+        else:
+            self.dx = np.median(np.diff(x_arr))
+
+        self.unit_factor = 1.0
         self.h_raw = h_arr
         self.N = len(self.h_raw)
         self.L = self.N * self.dx
@@ -148,6 +190,8 @@ class PSDComputer:
             'dx_um': self.dx * 1e6,
             'L_mm': self.L * 1e3,
             'h_rms_um': np.std(self.h_raw) * 1e6,
+            'h_min_um': np.min(self.h_raw) * 1e6,
+            'h_max_um': np.max(self.h_raw) * 1e6,
             'q_min': 2 * np.pi / self.L,
             'q_max': np.pi / self.dx,
         }
