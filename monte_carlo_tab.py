@@ -283,8 +283,15 @@ class MonteCarloTab:
 
         # ── 공유 데이터 ──
         self.psd_scans = []       # list of (q, C) tuples — 원본 스캔
+        self.psd_computers = []   # PSDComputer per profile (노면 프로파일용)
+        self.psd_file_names = []  # 파일 이름 목록
         self.C_pool = None        # (N_valid, N_q) ndarray — 앙상블
         self.q_grid = None        # (N_q,) ndarray — 공통 q 그리드
+        self._pca_C_matrix = None   # (n, N_q) interpolated C matrix
+        self._pca_Y_mean = None     # (N_q,) mean of ln(C)
+        self._pca_eigenvalues = None
+        self._pca_eigenvectors = None
+        self._pca_K = 0
         self.q1_pool = None       # (M,) ndarray — q₁ 후보 풀
         self.q1_valid_range = None  # (q1_min, q1_max)
         self.mc_results = None    # list of dicts
@@ -436,25 +443,97 @@ class MonteCarloTab:
         self._pca_rms_sigma = self._make_entry_row(sec2, "rms roughness ±N σ:", "3")
         self._pca_mono_tol = self._make_entry_row(sec2, "단조감소 위반 허용:", "0.1")
 
-        # ── 섹션 3: 실행 ──
+        # ── 섹션 3: 실행 (3단계) ──
         sec3 = self._make_section(left, "3) 실행")
-        ttk.Button(sec3, text="PSD 앙상블 생성",
+        ttk.Button(sec3, text="Step 1: PSD 계산",
+                   command=self._step1_compute_psds).pack(fill=tk.X, pady=2)
+        ttk.Button(sec3, text="Step 2: PCA 분석",
+                   command=self._step2_fit_pca).pack(fill=tk.X, pady=2)
+        ttk.Button(sec3, text="Step 3: 샘플 생성",
+                   command=self._step3_generate,
+                   style='Accent.TButton').pack(fill=tk.X, pady=2)
+
+        ttk.Separator(sec3, orient='horizontal').pack(fill=tk.X, pady=4)
+        ttk.Button(sec3, text="전체 실행 (1→2→3)",
                    command=self._run_psd_ensemble,
-                   style='Accent.TButton').pack(fill=tk.X, pady=4)
+                   style='Accent.TButton').pack(fill=tk.X, pady=2)
+
         self._psd_status_label = ttk.Label(sec3, text="대기 중",
                                            font=self.app.FONTS['small'],
                                            foreground='#64748B')
         self._psd_status_label.pack(anchor='w')
 
-        # ── 우측 플롯 ──
-        self._fig_psd = Figure(figsize=(8, 6), dpi=100, facecolor='white')
-        self._ax_psd_orig = self._fig_psd.add_subplot(2, 1, 1)
-        self._ax_psd_gen = self._fig_psd.add_subplot(2, 1, 2)
-        self._fig_psd.tight_layout(pad=2.0)
+        # ── 섹션 4: 내보내기 ──
+        sec4 = self._make_section(left, "4) 내보내기")
+        ttk.Button(sec4, text="샘플 내보내기 (Persson)",
+                   command=lambda: self._export_psd_samples('persson')
+                   ).pack(fill=tk.X, pady=2)
+        ttk.Button(sec4, text="샘플 내보내기 (CSV)",
+                   command=lambda: self._export_psd_samples('csv')
+                   ).pack(fill=tk.X, pady=2)
 
-        self._canvas_psd = FigureCanvasTkAgg(self._fig_psd, master=right)
+        # ── 정보 ──
+        info_lf = ttk.LabelFrame(left, text="Info / Status", padding=4)
+        info_lf.pack(fill=tk.X, pady=4, padx=2)
+        self._psd_info_text = tk.Text(info_lf, height=10, width=38,
+                                      state=tk.DISABLED,
+                                      font=('Consolas', 8), bg='#f5f5f5')
+        self._psd_info_text.pack(fill=tk.X, padx=2, pady=2)
+
+        # ── 우측: 4개 서브탭 ──
+        self._psd_plot_nb = ttk.Notebook(right)
+        self._psd_plot_nb.pack(fill=tk.BOTH, expand=True)
+
+        # 탭 1: Profiles
+        tab_prof = ttk.Frame(self._psd_plot_nb)
+        self._psd_plot_nb.add(tab_prof, text="  Profiles  ")
+        self._fig_prof = Figure(figsize=(10, 7), dpi=100, facecolor='white')
+        self._ax_prof = self._fig_prof.add_subplot(111)
+        self._ax_prof.set_title('Road Surface Profiles')
+        self._ax_prof.grid(True, alpha=0.3)
+        self._fig_prof.tight_layout()
+        tb1 = ttk.Frame(tab_prof); tb1.pack(side=tk.TOP, fill=tk.X)
+        self._cv_prof = FigureCanvasTkAgg(self._fig_prof, master=tab_prof)
+        NavigationToolbar2Tk(self._cv_prof, tb1)
+        self._cv_prof.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # 탭 2: PSDs
+        tab_psd = ttk.Frame(self._psd_plot_nb)
+        self._psd_plot_nb.add(tab_psd, text="  PSDs  ")
+        self._fig_psd = Figure(figsize=(10, 7), dpi=100, facecolor='white')
+        self._ax_psd_orig = self._fig_psd.add_subplot(111)
+        self._ax_psd_orig.set_title('Power Spectral Densities')
+        self._ax_psd_orig.grid(True, alpha=0.3)
+        self._fig_psd.tight_layout()
+        tb2 = ttk.Frame(tab_psd); tb2.pack(side=tk.TOP, fill=tk.X)
+        self._canvas_psd = FigureCanvasTkAgg(self._fig_psd, master=tab_psd)
+        NavigationToolbar2Tk(self._canvas_psd, tb2)
         self._canvas_psd.get_tk_widget().pack(fill=tk.BOTH, expand=True)
-        self._canvas_psd.draw_idle()
+
+        # 탭 3: Ensemble
+        tab_ens = ttk.Frame(self._psd_plot_nb)
+        self._psd_plot_nb.add(tab_ens, text="  Ensemble  ")
+        self._fig_ens = Figure(figsize=(10, 7), dpi=100, facecolor='white')
+        self._ax_psd_gen = self._fig_ens.add_subplot(111)
+        self._ax_psd_gen.set_title('PSD Ensemble')
+        self._ax_psd_gen.grid(True, alpha=0.3)
+        self._fig_ens.tight_layout()
+        tb3 = ttk.Frame(tab_ens); tb3.pack(side=tk.TOP, fill=tk.X)
+        self._cv_ens = FigureCanvasTkAgg(self._fig_ens, master=tab_ens)
+        NavigationToolbar2Tk(self._cv_ens, tb3)
+        self._cv_ens.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # 탭 4: PCA
+        tab_pca = ttk.Frame(self._psd_plot_nb)
+        self._psd_plot_nb.add(tab_pca, text="  PCA  ")
+        self._fig_pca = Figure(figsize=(10, 7), dpi=100, facecolor='white')
+        self._ax_pca_vec = self._fig_pca.add_subplot(1, 2, 1)
+        self._ax_pca_var = self._fig_pca.add_subplot(1, 2, 2)
+        self._fig_pca.tight_layout(pad=3.0)
+        tb4 = ttk.Frame(tab_pca); tb4.pack(side=tk.TOP, fill=tk.X)
+        self._cv_pca = FigureCanvasTkAgg(self._fig_pca, master=tab_pca)
+        NavigationToolbar2Tk(self._cv_pca, tb4)
+        self._cv_pca.get_tk_widget().pack(fill=tk.BOTH, expand=True)
 
     # ── PSD 로드 ──
     def _load_psd_from_app(self):
@@ -477,10 +556,23 @@ class MonteCarloTab:
     def _clear_psd_scans(self):
         """로드된 PSD 스캔 초기화."""
         self.psd_scans = []
+        self.psd_computers = []
+        self.psd_file_names = []
+        self._pca_C_matrix = None
+        self._pca_Y_mean = None
+        self._pca_eigenvalues = None
+        self._pca_eigenvectors = None
+        self._pca_K = 0
+        self.C_pool = None
+        self.q_grid = None
         self._psd_scan_label.config(text="로드된 스캔: 0개")
-        self._ax_psd_orig.clear()
-        self._ax_psd_orig.set_title("원본 PSD 스캔")
+        for ax in [self._ax_prof, self._ax_psd_orig, self._ax_psd_gen,
+                    self._ax_pca_vec, self._ax_pca_var]:
+            ax.clear()
+        self._cv_prof.draw_idle()
         self._canvas_psd.draw_idle()
+        self._cv_ens.draw_idle()
+        self._cv_pca.draw_idle()
         self.app._show_status("PSD 스캔 초기화됨", 'info')
 
     def _load_psd_files(self):
@@ -562,8 +654,10 @@ class MonteCarloTab:
                     )
                     if len(q_bin) >= 5:
                         new_scans.append((q_bin, C_bin))
-                        loaded_names.append(
-                            info.get('name', os.path.basename(fpath)))
+                        self.psd_computers.append(comp)
+                        name = info.get('name', os.path.basename(fpath))
+                        loaded_names.append(name)
+                        self.psd_file_names.append(name)
                 except Exception as e:
                     import traceback
                     traceback.print_exc()
@@ -579,14 +673,13 @@ class MonteCarloTab:
             self.psd_scans.extend(new_scans)
             self._psd_scan_label.config(
                 text=f"로드된 스캔: {len(self.psd_scans)}개 (추가 {len(new_scans)}개)")
+            self._plot_profiles()
             self._plot_psd_originals()
             self._psd_status_label.config(
                 text=f"프로파일 {len(new_scans)}개 PSD 계산 완료")
             self.app._show_status(
                 f"노면 프로파일 {len(new_scans)}개 → PSD 계산 완료 "
-                f"(총 {len(self.psd_scans)}개)\n"
-                f"  파일: {', '.join(loaded_names[:5])}"
-                + (f" 외 {len(loaded_names)-5}개" if len(loaded_names) > 5 else ""),
+                f"(총 {len(self.psd_scans)}개)",
                 'success')
 
         except Exception as e:
@@ -595,217 +688,347 @@ class MonteCarloTab:
             traceback.print_exc()
 
     # ── PSD 앙상블 생성 ──
-    def _run_psd_ensemble(self):
-        """PCA 기반 PSD 앙상블 생성.
+    # ── Info 헬퍼 ──
+    def _psd_set_info(self, text):
+        self._psd_info_text.config(state=tk.NORMAL)
+        self._psd_info_text.delete('1.0', tk.END)
+        self._psd_info_text.insert(tk.END, text)
+        self._psd_info_text.config(state=tk.DISABLED)
 
-        PSDEnsemble (k100kan35-dotcom/psd)과 동일한 파이프라인:
-          1. C(q) → ln() 변환 (자연로그 기반 — psd_ensemble.py와 동일)
-          2. 공통 q 그리드에 log-log 보간
-          3. 평균 + 편차 행렬
-          4. SVD → 고유값/고유벡터
-          5. K 선택 (누적분산 ≥ threshold)
-          6. z_k ~ N(0, sqrt(eigenvalue_k)) 샘플링
-          7. Y_new = Y_mean + z @ Vt[:K] → C_new = exp(Y_new)
-          8. 물리 필터: rms ±3σ + 단조감소 위반
-        """
+    def _psd_append_info(self, text):
+        self._psd_info_text.config(state=tk.NORMAL)
+        self._psd_info_text.insert(tk.END, text)
+        self._psd_info_text.config(state=tk.DISABLED)
+
+    # ── Step 1: PSD 계산 (공통 q 그리드 구축) ──
+    def _step1_compute_psds(self):
+        """모든 스캔을 공통 q 그리드에 보간."""
         if not self.psd_scans:
             messagebox.showwarning("PSD 앙상블", "먼저 PSD 스캔을 로드하세요.")
             return
+        if len(self.psd_scans) < 2:
+            messagebox.showwarning("PSD 앙상블", "2개 이상의 스캔이 필요합니다.")
+            return
 
-        try:
-            self._psd_status_label.config(text="앙상블 생성 중...")
-            self.app.root.update_idletasks()
+        self._psd_set_info("Computing PSDs...\n")
+        self._psd_status_label.config(text="PSD 계산 중...")
+        self.app.root.update_idletasks()
 
-            threshold = float(self._pca_var_thresh.get())
-            n_samples = int(self._pca_n_samples.get())
-            seed = int(self._pca_seed.get())
-            rms_n_sigma = float(self._pca_rms_sigma.get())
-            mono_tol = float(self._pca_mono_tol.get())
+        N = len(self.psd_scans)
+        for i in range(N):
+            q_i, C_i = self.psd_scans[i]
+            name = self.psd_file_names[i] if i < len(self.psd_file_names) \
+                else f"scan_{i+1}"
+            self._psd_append_info(f"  [{i+1}] {name}: {len(q_i)} bins\n")
 
-            # 1) 공통 q 그리드 (교집합 범위, 100 포인트)
-            q_mins = [np.min(s[0]) for s in self.psd_scans]
-            q_maxs = [np.max(s[0]) for s in self.psd_scans]
-            q_lo = max(q_mins)
-            q_hi = min(q_maxs)
-            if q_lo >= q_hi:
-                messagebox.showerror("오류", "스캔 q 범위가 겹치지 않습니다.")
-                return
-            n_q = 100
-            q_common = np.logspace(np.log10(q_lo), np.log10(q_hi), n_q)
+        # 공통 q 범위 (교집합)
+        q_lo = max(np.min(s[0]) for s in self.psd_scans)
+        q_hi = min(np.max(s[0]) for s in self.psd_scans)
+        if q_lo >= q_hi:
+            messagebox.showerror("오류", "스캔 q 범위가 겹치지 않습니다.")
+            return
 
-            # 2) log-log 보간 → C_matrix (선형 스케일)
-            N = len(self.psd_scans)
-            C_matrix = np.zeros((N, n_q))
-            for i, (q_i, C_i) in enumerate(self.psd_scans):
-                log_C_interp = np.interp(np.log10(q_common),
-                                         np.log10(q_i), np.log10(C_i))
-                C_matrix[i] = 10.0 ** log_C_interp
+        self.q_grid = np.logspace(np.log10(q_lo), np.log10(q_hi), 100)
+        n_q = len(self.q_grid)
 
-            # 3) ln 변환 (PSDEnsemble과 동일 — 자연로그)
-            Y = np.log(C_matrix)        # shape (N, n_q)
-            Y_mean = np.mean(Y, axis=0)  # shape (n_q,)
-            dY = Y - Y_mean              # shape (N, n_q)
+        # log-log 보간 → C_matrix
+        self._pca_C_matrix = np.zeros((N, n_q))
+        for i, (q_i, C_i) in enumerate(self.psd_scans):
+            log_C_interp = np.interp(np.log10(self.q_grid),
+                                     np.log10(q_i), np.log10(C_i))
+            self._pca_C_matrix[i] = 10.0 ** log_C_interp
 
-            if N < 2:
-                # 스캔 1개 → PCA 불가, 노이즈로 앙상블 생성
-                rng = np.random.default_rng(seed)
-                C_pool_list = []
-                for _ in range(n_samples):
-                    noise = rng.normal(0, 0.05, n_q)
-                    C_new = np.exp(Y_mean + noise)
-                    C_pool_list.append(C_new)
-                self.C_pool = np.array(C_pool_list)
-                self.q_grid = q_common
-                K = 0
-            else:
-                # 4) SVD
-                U, S, Vt = np.linalg.svd(dY, full_matrices=False)
-                eigenvalues = S ** 2 / (N - 1)
-                eigenvectors = Vt  # shape (n_components, n_q)
+        self._psd_append_info(
+            f"\nCommon q grid: [{self.q_grid[0]:.1f}, {self.q_grid[-1]:.2e}]\n"
+            f"Valid profiles: {N}\n")
 
-                # 5) K 선택
-                total_var = np.sum(eigenvalues)
-                cumvar = np.cumsum(eigenvalues) / total_var
-                K = int(np.searchsorted(cumvar, threshold) + 1)
-                K = min(K, len(eigenvalues))
+        self._plot_profiles()
+        self._plot_psd_originals()
+        self._psd_status_label.config(text=f"Step 1 완료: {N}개 프로파일")
 
-                # PCA 결과 저장 (플롯용)
-                self._pca_eigenvalues = eigenvalues
-                self._pca_eigenvectors = eigenvectors
-                self._pca_Y_mean = Y_mean
-                self._pca_C_matrix = C_matrix
+    # ── Step 2: PCA 분석 ──
+    def _step2_fit_pca(self):
+        """PCA (SVD) 분석."""
+        if self._pca_C_matrix is None:
+            messagebox.showwarning("PSD 앙상블", "먼저 Step 1을 실행하세요.")
+            return
 
-                # 6) 원본 rms roughness 통계 (필터용)
-                rms_orig = np.array([
-                    np.sqrt(_trapz(C_matrix[i], q_common))
-                    for i in range(N)
-                ])
-                rms_mean = np.mean(rms_orig)
-                rms_std = np.std(rms_orig, ddof=0)
-                rms_lo = rms_mean - rms_n_sigma * rms_std
-                rms_hi = rms_mean + rms_n_sigma * rms_std
+        N = self._pca_C_matrix.shape[0]
+        threshold = float(self._pca_var_thresh.get())
 
-                # 7) 샘플 생성 + 물리 필터
-                rng = np.random.default_rng(seed)
-                std_k = np.sqrt(eigenvalues[:K])
-                ev_k = eigenvectors[:K]  # shape (K, n_q)
+        Y = np.log(self._pca_C_matrix)
+        self._pca_Y_mean = np.mean(Y, axis=0)
+        dY = Y - self._pca_Y_mean
 
-                C_pool_list = []
-                n_rejected = 0
-                max_attempts = n_samples * 50
+        U, S, Vt = np.linalg.svd(dY, full_matrices=False)
+        self._pca_eigenvalues = S ** 2 / (N - 1)
+        self._pca_eigenvectors = Vt
 
-                for attempt in range(max_attempts):
-                    z = rng.normal(0.0, std_k)      # shape (K,)
-                    Y_new = Y_mean + z @ ev_k        # shape (n_q,)
-                    C_new = np.exp(Y_new)
+        total_var = np.sum(self._pca_eigenvalues)
+        cum_var = np.cumsum(self._pca_eigenvalues) / total_var
+        self._pca_K = int(np.searchsorted(cum_var, threshold) + 1)
+        self._pca_K = min(self._pca_K, len(self._pca_eigenvalues))
 
-                    # 필터 1: rms roughness ±Nσ
-                    rms_new = np.sqrt(_trapz(C_new, q_common))
-                    if rms_new < rms_lo or rms_new > rms_hi:
-                        n_rejected += 1
-                        continue
+        lines = [f"PCA (threshold={threshold*100:.0f}%):\n"]
+        for k in range(min(self._pca_K + 2, len(self._pca_eigenvalues))):
+            pct = self._pca_eigenvalues[k] / total_var * 100
+            marker = " <--" if k < self._pca_K else ""
+            lines.append(f"  PC{k+1}: {pct:5.1f}% (cum {cum_var[k]*100:5.1f}%){marker}\n")
+        lines.append(f"\nSelected K = {self._pca_K}\n")
+        self._psd_set_info("".join(lines))
 
-                    # 필터 2: 단조감소 위반 (평균 기울기 양수 → 거부)
-                    dC = np.diff(C_new)
-                    violation_ratio = np.sum(dC > 0) / max(len(dC), 1)
-                    if violation_ratio > mono_tol:
-                        n_rejected += 1
-                        continue
+        self._plot_pca()
+        self._psd_status_label.config(text=f"Step 2 완료: K={self._pca_K}")
 
-                    C_pool_list.append(C_new)
-                    if len(C_pool_list) >= n_samples:
-                        break
+    # ── Step 3: 샘플 생성 ──
+    def _step3_generate(self):
+        """PCA 기반 C(q) 샘플 생성."""
+        if self._pca_eigenvalues is None:
+            messagebox.showwarning("PSD 앙상블", "먼저 Step 2를 실행하세요.")
+            return
 
-                self.C_pool = np.array(C_pool_list)
-                self.q_grid = q_common
+        n_samples = int(self._pca_n_samples.get())
+        seed = int(self._pca_seed.get())
+        rms_n_sigma = float(self._pca_rms_sigma.get())
 
-                print(f"[PSD Ensemble] {len(C_pool_list)} accepted, "
-                      f"{n_rejected} rejected ({attempt+1} attempts)")
-                print(f"  PCA: K={K}, eigenvalues={eigenvalues[:K]}")
-                print(f"  RMS filter: [{rms_lo:.4e}, {rms_hi:.4e}]")
+        self._psd_set_info("Generating samples...\n")
+        self._psd_status_label.config(text="샘플 생성 중...")
+        self.app.root.update_idletasks()
 
-            n_valid = len(self.C_pool)
-            self._psd_status_label.config(
-                text=f"완료: {n_valid}개 생성 (K={K})")
-            self._plot_psd_ensemble()
-            self.app._show_status(
-                f"PSD 앙상블 {n_valid}개 생성 완료 (PCA K={K})", 'success')
+        N = self._pca_C_matrix.shape[0]
+        rms_orig = np.array([
+            np.sqrt(_trapz(self._pca_C_matrix[i], self.q_grid))
+            for i in range(N)
+        ])
+        rms_mean = np.mean(rms_orig)
+        rms_std = np.std(rms_orig, ddof=0)
+        rms_lo = rms_mean - rms_n_sigma * rms_std
+        rms_hi = rms_mean + rms_n_sigma * rms_std
 
-        except Exception as e:
-            self._psd_status_label.config(text=f"오류: {e}")
-            messagebox.showerror("오류", f"PSD 앙상블 생성 실패:\n{e}")
-            import traceback
-            traceback.print_exc()
+        rng = np.random.default_rng(seed)
+        std_k = np.sqrt(self._pca_eigenvalues[:self._pca_K])
+        ev_k = self._pca_eigenvectors[:self._pca_K]
 
-    # ── PSD 플롯 ──
+        samples = []
+        n_rejected = 0
+        max_attempts = n_samples * 50
+
+        for attempt in range(max_attempts):
+            if len(samples) >= n_samples:
+                break
+            z = rng.normal(0.0, std_k)
+            Y_new = self._pca_Y_mean + z @ ev_k
+            C_new = np.exp(Y_new)
+
+            rms_new = np.sqrt(_trapz(C_new, self.q_grid))
+            if rms_new < rms_lo or rms_new > rms_hi:
+                n_rejected += 1
+                continue
+
+            dC = np.diff(C_new)
+            if np.mean(dC) > 0:
+                n_rejected += 1
+                continue
+
+            samples.append(C_new)
+
+        self.C_pool = np.array(samples)
+
+        self._psd_set_info(
+            f"Generated: {len(self.C_pool)} / {n_samples}\n"
+            f"Rejected:  {n_rejected}\n"
+            f"RMS range: [{rms_lo:.4e}, {rms_hi:.4e}]\n"
+            f"K = {self._pca_K} principal components\n")
+
+        self._plot_ensemble()
+        self._psd_status_label.config(
+            text=f"완료: {len(self.C_pool)}개 생성 (K={self._pca_K})")
+        self.app._show_status(
+            f"PSD 앙상블 {len(self.C_pool)}개 생성 완료 (PCA K={self._pca_K})",
+            'success')
+
+    # ── 전체 실행 (1→2→3) ──
+    def _run_psd_ensemble(self):
+        """Step 1~3 순차 실행."""
+        if not self.psd_scans:
+            messagebox.showwarning("PSD 앙상블", "먼저 PSD 스캔을 로드하세요.")
+            return
+        self._step1_compute_psds()
+        if self._pca_C_matrix is None:
+            return
+        self._step2_fit_pca()
+        if self._pca_eigenvalues is None:
+            return
+        self._step3_generate()
+
+    # ── 내보내기 ──
+    def _export_psd_samples(self, fmt):
+        """생성된 C(q) 샘플을 CSV로 내보내기."""
+        if self.C_pool is None or self.q_grid is None:
+            messagebox.showwarning("내보내기", "먼저 샘플을 생성하세요.")
+            return
+        import csv as csv_mod
+        save_dir = filedialog.askdirectory(title="저장할 폴더 선택")
+        if not save_dir:
+            return
+        for idx in range(len(self.C_pool)):
+            fname = os.path.join(save_dir, f"sample_{idx+1:04d}.csv")
+            with open(fname, 'w', newline='') as f:
+                w = csv_mod.writer(f)
+                if fmt == 'csv':
+                    w.writerow(['q (1/m)', 'C_2D (m^4)'])
+                    for qi, ci in zip(self.q_grid, self.C_pool[idx]):
+                        w.writerow([f'{qi:.6E}', f'{ci:.6E}'])
+                else:
+                    for qi, ci in zip(self.q_grid, self.C_pool[idx]):
+                        w.writerow([f'{np.log10(qi):.2E}', f'{np.log10(ci):.2E}'])
+        self._psd_append_info(f"\nExported {len(self.C_pool)} samples to {save_dir}/\n")
+        self.app._show_status(
+            f"{len(self.C_pool)}개 샘플 저장 완료: {save_dir}", 'success')
+
+    # ================================================================
+    #  PSD 앙상블 플롯 (레퍼런스 repo와 동일)
+    # ================================================================
+
+    _PLOT_COLORS = [
+        '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+        '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+        '#aec7e8', '#ffbb78', '#98df8a', '#ff9896', '#c5b0d5',
+    ]
+
+    def _plot_profiles(self):
+        """Profiles 탭: 로드된 노면 프로파일 플롯."""
+        ax = self._ax_prof
+        ax.clear()
+        colors = self._PLOT_COLORS
+        for i, comp in enumerate(self.psd_computers):
+            if comp is None or comp.h_raw is None:
+                continue
+            h = comp.h_raw
+            x = np.arange(len(h)) * comp.dx * 1e3  # mm
+            hu = h * 1e6  # μm
+            step = max(1, len(h) // 3000)
+            c = colors[i % len(colors)]
+            name = self.psd_file_names[i] if i < len(self.psd_file_names) \
+                else f"profile_{i+1}"
+            ax.plot(x[::step], hu[::step], color=c, lw=0.4,
+                    label=name, alpha=0.8)
+        ax.set_xlabel('Position (mm)')
+        ax.set_ylabel('Height (um)')
+        ax.set_title(f'Road Surface Profiles ({len(self.psd_computers)} files)')
+        if 0 < len(self.psd_computers) <= 15:
+            ax.legend(fontsize=7, loc='upper right', ncol=2)
+        ax.grid(True, alpha=0.3)
+        self._fig_prof.tight_layout()
+        self._cv_prof.draw_idle()
+        self._psd_plot_nb.select(0)  # Profiles 탭으로 전환
+
     def _plot_psd_originals(self):
-        """원본 스캔 플롯."""
+        """PSDs 탭: 개별 C(q) 곡선 + 평균."""
         ax = self._ax_psd_orig
         ax.clear()
-        ax.set_title('원본 PSD 스캔', fontweight='bold')
-        ax.set_xlabel('q (1/m)')
-        ax.set_ylabel('C(q) (m⁴)')
-        ax.set_xscale('log')
-        ax.set_yscale('log')
-        ax.grid(True, alpha=0.3)
+        colors = self._PLOT_COLORS
 
         for i, (q, C) in enumerate(self.psd_scans):
-            ax.plot(q, C, '-', color='gray', alpha=0.5, linewidth=0.8)
+            c = colors[i % len(colors)]
+            name = self.psd_file_names[i] if i < len(self.psd_file_names) \
+                else f"scan_{i+1}"
+            ax.plot(np.log10(q), np.log10(C), color=c, lw=1.2,
+                    label=name, alpha=0.8)
 
-        if self.psd_scans:
-            # 평균 (log-log 보간)
-            q0 = self.psd_scans[0][0]
-            C_mean = np.mean([s[1] for s in self.psd_scans], axis=0) \
-                if len(self.psd_scans) > 1 and all(len(s[0]) == len(q0) for s in self.psd_scans) \
-                else self.psd_scans[0][1]
-            ax.plot(q0, C_mean, 'r-', linewidth=2, label='평균')
-            ax.legend(loc='best')
+        # 공통 그리드 평균
+        if self._pca_C_matrix is not None and self.q_grid is not None:
+            C_mean = np.mean(self._pca_C_matrix, axis=0)
+            ax.plot(np.log10(self.q_grid), np.log10(C_mean),
+                    'k--', lw=2.5, label='Mean', zorder=10)
 
-        self._ax_psd_gen.clear()
-        self._ax_psd_gen.set_title('생성된 앙상블', fontweight='bold')
-        self._ax_psd_gen.set_xlabel('q (1/m)')
-        self._ax_psd_gen.set_ylabel('C(q) (m⁴)')
-        self._ax_psd_gen.grid(True, alpha=0.3)
-        self._ax_psd_gen.text(0.5, 0.5, '앙상블 생성 전',
-                              transform=self._ax_psd_gen.transAxes,
-                              ha='center', va='center', color='gray')
-
-        self._fig_psd.tight_layout(pad=2.0)
+        ax.set_xlabel('log10(q) [1/m]')
+        ax.set_ylabel('log10(C(q)) [m^4]')
+        ax.set_title(f'PSD — {len(self.psd_scans)} curves')
+        if 0 < len(self.psd_scans) <= 15:
+            ax.legend(fontsize=7, loc='upper right', ncol=2)
+        ax.grid(True, alpha=0.3)
+        self._fig_psd.tight_layout()
         self._canvas_psd.draw_idle()
+        self._psd_plot_nb.select(1)  # PSDs 탭으로 전환
 
-    def _plot_psd_ensemble(self):
-        """원본 + 생성 앙상블 플롯."""
-        # 상단: 원본
-        self._plot_psd_originals()
-
-        # 하단: 생성된 앙상블
+    def _plot_ensemble(self):
+        """Ensemble 탭: 원본 + 생성 샘플 + 평균."""
         ax = self._ax_psd_gen
         ax.clear()
-        ax.set_title('생성된 PSD 앙상블', fontweight='bold')
-        ax.set_xlabel('q (1/m)')
-        ax.set_ylabel('C(q) (m⁴)')
-        ax.set_xscale('log')
-        ax.set_yscale('log')
+        lq = np.log10(self.q_grid)
+
+        # 생성 샘플 (파랑, 반투명)
+        n_show = min(100, len(self.C_pool))
+        for i in range(n_show):
+            ax.plot(lq, np.log10(self.C_pool[i]),
+                    color='steelblue', alpha=0.06, lw=0.5)
+
+        # 원본 (회색)
+        for i in range(self._pca_C_matrix.shape[0]):
+            lbl = 'Originals' if i == 0 else None
+            ax.plot(lq, np.log10(self._pca_C_matrix[i]),
+                    color='grey', alpha=0.7, lw=1.5, label=lbl)
+
+        # 평균 (빨강)
+        C_mean = np.exp(self._pca_Y_mean)
+        ax.plot(lq, np.log10(C_mean), 'r-', lw=2.5, label='Mean')
+
+        # 범례용 더미
+        ax.plot([], [], color='steelblue', alpha=0.5, lw=1,
+                label=f'Generated ({n_show} shown)')
+
+        ax.set_xlabel('log10(q) [1/m]')
+        ax.set_ylabel('log10(C(q)) [m^4]')
+        ax.set_title(f'Ensemble: {len(self.C_pool)} samples')
+        ax.legend(loc='upper right', fontsize=9)
         ax.grid(True, alpha=0.3)
+        self._fig_ens.tight_layout()
+        self._cv_ens.draw_idle()
+        self._psd_plot_nb.select(2)  # Ensemble 탭으로 전환
 
-        if self.C_pool is not None and self.q_grid is not None:
-            # 원본 (회색)
-            for q, C in self.psd_scans:
-                ax.plot(q, C, '-', color='gray', alpha=0.3, linewidth=0.5)
+    def _plot_pca(self):
+        """PCA 탭: 고유벡터 + 분산 설명 차트."""
+        self._ax_pca_vec.clear()
+        self._ax_pca_var.clear()
+        lq = np.log10(self.q_grid)
 
-            # 생성 샘플 (최대 100개)
-            n_show = min(100, len(self.C_pool))
-            for i in range(n_show):
-                ax.plot(self.q_grid, self.C_pool[i], '-',
-                        color='#3B82F6', alpha=0.08, linewidth=0.5)
+        total = np.sum(self._pca_eigenvalues)
+        n_show = min(3, len(self._pca_eigenvalues))
+        colors = ['tab:blue', 'tab:orange', 'tab:green']
 
-            # 평균
-            C_mean = np.mean(self.C_pool, axis=0)
-            ax.plot(self.q_grid, C_mean, 'r-', linewidth=2, label='앙상블 평균')
-            ax.legend(loc='best')
+        for k in range(n_show):
+            pct = self._pca_eigenvalues[k] / total * 100
+            self._ax_pca_vec.plot(lq, self._pca_eigenvectors[k], color=colors[k],
+                                  lw=1.5, label=f'PC{k+1} ({pct:.1f}%)')
+        self._ax_pca_vec.axhline(0, color='grey', lw=0.5, ls='--')
+        self._ax_pca_vec.set_xlabel('log10(q)')
+        self._ax_pca_vec.set_ylabel('Eigenvector')
+        self._ax_pca_vec.set_title('Principal Components')
+        self._ax_pca_vec.legend(fontsize=9)
+        self._ax_pca_vec.grid(True, alpha=0.3)
 
-        self._fig_psd.tight_layout(pad=2.0)
-        self._canvas_psd.draw_idle()
+        # 분산 바 차트
+        n_bar = min(10, len(self._pca_eigenvalues))
+        pcts = self._pca_eigenvalues[:n_bar] / total * 100
+        cum = np.cumsum(self._pca_eigenvalues[:n_bar]) / total * 100
+        x = np.arange(n_bar)
+        self._ax_pca_var.bar(x, pcts, color='steelblue', alpha=0.7,
+                             label='Individual')
+        self._ax_pca_var.plot(x, cum, 'ro-', lw=1.5, label='Cumulative')
+        self._ax_pca_var.axhline(float(self._pca_var_thresh.get()) * 100,
+                                 color='red', ls='--', lw=1, alpha=0.5,
+                                 label='Threshold')
+        self._ax_pca_var.set_xlabel('PC index')
+        self._ax_pca_var.set_ylabel('Variance explained (%)')
+        self._ax_pca_var.set_title('Explained Variance')
+        self._ax_pca_var.set_xticks(x, [f'PC{i+1}' for i in x], fontsize=7)
+        self._ax_pca_var.legend(fontsize=8)
+        self._ax_pca_var.grid(True, alpha=0.3, axis='y')
+
+        self._fig_pca.tight_layout()
+        self._cv_pca.draw_idle()
+        self._psd_plot_nb.select(3)  # PCA 탭으로 전환
 
     # ================================================================
     #  서브탭 2: q₁ 생성
