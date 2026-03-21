@@ -201,6 +201,16 @@ class DataInputTab:
         ttk.Entry(row_v, textvariable=self._v_max_var, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_v, text="m/s", font=F['body']).pack(side=tk.LEFT)
 
+        # q range (q0, q1)
+        row_q = ttk.Frame(sec4)
+        row_q.pack(fill=tk.X, pady=2)
+        ttk.Label(row_q, text="q₀:", font=F['body']).pack(side=tk.LEFT)
+        self._q0_var = tk.StringVar(value="500")
+        ttk.Entry(row_q, textvariable=self._q0_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_q, text="q₁:", font=F['body']).pack(side=tk.LEFT, padx=(8, 0))
+        self._q1_var = tk.StringVar(value="1e6")
+        ttk.Entry(row_q, textvariable=self._q1_var, width=8).pack(side=tk.LEFT, padx=2)
+
         # n_v, n_q
         row_n = ttk.Frame(sec4)
         row_n.pack(fill=tk.X, pady=2)
@@ -208,7 +218,7 @@ class DataInputTab:
         self._n_v_var = tk.StringVar(value="30")
         ttk.Entry(row_n, textvariable=self._n_v_var, width=5).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_n, text="n_q:", font=F['body']).pack(side=tk.LEFT, padx=(8, 0))
-        self._n_q_var = tk.StringVar(value="200")
+        self._n_q_var = tk.StringVar(value="36")
         ttk.Entry(row_n, textvariable=self._n_q_var, width=5).pack(side=tk.LEFT, padx=2)
 
         # Nonlinear
@@ -227,28 +237,60 @@ class DataInputTab:
         row_gamma = ttk.Frame(sec4)
         row_gamma.pack(fill=tk.X, pady=2)
         ttk.Label(row_gamma, text="γ:", font=F['body']).pack(side=tk.LEFT)
-        self._gamma_var = tk.StringVar(value="0.6")
+        self._gamma_var = tk.StringVar(value="0.57")
         ttk.Entry(row_gamma, textvariable=self._gamma_var, width=8).pack(side=tk.RIGHT, padx=2)
 
         # n_phi
         row_phi = ttk.Frame(sec4)
         row_phi.pack(fill=tk.X, pady=2)
         ttk.Label(row_phi, text="n_φ:", font=F['body']).pack(side=tk.LEFT)
-        self._n_phi_var = tk.StringVar(value="72")
+        self._n_phi_var = tk.StringVar(value="14")
         ttk.Entry(row_phi, textvariable=self._n_phi_var, width=8).pack(side=tk.RIGHT, padx=2)
 
+        # ── Section 5: mu_adh parameters ──
+        sec5 = self._make_section(content, "4) μ_adh 설정")
+
+        # mu_adh model: τ_f = τ_f0 × exp[-c × (log10(v/v0*))²]
+        row_tau = ttk.Frame(sec5)
+        row_tau.pack(fill=tk.X, pady=2)
+        ttk.Label(row_tau, text="τ_f0 (MPa):", font=F['body']).pack(side=tk.LEFT)
+        self._tau_f0_var = tk.StringVar(value="6.5")
+        ttk.Entry(row_tau, textvariable=self._tau_f0_var, width=8).pack(side=tk.RIGHT, padx=2)
+
+        row_v0 = ttk.Frame(sec5)
+        row_v0.pack(fill=tk.X, pady=2)
+        ttk.Label(row_v0, text="v₀* (m/s):", font=F['body']).pack(side=tk.LEFT)
+        self._v0_star_var = tk.StringVar(value="10")
+        ttk.Entry(row_v0, textvariable=self._v0_star_var, width=8).pack(side=tk.RIGHT, padx=2)
+
+        row_c = ttk.Frame(sec5)
+        row_c.pack(fill=tk.X, pady=2)
+        ttk.Label(row_c, text="c (Gauss폭):", font=F['body']).pack(side=tk.LEFT)
+        self._c_gauss_var = tk.StringVar(value="0.1")
+        ttk.Entry(row_c, textvariable=self._c_gauss_var, width=8).pack(side=tk.RIGHT, padx=2)
+
+        row_eps = ttk.Frame(sec5)
+        row_eps.pack(fill=tk.X, pady=2)
+        ttk.Label(row_eps, text="ε (eV):", font=F['body']).pack(side=tk.LEFT)
+        self._epsilon_var = tk.StringVar(value="0.97")
+        ttk.Entry(row_eps, textvariable=self._epsilon_var, width=8).pack(side=tk.RIGHT, padx=2)
+
+        self._auto_fit_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(sec5, text="μ_dry 데이터로 자동 피팅",
+                         variable=self._auto_fit_var).pack(fill=tk.X, pady=2)
+
         # ── Calculate All Button ──
-        sec5 = self._make_section(content, "4) 일괄 계산")
-        self._calc_button = ttk.Button(sec5, text="★ 전체 계산 실행 ★",
+        sec6 = self._make_section(content, "5) 일괄 계산")
+        self._calc_button = ttk.Button(sec6, text="★ 전체 계산 실행 ★",
                                        command=self._on_calculate_all)
         self._calc_button.pack(fill=tk.X, pady=4, ipady=6)
 
         self._progress_var = tk.DoubleVar(value=0)
-        self._progress_bar = ttk.Progressbar(sec5, variable=self._progress_var, maximum=100)
+        self._progress_bar = ttk.Progressbar(sec6, variable=self._progress_var, maximum=100)
         self._progress_bar.pack(fill=tk.X, pady=2)
 
         self._calc_status_var = tk.StringVar(value="대기 중")
-        ttk.Label(sec5, textvariable=self._calc_status_var, font=F['small'],
+        ttk.Label(sec6, textvariable=self._calc_status_var, font=F['small'],
                   foreground=C['text_secondary']).pack(fill=tk.X, pady=2)
 
         # ── Right panel (preview plot) ──
@@ -621,7 +663,7 @@ class DataInputTab:
         thread.start()
 
     def _calculate_all_worker(self):
-        """Background worker: calculate mu_visc for all compounds."""
+        """Background worker: calculate mu_visc + mu_adh for all compounds."""
         try:
             sigma_0 = float(self._sigma0_var.get()) * 1e6  # MPa → Pa
             temperature = float(self._temp_var.get())
@@ -632,27 +674,31 @@ class DataInputTab:
             gamma = float(self._gamma_var.get())
             n_phi = int(self._n_phi_var.get())
             use_nonlinear = self._use_nonlinear_var.get()
+            auto_fit = self._auto_fit_var.get()
+
+            # mu_adh Gaussian model parameters
+            tau_f0_init = float(self._tau_f0_var.get()) * 1e6  # MPa → Pa
+            v0_star_init = float(self._v0_star_var.get())
+            c_gauss_init = float(self._c_gauss_var.get())
+            epsilon_eV = float(self._epsilon_var.get())
+            T_calc_K = temperature + 273.15
+            T_ref_adh_K = 293.15  # 20°C
 
             v_array = np.logspace(np.log10(v_min), np.log10(v_max), n_v)
 
-            # Get q range from PSD model
-            if hasattr(self.psd_model, 'q_data'):
-                q_min_psd = self.psd_model.q_data.min()
-                q_max_psd = self.psd_model.q_data.max()
-            else:
-                q_min_psd = 1e2
-                q_max_psd = 1e8
-            q_array = np.logspace(np.log10(q_min_psd), np.log10(q_max_psd), n_q)
+            # q range from user input (q0 ~ q1)
+            q0 = float(self._q0_var.get())
+            q1 = float(self._q1_var.get())
+            q_array = np.logspace(np.log10(q0), np.log10(q1), n_q)
 
             n_compounds = len(self.compounds)
-            total_steps = n_compounds * 2  # G calc + mu calc per compound
+            # Steps: G calc + mu_visc + mu_adh_fit per compound
+            total_steps = n_compounds * 3
 
             for ci, cpd in enumerate(self.compounds):
                 self._update_status(f"[{ci+1}/{n_compounds}] {cpd.name}: G(q,v) 계산 중...")
 
                 # ── aT temperature shift ──
-                # If aT data is available, shift frequency: ω_eff = ω * aT(T)
-                # E*(ω, T) = E*(ω·aT, T_ref), so modulus_func uses shifted ω
                 has_aT = cpd.aT_interp is not None
                 if has_aT:
                     log_aT_val = float(cpd.aT_interp(temperature))
@@ -693,11 +739,11 @@ class DataInputTab:
 
                 # Calculate G(q,v) matrix
                 def g_progress(pct, ci=ci):
-                    overall = (ci * 2 / total_steps + pct / 100 / total_steps) * 100
+                    overall = (ci * 3 / total_steps + pct / 100 / total_steps) * 100
                     self._update_progress(overall)
 
                 results_2d = g_calc.calculate_G_multi_velocity(
-                    q_array, v_array, q_min=q_array[0], progress_callback=g_progress)
+                    q_array, v_array, q_min=q0, progress_callback=g_progress)
 
                 G_matrix = results_2d['G_matrix']
 
@@ -708,7 +754,6 @@ class DataInputTab:
                 # ── mu_visc calculation ──
                 self._update_status(f"[{ci+1}/{n_compounds}] {cpd.name}: μ_visc 계산 중...")
 
-                # Loss modulus with aT shift
                 def loss_mod_func(omega, T, mat=cpd.material, _aT=aT_val, _Tref=T_ref):
                     return mat.get_loss_modulus(omega * _aT, temperature=_Tref)
 
@@ -730,44 +775,72 @@ class DataInputTab:
                 C_q = self.psd_model(q_array)
 
                 def mu_progress(pct, ci=ci):
-                    overall = ((ci * 2 + 1) / total_steps + pct / 100 / total_steps) * 100
+                    overall = ((ci * 3 + 1) / total_steps + pct / 100 / total_steps) * 100
                     self._update_progress(overall)
 
                 mu_array, details = friction_calc.calculate_mu_visc_multi_velocity(
                     q_array, G_matrix, v_array, C_q, mu_progress)
 
-                # ── mu_adh from mu_dry (if available) ──
+                # ── Extract A/A0 (contact area ratio) for each velocity ──
+                A_A0_arr = np.zeros(n_v)
+                for j in range(n_v):
+                    d_j = details['details'][j]
+                    A_A0_arr[j] = d_j['P'][-1] if 'P' in d_j else 0.05
+
+                # ── mu_adh calculation (Gaussian adhesion model) ──
+                self._update_status(f"[{ci+1}/{n_compounds}] {cpd.name}: μ_adh 계산 중...")
+
+                # Arrhenius shift for adhesion
+                k_B = 8.6173e-5  # eV/K
+                aT_prime = np.exp((epsilon_eV / k_B) * (1.0 / T_calc_K - 1.0 / T_ref_adh_K))
+
                 mu_adh_array = None
-                if cpd.mu_dry_data is not None:
-                    from scipy.interpolate import interp1d
-                    log_v_dry, mu_dry = cpd.mu_dry_data
-                    mu_dry_interp = interp1d(log_v_dry, mu_dry, kind='linear',
-                                             bounds_error=False, fill_value='extrapolate')
-                    # Simple adhesion model: mu_adh ≈ mu_dry * (A/A0)
-                    # A/A0 from the last P(q) value
-                    A_A0_arr = np.zeros(n_v)
-                    for j in range(n_v):
-                        d_j = details['details'][j]
-                        A_A0_arr[j] = d_j['P'][-1] if 'P' in d_j else 0.5
-                    mu_dry_at_v = mu_dry_interp(np.log10(v_array))
-                    mu_adh_array = mu_dry_at_v * A_A0_arr
+                adh_params = None
+
+                if cpd.mu_dry_data is not None and auto_fit:
+                    # ── Auto-fit: optimize (τ_f0, v0*, c) to match mu_dry ──
+                    adh_params = self._fit_mu_adh(
+                        cpd, v_array, mu_array, A_A0_arr,
+                        sigma_0, aT_prime,
+                        tau_f0_init, v0_star_init, c_gauss_init)
+                    if adh_params is not None:
+                        mu_adh_array = self._calc_mu_adh_gaussian(
+                            v_array, A_A0_arr, sigma_0, aT_prime,
+                            adh_params['tau_f0'], adh_params['v0_star'], adh_params['c'])
+                elif cpd.mu_dry_data is not None:
+                    # No fitting, use initial params
+                    mu_adh_array = self._calc_mu_adh_gaussian(
+                        v_array, A_A0_arr, sigma_0, aT_prime,
+                        tau_f0_init, v0_star_init, c_gauss_init)
+                    adh_params = {'tau_f0': tau_f0_init, 'v0_star': v0_star_init, 'c': c_gauss_init}
+                else:
+                    # No mu_dry data: use initial params for adhesion estimate
+                    mu_adh_array = self._calc_mu_adh_gaussian(
+                        v_array, A_A0_arr, sigma_0, aT_prime,
+                        tau_f0_init, v0_star_init, c_gauss_init)
+                    adh_params = {'tau_f0': tau_f0_init, 'v0_star': v0_star_init, 'c': c_gauss_init}
+
+                # mu_total
+                mu_total = mu_array + mu_adh_array
+
+                # Progress
+                overall = ((ci + 1) * 3 / total_steps) * 100
+                self._update_progress(overall)
 
                 # Store results
-                mu_total = mu_array.copy()
-                if mu_adh_array is not None:
-                    mu_total = mu_array + mu_adh_array
-
                 cpd.results = {
                     'v': v_array,
                     'q': q_array,
                     'mu_visc': mu_array,
                     'mu_adh': mu_adh_array,
                     'mu_total': mu_total,
+                    'A_A0': A_A0_arr,
                     'G_matrix': G_matrix,
                     'details': details,
                     'C_q': C_q,
                     'sigma_0': sigma_0,
                     'temperature': temperature,
+                    'adh_params': adh_params,
                 }
 
             # All done
@@ -779,11 +852,9 @@ class DataInputTab:
             self.app.compound_data = self.compounds
             self.app.data_input_finalized = True
 
-            # Also update app's shared PSD
             if self.psd_model is not None:
                 self.app.shared_psd_model = self.psd_model
 
-            # Update results tab
             self.app.root.after(100, self._after_calculation)
 
         except Exception as e:
@@ -793,6 +864,88 @@ class DataInputTab:
         finally:
             self._calculating = False
             self.app.root.after(0, lambda: self._calc_button.config(state='normal'))
+
+    # ================================================================
+    #  mu_adh Gaussian Model
+    # ================================================================
+    @staticmethod
+    def _calc_mu_adh_gaussian(v_array, A_A0, sigma_0, aT_prime, tau_f0, v0_star, c):
+        """Gaussian adhesion model:
+        τ_f = τ_f0 × exp[-c × (log10(v_eff / v0*))²]
+        μ_adh = (τ_f / σ₀) × A/A0
+        """
+        v_eff = v_array * aT_prime
+        log_ratio = np.log10(np.maximum(v_eff / v0_star, 1e-20))
+        tau_f = tau_f0 * np.exp(-c * log_ratio ** 2)
+        mu_adh = (tau_f / sigma_0) * A_A0
+        return mu_adh
+
+    def _fit_mu_adh(self, cpd, v_array, mu_visc, A_A0, sigma_0, aT_prime,
+                    tau_f0_init, v0_star_init, c_init):
+        """Auto-fit (τ_f0, v0*, c) to minimize |mu_visc + mu_adh - mu_dry|².
+        Uses differential evolution + Nelder-Mead refinement."""
+        from scipy.optimize import differential_evolution, minimize
+        from scipy.interpolate import interp1d
+
+        log_v_dry, mu_dry_vals = cpd.mu_dry_data
+        mu_dry_interp = interp1d(log_v_dry, mu_dry_vals, kind='linear',
+                                 bounds_error=False, fill_value='extrapolate')
+        # mu_dry at calculation velocities
+        mu_dry_at_v = mu_dry_interp(np.log10(v_array))
+
+        def objective(params):
+            tau_f0, v0s, c_val = params
+            tau_f0_pa = tau_f0 * 1e6  # MPa → Pa
+            mu_adh = self._calc_mu_adh_gaussian(v_array, A_A0, sigma_0, aT_prime,
+                                                tau_f0_pa, v0s, c_val)
+            mu_total = mu_visc + mu_adh
+            residuals = mu_total - mu_dry_at_v
+            return np.sum(residuals ** 2)
+
+        # Bounds: tau_f0 (MPa), v0* (m/s), c
+        bounds = [(0.1, 50.0), (1e-6, 50.0), (0.001, 5.0)]
+
+        # Differential evolution
+        try:
+            de_result = differential_evolution(objective, bounds,
+                                               maxiter=2000, popsize=30,
+                                               mutation=(0.5, 1.5), recombination=0.9,
+                                               tol=1e-12, polish=True, seed=42)
+            best_params = de_result.x
+            best_cost = de_result.fun
+        except Exception:
+            best_params = [tau_f0_init / 1e6, v0_star_init, c_init]
+            best_cost = objective(best_params)
+
+        # Nelder-Mead refinement
+        try:
+            nm_result = minimize(objective, best_params, method='Nelder-Mead',
+                                 options={'maxiter': 10000, 'xatol': 1e-12,
+                                          'fatol': 1e-12, 'adaptive': True})
+            if nm_result.fun < best_cost:
+                best_params = nm_result.x
+        except Exception:
+            pass
+
+        tau_f0_fit, v0_star_fit, c_fit = best_params
+        r2 = self._calc_r2(mu_dry_at_v, mu_visc + self._calc_mu_adh_gaussian(
+            v_array, A_A0, sigma_0, aT_prime, tau_f0_fit * 1e6, v0_star_fit, c_fit))
+
+        print(f"[μ_adh fit] {cpd.name}: τ_f0={tau_f0_fit:.2f} MPa, "
+              f"v0*={v0_star_fit:.4f} m/s, c={c_fit:.4f}, R²={r2:.6f}")
+
+        return {
+            'tau_f0': tau_f0_fit * 1e6,  # Pa
+            'v0_star': v0_star_fit,
+            'c': c_fit,
+            'R2': r2,
+        }
+
+    @staticmethod
+    def _calc_r2(y_true, y_pred):
+        ss_res = np.sum((y_true - y_pred) ** 2)
+        ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
+        return 1 - ss_res / max(ss_tot, 1e-30)
 
     def _after_calculation(self):
         """Post-calculation: update plots and results tab."""
