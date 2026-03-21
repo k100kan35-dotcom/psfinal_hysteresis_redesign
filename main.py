@@ -103,6 +103,7 @@ from persson_model.core.friction import (
     RMSSlopeCalculator
 )
 from persson_model.core.master_curve import MasterCurveGenerator, load_multi_temp_dma
+from monte_carlo_tab import bind_monte_carlo_tab
 from persson_model.core.psd_from_profile import ProfilePSDAnalyzer, self_affine_psd_model
 
 # === 한글 폰트 설정 (PyInstaller frozen exe 호환) ===
@@ -327,6 +328,7 @@ class PerssonModelGUI_V2:
         self.psd_Cq0_var = tk.StringVar(value="3.5e-13")
 
         # Create UI
+        bind_monte_carlo_tab(self)
         self._create_menu()
         self._create_main_layout()
         self._create_status_bar()
@@ -700,6 +702,7 @@ class PerssonModelGUI_V2:
             ('tab_variables',       '변수 관계',           self._create_variables_tab),
             ('tab_debug',           '디버그',              self._create_debug_tab),
             ('tab_friction_factors','영향 인자',           self._create_friction_factors_tab),
+            ('tab_monte_carlo',    'Monte Carlo',        self._create_monte_carlo_tab),
         ]
 
         # 기본 숨김 탭 목록
