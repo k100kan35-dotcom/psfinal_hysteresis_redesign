@@ -13,15 +13,11 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 import numpy as np
 import os
-import threading
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
 from persson_model.core.psd_models import MeasuredPSD
-from persson_model.core.g_calculator import GCalculator
-from persson_model.core.friction import FrictionCalculator
-from persson_model.core.viscoelastic import ViscoelasticMaterial
 from persson_model.utils.data_loader import (
     load_psd_from_file,
     load_dma_from_file,
@@ -659,293 +655,224 @@ class DataInputTab:
         self._progress_var.set(0)
         self._calc_status_var.set("계산 시작...")
 
-        thread = threading.Thread(target=self._calculate_all_worker, daemon=True)
-        thread.start()
+        # Must run on main thread because existing GUI methods update UI widgets
+        self.app.root.after(50, self._calculate_all_sequential, 0)
 
-    def _calculate_all_worker(self):
-        """Background worker: calculate mu_visc + mu_adh for all compounds."""
-        try:
-            sigma_0 = float(self._sigma0_var.get()) * 1e6  # MPa → Pa
-            temperature = float(self._temp_var.get())
-            v_min = float(self._v_min_var.get())
-            v_max = float(self._v_max_var.get())
-            n_v = int(self._n_v_var.get())
-            n_q = int(self._n_q_var.get())
-            gamma = float(self._gamma_var.get())
-            n_phi = int(self._n_phi_var.get())
-            use_nonlinear = self._use_nonlinear_var.get()
-            auto_fit = self._auto_fit_var.get()
+    def _calculate_all_sequential(self, ci):
+        """Process compound ci using existing pipeline (main thread).
+        Called sequentially via root.after() for each compound."""
+        app = self.app
+        n_compounds = len(self.compounds)
 
-            # mu_adh Gaussian model parameters
-            tau_f0_init = float(self._tau_f0_var.get()) * 1e6  # MPa → Pa
-            v0_star_init = float(self._v0_star_var.get())
-            c_gauss_init = float(self._c_gauss_var.get())
-            epsilon_eV = float(self._epsilon_var.get())
-            T_calc_K = temperature + 273.15
-            T_ref_adh_K = 293.15  # 20°C
-
-            v_array = np.logspace(np.log10(v_min), np.log10(v_max), n_v)
-
-            # q range from user input (q0 ~ q1)
-            q0 = float(self._q0_var.get())
-            q1 = float(self._q1_var.get())
-            q_array = np.logspace(np.log10(q0), np.log10(q1), n_q)
-
-            n_compounds = len(self.compounds)
-            # Steps: G calc + mu_visc + mu_adh_fit per compound
-            total_steps = n_compounds * 3
-
-            for ci, cpd in enumerate(self.compounds):
-                self._update_status(f"[{ci+1}/{n_compounds}] {cpd.name}: G(q,v) 계산 중...")
-
-                # ── aT temperature shift ──
-                has_aT = cpd.aT_interp is not None
-                if has_aT:
-                    log_aT_val = float(cpd.aT_interp(temperature))
-                    aT_val = 10 ** log_aT_val
-                    T_ref = cpd.aT_data['T_ref']
-                else:
-                    aT_val = 1.0
-                    T_ref = temperature
-
-                # Create modulus function (with aT shift applied)
-                def modulus_func(omega, mat=cpd.material, _aT=aT_val, _Tref=T_ref):
-                    return mat.get_modulus(omega * _aT, temperature=_Tref)
-
-                # Create G calculator
-                g_calc = GCalculator(
-                    psd_func=self.psd_model,
-                    modulus_func=modulus_func,
-                    sigma_0=sigma_0,
-                    velocity=v_array[0],
-                    poisson_ratio=0.5,
-                    n_angle_points=36,
-                )
-
-                # Nonlinear correction
-                if use_nonlinear and cpd.f_interpolator is not None and cpd.g_interpolator is not None:
-                    fixed_strain = 0.01
-                    strain_for_G = np.full(len(q_array), fixed_strain)
-                    g_calc.storage_modulus_func = lambda w, m=cpd.material, _aT=aT_val, _Tref=T_ref: \
-                        m.get_storage_modulus(w * _aT, temperature=_Tref)
-                    g_calc.loss_modulus_func = lambda w, m=cpd.material, _aT=aT_val, _Tref=T_ref: \
-                        m.get_loss_modulus(w * _aT, temperature=_Tref)
-                    g_calc.set_nonlinear_correction(
-                        f_interpolator=cpd.f_interpolator,
-                        g_interpolator=cpd.g_interpolator,
-                        strain_array=strain_for_G,
-                        strain_q_array=q_array,
-                    )
-
-                # Calculate G(q,v) matrix
-                def g_progress(pct, ci=ci):
-                    overall = (ci * 3 / total_steps + pct / 100 / total_steps) * 100
-                    self._update_progress(overall)
-
-                results_2d = g_calc.calculate_G_multi_velocity(
-                    q_array, v_array, q_min=q0, progress_callback=g_progress)
-
-                G_matrix = results_2d['G_matrix']
-
-                # Clear nonlinear correction
-                if use_nonlinear and cpd.f_interpolator is not None:
-                    g_calc.clear_nonlinear_correction()
-
-                # ── mu_visc calculation ──
-                self._update_status(f"[{ci+1}/{n_compounds}] {cpd.name}: μ_visc 계산 중...")
-
-                def loss_mod_func(omega, T, mat=cpd.material, _aT=aT_val, _Tref=T_ref):
-                    return mat.get_loss_modulus(omega * _aT, temperature=_Tref)
-
-                g_interp = cpd.g_interpolator if (use_nonlinear and cpd.g_interpolator) else None
-
-                friction_calc = FrictionCalculator(
-                    psd_func=self.psd_model,
-                    loss_modulus_func=loss_mod_func,
-                    sigma_0=sigma_0,
-                    velocity=v_array[0],
-                    temperature=temperature,
-                    poisson_ratio=0.5,
-                    gamma=gamma,
-                    n_angle_points=n_phi,
-                    g_interpolator=g_interp,
-                    strain_estimate=0.01,
-                )
-
-                C_q = self.psd_model(q_array)
-
-                def mu_progress(pct, ci=ci):
-                    overall = ((ci * 3 + 1) / total_steps + pct / 100 / total_steps) * 100
-                    self._update_progress(overall)
-
-                mu_array, details = friction_calc.calculate_mu_visc_multi_velocity(
-                    q_array, G_matrix, v_array, C_q, mu_progress)
-
-                # ── Extract A/A0 (contact area ratio) for each velocity ──
-                A_A0_arr = np.zeros(n_v)
-                for j in range(n_v):
-                    d_j = details['details'][j]
-                    A_A0_arr[j] = d_j['P'][-1] if 'P' in d_j else 0.05
-
-                # ── mu_adh calculation (Gaussian adhesion model) ──
-                self._update_status(f"[{ci+1}/{n_compounds}] {cpd.name}: μ_adh 계산 중...")
-
-                # Arrhenius shift for adhesion
-                k_B = 8.6173e-5  # eV/K
-                aT_prime = np.exp((epsilon_eV / k_B) * (1.0 / T_calc_K - 1.0 / T_ref_adh_K))
-
-                mu_adh_array = None
-                adh_params = None
-
-                if cpd.mu_dry_data is not None and auto_fit:
-                    # ── Auto-fit: optimize (τ_f0, v0*, c) to match mu_dry ──
-                    adh_params = self._fit_mu_adh(
-                        cpd, v_array, mu_array, A_A0_arr,
-                        sigma_0, aT_prime,
-                        tau_f0_init, v0_star_init, c_gauss_init)
-                    if adh_params is not None:
-                        mu_adh_array = self._calc_mu_adh_gaussian(
-                            v_array, A_A0_arr, sigma_0, aT_prime,
-                            adh_params['tau_f0'], adh_params['v0_star'], adh_params['c'])
-                elif cpd.mu_dry_data is not None:
-                    # No fitting, use initial params
-                    mu_adh_array = self._calc_mu_adh_gaussian(
-                        v_array, A_A0_arr, sigma_0, aT_prime,
-                        tau_f0_init, v0_star_init, c_gauss_init)
-                    adh_params = {'tau_f0': tau_f0_init, 'v0_star': v0_star_init, 'c': c_gauss_init}
-                else:
-                    # No mu_dry data: use initial params for adhesion estimate
-                    mu_adh_array = self._calc_mu_adh_gaussian(
-                        v_array, A_A0_arr, sigma_0, aT_prime,
-                        tau_f0_init, v0_star_init, c_gauss_init)
-                    adh_params = {'tau_f0': tau_f0_init, 'v0_star': v0_star_init, 'c': c_gauss_init}
-
-                # mu_total
-                mu_total = mu_array + mu_adh_array
-
-                # Progress
-                overall = ((ci + 1) * 3 / total_steps) * 100
-                self._update_progress(overall)
-
-                # Store results
-                cpd.results = {
-                    'v': v_array,
-                    'q': q_array,
-                    'mu_visc': mu_array,
-                    'mu_adh': mu_adh_array,
-                    'mu_total': mu_total,
-                    'A_A0': A_A0_arr,
-                    'G_matrix': G_matrix,
-                    'details': details,
-                    'C_q': C_q,
-                    'sigma_0': sigma_0,
-                    'temperature': temperature,
-                    'adh_params': adh_params,
-                }
-
+        if ci >= n_compounds:
             # All done
-            self._update_progress(100)
-            self._update_status(f"계산 완료 ({n_compounds}개 컴파운드)")
+            self._progress_var.set(100)
+            self._calc_status_var.set(f"계산 완료 ({n_compounds}개 컴파운드)")
+            self._calculating = False
+            self._calc_button.config(state='normal')
 
-            # Push to app state
-            self.app.all_compound_results = [cpd.results for cpd in self.compounds]
-            self.app.compound_data = self.compounds
-            self.app.data_input_finalized = True
-
+            # Collect results
+            app.all_compound_results = [cpd.results for cpd in self.compounds]
+            app.compound_data = self.compounds
+            app.data_input_finalized = True
             if self.psd_model is not None:
-                self.app.shared_psd_model = self.psd_model
+                app.shared_psd_model = self.psd_model
 
-            self.app.root.after(100, self._after_calculation)
+            self._after_calculation()
+            return
 
+        cpd = self.compounds[ci]
+        self._calc_status_var.set(f"[{ci+1}/{n_compounds}] {cpd.name}...")
+        self._progress_var.set(ci / n_compounds * 100)
+        app.root.update()
+
+        try:
+            self._run_pipeline_for_compound(ci, cpd)
         except Exception as e:
             import traceback
             traceback.print_exc()
-            self._update_status(f"오류: {e}")
-        finally:
+            self._calc_status_var.set(f"오류 ({cpd.name}): {e}")
             self._calculating = False
-            self.app.root.after(0, lambda: self._calc_button.config(state='normal'))
+            self._calc_button.config(state='normal')
+            return
 
-    # ================================================================
-    #  mu_adh Gaussian Model
-    # ================================================================
-    @staticmethod
-    def _calc_mu_adh_gaussian(v_array, A_A0, sigma_0, aT_prime, tau_f0, v0_star, c):
-        """Gaussian adhesion model:
-        τ_f = τ_f0 × exp[-c × (log10(v_eff / v0*))²]
-        μ_adh = (τ_f / σ₀) × A/A0
+        # Next compound
+        app.root.after(50, self._calculate_all_sequential, ci + 1)
+
+    def _run_pipeline_for_compound(self, ci, cpd):
+        """Run the full pipeline for one compound, reusing existing app methods.
+
+        Mirrors the '시험 Run' pipeline in Friction Map tab:
+        1) Set PSD → tab0_finalized
+        2) Set material + aT → tab1_finalized
+        3) Set calculation params → _run_calculation() → G(q,v)
+        4) Set strain/f,g data
+        5) _calculate_mu_visc()
+        6) Load mu_dry → _run_auto_fit_mu_dry() → _complete_adh_fitting()
         """
-        v_eff = v_array * aT_prime
-        log_ratio = np.log10(np.maximum(v_eff / v0_star, 1e-20))
-        tau_f = tau_f0 * np.exp(-c * log_ratio ** 2)
-        mu_adh = (tau_f / sigma_0) * A_A0
-        return mu_adh
+        app = self.app
+        n_compounds = len(self.compounds)
 
-    def _fit_mu_adh(self, cpd, v_array, mu_visc, A_A0, sigma_0, aT_prime,
-                    tau_f0_init, v0_star_init, c_init):
-        """Auto-fit (τ_f0, v0*, c) to minimize |mu_visc + mu_adh - mu_dry|².
-        Uses differential evolution + Nelder-Mead refinement."""
-        from scipy.optimize import differential_evolution, minimize
-        from scipy.interpolate import interp1d
+        # ── Step 1: PSD 설정 ──
+        app.psd_model = self.psd_model
+        app.tab0_finalized = True
+        app.psd_source = "데이터 입력 탭"
 
-        log_v_dry, mu_dry_vals = cpd.mu_dry_data
-        mu_dry_interp = interp1d(log_v_dry, mu_dry_vals, kind='linear',
-                                 bounds_error=False, fill_value='extrapolate')
-        # mu_dry at calculation velocities
-        mu_dry_at_v = mu_dry_interp(np.log10(v_array))
+        # ── Step 2: Material 설정 ──
+        app.material = cpd.material
+        app.tab1_finalized = True
+        app.material_source = f"데이터 입력: {cpd.name}"
 
-        def objective(params):
-            tau_f0, v0s, c_val = params
-            tau_f0_pa = tau_f0 * 1e6  # MPa → Pa
-            mu_adh = self._calc_mu_adh_gaussian(v_array, A_A0, sigma_0, aT_prime,
-                                                tau_f0_pa, v0s, c_val)
-            mu_total = mu_visc + mu_adh
-            residuals = mu_total - mu_dry_at_v
-            return np.sum(residuals ** 2)
+        # aT 시프트 팩터 설정
+        if cpd.aT_interp is not None:
+            app.persson_aT_interp = cpd.aT_interp
+            app.persson_aT_data = cpd.aT_data
+            if cpd.bT_interp is not None:
+                app.persson_bT_interp = cpd.bT_interp
+            # persson_master_curve 설정 (aT 시프트에 필요)
+            if cpd.material is not None:
+                freq = cpd.material.frequencies if hasattr(cpd.material, 'frequencies') else None
+                E_s = cpd.material.storage_modulus if hasattr(cpd.material, 'storage_modulus') else None
+                E_l = cpd.material.loss_modulus if hasattr(cpd.material, 'loss_modulus') else None
+                if freq is not None and E_s is not None and E_l is not None:
+                    app.persson_master_curve = {
+                        'omega': freq.copy(),
+                        'E_storage': E_s.copy(),
+                        'E_loss': E_l.copy(),
+                    }
+        else:
+            app.persson_aT_interp = None
+            app.persson_aT_data = None
 
-        # Bounds: tau_f0 (MPa), v0* (m/s), c
-        bounds = [(0.1, 50.0), (1e-6, 50.0), (0.001, 5.0)]
+        # ── Step 3: 계산 파라미터 설정 + G(q,v) 계산 ──
+        app.sigma_0_var.set(self._sigma0_var.get())
+        app.temperature_var.set(self._temp_var.get())
+        app.v_min_var.set(self._v_min_var.get())
+        app.v_max_var.set(self._v_max_var.get())
+        app.n_velocity_var.set(self._n_v_var.get())
+        app.q_min_var.set(self._q0_var.get())
+        app.q_max_var.set(self._q1_var.get())
+        app.n_q_var.set(self._n_q_var.get())
+        app.gamma_var.set(self._gamma_var.get())
+        app.n_phi_var.set(self._n_phi_var.get())
 
-        # Differential evolution
-        try:
-            de_result = differential_evolution(objective, bounds,
-                                               maxiter=2000, popsize=30,
-                                               mutation=(0.5, 1.5), recombination=0.9,
-                                               tol=1e-12, polish=True, seed=42)
-            best_params = de_result.x
-            best_cost = de_result.fun
-        except Exception:
-            best_params = [tau_f0_init / 1e6, v0_star_init, c_init]
-            best_cost = objective(best_params)
+        self._calc_status_var.set(f"[{ci+1}/{n_compounds}] {cpd.name}: G(q,v)...")
+        app.root.update()
+        app._run_calculation()
+        app.root.update()
 
-        # Nelder-Mead refinement
-        try:
-            nm_result = minimize(objective, best_params, method='Nelder-Mead',
-                                 options={'maxiter': 10000, 'xatol': 1e-12,
-                                          'fatol': 1e-12, 'adaptive': True})
-            if nm_result.fun < best_cost:
-                best_params = nm_result.x
-        except Exception:
-            pass
+        # ── Step 4: Strain / f,g 설정 ──
+        if cpd.f_interpolator is not None:
+            app.strain_data = cpd.strain_data
+            app.fg_by_T = cpd.fg_by_T
+            app.f_interpolator = cpd.f_interpolator
+            app.g_interpolator = cpd.g_interpolator
 
-        tau_f0_fit, v0_star_fit, c_fit = best_params
-        r2 = self._calc_r2(mu_dry_at_v, mu_visc + self._calc_mu_adh_gaussian(
-            v_array, A_A0, sigma_0, aT_prime, tau_f0_fit * 1e6, v0_star_fit, c_fit))
+            # fg_averaged 설정 (mu_visc에서 사용될 수 있음)
+            if cpd.fg_raw is not None:
+                app.fg_averaged = cpd.fg_raw
+            elif cpd.fg_by_T is not None:
+                try:
+                    app.fg_averaged = average_fg_curves(cpd.fg_by_T)
+                except Exception:
+                    pass
+        else:
+            app.strain_data = None
+            app.fg_by_T = None
+            app.f_interpolator = None
+            app.g_interpolator = None
+            app.fg_averaged = None
 
-        print(f"[μ_adh fit] {cpd.name}: τ_f0={tau_f0_fit:.2f} MPa, "
-              f"v0*={v0_star_fit:.4f} m/s, c={c_fit:.4f}, R²={r2:.6f}")
+        # 비선형 보정 설정
+        app.use_fg_correction_var.set(self._use_nonlinear_var.get()
+                                      and cpd.f_interpolator is not None)
+        # Flash temperature
+        app.use_flash_temp_var.set(self._use_flash_var.get())
 
-        return {
-            'tau_f0': tau_f0_fit * 1e6,  # Pa
-            'v0_star': v0_star_fit,
-            'c': c_fit,
-            'R2': r2,
-        }
+        # ── Step 5: mu_visc 계산 ──
+        self._calc_status_var.set(f"[{ci+1}/{n_compounds}] {cpd.name}: μ_visc...")
+        app.root.update()
+        app._calculate_mu_visc()
+        app.root.update()
 
-    @staticmethod
-    def _calc_r2(y_true, y_pred):
-        ss_res = np.sum((y_true - y_pred) ** 2)
-        ss_tot = np.sum((y_true - np.mean(y_true)) ** 2)
-        return 1 - ss_res / max(ss_tot, 1e-30)
+        # ── Step 6: mu_adh (mu_dry 있을 때) ──
+        if cpd.mu_dry_data is not None:
+            self._calc_status_var.set(f"[{ci+1}/{n_compounds}] {cpd.name}: μ_adh 피팅...")
+            app.root.update()
+
+            # mu_dry 데이터를 Treeview에 로드 (기존 피팅이 읽는 곳)
+            log_v_dry, mu_dry_vals = cpd.mu_dry_data
+            if hasattr(app, 'meas_mu_tree'):
+                # 기존 데이터 삭제
+                for item in app.meas_mu_tree.get_children():
+                    app.meas_mu_tree.delete(item)
+                # 새 데이터 삽입
+                for lv, mv in zip(log_v_dry, mu_dry_vals):
+                    app.meas_mu_tree.insert('', tk.END,
+                                            values=(f"{lv:.4f}", f"{mv:.6f}"))
+
+            # mu_adh 초기 파라미터 설정
+            if hasattr(app, 'adh_tau_f0_var'):
+                app.adh_tau_f0_var.set(self._tau_f0_var.get())
+            if hasattr(app, 'adh_v0_star_var'):
+                app.adh_v0_star_var.set(self._v0_star_var.get())
+            if hasattr(app, 'adh_c_var'):
+                app.adh_c_var.set(self._c_gauss_var.get())
+            if hasattr(app, 'adh_epsilon_var'):
+                app.adh_epsilon_var.set(self._epsilon_var.get())
+
+            # 피팅 리셋 → 자동 피팅 → 완료
+            if hasattr(app, '_reset_adh_fitting'):
+                app._reset_adh_fitting()
+            if self._auto_fit_var.get() and hasattr(app, '_run_auto_fit_mu_dry'):
+                app._run_auto_fit_mu_dry()
+                app.root.update()
+            if hasattr(app, '_complete_adh_fitting'):
+                app._complete_adh_fitting()
+                app.root.update()
+
+        # ── Snapshot results ──
+        v_array = None
+        mu_visc = None
+        mu_adh = None
+        mu_total = None
+
+        if app.mu_visc_results is not None:
+            v_array = app.mu_visc_results.get('v', None)
+            mu_visc = app.mu_visc_results.get('mu_visc', None)
+            if v_array is None:
+                # Try alternative keys
+                v_array = app.mu_visc_results.get('velocity', None)
+
+        if app.mu_adh_results is not None:
+            mu_adh = app.mu_adh_results.get('mu_adh', None)
+
+        if v_array is not None and mu_visc is not None:
+            if mu_adh is not None and len(mu_adh) == len(mu_visc):
+                mu_total = mu_visc + mu_adh
+            else:
+                mu_adh = np.zeros_like(mu_visc)
+                mu_total = mu_visc.copy()
+
+            # Get A/A0
+            A_A0 = app.mu_visc_results.get('P_qmax', np.zeros_like(mu_visc))
+
+            cpd.results = {
+                'v': v_array,
+                'mu_visc': mu_visc,
+                'mu_adh': mu_adh,
+                'mu_total': mu_total,
+                'A_A0': A_A0,
+                'sigma_0': float(self._sigma0_var.get()) * 1e6,
+                'temperature': float(self._temp_var.get()),
+            }
+
+            # Copy adh fit params if available
+            if app.mu_adh_results is not None:
+                cpd.results['adh_params'] = app.mu_adh_results.get('params', None)
+        else:
+            cpd.results = None
+            print(f"[WARNING] {cpd.name}: mu_visc_results가 비어있습니다.")
 
     def _after_calculation(self):
         """Post-calculation: update plots and results tab."""
