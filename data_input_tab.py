@@ -10,9 +10,11 @@ Usage in main.py:
 """
 
 import tkinter as tk
+import tkinter.simpledialog
 from tkinter import ttk, filedialog, messagebox
 import numpy as np
 import os
+import json
 
 from matplotlib.figure import Figure
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
@@ -140,6 +142,22 @@ class DataInputTab:
                                       scroll_canvas.unbind_all('<Button-5>')))
 
         self._left_content = content
+
+        # ── Section 0: Dataset Preset ──
+        sec0 = self._make_section(content, "데이터셋 프리셋")
+        row_preset = ttk.Frame(sec0)
+        row_preset.pack(fill=tk.X, pady=2)
+        self._dataset_combo_var = tk.StringVar(value="(선택)")
+        self._dataset_combo = ttk.Combobox(row_preset, textvariable=self._dataset_combo_var,
+                                           state='readonly', width=22)
+        self._dataset_combo.pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_preset, text="불러오기", command=self._load_dataset_preset).pack(side=tk.LEFT, padx=2)
+
+        row_preset2 = ttk.Frame(sec0)
+        row_preset2.pack(fill=tk.X, pady=2)
+        ttk.Button(row_preset2, text="현재 데이터 저장", command=self._save_dataset_preset).pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_preset2, text="삭제", command=self._delete_dataset_preset).pack(side=tk.LEFT, padx=2)
+        self._refresh_dataset_list()
 
         # ── Section 1: Compound count ──
         sec1 = self._make_section(content, "1) 컴파운드 설정")
@@ -821,9 +839,12 @@ class DataInputTab:
             if hasattr(app, 'adh_epsilon_var'):
                 app.adh_epsilon_var.set(self._epsilon_var.get())
 
-            # 피팅 리셋 → 자동 피팅 → 완료
-            if hasattr(app, '_reset_adh_fitting'):
-                app._reset_adh_fitting()
+            # 피팅 상태만 리셋 (mu_visc_results는 보존!)
+            # _reset_adh_fitting()은 mu_visc_results를 None으로 지우므로 호출하면 안 됨
+            app._adh_fitting_completed = False
+            app._fit_results = None
+            app.mu_adh_results = None
+
             if self._auto_fit_var.get() and hasattr(app, '_run_auto_fit_mu_dry'):
                 app._run_auto_fit_mu_dry()
                 app.root.update()
@@ -839,10 +860,10 @@ class DataInputTab:
 
         if app.mu_visc_results is not None:
             v_array = app.mu_visc_results.get('v', None)
-            mu_visc = app.mu_visc_results.get('mu_visc', None)
-            if v_array is None:
-                # Try alternative keys
-                v_array = app.mu_visc_results.get('velocity', None)
+            # mu_visc_results uses 'mu' key (not 'mu_visc')
+            mu_visc = app.mu_visc_results.get('mu', None)
+            if mu_visc is None:
+                mu_visc = app.mu_visc_results.get('mu_visc', None)
 
         if app.mu_adh_results is not None:
             mu_adh = app.mu_adh_results.get('mu_adh', None)
@@ -920,3 +941,279 @@ class DataInputTab:
         ax.legend(fontsize=9, loc='best')
         self._fig.tight_layout()
         self._canvas.draw_idle()
+
+    # ================================================================
+    #  Dataset Preset (저장/불러오기)
+    # ================================================================
+    def _get_dataset_dir(self):
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        d = os.path.join(base_dir, 'preset_data', 'dataset')
+        os.makedirs(d, exist_ok=True)
+        return d
+
+    def _refresh_dataset_list(self):
+        d = self._get_dataset_dir()
+        files = sorted([f.replace('.json', '') for f in os.listdir(d) if f.endswith('.json')])
+        self._dataset_combo['values'] = files if files else ['(없음)']
+
+    def _save_dataset_preset(self):
+        """현재 로드된 데이터셋(PSD + 컴파운드별 파일 경로)을 JSON으로 저장."""
+        name = tk.simpledialog.askstring("데이터셋 저장", "프리셋 이름:")
+        if not name:
+            return
+
+        dataset = {
+            'name': name,
+            'psd_file': self.psd_file,
+            'compound_count': len(self.compounds),
+            'params': {
+                'sigma_0': self._sigma0_var.get(),
+                'temperature': self._temp_var.get(),
+                'v_min': self._v_min_var.get(),
+                'v_max': self._v_max_var.get(),
+                'n_v': self._n_v_var.get(),
+                'q0': self._q0_var.get(),
+                'q1': self._q1_var.get(),
+                'n_q': self._n_q_var.get(),
+                'gamma': self._gamma_var.get(),
+                'n_phi': self._n_phi_var.get(),
+                'nonlinear': self._use_nonlinear_var.get(),
+                'flash_temp': self._use_flash_var.get(),
+                'tau_f0': self._tau_f0_var.get(),
+                'v0_star': self._v0_star_var.get(),
+                'c_gauss': self._c_gauss_var.get(),
+                'epsilon': self._epsilon_var.get(),
+                'auto_fit': self._auto_fit_var.get(),
+            },
+            'compounds': [],
+        }
+
+        for cpd in self.compounds:
+            c = {
+                'name': cpd.name,
+                'dma_file': cpd.dma_file,
+                'aT_file': cpd.aT_file,
+                'strain_mode': cpd.strain_mode,
+                'strain_file': cpd.strain_file,
+                'mu_dry_file': cpd.mu_dry_file,
+            }
+            dataset['compounds'].append(c)
+
+        fp = os.path.join(self._get_dataset_dir(), name + '.json')
+        with open(fp, 'w', encoding='utf-8') as f:
+            json.dump(dataset, f, ensure_ascii=False, indent=2)
+
+        self._refresh_dataset_list()
+        self._dataset_combo_var.set(name)
+        messagebox.showinfo("저장 완료", f"데이터셋 '{name}' 저장 완료")
+
+    def _load_dataset_preset(self):
+        """저장된 데이터셋 프리셋을 불러와서 모든 파일을 자동 로드."""
+        selected = self._dataset_combo_var.get()
+        if not selected or selected == '(없음)' or selected == '(선택)':
+            messagebox.showinfo("알림", "프리셋을 선택하세요.")
+            return
+
+        fp = os.path.join(self._get_dataset_dir(), selected + '.json')
+        if not os.path.exists(fp):
+            messagebox.showerror("오류", f"파일 없음: {fp}")
+            return
+
+        with open(fp, 'r', encoding='utf-8') as f:
+            dataset = json.load(f)
+
+        # ── Restore parameters ──
+        params = dataset.get('params', {})
+        for key, var in [
+            ('sigma_0', self._sigma0_var), ('temperature', self._temp_var),
+            ('v_min', self._v_min_var), ('v_max', self._v_max_var),
+            ('n_v', self._n_v_var), ('q0', self._q0_var), ('q1', self._q1_var),
+            ('n_q', self._n_q_var), ('gamma', self._gamma_var),
+            ('n_phi', self._n_phi_var), ('tau_f0', self._tau_f0_var),
+            ('v0_star', self._v0_star_var), ('c_gauss', self._c_gauss_var),
+            ('epsilon', self._epsilon_var),
+        ]:
+            if key in params:
+                var.set(str(params[key]))
+        if 'nonlinear' in params:
+            self._use_nonlinear_var.set(bool(params['nonlinear']))
+        if 'flash_temp' in params:
+            self._use_flash_var.set(bool(params['flash_temp']))
+        if 'auto_fit' in params:
+            self._auto_fit_var.set(bool(params['auto_fit']))
+
+        # ── Load PSD ──
+        psd_file = dataset.get('psd_file')
+        if psd_file and os.path.exists(psd_file):
+            try:
+                q, C_q = load_psd_from_file(psd_file)
+                self.psd_model = create_psd_from_data(q, C_q)
+                self.psd_file = psd_file
+                self.psd_info = f"{os.path.basename(psd_file)} ({len(q)} pts)"
+                self._psd_status_var.set(f"✓ {self.psd_info}")
+            except Exception as e:
+                print(f"[Dataset] PSD 로드 실패: {e}")
+
+        # ── Load compounds ──
+        compound_defs = dataset.get('compounds', [])
+        n = len(compound_defs)
+        if n < 1:
+            n = 1
+        self._compound_count_var.set(n)
+        self._rebuild_compound_columns(n)
+
+        for i, cdef in enumerate(compound_defs):
+            if i >= len(self.compounds):
+                break
+            cpd = self.compounds[i]
+
+            # Name
+            cpd.name = cdef.get('name', f'Compound {i+1}')
+            w = self._compound_widgets.get(i, {})
+            if 'name_var' in w:
+                w['name_var'].set(cpd.name)
+
+            # DMA
+            dma_file = cdef.get('dma_file')
+            if dma_file and os.path.exists(dma_file):
+                try:
+                    self._load_dma_from_path(i, dma_file)
+                except Exception as e:
+                    print(f"[Dataset] DMA 로드 실패 ({cpd.name}): {e}")
+
+            # aT
+            aT_file = cdef.get('aT_file')
+            if aT_file and os.path.exists(aT_file):
+                try:
+                    self._load_aT_from_path(i, aT_file)
+                except Exception as e:
+                    print(f"[Dataset] aT 로드 실패 ({cpd.name}): {e}")
+
+            # Strain / f,g
+            strain_mode = cdef.get('strain_mode')
+            strain_file = cdef.get('strain_file')
+            if strain_file and os.path.exists(strain_file):
+                try:
+                    if strain_mode == 'fg':
+                        self._load_fg_from_path(i, strain_file)
+                    else:
+                        self._load_strain_raw_from_path(i, strain_file)
+                except Exception as e:
+                    print(f"[Dataset] Strain 로드 실패 ({cpd.name}): {e}")
+
+            # mu_dry
+            mu_dry_file = cdef.get('mu_dry_file')
+            if mu_dry_file and os.path.exists(mu_dry_file):
+                try:
+                    self._load_mu_dry_from_path(i, mu_dry_file)
+                except Exception as e:
+                    print(f"[Dataset] mu_dry 로드 실패 ({cpd.name}): {e}")
+
+        messagebox.showinfo("불러오기 완료",
+                            f"데이터셋 '{selected}' 로드 완료 ({n}개 컴파운드)")
+
+    def _delete_dataset_preset(self):
+        selected = self._dataset_combo_var.get()
+        if not selected or selected in ('(없음)', '(선택)'):
+            return
+        if not messagebox.askyesno("삭제 확인", f"'{selected}' 프리셋을 삭제하시겠습니까?"):
+            return
+        fp = os.path.join(self._get_dataset_dir(), selected + '.json')
+        if os.path.exists(fp):
+            os.remove(fp)
+        self._refresh_dataset_list()
+        self._dataset_combo_var.set('(선택)')
+
+    # ── Path-based loaders (for dataset preset, no file dialog) ──
+    def _load_dma_from_path(self, idx, fp):
+        omega, E_stor, E_loss = load_dma_from_file(fp)
+        smoothed = smooth_dma_data(omega, E_stor, E_loss)
+        material = create_material_from_dma(
+            smoothed['omega'], smoothed['E_storage_smooth'], smoothed['E_loss_smooth'],
+            material_name=self.compounds[idx].name)
+        self.compounds[idx].material = material
+        self.compounds[idx].dma_file = fp
+        w = self._compound_widgets.get(idx, {})
+        if 'mc_label' in w:
+            w['mc_label'].config(text=f"✓ {os.path.basename(fp)}",
+                                 foreground=self.app.COLORS['success'])
+
+    def _load_aT_from_path(self, idx, fp):
+        import pandas as pd
+        from scipy.interpolate import interp1d
+        df = None
+        for sep in [r'\s+', '\t', ',', ';']:
+            try:
+                df = pd.read_csv(fp, sep=sep, skipinitialspace=True,
+                                 comment='#', header=None, engine='python')
+                if len(df.columns) >= 2:
+                    break
+            except Exception:
+                continue
+        if df is None or len(df.columns) < 2:
+            raise ValueError("aT 파일 형식 오류")
+        df = df.apply(pd.to_numeric, errors='coerce').dropna()
+        T = df.iloc[:, 0].values
+        aT = df.iloc[:, 1].values
+        has_bT = len(df.columns) >= 3
+        bT = df.iloc[:, 2].values if has_bT else np.ones_like(T)
+        log_aT = np.log10(np.maximum(aT, 1e-20))
+        sort_idx = np.argsort(T)
+        T, aT, log_aT, bT = T[sort_idx], aT[sort_idx], log_aT[sort_idx], bT[sort_idx]
+        ref_idx = np.argmin(np.abs(aT - 1.0))
+        T_ref = T[ref_idx]
+        cpd = self.compounds[idx]
+        cpd.aT_data = {'T': T, 'aT': aT, 'log_aT': log_aT, 'bT': bT, 'T_ref': T_ref, 'has_bT': has_bT}
+        cpd.aT_interp = interp1d(T, log_aT, kind='linear', bounds_error=False, fill_value='extrapolate')
+        cpd.bT_interp = interp1d(T, bT, kind='linear', bounds_error=False, fill_value='extrapolate')
+        cpd.aT_file = fp
+        w = self._compound_widgets.get(idx, {})
+        if 'at_label' in w:
+            w['at_label'].config(text=f"✓ {os.path.basename(fp)} ({len(T)}pts)",
+                                 foreground=self.app.COLORS['success'])
+
+    def _load_strain_raw_from_path(self, idx, fp):
+        data_by_T = load_strain_sweep_file(fp)
+        fg_by_T = compute_fg_from_strain_sweep(data_by_T)
+        fg_avg = average_fg_curves(fg_by_T)
+        f_interp, g_interp = create_fg_interpolator(fg_avg['strain'], fg_avg['f'], fg_avg.get('g'))
+        cpd = self.compounds[idx]
+        cpd.strain_mode = 'raw'
+        cpd.strain_data = data_by_T
+        cpd.fg_by_T = fg_by_T
+        cpd.f_interpolator = f_interp
+        cpd.g_interpolator = g_interp
+        cpd.strain_file = fp
+        w = self._compound_widgets.get(idx, {})
+        if 'str_label' in w:
+            w['str_label'].config(text=f"✓ [sweep] {os.path.basename(fp)}",
+                                  foreground=self.app.COLORS['success'])
+
+    def _load_fg_from_path(self, idx, fp):
+        fg_data = load_fg_curve_file(fp)
+        if fg_data is None:
+            raise ValueError("f,g 파일 파싱 실패")
+        f_interp, g_interp = create_fg_interpolator(fg_data['strain'], fg_data['f'], fg_data.get('g'))
+        cpd = self.compounds[idx]
+        cpd.strain_mode = 'fg'
+        cpd.fg_raw = fg_data
+        cpd.f_interpolator = f_interp
+        cpd.g_interpolator = g_interp
+        cpd.strain_file = fp
+        w = self._compound_widgets.get(idx, {})
+        if 'str_label' in w:
+            w['str_label'].config(text=f"✓ [f,g] {os.path.basename(fp)}",
+                                  foreground=self.app.COLORS['success'])
+
+    def _load_mu_dry_from_path(self, idx, fp):
+        data = np.loadtxt(fp, delimiter=None, comments='#')
+        if data.ndim == 1:
+            raise ValueError("2열 형식 필요")
+        log_v = data[:, 0]
+        mu_dry = data[:, 1]
+        self.compounds[idx].mu_dry_data = (log_v, mu_dry)
+        self.compounds[idx].mu_dry_file = fp
+        w = self._compound_widgets.get(idx, {})
+        if 'mud_label' in w:
+            w['mud_label'].config(text=f"✓ {os.path.basename(fp)} ({len(mu_dry)}pts)",
+                                  foreground=self.app.COLORS['success'])
