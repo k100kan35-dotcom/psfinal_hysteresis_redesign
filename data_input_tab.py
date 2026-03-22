@@ -80,9 +80,10 @@ class DataInputTab:
         '#D97706', '#7C3AED', '#DB2777', '#0891B2',
     ]
     # 그래프 기본 스타일
-    PLOT_FONT_SIZE = 12
-    PLOT_LINE_WIDTH = 2.5
-    PLOT_LINE_WIDTH_SUB = 1.8  # 보조 선 (visc, adh)
+    PLOT_FONT_SIZE = 9
+    PLOT_LINE_WIDTH = 2.0
+    PLOT_LINE_WIDTH_SUB = 1.3  # 보조 선 (visc, adh)
+    PLOT_LEGEND_SIZE = 7
 
     def __init__(self, app):
         self.app = app
@@ -350,8 +351,7 @@ class DataInputTab:
         for key, label in _plot_defs:
             tab_frame = ttk.Frame(self._plot_notebook)
             self._plot_notebook.add(tab_frame, text=f'  {label}  ')
-            fig = Figure(figsize=(8, 6), dpi=100, facecolor='white')
-            fig.subplots_adjust(hspace=0.35, wspace=0.3)
+            fig = Figure(dpi=100, facecolor='white')
             canvas = FigureCanvasTkAgg(fig, tab_frame)
             toolbar = NavigationToolbar2Tk(canvas, tab_frame)
             toolbar.update()
@@ -1190,20 +1190,21 @@ class DataInputTab:
 
     @staticmethod
     def _style_ax(ax, title='', xlabel='', ylabel='', xscale=None, yscale=None):
-        """Apply consistent styling to an axis: 12pt fonts, grid."""
+        """Apply consistent compact styling to an axis."""
         FS = DataInputTab.PLOT_FONT_SIZE
         if title:
-            ax.set_title(title, fontsize=FS, fontweight='bold')
+            ax.set_title(title, fontsize=FS, fontweight='bold', pad=3)
         if xlabel:
-            ax.set_xlabel(xlabel, fontsize=FS)
+            ax.set_xlabel(xlabel, fontsize=FS - 1, labelpad=2)
         if ylabel:
-            ax.set_ylabel(ylabel, fontsize=FS)
+            ax.set_ylabel(ylabel, fontsize=FS - 1, labelpad=2)
         if xscale:
             ax.set_xscale(xscale)
         if yscale:
             ax.set_yscale(yscale)
-        ax.tick_params(axis='both', labelsize=FS - 2)
-        ax.grid(True, alpha=0.3)
+        ax.tick_params(axis='both', labelsize=FS - 2, pad=1,
+                       length=3, width=0.6)
+        ax.grid(True, alpha=0.3, linewidth=0.5)
 
     # ── Tab 1: 입력 데이터 (E'/E'' + aT + f,g) ──
     def _plot_input_data(self):
@@ -1284,8 +1285,10 @@ class DataInputTab:
 
         for ax in [ax_Es, ax_El, ax_aT, ax_bT, ax_f, ax_g]:
             if ax.get_legend_handles_labels()[1]:
-                ax.legend(fontsize=FS - 3, loc='best')
-        fig.tight_layout()
+                ax.legend(fontsize=self.PLOT_LEGEND_SIZE, loc='best',
+                          handlelength=1.2, handletextpad=0.4,
+                          borderpad=0.3, labelspacing=0.2)
+        fig.tight_layout(pad=0.5, h_pad=0.6, w_pad=0.4)
         canvas.draw_idle()
 
     # ── Tab 2: 마찰 결과 (A/A0 + hys/adh + total) ──
@@ -1361,8 +1364,10 @@ class DataInputTab:
 
         for ax in [ax1, ax2, ax3, ax4, ax5]:
             if ax.get_legend_handles_labels()[1]:
-                ax.legend(fontsize=FS - 3, loc='best')
-        fig.tight_layout()
+                ax.legend(fontsize=self.PLOT_LEGEND_SIZE, loc='best',
+                          handlelength=1.2, handletextpad=0.4,
+                          borderpad=0.3, labelspacing=0.2)
+        fig.tight_layout(pad=0.5, h_pad=0.6, w_pad=0.4)
         canvas.draw_idle()
 
     # ── Tab 3: Cold & Hot Branch ──
@@ -1479,12 +1484,14 @@ class DataInputTab:
             for bar, val in zip(bars_h, peak_hot_vals):
                 ax_peak.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
                              f'{val:.3f}', ha='center', va='bottom', fontsize=FS - 4)
-            ax_peak.legend(fontsize=FS - 3)
+            ax_peak.legend(fontsize=self.PLOT_LEGEND_SIZE)
 
         for ax in [ax_hys, ax_aa0, ax_tau, ax_adh, ax_total]:
             if ax.get_legend_handles_labels()[1]:
-                ax.legend(fontsize=FS - 3, loc='best')
-        fig.tight_layout()
+                ax.legend(fontsize=self.PLOT_LEGEND_SIZE, loc='best',
+                          handlelength=1.2, handletextpad=0.4,
+                          borderpad=0.3, labelspacing=0.2)
+        fig.tight_layout(pad=0.5, h_pad=0.6, w_pad=0.4)
         canvas.draw_idle()
 
     # ── Tab 4: Flash Temperature (T_hot, 파수별 누적, 히트맵) ──
@@ -1561,13 +1568,14 @@ class DataInputTab:
                         pcm = ax_hmap.pcolormesh(log_v, log_q, dT_profile,
                                                   cmap='hot', shading='auto',
                                                   vmin=0, vmax=dT_max)
-                        cb = fig.colorbar(pcm, ax=ax_hmap, pad=0.02)
-                        cb.set_label('ΔT (°C)', fontsize=FS - 3)
-                        cb.ax.tick_params(labelsize=FS - 4)
-                    ax_hmap.set_xlabel('log₁₀(v)', fontsize=FS - 2)
-                    ax_hmap.set_ylabel('log₁₀(q)', fontsize=FS - 2)
+                        cb = fig.colorbar(pcm, ax=ax_hmap, pad=0.02, fraction=0.046)
+                        cb.set_label('ΔT (°C)', fontsize=FS - 2)
+                        cb.ax.tick_params(labelsize=FS - 3)
+                    ax_hmap.set_xlabel('log₁₀(v)', fontsize=FS - 1, labelpad=2)
+                    ax_hmap.set_ylabel('log₁₀(q)', fontsize=FS - 1, labelpad=2)
                     ax_hmap.set_title(f'ΔT(q,v) 히트맵 ({cpd.name})',
-                                      fontsize=FS - 1, fontweight='bold')
+                                      fontsize=FS, fontweight='bold', pad=3)
+                    ax_hmap.tick_params(labelsize=FS - 2)
                     hmap_drawn = True
 
             # A/A0 Cold vs Hot
@@ -1593,8 +1601,10 @@ class DataInputTab:
 
         for ax in [ax_dT, ax_Thot, ax_dTq, ax_aa0, ax_mu]:
             if ax.get_legend_handles_labels()[1]:
-                ax.legend(fontsize=FS - 3, loc='best')
-        fig.tight_layout()
+                ax.legend(fontsize=self.PLOT_LEGEND_SIZE, loc='best',
+                          handlelength=1.2, handletextpad=0.4,
+                          borderpad=0.3, labelspacing=0.2)
+        fig.tight_layout(pad=0.5, h_pad=0.6, w_pad=0.4)
         canvas.draw_idle()
 
     # ================================================================
