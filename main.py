@@ -258,7 +258,7 @@ class PerssonModelGUI_V2:
         'btn_padx':      8,       # Button horizontal padding
         'btn_pady':      3,       # Button vertical padding
         'header_height': 32,      # Top header bar height
-        'log_height':    75,      # Activity-log panel (expanded)
+        'log_height':    95,      # Activity-log panel (expanded)
         'log_collapsed': 20,      # Activity-log panel (collapsed)
         'statusbar_height': 24,   # Bottom status bar
         'logo_height':   48,      # Logo area at bottom of control panel
@@ -312,7 +312,7 @@ class PerssonModelGUI_V2:
             s = self._ui_scale
             # --- DIMS 축소 (base values already tuned for 1080p) ---
             self.DIMS['header_height'] = max(22, int(32 * s))
-            self.DIMS['log_height'] = max(50, int(75 * s))
+            self.DIMS['log_height'] = max(50, int(95 * s))
             self.DIMS['log_collapsed'] = max(14, int(20 * s))
             self.DIMS['statusbar_height'] = max(16, int(24 * s))
             self.DIMS['logo_height'] = max(28, int(48 * s))

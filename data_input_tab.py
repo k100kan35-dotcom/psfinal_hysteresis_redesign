@@ -358,6 +358,25 @@ class DataInputTab:
             canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
             self._plot_tabs[key] = (fig, canvas)
 
+            # Auto-resize figure to widget on <Configure>
+            _after_id = [None]
+            widget = canvas.get_tk_widget()
+            def _on_resize(event, _fig=fig, _cv=canvas, _w=widget, _aid=_after_id):
+                w, h = event.width, event.height
+                if w > 1 and h > 1:
+                    _fig.set_size_inches(w / _fig.dpi, h / _fig.dpi, forward=False)
+                    try:
+                        _fig.tight_layout(pad=0.5, h_pad=0.6, w_pad=0.4)
+                    except Exception:
+                        pass
+                    if _aid[0] is not None:
+                        try:
+                            _w.after_cancel(_aid[0])
+                        except Exception:
+                            pass
+                    _aid[0] = _w.after(50, lambda: _cv.draw_idle())
+            widget.bind('<Configure>', _on_resize, add='+')
+
         # Legacy single fig/canvas references (for backward compatibility)
         self._fig, self._canvas = self._plot_tabs['results']
 
@@ -1206,6 +1225,18 @@ class DataInputTab:
                        length=3, width=0.6)
         ax.grid(True, alpha=0.3, linewidth=0.5)
 
+    def _finalize_data_plot(self, fig, canvas):
+        """Figure 크기를 위젯에 맞추고 tight_layout 적용 후 draw."""
+        try:
+            w = canvas.get_tk_widget().winfo_width()
+            h = canvas.get_tk_widget().winfo_height()
+            if w > 1 and h > 1:
+                fig.set_size_inches(w / fig.dpi, h / fig.dpi, forward=False)
+            fig.tight_layout(pad=0.5, h_pad=0.6, w_pad=0.4)
+        except Exception:
+            pass
+        canvas.draw_idle()
+
     # ── Tab 1: 입력 데이터 (E'/E'' + aT + f,g) ──
     def _plot_input_data(self):
         """3×2 grid: E', E'', log(aT), bT, f(strain), g(strain)."""
@@ -1288,8 +1319,7 @@ class DataInputTab:
                 ax.legend(fontsize=self.PLOT_LEGEND_SIZE, loc='best',
                           handlelength=1.2, handletextpad=0.4,
                           borderpad=0.3, labelspacing=0.2)
-        fig.tight_layout(pad=0.5, h_pad=0.6, w_pad=0.4)
-        canvas.draw_idle()
+        self._finalize_data_plot(fig, canvas)
 
     # ── Tab 2: 마찰 결과 (A/A0 + hys/adh + total) ──
     def _plot_results(self):
@@ -1367,8 +1397,7 @@ class DataInputTab:
                 ax.legend(fontsize=self.PLOT_LEGEND_SIZE, loc='best',
                           handlelength=1.2, handletextpad=0.4,
                           borderpad=0.3, labelspacing=0.2)
-        fig.tight_layout(pad=0.5, h_pad=0.6, w_pad=0.4)
-        canvas.draw_idle()
+        self._finalize_data_plot(fig, canvas)
 
     # ── Tab 3: Cold & Hot Branch ──
     def _plot_cold_hot(self):
@@ -1491,8 +1520,7 @@ class DataInputTab:
                 ax.legend(fontsize=self.PLOT_LEGEND_SIZE, loc='best',
                           handlelength=1.2, handletextpad=0.4,
                           borderpad=0.3, labelspacing=0.2)
-        fig.tight_layout(pad=0.5, h_pad=0.6, w_pad=0.4)
-        canvas.draw_idle()
+        self._finalize_data_plot(fig, canvas)
 
     # ── Tab 4: Flash Temperature (T_hot, 파수별 누적, 히트맵) ──
     def _plot_flash_temp(self):
@@ -1604,8 +1632,7 @@ class DataInputTab:
                 ax.legend(fontsize=self.PLOT_LEGEND_SIZE, loc='best',
                           handlelength=1.2, handletextpad=0.4,
                           borderpad=0.3, labelspacing=0.2)
-        fig.tight_layout(pad=0.5, h_pad=0.6, w_pad=0.4)
-        canvas.draw_idle()
+        self._finalize_data_plot(fig, canvas)
 
     # ================================================================
     #  Dataset Preset (저장/불러오기)
