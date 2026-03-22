@@ -301,13 +301,17 @@ class ResultsOverviewTab:
         canvas.draw_idle()
 
     # ================================================================
-    #  Plot: friction map per compound
+    #  Plot: 3D friction map per compound (like Tab 11)
     # ================================================================
     def _plot_friction_maps(self, visible_compounds):
-        """One friction map subplot per compound: μ_total, μ_visc, μ_adh."""
+        """3D surface friction map per compound: log10(v) × component → μ.
+
+        Similar to Tab 11 Friction Map style using plot_surface().
+        X = log10(velocity), Y = component (total/visc/adh), Z = μ
+        One 3D subplot per compound.
+        """
         FS = self.PLOT_FONT_SIZE
         LW = self.PLOT_LINE_WIDTH
-        LWs = self.PLOT_LINE_WIDTH_SUB
         fig, canvas = self._plot_tabs['friction_map']
         fig.clear()
 
@@ -325,40 +329,109 @@ class ResultsOverviewTab:
         rows = (n + cols - 1) // cols
 
         for plot_idx, (i, cpd) in enumerate(valid):
-            ax = fig.add_subplot(rows, cols, plot_idx + 1)
+            ax = fig.add_subplot(rows, cols, plot_idx + 1, projection='3d')
             color = self.COMPOUND_COLORS[i % len(self.COMPOUND_COLORS)]
             r = cpd.results
+            v = r['v']
+            log_v = np.log10(np.maximum(v, 1e-20))
+            mu_visc = r['mu_visc']
+            mu_adh = r.get('mu_adh')
+            mu_total = r['mu_total']
 
-            self._style_ax(ax, cpd.name, 'Velocity (m/s)', 'μ', 'log')
+            n_v = len(v)
 
-            ax.fill_between(r['v'], 0, r['mu_visc'], alpha=0.15, color='#3B82F6',
-                            label='μ_hys')
-            ax.plot(r['v'], r['mu_visc'], '-', color='#3B82F6', linewidth=LWs)
+            # Build surface: Y=0 → mu_visc, Y=1 → mu_adh, Y=2 → mu_total
+            has_adh = mu_adh is not None and np.any(mu_adh > 0)
+            if has_adh:
+                # 3 bands: visc, adh, total
+                Y_labels = ['μ_hys', 'μ_adh', 'μ_total']
+                n_bands = 3
+                n_interp = 6  # interpolation subdivisions per band
+                Y_pos = np.linspace(0, 2, n_bands * n_interp)
+                Z_surface = np.zeros((n_bands * n_interp, n_v))
+                for j in range(n_bands * n_interp):
+                    band = j // n_interp
+                    frac = (j % n_interp) / n_interp
+                    if band == 0:
+                        Z_surface[j, :] = mu_visc
+                    elif band == 1:
+                        # Transition from visc to adh
+                        Z_surface[j, :] = mu_visc * (1 - frac) + mu_adh * frac
+                    else:
+                        # Transition from adh to total
+                        Z_surface[j, :] = mu_adh * (1 - frac) + mu_total * frac
+            else:
+                # 2 bands: visc → total
+                Y_labels = ['μ_hys', 'μ_total']
+                n_bands = 2
+                n_interp = 8
+                Y_pos = np.linspace(0, 1, n_bands * n_interp)
+                Z_surface = np.zeros((n_bands * n_interp, n_v))
+                for j in range(n_bands * n_interp):
+                    band = j // n_interp
+                    frac = (j % n_interp) / n_interp
+                    if band == 0:
+                        Z_surface[j, :] = mu_visc
+                    else:
+                        Z_surface[j, :] = mu_visc * (1 - frac) + mu_total * frac
 
-            if r.get('mu_adh') is not None:
-                ax.fill_between(r['v'], r['mu_visc'], r['mu_total'], alpha=0.15,
-                                color='#EF4444', label='μ_adh')
-                ax.plot(r['v'], r['mu_adh'], '--', color='#EF4444', linewidth=LWs)
+            X_mesh, Y_mesh = np.meshgrid(log_v, Y_pos)
 
-            ax.plot(r['v'], r['mu_total'], '-', color=color, linewidth=LW + 0.5, label='μ_total')
+            ax.plot_surface(X_mesh, Y_mesh, Z_surface,
+                            cmap='viridis', alpha=0.85,
+                            rstride=1, cstride=1,
+                            linewidth=0, antialiased=True,
+                            rasterized=True)
+
+            # Overlay edge lines for each component
+            ax.plot(log_v, np.zeros(n_v), mu_visc,
+                    color='#3B82F6', linewidth=LW, label='μ_hys', zorder=5)
+            if has_adh:
+                ax.plot(log_v, np.ones(n_v), mu_adh,
+                        color='#EF4444', linewidth=LW, label='μ_adh', zorder=5)
+                ax.plot(log_v, np.full(n_v, 2.0), mu_total,
+                        color=color, linewidth=LW + 0.5, label='μ_total', zorder=5)
+            else:
+                ax.plot(log_v, np.ones(n_v), mu_total,
+                        color=color, linewidth=LW + 0.5, label='μ_total', zorder=5)
 
             # Mark peak
-            peak_idx = np.argmax(r['mu_total'])
-            ax.axvline(r['v'][peak_idx], color='gray', linestyle=':', alpha=0.5)
-            ax.annotate(f'peak: {r["mu_total"][peak_idx]:.3f}\n@ {r["v"][peak_idx]:.2e} m/s',
-                        xy=(r['v'][peak_idx], r['mu_total'][peak_idx]),
-                        xytext=(10, -15), textcoords='offset points',
-                        fontsize=FS - 3, color='#333',
-                        arrowprops=dict(arrowstyle='->', color='gray', lw=0.8))
+            peak_idx = np.argmax(mu_total)
+            peak_v = log_v[peak_idx]
+            peak_mu = mu_total[peak_idx]
+            y_peak = 2.0 if has_adh else 1.0
+            ax.scatter([peak_v], [y_peak], [peak_mu], color='red', s=50, zorder=10)
+            ax.text(peak_v, y_peak, peak_mu * 1.05,
+                    f'peak={peak_mu:.3f}\n@{v[peak_idx]:.1e}',
+                    fontsize=FS - 4, ha='center', color='#333')
 
-            # Key stats annotation
+            # Labels and styling
+            ax.set_xlabel('log₁₀(v)', fontsize=FS - 1, labelpad=8)
+            ax.set_ylabel('Component', fontsize=FS - 1, labelpad=8)
+            ax.set_zlabel('μ', fontsize=FS - 1, labelpad=6)
+            ax.set_title(cpd.name, fontsize=FS, fontweight='bold', pad=10)
+
+            # Y-axis tick labels
+            if has_adh:
+                ax.set_yticks([0, 1, 2])
+                ax.set_yticklabels(Y_labels, fontsize=FS - 3)
+            else:
+                ax.set_yticks([0, 1])
+                ax.set_yticklabels(Y_labels, fontsize=FS - 3)
+
+            ax.tick_params(axis='x', labelsize=FS - 2)
+            ax.tick_params(axis='z', labelsize=FS - 2)
+
+            # Condition info
             sigma0 = r.get('sigma_0', 0)
             temp = r.get('temperature', 0)
-            info_text = f"σ₀={sigma0/1e6:.1f} MPa  T={temp:.0f}°C"
-            ax.text(0.02, 0.98, info_text, transform=ax.transAxes,
-                    fontsize=FS - 3, va='top', color='#666')
+            flash = 'Flash ON' if r.get('use_flash', False) else ''
+            info = f"σ₀={sigma0/1e6:.1f}MPa  T={temp:.0f}°C  {flash}".strip()
+            ax.text2D(0.02, 0.98, info, transform=ax.transAxes,
+                      fontsize=FS - 3, va='top', color='#666')
 
-            ax.legend(fontsize=FS - 3, loc='upper right')
+            ax.view_init(elev=25, azim=225)
+            ax.legend(fontsize=FS - 3, loc='upper left')
 
         fig.tight_layout()
         canvas.draw_idle()
