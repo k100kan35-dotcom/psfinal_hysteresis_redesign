@@ -819,8 +819,22 @@ class DataInputTab:
         app = self.app
         n_compounds = len(self.compounds)
 
-        # ── Step 1: PSD 설정 ──
-        app.psd_model = self.psd_model
+        # ── Step 1: PSD 설정 (시험 Run과 동일한 방식) ──
+        # 시험 Run: _load_preset_psd() → _apply_profile_psd_to_tab3()
+        #   → MeasuredPSD(q, C) [linear 보간, 기본값]
+        # 데이터 입력 탭: create_psd_from_data() → MeasuredPSD(q, C, 'log-log')
+        # → 동일하게 맞추기: raw 데이터로 MeasuredPSD 재생성 (linear 보간)
+        from persson_model.core.psd_models import MeasuredPSD as _MeasuredPSD
+        if hasattr(self.psd_model, 'q_data') and self.psd_model.q_data is not None:
+            app.psd_model = _MeasuredPSD(self.psd_model.q_data, self.psd_model.C_data)
+            # q_min을 PSD 실제 범위로 설정 (시험 Run의 _apply_profile_psd_to_tab3 line 2645 동일)
+            psd_q_min = float(self.psd_model.q_data[0])
+            user_q_min = float(self._q0_var.get())
+            if user_q_min < psd_q_min:
+                print(f"[DataInput] q₀ 보정: {user_q_min:.2e} → {psd_q_min:.2e} (PSD 범위에 맞춤)")
+                app.q_min_var.set(f"{psd_q_min:.2e}")
+        else:
+            app.psd_model = self.psd_model
         app.tab0_finalized = True
         app.psd_source = "데이터 입력 탭"
 
