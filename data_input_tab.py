@@ -236,6 +236,15 @@ class DataInputTab:
         self._q1_var = tk.StringVar(value="1.05e5")
         ttk.Entry(row_q, textvariable=self._q1_var, width=8).pack(side=tk.LEFT, padx=2)
 
+        # h'rms (ξ) display + calculate button
+        row_hrms = ttk.Frame(sec4)
+        row_hrms.pack(fill=tk.X, pady=2)
+        ttk.Button(row_hrms, text="h'rms 계산", width=10,
+                   command=self._calc_hrms_from_q1).pack(side=tk.LEFT)
+        self._hrms_var = tk.StringVar(value="ξ = -")
+        ttk.Label(row_hrms, textvariable=self._hrms_var, font=F['body_bold'],
+                  foreground=C['primary']).pack(side=tk.LEFT, padx=8)
+
         # n_v, n_q
         row_n = ttk.Frame(sec4)
         row_n.pack(fill=tk.X, pady=2)
@@ -469,8 +478,39 @@ class DataInputTab:
                 self._q1_var.set(q1_val)
             if q_max_val:
                 self._q1_var.set(q_max_val)  # q_max = q1 for upper cutoff
+            # 자동 h'rms 계산
+            self._calc_hrms_from_q1()
         except Exception as e:
             print(f"[surface_q1 preset] error: {e}")
+
+    # ================================================================
+    #  h'rms calculation from q1
+    # ================================================================
+    def _calc_hrms_from_q1(self):
+        """PSD와 q1으로부터 h'rms (ξ) 계산.
+        ξ²(q1) = 2π ∫[q0→q1] k³ C(k) dk
+        """
+        if self.psd_model is None:
+            self._hrms_var.set("ξ = - (PSD 먼저 로드)")
+            return
+        try:
+            q0 = float(self._q0_var.get())
+            q1 = float(self._q1_var.get())
+            n_pts = 500
+
+            q_arr = np.logspace(np.log10(q0), np.log10(q1), n_pts)
+            C_arr = self.psd_model(q_arr)
+
+            # ξ² = 2π ∫ q³ C(q) dq  (log-spaced trapezoid)
+            integrand = q_arr ** 3 * C_arr
+            xi_sq = 2 * np.pi * np.trapz(integrand, q_arr)
+            xi = np.sqrt(max(xi_sq, 0))
+
+            self._hrms_var.set(f"ξ = {xi:.4f}")
+            print(f"[DataInput] h'rms: q0={q0:.1e}, q1={q1:.1e} → ξ={xi:.4f}")
+        except Exception as e:
+            self._hrms_var.set(f"ξ = 오류")
+            print(f"[DataInput] h'rms calc error: {e}")
 
     # ================================================================
     #  Data loading
