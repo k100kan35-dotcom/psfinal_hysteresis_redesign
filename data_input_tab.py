@@ -1032,13 +1032,16 @@ class DataInputTab:
             v_array = app.mu_visc_results.get('v', None)
             use_flash = app.mu_visc_results.get('use_flash', False)
 
-            # Flash temperature: mu_hot 사용, 없으면 mu (cold) 사용
-            if use_flash and app.mu_visc_results.get('mu_hot') is not None:
-                mu_visc = app.mu_visc_results['mu_hot']
-            else:
-                mu_visc = app.mu_visc_results.get('mu', None)
-                if mu_visc is None:
-                    mu_visc = app.mu_visc_results.get('mu_visc', None)
+            # Cold branch (항상 존재)
+            mu_visc_cold = app.mu_visc_results.get('mu', None)
+            if mu_visc_cold is None:
+                mu_visc_cold = app.mu_visc_results.get('mu_visc', None)
+
+            # Hot branch (flash temp 활성 시)
+            mu_visc_hot = app.mu_visc_results.get('mu_hot', None) if use_flash else None
+
+            # 대표값: flash 있으면 hot, 없으면 cold
+            mu_visc = mu_visc_hot if mu_visc_hot is not None else mu_visc_cold
 
         if app.mu_adh_results is not None:
             mu_adh = app.mu_adh_results.get('mu_adh', None)
@@ -1050,12 +1053,10 @@ class DataInputTab:
                 mu_adh = np.zeros_like(mu_visc)
                 mu_total = mu_visc.copy()
 
-            # A/A0: flash temp 시 A_A0_hot 사용
-            use_flash = app.mu_visc_results.get('use_flash', False) if app.mu_visc_results else False
-            if use_flash and app.mu_visc_results.get('A_A0_hot') is not None:
-                A_A0 = app.mu_visc_results['A_A0_hot']
-            else:
-                A_A0 = app.mu_visc_results.get('P_qmax', np.zeros_like(mu_visc))
+            # A/A0
+            A_A0_cold = app.mu_visc_results.get('P_qmax', np.zeros_like(mu_visc))
+            A_A0_hot = app.mu_visc_results.get('A_A0_hot', None) if use_flash else None
+            A_A0 = A_A0_hot if A_A0_hot is not None else A_A0_cold
 
             cpd.results = {
                 'v': v_array,
@@ -1068,12 +1069,85 @@ class DataInputTab:
                 'use_flash': use_flash,
             }
 
+            # Cold & Hot Branch 데이터 (10번 탭과 동일 구조)
+            if mu_visc_cold is not None:
+                mu_adh_cold = mu_adh  # cold adh = 기본 adh 피팅 결과
+                cpd.results['mu_cold_hys'] = mu_visc_cold
+                cpd.results['mu_cold_adh'] = mu_adh_cold
+                cpd.results['mu_cold_total'] = mu_visc_cold + mu_adh_cold
+                cpd.results['A_A0_cold'] = A_A0_cold
+
+            if mu_visc_hot is not None:
+                # Hot adhesion: A_A0_hot 기반 재계산
+                # flash_results에서 T_hot 배열을 가져와 Arrhenius 시프트 적용
+                flash_results = app.mu_visc_results.get('flash_results', None)
+                if A_A0_hot is not None and flash_results is not None:
+                    T_hot_arr = flash_results.get('T_hot', None)
+                    delta_T_arr = flash_results.get('delta_T', None)
+                    cpd.results['T_hot'] = T_hot_arr
+                    cpd.results['delta_T'] = delta_T_arr
+
+                    # Hot adhesion: aT' Arrhenius 시프트 적용
+                    mu_adh_hot = self._calc_hot_adhesion(
+                        app, cpd, v_array, A_A0_hot, T_hot_arr)
+                    cpd.results['mu_hot_hys'] = mu_visc_hot
+                    cpd.results['mu_hot_adh'] = mu_adh_hot
+                    cpd.results['mu_hot_total'] = mu_visc_hot + mu_adh_hot
+                    cpd.results['A_A0_hot'] = A_A0_hot
+                    # 대표값도 hot total로 갱신
+                    cpd.results['mu_total'] = mu_visc_hot + mu_adh_hot
+                else:
+                    # flash_results 없으면 cold adh 그대로
+                    cpd.results['mu_hot_hys'] = mu_visc_hot
+                    cpd.results['mu_hot_adh'] = mu_adh
+                    cpd.results['mu_hot_total'] = mu_visc_hot + mu_adh
+                    cpd.results['A_A0_hot'] = A_A0_hot if A_A0_hot is not None else A_A0_cold
+
             # Copy adh fit params if available
             if app.mu_adh_results is not None:
                 cpd.results['adh_params'] = app.mu_adh_results.get('params', None)
         else:
             cpd.results = None
             print(f"[WARNING] {cpd.name}: mu_visc_results가 비어있습니다.")
+
+    def _calc_hot_adhesion(self, app, cpd, v_array, A_A0_hot, T_hot_arr):
+        """Hot adhesion: Arrhenius aT 시프트로 τ_f(T_hot) 계산 → μ_adh_hot.
+
+        10번 탭(Cold & Hot Branch)과 동일한 로직.
+        """
+        if T_hot_arr is None or A_A0_hot is None:
+            return cpd.results.get('mu_cold_adh', np.zeros_like(v_array))
+
+        p0 = float(self._sigma0_var.get()) * 1e6
+        if p0 <= 0:
+            return np.zeros_like(v_array)
+
+        # Adhesion parameters
+        try:
+            tau_f0 = float(self._tau_f0_var.get()) * 1e6  # MPa → Pa
+            v0_star = float(self._v0_star_var.get())
+            c_gauss = float(self._c_gauss_var.get())
+            epsilon = float(self._epsilon_var.get())
+        except (ValueError, AttributeError):
+            return cpd.results.get('mu_cold_adh', np.zeros_like(v_array))
+
+        T0 = float(self._temp_var.get())
+
+        # aT' Arrhenius shift factor at each T_hot
+        # Persson adhesion uses Arrhenius: aT' = exp(epsilon * e / kB * (1/T_hot - 1/T_ref))
+        kB_eV = 8.617333262e-5  # eV/K
+        T_ref_K = T0 + 273.15
+
+        mu_adh_hot = np.zeros_like(v_array)
+        for iv, v_val in enumerate(v_array):
+            T_hot_K = T_hot_arr[iv] + 273.15 if T_hot_arr[iv] > -200 else T_ref_K
+            aT_prime = np.exp(epsilon / kB_eV * (1.0 / T_hot_K - 1.0 / T_ref_K))
+            v_shifted = v_val * aT_prime
+            # τ_f Gaussian
+            tau_f_v = tau_f0 * np.exp(-c_gauss * (np.log(v_shifted / v0_star))**2)
+            mu_adh_hot[iv] = A_A0_hot[iv] * tau_f_v / p0
+
+        return mu_adh_hot
 
     def _after_calculation(self):
         """Post-calculation: update plots and results tab."""
