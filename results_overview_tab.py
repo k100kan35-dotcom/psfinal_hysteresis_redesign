@@ -28,10 +28,14 @@ def bind_results_overview_tab(app):
 class ResultsOverviewTab:
     """계산 결과 종합 탭: 다중 컴파운드 비교 플롯 + 마찰 맵 + 비교 코멘트."""
 
+    # 1=검정, 2=빨강, 3=파랑, 이후 구분 가능한 색상
     COMPOUND_COLORS = [
-        '#2563EB', '#059669', '#D97706', '#DC2626',
-        '#7C3AED', '#DB2777', '#0891B2', '#65A30D',
+        '#000000', '#DC2626', '#2563EB', '#059669',
+        '#D97706', '#7C3AED', '#DB2777', '#0891B2',
     ]
+    PLOT_FONT_SIZE = 12
+    PLOT_LINE_WIDTH = 2.5
+    PLOT_LINE_WIDTH_SUB = 1.8
 
     def __init__(self, app):
         self.app = app
@@ -130,6 +134,26 @@ class ResultsOverviewTab:
         self._fig, self._canvas = self._plot_tabs['total_overlay']
 
     # ================================================================
+    #  Plot styling helper
+    # ================================================================
+    @staticmethod
+    def _style_ax(ax, title='', xlabel='', ylabel='', xscale=None, yscale=None):
+        """Apply consistent styling: 12pt fonts, grid."""
+        FS = ResultsOverviewTab.PLOT_FONT_SIZE
+        if title:
+            ax.set_title(title, fontsize=FS + 1, fontweight='bold')
+        if xlabel:
+            ax.set_xlabel(xlabel, fontsize=FS)
+        if ylabel:
+            ax.set_ylabel(ylabel, fontsize=FS)
+        if xscale:
+            ax.set_xscale(xscale)
+        if yscale:
+            ax.set_yscale(yscale)
+        ax.tick_params(axis='both', labelsize=FS - 1)
+        ax.grid(True, alpha=0.3)
+
+    # ================================================================
     #  Refresh
     # ================================================================
     def refresh(self):
@@ -188,30 +212,30 @@ class ResultsOverviewTab:
     # ================================================================
     def _plot_total_overlay(self, visible_compounds):
         """All compounds' mu_total on one axis."""
+        FS = self.PLOT_FONT_SIZE
+        LW = self.PLOT_LINE_WIDTH
+        LWs = self.PLOT_LINE_WIDTH_SUB
         fig, canvas = self._plot_tabs['total_overlay']
         fig.clear()
 
         ax = fig.add_subplot(111)
-        ax.set_xlabel('Velocity (m/s)')
-        ax.set_ylabel('μ_total')
-        ax.set_title('μ_total vs Velocity (All Compounds)')
-        ax.set_xscale('log')
-        ax.grid(True, alpha=0.3)
+        self._style_ax(ax, 'μ_total vs Velocity (All Compounds)',
+                        'Velocity (m/s)', 'μ_total', 'log')
 
         for i, cpd in visible_compounds:
             if cpd.results is None:
                 continue
             r = cpd.results
             color = self.COMPOUND_COLORS[i % len(self.COMPOUND_COLORS)]
-            ax.plot(r['v'], r['mu_total'], '-', color=color, linewidth=2, label=cpd.name)
-            ax.plot(r['v'], r['mu_visc'], '--', color=color, linewidth=1, alpha=0.5,
+            ax.plot(r['v'], r['mu_total'], '-', color=color, linewidth=LW, label=cpd.name)
+            ax.plot(r['v'], r['mu_visc'], '--', color=color, linewidth=LWs, alpha=0.5,
                     label=f'{cpd.name} (hys)')
             if r.get('mu_adh') is not None:
-                ax.plot(r['v'], r['mu_adh'], ':', color=color, linewidth=1, alpha=0.5,
+                ax.plot(r['v'], r['mu_adh'], ':', color=color, linewidth=LWs, alpha=0.5,
                         label=f'{cpd.name} (adh)')
 
         if visible_compounds:
-            ax.legend(fontsize=8, loc='best')
+            ax.legend(fontsize=FS - 1, loc='best')
         fig.tight_layout()
         canvas.draw_idle()
 
@@ -220,6 +244,8 @@ class ResultsOverviewTab:
     # ================================================================
     def _plot_separated(self, visible_compounds):
         """4-panel: mu_visc, mu_adh, mu_total, bar chart."""
+        FS = self.PLOT_FONT_SIZE
+        LW = self.PLOT_LINE_WIDTH
         fig, canvas = self._plot_tabs['separated']
         fig.clear()
 
@@ -233,11 +259,8 @@ class ResultsOverviewTab:
             (ax2, 'μ_adh (Adhesion)', 'mu_adh'),
             (ax3, 'μ_total', 'mu_total'),
         ]:
-            ax.set_xlabel('Velocity (m/s)')
-            ax.set_ylabel(title.split('(')[0].strip())
-            ax.set_title(title)
-            ax.set_xscale('log')
-            ax.grid(True, alpha=0.3)
+            ylabel = title.split('(')[0].strip()
+            self._style_ax(ax, title, 'Velocity (m/s)', ylabel, 'log')
 
             for i, cpd in visible_compounds:
                 if cpd.results is None:
@@ -246,14 +269,12 @@ class ResultsOverviewTab:
                 color = self.COMPOUND_COLORS[i % len(self.COMPOUND_COLORS)]
                 y = r.get(key)
                 if y is not None:
-                    ax.plot(r['v'], y, '-', color=color, linewidth=2, label=cpd.name)
+                    ax.plot(r['v'], y, '-', color=color, linewidth=LW, label=cpd.name)
 
-            ax.legend(fontsize=8, loc='best')
+            ax.legend(fontsize=FS - 2, loc='best')
 
         # 4th panel: bar chart at key speeds
-        ax4.set_title('속도별 μ_total 비교')
-        ax4.set_ylabel('μ_total')
-        ax4.grid(True, alpha=0.3, axis='y')
+        self._style_ax(ax4, '속도별 μ_total 비교', '', 'μ_total')
 
         key_speeds = [0.001, 0.01, 0.1, 1.0]
         valid_compounds = [(i, cpd) for i, cpd in visible_compounds if cpd.results is not None]
@@ -270,11 +291,11 @@ class ResultsOverviewTab:
                 for spd in key_speeds:
                     idx = np.argmin(np.abs(r['v'] - spd))
                     vals.append(r['mu_total'][idx])
-                ax4.bar(x + ci_local * width, vals, width, label=cpd.name, color=color, alpha=0.8)
+                ax4.bar(x + ci_local * width, vals, width, label=cpd.name, color=color, alpha=0.85)
 
             ax4.set_xticks(x + width * (n_cpd - 1) / 2)
-            ax4.set_xticklabels([f'{s} m/s' for s in key_speeds], fontsize=9)
-            ax4.legend(fontsize=8, loc='best')
+            ax4.set_xticklabels([f'{s} m/s' for s in key_speeds], fontsize=FS - 1)
+            ax4.legend(fontsize=FS - 2, loc='best')
 
         fig.tight_layout()
         canvas.draw_idle()
@@ -284,6 +305,9 @@ class ResultsOverviewTab:
     # ================================================================
     def _plot_friction_maps(self, visible_compounds):
         """One friction map subplot per compound: μ_total, μ_visc, μ_adh."""
+        FS = self.PLOT_FONT_SIZE
+        LW = self.PLOT_LINE_WIDTH
+        LWs = self.PLOT_LINE_WIDTH_SUB
         fig, canvas = self._plot_tabs['friction_map']
         fig.clear()
 
@@ -305,22 +329,18 @@ class ResultsOverviewTab:
             color = self.COMPOUND_COLORS[i % len(self.COMPOUND_COLORS)]
             r = cpd.results
 
-            ax.set_title(f'{cpd.name}', fontsize=11, fontweight='bold')
-            ax.set_xlabel('Velocity (m/s)', fontsize=9)
-            ax.set_ylabel('μ', fontsize=9)
-            ax.set_xscale('log')
-            ax.grid(True, alpha=0.3)
+            self._style_ax(ax, cpd.name, 'Velocity (m/s)', 'μ', 'log')
 
             ax.fill_between(r['v'], 0, r['mu_visc'], alpha=0.15, color='#3B82F6',
                             label='μ_hys')
-            ax.plot(r['v'], r['mu_visc'], '-', color='#3B82F6', linewidth=1.5)
+            ax.plot(r['v'], r['mu_visc'], '-', color='#3B82F6', linewidth=LWs)
 
             if r.get('mu_adh') is not None:
                 ax.fill_between(r['v'], r['mu_visc'], r['mu_total'], alpha=0.15,
                                 color='#EF4444', label='μ_adh')
-                ax.plot(r['v'], r['mu_adh'], '--', color='#EF4444', linewidth=1.5)
+                ax.plot(r['v'], r['mu_adh'], '--', color='#EF4444', linewidth=LWs)
 
-            ax.plot(r['v'], r['mu_total'], '-', color=color, linewidth=2.5, label='μ_total')
+            ax.plot(r['v'], r['mu_total'], '-', color=color, linewidth=LW + 0.5, label='μ_total')
 
             # Mark peak
             peak_idx = np.argmax(r['mu_total'])
@@ -328,7 +348,7 @@ class ResultsOverviewTab:
             ax.annotate(f'peak: {r["mu_total"][peak_idx]:.3f}\n@ {r["v"][peak_idx]:.2e} m/s',
                         xy=(r['v'][peak_idx], r['mu_total'][peak_idx]),
                         xytext=(10, -15), textcoords='offset points',
-                        fontsize=7, color='#333',
+                        fontsize=FS - 3, color='#333',
                         arrowprops=dict(arrowstyle='->', color='gray', lw=0.8))
 
             # Key stats annotation
@@ -336,9 +356,9 @@ class ResultsOverviewTab:
             temp = r.get('temperature', 0)
             info_text = f"σ₀={sigma0/1e6:.1f} MPa  T={temp:.0f}°C"
             ax.text(0.02, 0.98, info_text, transform=ax.transAxes,
-                    fontsize=7, va='top', color='#666')
+                    fontsize=FS - 3, va='top', color='#666')
 
-            ax.legend(fontsize=7, loc='upper right')
+            ax.legend(fontsize=FS - 3, loc='upper right')
 
         fig.tight_layout()
         canvas.draw_idle()
@@ -348,6 +368,7 @@ class ResultsOverviewTab:
     # ================================================================
     def _plot_comparison(self, visible_compounds):
         """Comparison bar chart + auto-generated analysis comment."""
+        FS = self.PLOT_FONT_SIZE
         fig, canvas = self._plot_tabs['comparison']
         fig.clear()
 
@@ -399,11 +420,9 @@ class ResultsOverviewTab:
             }
 
         ax.set_xticks(x + width * (n_cpd - 1) / 2)
-        ax.set_xticklabels(speed_labels, fontsize=9)
-        ax.set_ylabel('μ_total')
-        ax.set_title('컴파운드별 마찰 비교')
-        ax.legend(fontsize=8, loc='best')
-        ax.grid(True, alpha=0.3, axis='y')
+        ax.set_xticklabels(speed_labels, fontsize=FS - 1)
+        self._style_ax(ax, '컴파운드별 마찰 비교', '', 'μ_total')
+        ax.legend(fontsize=FS - 2, loc='best')
         fig.tight_layout()
         canvas.draw_idle()
 

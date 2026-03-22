@@ -256,9 +256,9 @@ def calculate_1d_psd(
     power = np.abs(h_fft)**2
 
     # Normalize: C(q) has units of m³ for 1D PSD
-    # C_1D(q) = L * |h_fft|² / (π * N²)
-    # Parseval: h_rms² = ∫ C_1D(q) dq
-    C1d = power * L / (np.pi * n**2) / w_correction
+    # C_1D(q) = (dx / (2π * N)) * |h_fft|²
+    # Matches k100kan35-dotcom/psd reference implementation
+    C1d = power * dx / (2.0 * np.pi * n) / w_correction
 
     # Remove DC component (q=0)
     valid = q > 0
@@ -346,10 +346,9 @@ def calculate_top_psd(
     freq = np.fft.rfftfreq(n, dx)
     q = 2 * np.pi * freq
 
-    # Power spectrum
+    # Power spectrum — same formula as calculate_1d_psd
     power = np.abs(h_fft)**2
-    # Same formula as calculate_1d_psd
-    C1d = power * L / (np.pi * n**2) / w_correction
+    C1d = power * dx / (2.0 * np.pi * n) / w_correction
 
     # Apply 1/phi correction
     C_top = C1d / phi
@@ -364,17 +363,17 @@ def calculate_top_psd(
 
 def convert_1d_to_2d_isotropic_psd(
     q: np.ndarray,
-    C1d: np.ndarray
+    C1d: np.ndarray,
+    correction_factor: float = 1.1615
 ) -> np.ndarray:
     """
     Convert 1D PSD to 2D isotropic PSD.
 
-    For an isotropic surface, the 2D PSD C(q) is related to 1D PSD C_1D(q) by:
-    C(q) = C_1D(q) / (2 * pi * q)
+    Matches k100kan35-dotcom/psd reference implementation:
+    C_2D(q) = C_1D(q) / (π * q) * correction_factor
 
-    This ensures Parseval's theorem is satisfied:
-    - 1D: h_rms² = ∫ C_1D(q) dq
-    - 2D: h_rms² = 2π ∫ q C_2D(q) dq
+    The correction_factor (default 1.1615) is a calibrated constant from
+    the reference repository for standard 1D→2D conversion.
 
     Parameters
     ----------
@@ -382,6 +381,8 @@ def convert_1d_to_2d_isotropic_psd(
         Wavenumber array (1/m)
     C1d : np.ndarray
         1D PSD (m³)
+    correction_factor : float
+        Calibrated correction factor (default: 1.1615)
 
     Returns
     -------
@@ -389,7 +390,7 @@ def convert_1d_to_2d_isotropic_psd(
         2D isotropic PSD (m⁴)
     """
     with np.errstate(divide='ignore', invalid='ignore'):
-        C2d = C1d / (2 * np.pi * q)
+        C2d = C1d / (np.pi * q) * correction_factor
         C2d = np.where(np.isfinite(C2d), C2d, 0.0)
 
     return C2d
