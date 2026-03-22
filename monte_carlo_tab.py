@@ -1044,11 +1044,11 @@ class MonteCarloTab:
         ax.clear()
         lq = np.log10(self.q_grid)
 
-        # 생성 샘플 (파랑, 반투명)
-        n_show = min(100, len(self.C_pool))
+        # 생성 샘플 (진한 파랑, 반투명 — 1000개도 보이도록)
+        n_show = min(200, len(self.C_pool))
         for i in range(n_show):
             ax.plot(lq, np.log10(self.C_pool[i]),
-                    color='steelblue', alpha=0.06, lw=0.5)
+                    color='#1E40AF', alpha=0.15, lw=0.7)
 
         # 원본 (회색)
         for i in range(self._pca_C_matrix.shape[0]):
@@ -1182,9 +1182,7 @@ class MonteCarloTab:
         self._q1_pool_label.pack(anchor='w')
 
         # ── 우측 플롯 ──
-        self._fig_q1 = Figure(figsize=(8, 6), dpi=100, facecolor='white')
-        self._ax_q1 = self._fig_q1.add_subplot(1, 1, 1)
-        self._fig_q1.tight_layout(pad=2.0)
+        self._fig_q1 = Figure(dpi=100, facecolor='white')
         self._canvas_q1 = FigureCanvasTkAgg(self._fig_q1, master=right)
         self._canvas_q1.get_tk_widget().pack(fill=tk.BOTH, expand=True)
         self._canvas_q1.draw_idle()
@@ -1266,13 +1264,87 @@ class MonteCarloTab:
             return self.app.material
         return None
 
+    def _get_extreme_psds(self):
+        """앙상블에서 Cq 총합 기준 최대/최소 PSD를 반환.
+
+        Returns (C_max, C_min) — 각각 (N_q,) ndarray.
+        """
+        # 총 Cq 값 (적분 근사 — log-space 합)
+        log_sums = np.sum(np.log10(np.maximum(self.C_pool, 1e-40)), axis=1)
+        idx_max = np.argmax(log_sums)
+        idx_min = np.argmin(log_sums)
+        return self.C_pool[idx_max], self.C_pool[idx_min], idx_max, idx_min
+
+    def _get_data_input_compounds(self):
+        """데이터 입력 탭의 모든 컴파운드 정보 반환.
+
+        Returns list of (name, material) for compounds with valid material.
+        """
+        compounds = []
+        if hasattr(self.app, '_data_input_tab') and self.app._data_input_tab is not None:
+            dit = self.app._data_input_tab
+            for cpd in dit.compounds:
+                if cpd.material is not None:
+                    compounds.append((cpd.name, cpd.material))
+        # fallback: MC 탭 자체 material 사용
+        if not compounds:
+            for i, name in enumerate(self.COMPOUND_NAMES):
+                mat = self._get_compound_material(i)
+                if mat is not None:
+                    compounds.append((name, mat))
+                    break  # 모두 같은 material이므로 하나만
+        return compounds
+
+    def _compute_mu_hys_for_q1_with_mat(self, q1_val, C_arr, q_arr, mat, velocities):
+        """주어진 q₁, C(q), material, 속도 목록에 대해 mu_visco(cold) 계산.
+
+        Returns list of mu values (same length as velocities). None on failure.
+        """
+        try:
+            mask = q_arr <= q1_val
+            if np.sum(mask) < 5:
+                return [None] * len(velocities)
+            q_use = q_arr[mask]
+            C_use = C_arr[mask]
+
+            psd = MeasuredPSD(q_use, C_use, interpolation_kind='log-log')
+            sigma_0 = 0.3e6
+            poisson = 0.5
+            modulus_func = lambda omega: mat.get_modulus(omega, mat.reference_temp)
+            loss_func = lambda omega, T: mat.get_loss_modulus(omega, mat.reference_temp)
+
+            mu_list = []
+            for v in velocities:
+                try:
+                    g_calc = GCalculator(
+                        psd_func=psd, modulus_func=modulus_func,
+                        sigma_0=sigma_0, velocity=v, poisson_ratio=poisson)
+                    G_array = g_calc.calculate_G(q_use)
+                    C_q = psd(q_use)
+                    fc = FrictionCalculator(
+                        psd_func=psd, loss_modulus_func=loss_func,
+                        sigma_0=sigma_0, velocity=v,
+                        temperature=mat.reference_temp, poisson_ratio=poisson)
+                    mu, _ = fc.calculate_mu_visc(q_use, G_array, C_q)
+                    mu_list.append(mu)
+                except Exception:
+                    mu_list.append(None)
+            return mu_list
+        except Exception:
+            return [None] * len(velocities)
+
     def _run_q1_prescan(self):
-        """평균 C(q)로 q₁ 유효 범위 사전 탐색 (스레드)."""
+        """최대/최소 PSD + 모든 컴파운드로 q₁ 유효 범위 사전 탐색."""
         if self.C_pool is None or self.q_grid is None:
             messagebox.showwarning("q₁ 탐색", "먼저 PSD 앙상블을 생성하세요.")
             return
 
-        # 파라미터 미리 읽기 (메인 스레드)
+        compounds = self._get_data_input_compounds()
+        if not compounds:
+            messagebox.showwarning("q₁ 탐색",
+                "데이터 입력 탭에 마스터커브가 로드된 컴파운드가 없습니다.")
+            return
+
         try:
             q1_min = float(self._q1_min_var.get())
             q1_max = float(self._q1_max_var.get())
@@ -1281,29 +1353,78 @@ class MonteCarloTab:
             messagebox.showerror("오류", f"파라미터 오류: {e}")
             return
 
+        # 화강암/아스팔트 실험값 파싱
+        try:
+            granite_v = self._parse_float_list(self._q1_granite_v.get())
+            asphalt_v = self._parse_float_list(self._q1_asphalt_v.get())
+            granite_mu = {}
+            asphalt_mu = {}
+            for name in self.COMPOUND_NAMES:
+                g_str = self._q1_granite_mu[name].get().strip()
+                a_str = self._q1_asphalt_mu[name].get().strip()
+                if g_str:
+                    granite_mu[name] = self._parse_float_list(g_str)
+                if a_str:
+                    asphalt_mu[name] = self._parse_float_list(a_str)
+        except Exception as e:
+            messagebox.showerror("오류", f"실험값 파싱 오류: {e}")
+            return
+
+        C_max, C_min, idx_max, idx_min = self._get_extreme_psds()
+
         self._q1_range_label.config(text="탐색 중... 0%")
         self.app.root.update_idletasks()
+
+        # 모든 속도점 합치기 (중복 제거, 정렬)
+        all_velocities = sorted(set(list(granite_v) + list(asphalt_v)))
 
         def _worker():
             try:
                 q1_candidates = np.logspace(np.log10(q1_min),
                                             np.log10(q1_max), n_scan)
-                C_mean = np.mean(self.C_pool, axis=0)
+                # 결과: {compound_name: {psd_type: {v: [mu_list]}}}
+                results = {}
+                total_steps = n_scan * len(compounds) * 2  # 2 = max+min PSD
+                step = 0
 
-                mu_vs_q1 = []
-                for idx, q1 in enumerate(q1_candidates):
-                    mu = self._compute_mu_hys_for_q1(q1, C_mean, self.q_grid, 0)
-                    mu_vs_q1.append(mu if mu is not None else 0.0)
-                    # 진행률 업데이트
-                    pct = int((idx + 1) / n_scan * 100)
-                    self.app.root.after(0, lambda p=pct:
-                        self._q1_range_label.config(text=f"탐색 중... {p}%"))
+                for cpd_name, mat in compounds:
+                    results[cpd_name] = {'max': {}, 'min': {}}
+                    for v in all_velocities:
+                        results[cpd_name]['max'][v] = []
+                        results[cpd_name]['min'][v] = []
 
-                mu_vs_q1 = np.array(mu_vs_q1)
+                    for q1_idx, q1 in enumerate(q1_candidates):
+                        # 최대 PSD
+                        mu_max = self._compute_mu_hys_for_q1_with_mat(
+                            q1, C_max, self.q_grid, mat, all_velocities)
+                        for vi, v in enumerate(all_velocities):
+                            results[cpd_name]['max'][v].append(
+                                mu_max[vi] if mu_max[vi] is not None else 0.0)
+                        step += 1
 
-                # 결과를 메인 스레드에서 처리
+                        # 최소 PSD
+                        mu_min = self._compute_mu_hys_for_q1_with_mat(
+                            q1, C_min, self.q_grid, mat, all_velocities)
+                        for vi, v in enumerate(all_velocities):
+                            results[cpd_name]['min'][v].append(
+                                mu_min[vi] if mu_min[vi] is not None else 0.0)
+                        step += 1
+
+                        pct = int(step / total_steps * 100)
+                        self.app.root.after(0, lambda p=pct:
+                            self._q1_range_label.config(text=f"탐색 중... {p}%"))
+
+                # numpy 변환
+                for cpd_name in results:
+                    for psd_type in ['max', 'min']:
+                        for v in all_velocities:
+                            results[cpd_name][psd_type][v] = np.array(
+                                results[cpd_name][psd_type][v])
+
                 self.app.root.after(0, lambda: self._q1_prescan_done(
-                    q1_candidates, mu_vs_q1))
+                    q1_candidates, results, compounds,
+                    granite_v, granite_mu, asphalt_v, asphalt_mu,
+                    all_velocities, idx_max, idx_min))
 
             except Exception as e:
                 import traceback
@@ -1314,37 +1435,125 @@ class MonteCarloTab:
 
         threading.Thread(target=_worker, daemon=True).start()
 
-    def _q1_prescan_done(self, q1_candidates, mu_vs_q1):
-        """사전 탐색 완료 후 메인 스레드에서 플롯/결과 처리."""
-        valid = mu_vs_q1 > 0
-        if not np.any(valid):
-            self._q1_range_label.config(text="유효 범위 없음 — 파라미터 확인 필요")
-            return
+    def _q1_prescan_done(self, q1_candidates, results, compounds,
+                         granite_v, granite_mu, asphalt_v, asphalt_mu,
+                         all_velocities, idx_max, idx_min):
+        """사전 탐색 완료 — 컴파운드별 mu vs q1 플롯 + 상하한 비교."""
+        from matplotlib.lines import Line2D
+        cpd_names = [c[0] for c in compounds]
+        n_cpd = len(cpd_names)
+        n_v = len(all_velocities)
 
-        valid_q1 = q1_candidates[valid]
-        self.q1_valid_range = (valid_q1.min(), valid_q1.max())
-        self._q1_range_label.config(
-            text=f"유효 범위: [{valid_q1.min():.2e}, {valid_q1.max():.2e}] 1/m")
+        # ── 유효 범위 결정 ──
+        # 각 컴파운드+속도에서: 최소 PSD의 mu가 화강암 하한 이상이고,
+        # 최대 PSD의 mu가 아스팔트 상한 이하인 q1 범위
+        all_valid_mask = np.ones(len(q1_candidates), dtype=bool)
 
-        # 플롯
-        ax = self._ax_q1
-        ax.clear()
-        ax.set_title('μ_hys vs q₁ (평균 PSD)', fontweight='bold')
-        ax.set_xlabel('q₁ (1/m)')
-        ax.set_ylabel('μ_hys')
-        ax.set_xscale('log')
-        ax.grid(True, alpha=0.3)
-        ax.plot(q1_candidates, mu_vs_q1, 'o-', color='#2563EB', linewidth=1.5,
-                markersize=3, label='μ_hys (compound 0)')
+        for cpd_name in cpd_names:
+            for v in all_velocities:
+                mu_arr_max = results[cpd_name]['max'][v]
+                mu_arr_min = results[cpd_name]['min'][v]
+                # 기본 유효성: mu > 0
+                all_valid_mask &= (mu_arr_max > 0) & (mu_arr_min > 0)
+
+        if np.any(all_valid_mask):
+            valid_q1 = q1_candidates[all_valid_mask]
+            self.q1_valid_range = (valid_q1.min(), valid_q1.max())
+        else:
+            # fallback: 하나라도 mu > 0 인 범위
+            any_valid = np.zeros(len(q1_candidates), dtype=bool)
+            for cpd_name in cpd_names:
+                for v in all_velocities:
+                    any_valid |= (results[cpd_name]['max'][v] > 0)
+            if np.any(any_valid):
+                valid_q1 = q1_candidates[any_valid]
+                self.q1_valid_range = (valid_q1.min(), valid_q1.max())
+            else:
+                self.q1_valid_range = None
+
         if self.q1_valid_range:
-            ax.axvspan(self.q1_valid_range[0], self.q1_valid_range[1],
-                      alpha=0.1, color='green', label='유효 범위')
-        ax.legend(loc='best')
-        self._fig_q1.tight_layout(pad=2.0)
+            self._q1_range_label.config(
+                text=f"유효 범위: [{self.q1_valid_range[0]:.2e}, "
+                     f"{self.q1_valid_range[1]:.2e}] 1/m")
+        else:
+            self._q1_range_label.config(text="유효 범위 없음 — 파라미터 확인 필요")
+
+        # ── 플롯: 컴파운드별 서브플롯 ──
+        fig = self._fig_q1
+        fig.clear()
+
+        # 서브플롯 레이아웃: 컴파운드 수에 따라 자동
+        if n_cpd <= 2:
+            nrows, ncols = 1, n_cpd
+        elif n_cpd <= 4:
+            nrows, ncols = 2, 2
+        else:
+            ncols = 3
+            nrows = (n_cpd + ncols - 1) // ncols
+
+        colors_v = ['#2563EB', '#DC2626', '#16A34A', '#D97706', '#7C3AED']
+        ls_psd = {'max': '-', 'min': '--'}
+
+        for ci, cpd_name in enumerate(cpd_names):
+            ax = fig.add_subplot(nrows, ncols, ci + 1)
+            ax.set_title(f'{cpd_name}', fontsize=12, fontweight='bold', pad=4)
+            ax.set_xlabel('q₁ (1/m)', fontsize=12)
+            ax.set_ylabel('μ_visco (cold)', fontsize=12)
+            ax.set_xscale('log')
+            ax.tick_params(labelsize=12)
+            ax.grid(True, alpha=0.3)
+
+            for vi, v in enumerate(all_velocities):
+                color = colors_v[vi % len(colors_v)]
+                v_label = f'v={v:.3g}'
+
+                # max PSD → 실선
+                mu_max = results[cpd_name]['max'][v]
+                ax.plot(q1_candidates, mu_max, '-', color=color, lw=1.8,
+                        label=f'{v_label} (PSD max)')
+
+                # min PSD → 점선
+                mu_min = results[cpd_name]['min'][v]
+                ax.plot(q1_candidates, mu_min, '--', color=color, lw=1.4,
+                        label=f'{v_label} (PSD min)')
+
+                # 상하한 밴드 (max-min 사이 fill)
+                ax.fill_between(q1_candidates, mu_min, mu_max,
+                                color=color, alpha=0.08)
+
+                # 화강암 하한 수평선
+                if cpd_name in granite_mu and v in list(granite_v):
+                    gi = list(granite_v).index(v)
+                    if gi < len(granite_mu[cpd_name]):
+                        mu_g = granite_mu[cpd_name][gi]
+                        ax.axhline(mu_g, color=color, ls=':', lw=1.0, alpha=0.7)
+                        ax.text(q1_candidates[-1], mu_g, f' 화강암 {v_label}',
+                                fontsize=8, va='bottom', color=color, alpha=0.8)
+
+                # 아스팔트 상한 수평선
+                if cpd_name in asphalt_mu and v in list(asphalt_v):
+                    ai = list(asphalt_v).index(v)
+                    if ai < len(asphalt_mu[cpd_name]):
+                        mu_a = asphalt_mu[cpd_name][ai]
+                        ax.axhline(mu_a, color=color, ls='-.', lw=1.0, alpha=0.7)
+                        ax.text(q1_candidates[-1], mu_a, f' 아스팔트 {v_label}',
+                                fontsize=8, va='top', color=color, alpha=0.8)
+
+            # 유효 범위 표시
+            if self.q1_valid_range:
+                ax.axvspan(self.q1_valid_range[0], self.q1_valid_range[1],
+                           alpha=0.08, color='green')
+
+            ax.legend(fontsize=7, loc='best', ncol=1,
+                      handlelength=1.5, handletextpad=0.4,
+                      borderpad=0.3, labelspacing=0.2)
+
+        fig.tight_layout(pad=0.8, h_pad=1.0, w_pad=0.8)
         self._canvas_q1.draw_idle()
 
         self.app._show_status(
-            f"q₁ 사전 탐색 완료: [{valid_q1.min():.2e}, {valid_q1.max():.2e}]",
+            f"q₁ 사전 탐색 완료 — {n_cpd}개 컴파운드, "
+            f"PSD 앙상블 #{idx_max}(최대)/#{idx_min}(최소) 사용",
             'success')
 
     def _generate_q1_pool(self):
