@@ -891,7 +891,12 @@ class DataInputTab:
                 except Exception as e_hrms:
                     print(f"[DataInput] h'rms 자동 계산 건너뜀: {e_hrms}")
 
-        print(f"[DataInput] q_max={q1_str}, input_q1={q1_str}")
+        # _calculate_hrms_q1()가 q_max_var를 갱신했을 수 있으므로 최종 확인
+        final_q_max = app.q_max_var.get()
+        if hasattr(app, 'calculated_q1') and app.calculated_q1 is not None:
+            final_q_max = f"{app.calculated_q1:.6e}"
+            app.q_max_var.set(final_q_max)
+        print(f"[DataInput] 최종 q_max={final_q_max} (calculated_q1={getattr(app, 'calculated_q1', 'N/A')})")
 
         self._calc_status_var.set(f"[{ci+1}/{n_compounds}] {cpd.name}: G(q,v)...")
         app.root.update()

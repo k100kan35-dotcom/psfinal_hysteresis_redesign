@@ -5081,6 +5081,9 @@ class PerssonModelGUI_V2:
                 self.target_xi = target_xi
                 # Sync input_q1_var so save preset captures the calculated q1
                 self.input_q1_var.set(f"{q1_calculated:.3e}")
+                # q_max_var에 반영하여 _run_calculation()이 올바른 q1 사용
+                self.q_max_var.set(f"{q1_calculated:.6e}")
+                print(f"[hrms→q1] q_max_var 갱신: {q1_calculated:.6e}")
 
                 self.status_var.set(f"계산 완료: ξ={target_xi:.4f} → q1={q1_calculated:.3e} (1/m)")
                 self._show_status(f"모드 1: h'rms (ξ) → q1 계산\n\n"
@@ -5118,6 +5121,9 @@ class PerssonModelGUI_V2:
 
                 # ξ 입력란에도 반영
                 self.target_hrms_slope_var.set(f"{xi_calculated:.4f}")
+                # q_max_var에 반영하여 _run_calculation()이 올바른 q1 사용
+                self.q_max_var.set(f"{target_q1:.6e}")
+                print(f"[q1→hrms] q_max_var 갱신: {target_q1:.6e}")
 
                 self.status_var.set(f"계산 완료: q1={target_q1:.3e} → ξ={xi_calculated:.4f}")
                 self._show_status(f"모드 2: q1 → h'rms (ξ) 계산\n\n"
@@ -5234,6 +5240,9 @@ class PerssonModelGUI_V2:
                         self.target_hrms_slope_var.set(f"{xi_at_q1:.4f}")
                     # q1 입력란에도 반영
                     self.input_q1_var.set(f"{q1_found:.3e}")
+                    # q_max_var에 반영하여 _run_calculation()이 올바른 q1 사용
+                    self.q_max_var.set(f"{q1_found:.6e}")
+                    print(f"[stress→q1] q_max_var 갱신: {q1_found:.6e}")
 
                     self.status_var.set(
                         f"응력 한계법: σ_Y={stress_y:.1f} MPa → q1={q1_found:.3e} (1/m)")
