@@ -861,7 +861,7 @@ class EnsembleTab:
         self.ax_prof.set_ylabel('Height (um)')
         self.ax_prof.set_title(f'Road Surface Profiles ({len(self.computers)} files)')
         if len(self.computers) <= 15:
-            self.ax_prof.legend(fontsize=7, loc='upper right', ncol=2)
+            self.ax_prof.legend(fontsize=12, loc='upper right', ncol=2)
         self.ax_prof.grid(True, alpha=0.3)
         self.cv_prof.draw()
         self.plot_nb.select(0)  # switch to Profiles tab
@@ -885,7 +885,7 @@ class EnsembleTab:
         self.ax_psd.set_ylabel('log10(C(q)) [m^4]')
         self.ax_psd.set_title(f'PSD — {sum(1 for r in self.psd_results if r)} curves')
         if len(self.psd_results) <= 15:
-            self.ax_psd.legend(fontsize=7, loc='upper right', ncol=2)
+            self.ax_psd.legend(fontsize=12, loc='upper right', ncol=2)
         self.ax_psd.grid(True, alpha=0.3)
         self.cv_psd.draw()
 
@@ -916,7 +916,7 @@ class EnsembleTab:
         self.ax_ens.set_xlabel('log10(q) [1/m]')
         self.ax_ens.set_ylabel('log10(C(q)) [m^4]')
         self.ax_ens.set_title(f'Ensemble: {len(self.samples)} samples')
-        self.ax_ens.legend(loc='upper right', fontsize=9)
+        self.ax_ens.legend(loc='upper right', fontsize=12)
         self.ax_ens.grid(True, alpha=0.3)
         self.cv_ens.draw()
         self.plot_nb.select(2)  # switch to Ensemble tab
@@ -939,7 +939,7 @@ class EnsembleTab:
         self.ax_pca_vec.set_xlabel('log10(q)')
         self.ax_pca_vec.set_ylabel('Eigenvector')
         self.ax_pca_vec.set_title('Principal Components')
-        self.ax_pca_vec.legend(fontsize=9)
+        self.ax_pca_vec.legend(fontsize=12)
         self.ax_pca_vec.grid(True, alpha=0.3)
 
         # Variance bar chart
@@ -954,8 +954,8 @@ class EnsembleTab:
         self.ax_pca_var.set_xlabel('PC index')
         self.ax_pca_var.set_ylabel('Variance explained (%)')
         self.ax_pca_var.set_title('Explained Variance')
-        self.ax_pca_var.set_xticks(x, [f'PC{i+1}' for i in x], fontsize=7)
-        self.ax_pca_var.legend(fontsize=8)
+        self.ax_pca_var.set_xticks(x, [f'PC{i+1}' for i in x], fontsize=12)
+        self.ax_pca_var.legend(fontsize=12)
         self.ax_pca_var.grid(True, alpha=0.3, axis='y')
 
         self.fig_pca.tight_layout()
