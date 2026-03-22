@@ -145,10 +145,6 @@ def build():
         '--hidden-import', 'scipy.optimize',
         '--hidden-import', 'scipy.signal',
         '--hidden-import', 'scipy.special',
-        '--hidden-import', 'scipy.stats',
-        '--hidden-import', 'scipy.stats.qmc',       # Sobol init for differential_evolution
-        '--hidden-import', 'scipy._lib',
-        '--hidden-import', 'scipy._lib.messagestream',
 
         # ===== hidden imports: pandas =====
         '--hidden-import', 'pandas',
@@ -190,8 +186,6 @@ def build():
         '--hidden-import', 'persson_model.core.psd_from_profile',
         '--hidden-import', 'persson_model.core.psd_models',
         '--hidden-import', 'persson_model.core.viscoelastic',
-        '--hidden-import', 'persson_model.core.flash_temperature',
-        '--hidden-import', 'braking_simulation',
         '--hidden-import', 'persson_model.utils',
         '--hidden-import', 'persson_model.utils.data_loader',
         '--hidden-import', 'persson_model.utils.numerical',
@@ -216,9 +210,6 @@ def build():
 
     if os.path.isfile('strain.py'):
         args.extend(['--add-data', f'strain.py{sep}.'])
-
-    if os.path.isfile('braking_simulation.py'):
-        args.extend(['--add-data', f'braking_simulation.py{sep}.'])
 
     print("=" * 60)
     print("  NEXEN Rubber Friction Modelling Program - EXE Build")

@@ -782,13 +782,8 @@ def load_fg_curve_file(
         Dictionary with keys: 'strain', 'f', 'g' (g may be None)
         Returns None if parsing fails
     """
-    # Support Fortran D/d notation (e.g. 0.1482D-03) in addition to E/e
-    float_re = re.compile(r"[-+]?\d*\.?\d+(?:[eEdD][-+]?\d+)?")
+    float_re = re.compile(r"[-+]?\d*\.?\d+(?:[eE][-+]?\d+)?")
     strains, fvals, gvals = [], [], []
-
-    def _parse_fortran_float(s):
-        """Parse float string, converting Fortran D notation to E."""
-        return float(s.replace('D', 'E').replace('d', 'e'))
 
     with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
         for raw in f:
@@ -798,12 +793,12 @@ def load_fg_curve_file(
             nums = float_re.findall(line)
             if len(nums) < 2:
                 continue
-            s = _parse_fortran_float(nums[0])
-            fv = _parse_fortran_float(nums[1])
+            s = float(nums[0])
+            fv = float(nums[1])
             strains.append(s)
             fvals.append(fv)
             if len(nums) >= 3:
-                gvals.append(_parse_fortran_float(nums[2]))
+                gvals.append(float(nums[2]))
 
     if len(strains) < 2:
         return None

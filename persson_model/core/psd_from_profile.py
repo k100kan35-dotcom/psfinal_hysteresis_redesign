@@ -10,9 +10,7 @@ Reference:
 
 import numpy as np
 from scipy import signal
-from scipy.fft import fft, fftfreq
 from scipy.optimize import curve_fit
-from scipy.special import gamma as gamma_func
 from typing import Tuple, Optional, Dict, Any
 import warnings
 
@@ -20,16 +18,13 @@ import warnings
 def logarithmic_binning(
     q: np.ndarray,
     C: np.ndarray,
-    n_bins: int = 88
+    points_per_decade: int = 20
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Apply logarithmic binning to PSD data.
 
-    Matches k100kan35-dotcom/psd reference implementation:
-    - Fixed number of bins (default 88)
-    - Linearly spaced bin edges in log10 space
-    - Arithmetic mean of C values within each bin
-    - Bin centers at midpoints of log10 edges
+    Averages PSD values within logarithmically spaced bins to produce
+    a smooth curve suitable for visualization and analysis.
 
     Parameters
     ----------
@@ -37,15 +32,15 @@ def logarithmic_binning(
         Wavenumber array (1/m)
     C : np.ndarray
         PSD values
-    n_bins : int
-        Number of logarithmic bins (default: 88)
+    points_per_decade : int
+        Number of output points per decade of q (default: 20)
 
     Returns
     -------
     q_binned : np.ndarray
-        Binned wavenumber array
+        Binned wavenumber array (geometric mean of bin)
     C_binned : np.ndarray
-        Binned PSD values (arithmetic mean within bin)
+        Binned PSD values (geometric mean within bin)
     """
     # Filter valid data
     valid = (q > 0) & (C > 0) & np.isfinite(q) & np.isfinite(C)
@@ -60,20 +55,27 @@ def logarithmic_binning(
     q = q[sort_idx]
     C = C[sort_idx]
 
-    # Create logarithmic bins — reference uses np.linspace in log10 space
-    log_q = np.log10(q)
-    edges = np.linspace(log_q.min(), log_q.max(), n_bins + 1)
-    centers = (edges[:-1] + edges[1:]) / 2.0
+    # Create logarithmic bins
+    log_q_min = np.log10(q.min())
+    log_q_max = np.log10(q.max())
 
-    # Bin the data — reference uses arithmetic mean
-    C_binned = np.full(n_bins, np.nan)
+    n_decades = log_q_max - log_q_min
+    n_bins = max(10, int(n_decades * points_per_decade))
+
+    bin_edges = np.logspace(log_q_min, log_q_max, n_bins + 1)
+
+    # Bin the data
+    q_binned = []
+    C_binned = []
+
     for i in range(n_bins):
-        mask = (log_q >= edges[i]) & (log_q < edges[i + 1])
+        mask = (q >= bin_edges[i]) & (q < bin_edges[i + 1])
         if np.any(mask):
-            C_binned[i] = np.mean(C[mask])
+            # Geometric mean for log-spaced data
+            q_binned.append(np.exp(np.mean(np.log(q[mask]))))
+            C_binned.append(np.exp(np.mean(np.log(C[mask]))))
 
-    valid_mask = ~np.isnan(C_binned) & (C_binned > 0)
-    return 10.0 ** centers[valid_mask], C_binned[valid_mask]
+    return np.array(q_binned), np.array(C_binned)
 
 
 def load_profile_data(
@@ -188,16 +190,11 @@ def detrend_profile(h: np.ndarray, method: str = 'mean') -> np.ndarray:
 def calculate_1d_psd(
     x: np.ndarray,
     h: np.ndarray,
-    window: str = 'none',
-    detrend_method: str = 'linear'
+    window: str = 'hann',
+    detrend_method: str = 'mean'
 ) -> Tuple[np.ndarray, np.ndarray]:
     """
     Calculate 1D Power Spectral Density from height profile.
-
-    Matches k100kan35-dotcom/psd reference implementation:
-    - Uses scipy.fft.fft (full FFT)
-    - Window correction via amplitude scaling: h * w * sqrt(N / sum(w²))
-    - C_1D(q) = (dx / (2π * N)) * |H_fft|²
 
     Parameters
     ----------
@@ -206,7 +203,7 @@ def calculate_1d_psd(
     h : np.ndarray
         Height array (m)
     window : str
-        Window function ('hann'/'hanning', 'hamming', 'blackman', 'none')
+        Window function ('hann', 'hamming', 'blackman', 'none')
     detrend_method : str
         Detrending method ('mean', 'linear', 'quadratic')
 
@@ -221,41 +218,52 @@ def calculate_1d_psd(
 
     # Calculate sampling parameters
     dx = np.abs(x[1] - x[0])
+    L = n * dx  # Total length
 
     # Detrend
     h_detrended = detrend_profile(h, method=detrend_method)
 
-    # Apply window function with amplitude correction (reference method)
-    wname = window.lower()
-    if wname in ('hann', 'hanning'):
+    # Apply window function
+    if window.lower() == 'hann':
         w = np.hanning(n)
-    elif wname == 'hamming':
+    elif window.lower() == 'hamming':
         w = np.hamming(n)
-    elif wname == 'blackman':
+    elif window.lower() == 'blackman':
         w = np.blackman(n)
+    elif window.lower() == 'none':
+        w = np.ones(n)
     else:
-        w = None
+        w = np.hanning(n)
 
-    if w is not None:
-        correction = np.sqrt(n / np.sum(w ** 2))
-        h_windowed = h_detrended * w * correction
-    else:
-        h_windowed = h_detrended.copy()
+    # Window correction factor
+    w_correction = np.mean(w**2)
 
-    # FFT — use scipy.fft.fft (full FFT, matching reference)
-    H_fft = fft(h_windowed)
-    freqs = fftfreq(n, d=dx)
+    # Apply window
+    h_windowed = h_detrended * w
+
+    # FFT
+    h_fft = np.fft.rfft(h_windowed)
+
+    # Frequency array
+    freq = np.fft.rfftfreq(n, dx)
 
     # Convert frequency to wavenumber q = 2*pi*f
-    q = 2.0 * np.pi * freqs
+    q = 2 * np.pi * freq
 
-    # 1D PSD: C_1D(q) = (dx / (2π * N)) * |H_fft|²
-    C1d = (dx / (2.0 * np.pi * n)) * np.abs(H_fft) ** 2
+    # Power spectrum (one-sided)
+    # PSD = |FFT|² * 2 / (N * L) for one-sided spectrum
+    # The factor of 2 accounts for the one-sided spectrum
+    power = np.abs(h_fft)**2
 
-    # Keep only positive q (remove DC and negative frequencies)
-    mask = q > 0
-    q = q[mask]
-    C1d = C1d[mask]
+    # Normalize: C(q) has units of m³ for 1D PSD
+    # C_1D(q) = L * |h_fft|² / (π * N²)
+    # Parseval: h_rms² = ∫ C_1D(q) dq
+    C1d = power * L / (np.pi * n**2) / w_correction
+
+    # Remove DC component (q=0)
+    valid = q > 0
+    q = q[valid]
+    C1d = C1d[valid]
 
     return q, C1d
 
@@ -263,16 +271,22 @@ def calculate_1d_psd(
 def calculate_top_psd(
     x: np.ndarray,
     h: np.ndarray,
-    window: str = 'none',
-    detrend_method: str = 'linear'
+    window: str = 'hann',
+    detrend_method: str = 'mean'
 ) -> Tuple[np.ndarray, np.ndarray, float]:
     """
     Calculate Top PSD from height profile.
 
     Top PSD considers only the upper part of the surface (h > 0 after detrending).
-    Matches k100kan35-dotcom/psd reference: detrend → center → h_top → window → FFT.
 
     Reference: J. Chem. Phys. 162, 074704 (2025)
+
+    Procedure:
+    1. Detrend data (mean = 0)
+    2. Create h_top: keep h > 0, set h <= 0 to 0
+    3. Calculate phi = N_top / N_total (fraction of points > 0)
+    4. Calculate PSD of h_top
+    5. Multiply by 1/phi for correction
 
     Parameters
     ----------
@@ -295,74 +309,72 @@ def calculate_top_psd(
         Fraction of surface above mean (N_top / N_total)
     """
     n = len(h)
-    dx = np.abs(x[1] - x[0])
 
     # Detrend first
     h_detrended = detrend_profile(h, method=detrend_method)
 
-    # Create h_top: center at mean, keep h > 0, set h <= 0 to 0
-    # (matches reference _top_profile: h_centered = h - mean(h), then clip <0)
-    h_centered = h_detrended - np.mean(h_detrended)
-    h_top = h_centered.copy()
-    h_top[h_top < 0] = 0.0
+    # Create h_top: keep h > 0, set h <= 0 to 0
+    h_top = np.where(h_detrended > 0, h_detrended, 0.0)
 
     # Calculate phi = N_top / N_total
-    n_top = np.sum(h_centered > 0)
+    n_top = np.sum(h_detrended > 0)
     phi = n_top / n
 
     if phi < 0.01:
         warnings.warn(f"Very small phi ({phi:.4f}). Top PSD may be unreliable.")
 
-    # Apply window with amplitude correction (matching reference)
-    wname = window.lower()
-    if wname in ('hann', 'hanning'):
+    # Calculate PSD of h_top
+    # Note: we pass h_top directly without further detrending
+    dx = np.abs(x[1] - x[0])
+    L = n * dx
+
+    # Apply window
+    if window.lower() == 'hann':
         w = np.hanning(n)
-    elif wname == 'hamming':
+    elif window.lower() == 'hamming':
         w = np.hamming(n)
-    elif wname == 'blackman':
+    elif window.lower() == 'blackman':
         w = np.blackman(n)
     else:
-        w = None
+        w = np.ones(n)
 
-    if w is not None:
-        correction = np.sqrt(n / np.sum(w ** 2))
-        h_windowed = h_top * w * correction
-    else:
-        h_windowed = h_top.copy()
+    w_correction = np.mean(w**2)
+    h_windowed = h_top * w
 
-    # FFT — use scipy.fft.fft (matching reference)
-    H_fft = fft(h_windowed)
-    freqs = fftfreq(n, d=dx)
-    q = 2.0 * np.pi * freqs
+    # FFT
+    h_fft = np.fft.rfft(h_windowed)
+    freq = np.fft.rfftfreq(n, dx)
+    q = 2 * np.pi * freq
 
-    # 1D PSD
-    C1d = (dx / (2.0 * np.pi * n)) * np.abs(H_fft) ** 2
+    # Power spectrum
+    power = np.abs(h_fft)**2
+    # Same formula as calculate_1d_psd
+    C1d = power * L / (np.pi * n**2) / w_correction
 
     # Apply 1/phi correction
     C_top = C1d / phi
 
-    # Keep only positive q
-    mask = q > 0
-    q = q[mask]
-    C_top = C_top[mask]
+    # Remove DC component
+    valid = q > 0
+    q = q[valid]
+    C_top = C_top[valid]
 
     return q, C_top, phi
 
 
 def convert_1d_to_2d_isotropic_psd(
     q: np.ndarray,
-    C1d: np.ndarray,
-    method: str = 'standard',
-    correction_factor: float = 1.1615,
-    hurst: float = 0.8
+    C1d: np.ndarray
 ) -> np.ndarray:
     """
     Convert 1D PSD to 2D isotropic PSD.
 
-    Matches k100kan35-dotcom/psd reference implementation with 3 methods:
-    - 'standard': C_2D = C_1D / (π * q) * correction_factor
-    - 'gamma':    C_2D = (C_1D / q) * Γ(1+H) / (√π * Γ(H+0.5))
-    - 'sqrt':     C_2D = (C_1D / q) * √(1 + 3H)
+    For an isotropic surface, the 2D PSD C(q) is related to 1D PSD C_1D(q) by:
+    C(q) = C_1D(q) / (2 * pi * q)
+
+    This ensures Parseval's theorem is satisfied:
+    - 1D: h_rms² = ∫ C_1D(q) dq
+    - 2D: h_rms² = 2π ∫ q C_2D(q) dq
 
     Parameters
     ----------
@@ -370,12 +382,6 @@ def convert_1d_to_2d_isotropic_psd(
         Wavenumber array (1/m)
     C1d : np.ndarray
         1D PSD (m³)
-    method : str
-        Conversion method: 'standard', 'gamma', or 'sqrt'
-    correction_factor : float
-        Calibrated correction factor for standard method (default: 1.1615)
-    hurst : float
-        Hurst exponent for gamma/sqrt methods (default: 0.8)
 
     Returns
     -------
@@ -383,13 +389,7 @@ def convert_1d_to_2d_isotropic_psd(
         2D isotropic PSD (m⁴)
     """
     with np.errstate(divide='ignore', invalid='ignore'):
-        if method == 'gamma':
-            f_g = gamma_func(1.0 + hurst) / (np.sqrt(np.pi) * gamma_func(hurst + 0.5))
-            C2d = (C1d / q) * f_g
-        elif method == 'sqrt':
-            C2d = (C1d / q) * np.sqrt(1.0 + 3.0 * hurst)
-        else:  # 'standard'
-            C2d = C1d / (np.pi * q) * correction_factor
+        C2d = C1d / (2 * np.pi * q)
         C2d = np.where(np.isfinite(C2d), C2d, 0.0)
 
     return C2d
@@ -798,7 +798,7 @@ class ProfilePSDAnalyzer:
         self.fit_result_full = None
         self.fit_result_top = None
         self.surface_params = None
-        self.n_bins = 88  # Default binning resolution (matches reference)
+        self.points_per_decade = 20  # Default binning resolution
 
     def load_data(
         self,
@@ -824,34 +824,32 @@ class ProfilePSDAnalyzer:
 
     def calculate_psd(
         self,
-        window: str = 'none',
-        detrend_method: str = 'linear',
+        window: str = 'hann',
+        detrend_method: str = 'mean',
         calculate_top: bool = True,
         apply_binning: bool = True,
-        n_bins: int = 88
+        points_per_decade: int = 20
     ):
         """
         Calculate Full and optionally Top PSD.
 
-        Defaults match k100kan35-dotcom/psd reference implementation.
-
         Parameters
         ----------
         window : str
-            Window function ('none', 'hann'/'hanning', 'hamming', 'blackman')
+            Window function
         detrend_method : str
-            Detrending method ('linear', 'mean', 'quadratic')
+            Detrending method
         calculate_top : bool
             Whether to calculate Top PSD
         apply_binning : bool
             Apply logarithmic binning for smooth curve (default: True)
-        n_bins : int
-            Number of logarithmic bins (default: 88, matching reference)
+        points_per_decade : int
+            Number of points per decade for binning (default: 20)
         """
         if self.x is None or self.h is None:
             raise ValueError("No data loaded. Call load_data() or set_data() first.")
 
-        self.n_bins = n_bins
+        self.points_per_decade = points_per_decade
 
         # Store scan length for reference (important for PSD normalization)
         n = len(self.h)
@@ -877,7 +875,7 @@ class ProfilePSDAnalyzer:
         if apply_binning:
             # Bin Full PSD (1D)
             self.q, self.C_full_1d = logarithmic_binning(
-                self.q_raw, self.C_full_1d_raw, n_bins
+                self.q_raw, self.C_full_1d_raw, points_per_decade
             )
             # Convert binned 1D to 2D
             self.C_full_2d = convert_1d_to_2d_isotropic_psd(self.q, self.C_full_1d)
@@ -885,7 +883,7 @@ class ProfilePSDAnalyzer:
             # Bin Top PSD (1D)
             if calculate_top and self.C_top_1d_raw is not None:
                 _, self.C_top_1d = logarithmic_binning(
-                    self.q_raw, self.C_top_1d_raw, n_bins
+                    self.q_raw, self.C_top_1d_raw, points_per_decade
                 )
                 self.C_top_2d = convert_1d_to_2d_isotropic_psd(self.q, self.C_top_1d)
         else:

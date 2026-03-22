@@ -7,7 +7,7 @@
 ; Download Inno Setup: https://jrsoftware.org/issetup.php
 
 #define MyAppName "NEXEN Rubber Friction Modelling Program"
-#define MyAppVersion "3.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "NEXEN TIRE - Material Research Team"
 #define MyAppExeName "NexenRubberFriction.exe"
 #define MyAppDescription "NEXEN Rubber Friction Modelling Program based on Persson Theory"

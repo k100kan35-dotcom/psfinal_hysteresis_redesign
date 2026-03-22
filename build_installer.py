@@ -26,7 +26,7 @@ import glob
 # 설정
 # =====================================================================
 APP_NAME = "NexenRubberFriction"
-APP_VERSION = "3.0.0"
+APP_VERSION = "1.1.0"
 MAIN_SCRIPT = "main.py"
 ISS_FILE = "installer.iss"
 OUTPUT_DIR = "installer_output"
@@ -68,13 +68,11 @@ HIDDEN_IMPORTS = [
     'matplotlib.ft2font', 'matplotlib.mathtext',
     'matplotlib._mathtext', 'matplotlib.ticker',
     'matplotlib.colors', 'matplotlib.cm',
-    'matplotlib.collections', 'matplotlib.scale',
+    'matplotlib.collections',
     # numpy/scipy
     'numpy', 'numpy.core',
     'scipy.integrate', 'scipy.interpolate',
     'scipy.optimize', 'scipy.signal', 'scipy.special',
-    'scipy.stats', 'scipy.stats.qmc',
-    'scipy._lib', 'scipy._lib.messagestream',
     # pandas
     'pandas', 'pandas.core',
     # tkinter
@@ -93,8 +91,6 @@ HIDDEN_IMPORTS = [
     'persson_model.core.g_calculator', 'persson_model.core.master_curve',
     'persson_model.core.psd_from_profile', 'persson_model.core.psd_models',
     'persson_model.core.viscoelastic',
-    'persson_model.core.flash_temperature',
-    'braking_simulation',
     'persson_model.utils', 'persson_model.utils.data_loader',
     'persson_model.utils.numerical', 'persson_model.utils.output',
 ]
@@ -140,20 +136,7 @@ def kill_old_processes():
 
 
 def clean_build():
-    """이전 빌드 산출물을 정리합니다 (spec, __pycache__ 포함)."""
-    # spec 파일 삭제 → PyInstaller가 항상 새로 생성하도록 강제
-    for spec in glob.glob('*.spec'):
-        print(f"  [CLEAN] Removing {spec}")
-        os.remove(spec)
-
-    # __pycache__ 삭제 → 스테일 .pyc가 번들되는 것을 방지
-    for root, dirs, _ in os.walk('.'):
-        for d in dirs:
-            if d == '__pycache__':
-                cache_path = os.path.join(root, d)
-                print(f"  [CLEAN] Removing {cache_path}")
-                shutil.rmtree(cache_path, ignore_errors=True)
-
+    """이전 빌드 산출물을 정리합니다."""
     for d in ['build', f'dist/{APP_NAME}']:
         if os.path.isdir(d):
             print(f"  [CLEAN] Removing {d}/")
@@ -180,7 +163,6 @@ def step1_pyinstaller():
         '--noconsole',
         '--log-level', 'WARN',
         '--icon=assets/app_icon.ico',
-        '--manifest=assets/dpi_aware.manifest',
 
         # matplotlib 데이터 번들
         '--collect-data', 'matplotlib',
@@ -209,9 +191,6 @@ def step1_pyinstaller():
 
     if os.path.isfile('strain.py'):
         args.extend(['--add-data', f'strain.py{sep}.'])
-
-    if os.path.isfile('braking_simulation.py'):
-        args.extend(['--add-data', f'braking_simulation.py{sep}.'])
 
     # 빌드 실행
     PyInstaller.__main__.run(args)

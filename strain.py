@@ -734,10 +734,10 @@ class App(tk.Tk):
     def _build_plot(self, parent):
         self.fig = Figure(figsize=(7.7, 6.3), dpi=110)
         self.ax = self.fig.add_subplot(111)
-        self.ax.set_title("f(ε), g(ε) vs strain (linear axes)", fontsize=14, fontweight='bold')
-        self.ax.set_xlabel("strain ε (fraction)", fontsize=12)
-        self.ax.set_ylabel("factor", fontsize=12)
-        self.ax.tick_params(labelsize=14)
+        self.ax.set_title("f(ε), g(ε) vs strain (linear axes)", fontsize=15, fontweight='bold')
+        self.ax.set_xlabel("strain ε (fraction)", fontsize=13)
+        self.ax.set_ylabel("factor", fontsize=13)
+        self.ax.tick_params(labelsize=12)
         self.ax.grid(True, alpha=0.4)
 
         self.canvas = FigureCanvasTkAgg(self.fig, master=parent)
@@ -926,10 +926,10 @@ class App(tk.Tk):
 
     def _redraw_plot(self):
         self.ax.clear()
-        self.ax.set_title("f(ε), g(ε) vs strain (linear axes)", fontsize=14, fontweight='bold')
-        self.ax.set_xlabel("strain ε (fraction)", fontsize=12)
-        self.ax.set_ylabel("factor", fontsize=12)
-        self.ax.tick_params(labelsize=14)
+        self.ax.set_title("f(ε), g(ε) vs strain (linear axes)", fontsize=15, fontweight='bold')
+        self.ax.set_xlabel("strain ε (fraction)", fontsize=13)
+        self.ax.set_ylabel("factor", fontsize=13)
+        self.ax.tick_params(labelsize=12)
         self.ax.grid(True, alpha=0.4)
 
         # show individual T curves (thin), union of all region-selected temps
@@ -1070,7 +1070,35 @@ class App(tk.Tk):
 if __name__ == "__main__":
     import sys
 
-    # DPI awareness is set in main.py via manifest + SetProcessDpiAwareness.
+    # ── High-DPI awareness BEFORE any window creation (Windows 10+) ──
+    if sys.platform == 'win32':
+        try:
+            from ctypes import windll
+            try:
+                windll.shcore.SetProcessDpiAwareness(2)
+            except Exception:
+                try:
+                    windll.shcore.SetProcessDpiAwareness(1)
+                except Exception:
+                    windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
+
     app = App()
+
+    # ── Neutralise OS DPI scaling so fonts render at design size ──
+    if sys.platform == 'win32':
+        try:
+            from ctypes import windll
+            try:
+                dpi = windll.user32.GetDpiForSystem()
+            except Exception:
+                hdc = windll.user32.GetDC(0)
+                dpi = windll.gdi32.GetDeviceCaps(hdc, 88)
+                windll.user32.ReleaseDC(0, hdc)
+            if dpi / 96.0 > 1.05:
+                app.tk.call('tk', 'scaling', 96.0 / 72.0)
+        except Exception:
+            pass
 
     app.mainloop()
