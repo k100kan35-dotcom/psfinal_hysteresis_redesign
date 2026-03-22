@@ -22367,6 +22367,26 @@ class PerssonModelGUI_V2:
             n_phi = int(self.n_phi_var.get())  # mu_visc 탭과 동일
             use_fg = self.use_fg_correction_var.get()
 
+            # f,g 보간기 유효성 확인
+            if use_fg:
+                if not hasattr(self, 'f_interpolator') or self.f_interpolator is None:
+                    print("[FrictionMap] WARNING: use_fg=True 이지만 f_interpolator가 없습니다. 비선형 보정을 비활성화합니다.")
+                    use_fg = False
+                elif not hasattr(self, 'g_interpolator') or self.g_interpolator is None:
+                    print("[FrictionMap] WARNING: use_fg=True 이지만 g_interpolator가 없습니다. 비선형 보정을 비활성화합니다.")
+                    use_fg = False
+                else:
+                    # 보간기 작동 테스트
+                    try:
+                        _test_f = float(self.f_interpolator(0.01))
+                        _test_g = float(self.g_interpolator(0.01))
+                        if not (np.isfinite(_test_f) and np.isfinite(_test_g)):
+                            print(f"[FrictionMap] WARNING: f/g 보간기 NaN/Inf 반환. 비선형 보정 비활성화.")
+                            use_fg = False
+                    except Exception as e_fg:
+                        print(f"[FrictionMap] WARNING: f/g 보간기 테스트 실패: {e_fg}. 비선형 보정 비활성화.")
+                        use_fg = False
+
             sq_method = getattr(self, 'sq_method_var', None)
             p_exponent = 1 if (sq_method and sq_method.get() == "P1") else 2
 

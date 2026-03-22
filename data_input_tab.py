@@ -345,7 +345,7 @@ class DataInputTab:
             ('input_data',   '입력 데이터'),
             ('results',      '마찰 결과'),
             ('cold_hot',     'Cold & Hot Branch'),
-            ('friction_map', '3D Friction Map'),
+            ('flash_temp',   'Flash Temperature'),
         ]
         for key, label in _plot_defs:
             tab_frame = ttk.Frame(self._plot_notebook)
@@ -1075,6 +1075,18 @@ class DataInputTab:
                 cpd.results['mu_cold_total'] = mu_visc_cold + mu_adh_cold
                 cpd.results['A_A0_cold'] = A_A0_cold
 
+                # tau_f_cold (전단응력): mu_adh 탭의 원시 tau_f
+                tau_f_cold = app.mu_adh_results.get('tau_f', None) if app.mu_adh_results else None
+                if tau_f_cold is not None and len(tau_f_cold) == len(v_array):
+                    cpd.results['tau_f_cold'] = tau_f_cold.copy()
+                elif tau_f_cold is not None:
+                    # 보간
+                    v_adh = app.mu_adh_results.get('v', v_array)
+                    cpd.results['tau_f_cold'] = np.interp(
+                        np.log10(np.maximum(v_array, 1e-30)),
+                        np.log10(np.maximum(v_adh, 1e-30)),
+                        tau_f_cold)
+
             if mu_visc_hot is not None:
                 # Hot adhesion: A_A0_hot 기반 재계산
                 # flash_results에서 T_hot 배열을 가져와 Arrhenius 시프트 적용
@@ -1084,14 +1096,16 @@ class DataInputTab:
                     delta_T_arr = flash_results.get('delta_T', None)
                     cpd.results['T_hot'] = T_hot_arr
                     cpd.results['delta_T'] = delta_T_arr
+                    cpd.results['flash_results'] = flash_results
 
                     # Hot adhesion: aT' Arrhenius 시프트 적용
-                    mu_adh_hot = self._calc_hot_adhesion(
+                    mu_adh_hot, tau_f_hot = self._calc_hot_adhesion(
                         app, cpd, v_array, A_A0_hot, T_hot_arr)
                     cpd.results['mu_hot_hys'] = mu_visc_hot
                     cpd.results['mu_hot_adh'] = mu_adh_hot
                     cpd.results['mu_hot_total'] = mu_visc_hot + mu_adh_hot
                     cpd.results['A_A0_hot'] = A_A0_hot
+                    cpd.results['tau_f_hot'] = tau_f_hot
                     # 대표값도 hot total로 갱신
                     cpd.results['mu_total'] = mu_visc_hot + mu_adh_hot
                 else:
@@ -1112,13 +1126,15 @@ class DataInputTab:
         """Hot adhesion: Arrhenius aT 시프트로 τ_f(T_hot) 계산 → μ_adh_hot.
 
         10번 탭(Cold & Hot Branch)과 동일한 로직.
+        Returns (mu_adh_hot, tau_f_hot) tuple.
         """
+        zeros = np.zeros_like(v_array)
         if T_hot_arr is None or A_A0_hot is None:
-            return cpd.results.get('mu_cold_adh', np.zeros_like(v_array))
+            return zeros, zeros
 
         p0 = float(self._sigma0_var.get()) * 1e6
         if p0 <= 0:
-            return np.zeros_like(v_array)
+            return zeros, zeros
 
         # Adhesion parameters
         try:
@@ -1127,25 +1143,26 @@ class DataInputTab:
             c_gauss = float(self._c_gauss_var.get())
             epsilon = float(self._epsilon_var.get())
         except (ValueError, AttributeError):
-            return cpd.results.get('mu_cold_adh', np.zeros_like(v_array))
+            return zeros, zeros
 
         T0 = float(self._temp_var.get())
 
         # aT' Arrhenius shift factor at each T_hot
-        # Persson adhesion uses Arrhenius: aT' = exp(epsilon * e / kB * (1/T_hot - 1/T_ref))
         kB_eV = 8.617333262e-5  # eV/K
         T_ref_K = T0 + 273.15
 
+        tau_f_hot = np.zeros_like(v_array)
         mu_adh_hot = np.zeros_like(v_array)
         for iv, v_val in enumerate(v_array):
             T_hot_K = T_hot_arr[iv] + 273.15 if T_hot_arr[iv] > -200 else T_ref_K
             aT_prime = np.exp(epsilon / kB_eV * (1.0 / T_hot_K - 1.0 / T_ref_K))
             v_shifted = v_val * aT_prime
-            # τ_f Gaussian
-            tau_f_v = tau_f0 * np.exp(-c_gauss * (np.log(v_shifted / v0_star))**2)
-            mu_adh_hot[iv] = A_A0_hot[iv] * tau_f_v / p0
+            # τ_f Gaussian (log10 consistent with main cold_hot_branch)
+            log_ratio = np.log10(max(v_shifted, 1e-30) / v0_star)
+            tau_f_hot[iv] = tau_f0 * np.exp(-c_gauss * log_ratio**2)
+            mu_adh_hot[iv] = A_A0_hot[iv] * tau_f_hot[iv] / p0
 
-        return mu_adh_hot
+        return mu_adh_hot, tau_f_hot
 
     def _after_calculation(self):
         """Post-calculation: update plots and results tab."""
@@ -1168,7 +1185,7 @@ class DataInputTab:
         self._plot_input_data()
         self._plot_results()
         self._plot_cold_hot()
-        self._plot_friction_map_3d()
+        self._plot_flash_temp()
 
     @staticmethod
     def _style_ax(ax, title='', xlabel='', ylabel='', xscale=None, yscale=None):
@@ -1320,7 +1337,7 @@ class DataInputTab:
 
     # ── Tab 3: Cold & Hot Branch ──
     def _plot_cold_hot(self):
-        """2×2: μ_hys C/H, μ_adh C/H, A/A0 C/H, μ_total C/H."""
+        """3×2: μ_hys C/H, A/A0 C/H, τ_f C/H, μ_adh C/H, μ_total C/H, T_hot(v)."""
         FS = self.PLOT_FONT_SIZE
         LW = self.PLOT_LINE_WIDTH
         LWs = self.PLOT_LINE_WIDTH_SUB
@@ -1339,15 +1356,19 @@ class DataInputTab:
             canvas.draw_idle()
             return
 
-        ax1 = fig.add_subplot(2, 2, 1)
-        ax2 = fig.add_subplot(2, 2, 2)
-        ax3 = fig.add_subplot(2, 2, 3)
-        ax4 = fig.add_subplot(2, 2, 4)
+        ax_hys   = fig.add_subplot(3, 2, 1)
+        ax_aa0   = fig.add_subplot(3, 2, 2)
+        ax_tau   = fig.add_subplot(3, 2, 3)
+        ax_adh   = fig.add_subplot(3, 2, 4)
+        ax_total = fig.add_subplot(3, 2, 5)
+        ax_thot  = fig.add_subplot(3, 2, 6)
 
-        self._style_ax(ax1, 'μ_hys: Cold vs Hot', 'v (m/s)', 'μ_hys', 'log')
-        self._style_ax(ax2, 'μ_adh: Cold vs Hot', 'v (m/s)', 'μ_adh', 'log')
-        self._style_ax(ax3, 'A/A₀: Cold vs Hot', 'v (m/s)', 'A/A₀', 'log')
-        self._style_ax(ax4, 'μ_total: Cold vs Hot', 'v (m/s)', 'μ_total', 'log')
+        self._style_ax(ax_hys,   'μ_hys: Cold vs Hot',   'v (m/s)', 'μ_hys', 'log')
+        self._style_ax(ax_aa0,   'A/A₀: Cold vs Hot',    'v (m/s)', 'A/A₀', 'log')
+        self._style_ax(ax_tau,   'τ_f: Cold vs Hot',     'v (m/s)', 'τ_f (MPa)', 'log')
+        self._style_ax(ax_adh,   'μ_adh: Cold vs Hot',   'v (m/s)', 'μ_adh', 'log')
+        self._style_ax(ax_total, 'μ_total: Cold vs Hot', 'v (m/s)', 'μ_total', 'log')
+        self._style_ax(ax_thot,  'T_hot(v)',             'v (m/s)', 'T (°C)', 'log')
 
         for i, cpd in enumerate(self.compounds):
             if cpd.results is None:
@@ -1357,116 +1378,168 @@ class DataInputTab:
             color = self.COMPOUND_COLORS[i % len(self.COMPOUND_COLORS)]
             lbl = cpd.name
 
-            for ax, cold_key, hot_key in [
-                (ax1, 'mu_cold_hys', 'mu_hot_hys'),
-                (ax2, 'mu_cold_adh', 'mu_hot_adh'),
-                (ax3, 'A_A0_cold',   'A_A0_hot'),
-                (ax4, 'mu_cold_total', 'mu_hot_total'),
-            ]:
-                c_data = r.get(cold_key)
-                h_data = r.get(hot_key)
-                if c_data is not None:
-                    ax.plot(v, c_data, '-', color=color, linewidth=LW,
+            # μ_hys
+            for key, style in [('mu_cold_hys', '-'), ('mu_hot_hys', '--')]:
+                d = r.get(key)
+                if d is not None:
+                    branch = 'Cold' if 'cold' in key else 'Hot'
+                    ax_hys.plot(v, d, style, color=color, linewidth=LW if style == '-' else LWs,
+                                label=f'{lbl} {branch}')
+
+            # A/A0
+            for key, style in [('A_A0_cold', '-'), ('A_A0_hot', '--')]:
+                d = r.get(key)
+                if d is not None:
+                    branch = 'Cold' if 'cold' in key.lower() else 'Hot'
+                    ax_aa0.plot(v, d, style, color=color, linewidth=LW if style == '-' else LWs,
+                                label=f'{lbl} {branch}')
+
+            # τ_f (전단응력) Cold vs Hot
+            tau_cold = r.get('tau_f_cold')
+            tau_hot = r.get('tau_f_hot')
+            if tau_cold is not None:
+                ax_tau.plot(v, tau_cold / 1e6, '-', color=color, linewidth=LW,
                             label=f'{lbl} Cold')
-                if h_data is not None:
-                    ax.plot(v, h_data, '--', color=color, linewidth=LWs,
+            if tau_hot is not None:
+                ax_tau.plot(v, tau_hot / 1e6, '--', color=color, linewidth=LWs,
                             label=f'{lbl} Hot')
 
-        for ax in [ax1, ax2, ax3, ax4]:
+            # μ_adh (= A/A0 × τ_f / p0)
+            for key, style in [('mu_cold_adh', '-'), ('mu_hot_adh', '--')]:
+                d = r.get(key)
+                if d is not None:
+                    branch = 'Cold' if 'cold' in key else 'Hot'
+                    ax_adh.plot(v, d, style, color=color, linewidth=LW if style == '-' else LWs,
+                                label=f'{lbl} {branch}')
+
+            # μ_total
+            for key, style in [('mu_cold_total', '-'), ('mu_hot_total', '--')]:
+                d = r.get(key)
+                if d is not None:
+                    branch = 'Cold' if 'cold' in key else 'Hot'
+                    ax_total.plot(v, d, style, color=color, linewidth=LW if style == '-' else LWs,
+                                  label=f'{lbl} {branch}')
+
+            # T_hot(v)
+            T_hot = r.get('T_hot')
+            T0 = r.get('temperature', 20.0)
+            if T_hot is not None:
+                ax_thot.plot(v, T_hot, '-', color=color, linewidth=LW, label=lbl)
+                ax_thot.axhline(y=T0, color=color, linestyle=':', linewidth=0.8, alpha=0.5)
+
+        for ax in [ax_hys, ax_aa0, ax_tau, ax_adh, ax_total, ax_thot]:
             if ax.get_legend_handles_labels()[1]:
                 ax.legend(fontsize=FS - 3, loc='best')
         fig.tight_layout()
         canvas.draw_idle()
 
-    # ── Tab 4: 3D Friction Map (컴파운드별 4분할) ──
-    def _plot_friction_map_3d(self):
-        """3D surface plot per compound (max 4 subplots)."""
+    # ── Tab 4: Flash Temperature (T_hot, 파수별 누적, 히트맵) ──
+    def _plot_flash_temp(self):
+        """3×2: ΔT(v), T_hot(v), ΔT(q) 누적, ΔT(q,v) 히트맵, ζ vs ΔT, A/A0 C/H."""
+        import matplotlib.pyplot as _plt
         FS = self.PLOT_FONT_SIZE
         LW = self.PLOT_LINE_WIDTH
-        fig, canvas = self._plot_tabs['friction_map']
+        fig, canvas = self._plot_tabs['flash_temp']
         fig.clear()
 
-        cpds = [c for c in self.compounds if c.results is not None]
+        cpds = [c for c in self.compounds
+                if c.results is not None and c.results.get('flash_results') is not None]
         if not cpds:
             ax = fig.add_subplot(111)
-            ax.text(0.5, 0.5, '계산 실행 후 표시됩니다', ha='center', va='center',
-                    fontsize=14, color='gray', transform=ax.transAxes)
+            ax.text(0.5, 0.5, 'Flash Temperature 계산 후 표시됩니다',
+                    ha='center', va='center', fontsize=FS, color='gray',
+                    transform=ax.transAxes)
             ax.set_axis_off()
             canvas.draw_idle()
             return
 
-        n = len(cpds)
-        cols = min(n, 2)
-        rows = (n + cols - 1) // cols
+        ax_dT    = fig.add_subplot(3, 2, 1)
+        ax_Thot  = fig.add_subplot(3, 2, 2)
+        ax_dTq   = fig.add_subplot(3, 2, 3)
+        ax_hmap  = fig.add_subplot(3, 2, 4)
+        ax_aa0   = fig.add_subplot(3, 2, 5)
+        ax_mu    = fig.add_subplot(3, 2, 6)
 
-        for plot_idx, cpd in enumerate(cpds):
-            ax = fig.add_subplot(rows, cols, plot_idx + 1, projection='3d')
-            color = self.COMPOUND_COLORS[plot_idx % len(self.COMPOUND_COLORS)]
+        self._style_ax(ax_dT,   'ΔT(v)', 'v (m/s)', 'ΔT (°C)', 'log')
+        self._style_ax(ax_Thot, 'T_hot(v)', 'v (m/s)', 'T (°C)', 'log')
+        self._style_ax(ax_dTq,  'ΔT(q) 파수별 누적', 'q (1/m)', 'ΔT (°C)', 'log')
+        self._style_ax(ax_aa0,  'A/A₀: Cold vs Hot', 'v (m/s)', 'A/A₀', 'log')
+        self._style_ax(ax_mu,   'μ: Cold vs Hot', 'v (m/s)', 'μ', 'log')
+
+        hmap_drawn = False
+        for idx, cpd in enumerate(cpds):
+            color = self.COMPOUND_COLORS[idx % len(self.COMPOUND_COLORS)]
             r = cpd.results
             v = r['v']
-            log_v = np.log10(np.maximum(v, 1e-20))
-            mu_visc = r['mu_visc']
-            mu_adh = r.get('mu_adh')
-            mu_total = r['mu_total']
-            n_v = len(v)
+            fr = r['flash_results']
 
-            has_adh = mu_adh is not None and np.any(mu_adh > 0)
-            if has_adh:
-                Y_labels = ['μ_hys', 'μ_adh', 'μ_total']
-                n_interp = 6
-                Y_pos = np.linspace(0, 2, 3 * n_interp)
-                Z = np.zeros((3 * n_interp, n_v))
-                for j in range(3 * n_interp):
-                    band, frac = j // n_interp, (j % n_interp) / n_interp
-                    if band == 0:
-                        Z[j] = mu_visc
-                    elif band == 1:
-                        Z[j] = mu_visc * (1 - frac) + mu_adh * frac
-                    else:
-                        Z[j] = mu_adh * (1 - frac) + mu_total * frac
-                yticks = [0, 1, 2]
-            else:
-                Y_labels = ['μ_hys', 'μ_total']
-                n_interp = 8
-                Y_pos = np.linspace(0, 1, 2 * n_interp)
-                Z = np.zeros((2 * n_interp, n_v))
-                for j in range(2 * n_interp):
-                    band, frac = j // n_interp, (j % n_interp) / n_interp
-                    if band == 0:
-                        Z[j] = mu_visc
-                    else:
-                        Z[j] = mu_visc * (1 - frac) + mu_total * frac
-                yticks = [0, 1]
+            # ΔT(v)
+            dT = fr.get('delta_T')
+            if dT is not None:
+                ax_dT.plot(v, dT, '-', color=color, linewidth=LW, label=cpd.name)
 
-            X_mesh, Y_mesh = np.meshgrid(log_v, Y_pos)
-            ax.plot_surface(X_mesh, Y_mesh, Z, cmap='viridis', alpha=0.85,
-                            rstride=1, cstride=1, linewidth=0, antialiased=True)
+            # T_hot(v)
+            T_hot = fr.get('T_hot')
+            if T_hot is not None:
+                ax_Thot.plot(v, T_hot, '-', color=color, linewidth=LW, label=cpd.name)
+                T0 = r.get('temperature', 20.0)
+                ax_Thot.axhline(y=T0, color=color, linestyle=':', linewidth=0.8, alpha=0.5)
 
-            # Edge lines
-            ax.plot(log_v, np.zeros(n_v), mu_visc,
-                    color='#3B82F6', linewidth=LW, zorder=5)
-            y_top = 2.0 if has_adh else 1.0
-            if has_adh:
-                ax.plot(log_v, np.ones(n_v), mu_adh,
-                        color='#EF4444', linewidth=LW, zorder=5)
-            ax.plot(log_v, np.full(n_v, y_top), mu_total,
-                    color=color, linewidth=LW + 0.5, zorder=5)
+            # ΔT(q) 누적 (대표 속도 몇 개만)
+            dT_profile = fr.get('delta_T_profile')
+            q_arr = fr.get('q_array')
+            if dT_profile is not None and q_arr is not None:
+                n_v_total = dT_profile.shape[1]
+                n_curves = min(6, n_v_total)
+                v_indices = np.linspace(0, n_v_total - 1, n_curves, dtype=int) if n_v_total > n_curves else np.arange(n_v_total)
+                cmap = _plt.colormaps['coolwarm'].resampled(max(n_curves, 2))
+                for k, j_idx in enumerate(v_indices):
+                    c_k = cmap(k / max(n_curves - 1, 1))
+                    ax_dTq.plot(q_arr, dT_profile[:, j_idx], '-', color=c_k, linewidth=1.2,
+                                label=f'v={v[j_idx]:.2g}' if idx == 0 else None)
 
-            # Peak marker
-            pk = np.argmax(mu_total)
-            ax.scatter([log_v[pk]], [y_top], [mu_total[pk]], color='red', s=40, zorder=10)
+                # 히트맵 (첫 번째 컴파운드만)
+                if not hmap_drawn and len(v) > 1:
+                    log_v = np.log10(np.maximum(v, 1e-20))
+                    log_q = np.log10(np.maximum(q_arr, 1e-20))
+                    dT_max = np.max(dT_profile)
+                    if dT_max > 0:
+                        pcm = ax_hmap.pcolormesh(log_v, log_q, dT_profile,
+                                                  cmap='hot', shading='auto',
+                                                  vmin=0, vmax=dT_max)
+                        cb = fig.colorbar(pcm, ax=ax_hmap, pad=0.02)
+                        cb.set_label('ΔT (°C)', fontsize=FS - 3)
+                        cb.ax.tick_params(labelsize=FS - 4)
+                    ax_hmap.set_xlabel('log₁₀(v)', fontsize=FS - 2)
+                    ax_hmap.set_ylabel('log₁₀(q)', fontsize=FS - 2)
+                    ax_hmap.set_title(f'ΔT(q,v) 히트맵 ({cpd.name})',
+                                      fontsize=FS - 1, fontweight='bold')
+                    hmap_drawn = True
 
-            ax.set_xlabel('log₁₀(v)', fontsize=FS - 2, labelpad=6)
-            ax.set_ylabel('', fontsize=FS - 2, labelpad=6)
-            ax.set_zlabel('μ', fontsize=FS - 2, labelpad=4)
-            ax.set_title(f'{cpd.name}  (peak={mu_total[pk]:.3f})',
-                         fontsize=FS - 1, fontweight='bold', pad=8)
-            ax.set_yticks(yticks)
-            ax.set_yticklabels(Y_labels, fontsize=FS - 4)
-            ax.tick_params(axis='x', labelsize=FS - 3)
-            ax.tick_params(axis='z', labelsize=FS - 3)
-            ax.view_init(elev=25, azim=225)
+            # A/A0 Cold vs Hot
+            aa0_c = r.get('A_A0_cold')
+            aa0_h = r.get('A_A0_hot')
+            if aa0_c is not None:
+                ax_aa0.plot(v, aa0_c, '-', color=color, linewidth=LW, label=f'{cpd.name} Cold')
+            if aa0_h is not None:
+                ax_aa0.plot(v, aa0_h, '--', color=color, linewidth=LW - 0.5, label=f'{cpd.name} Hot')
 
+            # μ Cold vs Hot
+            mu_c = r.get('mu_cold_total')
+            mu_h = r.get('mu_hot_total')
+            if mu_c is not None:
+                ax_mu.plot(v, mu_c, '-', color=color, linewidth=LW, label=f'{cpd.name} Cold')
+            if mu_h is not None:
+                ax_mu.plot(v, mu_h, '--', color=color, linewidth=LW - 0.5, label=f'{cpd.name} Hot')
+
+        if not hmap_drawn:
+            ax_hmap.text(0.5, 0.5, 'ΔT profile 없음', ha='center', va='center',
+                         fontsize=FS - 1, color='gray', transform=ax_hmap.transAxes)
+            ax_hmap.set_axis_off()
+
+        for ax in [ax_dT, ax_Thot, ax_dTq, ax_aa0, ax_mu]:
+            if ax.get_legend_handles_labels()[1]:
+                ax.legend(fontsize=FS - 3, loc='best')
         fig.tight_layout()
         canvas.draw_idle()
 

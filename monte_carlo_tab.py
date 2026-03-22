@@ -305,7 +305,40 @@ class MonteCarloTab:
     #  메인 탭 생성
     # ================================================================
     def _create_tab(self, parent):
-        """메인 탭 — 내부 서브탭 4개."""
+        """메인 탭 — 데이터 전달 상태 + 내부 서브탭 4개."""
+        # ── 데이터 전달 상태 패널 ──
+        status_frame = ttk.LabelFrame(parent, text="데이터 전달 상태", padding=4)
+        status_frame.pack(fill=tk.X, padx=6, pady=(4, 0))
+
+        status_row = ttk.Frame(status_frame)
+        status_row.pack(fill=tk.X)
+
+        self._data_status_labels = {}
+        _items = [
+            ('psd', 'PSD'),
+            ('material', '마스터커브'),
+            ('fg', 'f,g'),
+            ('psd_pool', 'PSD 앙상블'),
+            ('q1_pool', 'q₁ 풀'),
+        ]
+        for key, label in _items:
+            f = ttk.Frame(status_row)
+            f.pack(side=tk.LEFT, padx=6)
+            ttk.Label(f, text=f"{label}:", font=self.app.FONTS.get('small', None)).pack(side=tk.LEFT)
+            lbl = ttk.Label(f, text="✗", foreground='#DC2626',
+                            font=self.app.FONTS.get('body_bold', None))
+            lbl.pack(side=tk.LEFT, padx=2)
+            self._data_status_labels[key] = lbl
+
+        btn_frame = ttk.Frame(status_frame)
+        btn_frame.pack(fill=tk.X, pady=(2, 0))
+        ttk.Button(btn_frame, text="메인 탭 데이터 동기화",
+                   command=self._sync_data_from_main,
+                   style='Accent.TButton').pack(side=tk.LEFT, padx=2)
+        ttk.Button(btn_frame, text="상태 새로고침",
+                   command=self._refresh_data_status).pack(side=tk.LEFT, padx=2)
+
+        # ── 서브탭 ──
         nb = ttk.Notebook(parent)
         nb.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
@@ -323,6 +356,59 @@ class MonteCarloTab:
         self._build_q1_tab(self.frame_q1)
         self._build_mc_tab(self.frame_mc)
         self._build_result_tab(self.frame_result)
+
+        # 초기 상태 갱신
+        self.app.root.after(500, self._refresh_data_status)
+
+    def _refresh_data_status(self):
+        """데이터 전달 상태 라벨 갱신."""
+        checks = {
+            'psd': (hasattr(self.app, 'psd_model') and self.app.psd_model is not None) or len(self.psd_scans) > 0,
+            'material': any(m is not None for m in self._compound_materials),
+            'fg': hasattr(self.app, 'f_interpolator') and self.app.f_interpolator is not None,
+            'psd_pool': self.C_pool is not None,
+            'q1_pool': self.q1_pool is not None,
+        }
+        for key, ok in checks.items():
+            lbl = self._data_status_labels.get(key)
+            if lbl:
+                if ok:
+                    lbl.config(text="✓", foreground='#16A34A')
+                else:
+                    lbl.config(text="✗", foreground='#DC2626')
+
+    def _sync_data_from_main(self):
+        """메인 탭에서 PSD, 마스터커브, f,g 데이터를 가져온다."""
+        synced = []
+
+        # 1. PSD
+        if hasattr(self.app, 'raw_psd_data') and self.app.raw_psd_data is not None:
+            try:
+                raw = self.app.raw_psd_data
+                q = raw.get('q', None)
+                C = raw.get('C', None)
+                if q is not None and C is not None:
+                    self.psd_scans = [(np.array(q), np.array(C))]
+                    synced.append('PSD')
+            except Exception as e:
+                print(f"[MC Sync] PSD 동기화 실패: {e}")
+
+        # 2. Material (마스터 커브)
+        if self.app.material is not None:
+            for i in range(4):
+                self._compound_materials[i] = self.app.material
+            synced.append('마스터커브')
+
+        # 3. f,g (참고용 상태만 표시, MC에서 직접 사용하지는 않음)
+        if hasattr(self.app, 'f_interpolator') and self.app.f_interpolator is not None:
+            synced.append('f,g')
+
+        self._refresh_data_status()
+
+        if synced:
+            self.app._show_status(f"MC 탭 동기화 완료: {', '.join(synced)}", 'success')
+        else:
+            self.app._show_status("동기화할 데이터가 없습니다. 먼저 메인 탭에서 데이터를 준비하세요.", 'warning')
 
     # ================================================================
     #  유틸리티: 좌우 레이아웃 생성
