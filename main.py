@@ -2478,7 +2478,7 @@ class PerssonModelGUI_V2:
             if self.profile_psd_analyzer.q is not None:
                 n_raw = len(self.profile_psd_analyzer.q_raw) if self.profile_psd_analyzer.q_raw is not None else 0
                 n_binned = len(self.profile_psd_analyzer.q)
-                nbins = self.profile_psd_analyzer.n_bins
+                nbins = self.profile_psd_analyzer.points_per_decade
                 if n_raw != n_binned:
                     lines.append(f"\n[로그 구간 평균화]")
                     lines.append(f"  Raw 점: {n_raw} → Binned 점: {n_binned}")
