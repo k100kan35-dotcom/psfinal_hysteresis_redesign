@@ -215,14 +215,25 @@ class DataInputTab:
         ttk.Entry(row_v, textvariable=self._v_max_var, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_v, text="m/s", font=F['body']).pack(side=tk.LEFT)
 
-        # q range (q0, q1)
+        # q range (q0, q1) with surface preset
+        row_q_preset = ttk.Frame(sec4)
+        row_q_preset.pack(fill=tk.X, pady=2)
+        ttk.Label(row_q_preset, text="노면 프리셋:", font=F['body']).pack(side=tk.LEFT)
+        self._surface_q1_combo_var = tk.StringVar(value="(직접 입력)")
+        self._surface_q1_combo = ttk.Combobox(
+            row_q_preset, textvariable=self._surface_q1_combo_var,
+            state='readonly', width=14)
+        self._surface_q1_combo.pack(side=tk.LEFT, padx=2)
+        self._surface_q1_combo.bind('<<ComboboxSelected>>', self._on_surface_q1_selected)
+        self._refresh_surface_q1_list()
+
         row_q = ttk.Frame(sec4)
         row_q.pack(fill=tk.X, pady=2)
         ttk.Label(row_q, text="q₀:", font=F['body']).pack(side=tk.LEFT)
         self._q0_var = tk.StringVar(value="500")
         ttk.Entry(row_q, textvariable=self._q0_var, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_q, text="q₁:", font=F['body']).pack(side=tk.LEFT, padx=(8, 0))
-        self._q1_var = tk.StringVar(value="1e6")
+        self._q1_var = tk.StringVar(value="1.05e5")
         ttk.Entry(row_q, textvariable=self._q1_var, width=8).pack(side=tk.LEFT, padx=2)
 
         # n_v, n_q
@@ -423,6 +434,43 @@ class DataInputTab:
             self.compounds[idx].name = var.get()
         except Exception:
             pass
+
+    def _refresh_surface_q1_list(self):
+        """surface_q1 프리셋 목록 갱신."""
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        preset_dir = os.path.join(base_dir, 'preset_data', 'surface_q1')
+        items = ['(직접 입력)']
+        if os.path.isdir(preset_dir):
+            items += sorted([f.replace('.txt', '') for f in os.listdir(preset_dir) if f.endswith('.txt')])
+        self._surface_q1_combo['values'] = items
+
+    def _on_surface_q1_selected(self, event=None):
+        """노면 프리셋 선택 시 q_max/q1 값 적용."""
+        selected = self._surface_q1_combo_var.get()
+        if selected == '(직접 입력)':
+            return
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        fp = os.path.join(base_dir, 'preset_data', 'surface_q1', selected + '.txt')
+        if not os.path.exists(fp):
+            return
+        try:
+            q_max_val = None
+            q1_val = None
+            with open(fp, 'r', encoding='utf-8') as f:
+                for line in f:
+                    line = line.strip()
+                    if line.startswith('#') or not line:
+                        continue
+                    if line.startswith('q_max='):
+                        q_max_val = line.split('=', 1)[1].strip()
+                    elif line.startswith('q1='):
+                        q1_val = line.split('=', 1)[1].strip()
+            if q1_val:
+                self._q1_var.set(q1_val)
+            if q_max_val:
+                self._q1_var.set(q_max_val)  # q_max = q1 for upper cutoff
+        except Exception as e:
+            print(f"[surface_q1 preset] error: {e}")
 
     # ================================================================
     #  Data loading
@@ -774,16 +822,36 @@ class DataInputTab:
             app.persson_aT_data = None
 
         # ── Step 3: 계산 파라미터 설정 + G(q,v) 계산 ──
+        # 시험 Run과 동일하게 surface_q1 프리셋 적용
+        q1_str = self._q1_var.get()
         app.sigma_0_var.set(self._sigma0_var.get())
         app.temperature_var.set(self._temp_var.get())
         app.v_min_var.set(self._v_min_var.get())
         app.v_max_var.set(self._v_max_var.get())
         app.n_velocity_var.set(self._n_v_var.get())
         app.q_min_var.set(self._q0_var.get())
-        app.q_max_var.set(self._q1_var.get())
+        app.q_max_var.set(q1_str)
         app.n_q_var.set(self._n_q_var.get())
         app.gamma_var.set(self._gamma_var.get())
         app.n_phi_var.set(self._n_phi_var.get())
+
+        # input_q1_var 동기화 (h'rms 계산에서 사용)
+        if hasattr(app, 'input_q1_var'):
+            app.input_q1_var.set(q1_str)
+
+        # q1→h'rms 모드 설정 + h'rms 계산 (시험 Run Step 3과 동일)
+        if hasattr(app, 'hrms_q1_mode_var'):
+            app.hrms_q1_mode_var.set("q1_to_hrms")
+            if hasattr(app, '_on_hrms_q1_mode_changed'):
+                app._on_hrms_q1_mode_changed()
+            app.root.update_idletasks()
+            if hasattr(app, '_calculate_hrms_q1'):
+                try:
+                    app._calculate_hrms_q1()
+                except Exception as e_hrms:
+                    print(f"[DataInput] h'rms 자동 계산 건너뜀: {e_hrms}")
+
+        print(f"[DataInput] q_max={q1_str}, input_q1={q1_str}")
 
         self._calc_status_var.set(f"[{ci+1}/{n_compounds}] {cpd.name}: G(q,v)...")
         app.root.update()
