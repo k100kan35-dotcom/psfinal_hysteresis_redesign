@@ -1660,17 +1660,17 @@ class PerssonModelGUI_V2:
         detrend_row = ttk.Frame(calc_frame)
         detrend_row.pack(fill=tk.X, pady=2)
         ttk.Label(detrend_row, text="Detrend:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.profile_detrend_var = tk.StringVar(value="mean")
+        self.profile_detrend_var = tk.StringVar(value="linear")
         ttk.Combobox(detrend_row, textvariable=self.profile_detrend_var,
-                     values=['mean', 'linear', 'quadratic'], width=10, state='readonly', font=self.FONTS['body']).pack(side=tk.LEFT, padx=5)
+                     values=['none', 'mean', 'linear', 'quadratic'], width=10, state='readonly', font=self.FONTS['body']).pack(side=tk.LEFT, padx=5)
 
         # Window function
         window_row = ttk.Frame(calc_frame)
         window_row.pack(fill=tk.X, pady=2)
         ttk.Label(window_row, text="Window:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.profile_window_var = tk.StringVar(value="hann")
+        self.profile_window_var = tk.StringVar(value="none")
         ttk.Combobox(window_row, textvariable=self.profile_window_var,
-                     values=['hann', 'hamming', 'blackman', 'none'], width=10, state='readonly', font=self.FONTS['body']).pack(side=tk.LEFT, padx=5)
+                     values=['none', 'hanning', 'hamming', 'blackman'], width=10, state='readonly', font=self.FONTS['body']).pack(side=tk.LEFT, padx=5)
 
         # PSD type selection
         psd_type_frame = ttk.Frame(calc_frame)
@@ -1692,9 +1692,9 @@ class PerssonModelGUI_V2:
         ttk.Checkbutton(bin_frame, text="로그 구간 평균화",
                         variable=self.apply_binning_var).pack(side=tk.LEFT)
 
-        ttk.Label(bin_frame, text="점/decade:", font=self.FONTS['body']).pack(side=tk.LEFT, padx=(10, 0))
-        self.points_per_decade_var = tk.StringVar(value="20")
-        ttk.Entry(bin_frame, textvariable=self.points_per_decade_var, width=4).pack(side=tk.LEFT, padx=2)
+        ttk.Label(bin_frame, text="Log bins:", font=self.FONTS['body']).pack(side=tk.LEFT, padx=(10, 0))
+        self.n_bins_var = tk.StringVar(value="88")
+        ttk.Entry(bin_frame, textvariable=self.n_bins_var, width=4).pack(side=tk.LEFT, padx=2)
 
         # Calculate button
         ttk.Button(calc_frame, text="PSD 계산",
@@ -1998,9 +1998,9 @@ class PerssonModelGUI_V2:
             apply_binning = self.apply_binning_var.get()
 
             try:
-                points_per_decade = int(self.points_per_decade_var.get())
+                n_bins = int(self.n_bins_var.get())
             except ValueError:
-                points_per_decade = 20
+                n_bins = 88
 
             # Calculate PSD with logarithmic binning
             self.profile_psd_analyzer.calculate_psd(
@@ -2008,7 +2008,7 @@ class PerssonModelGUI_V2:
                 detrend_method=detrend,
                 calculate_top=calc_top,
                 apply_binning=apply_binning,
-                points_per_decade=points_per_decade
+                n_bins=n_bins
             )
 
             # Plot results
@@ -2477,11 +2477,11 @@ class PerssonModelGUI_V2:
             if self.profile_psd_analyzer.q is not None:
                 n_raw = len(self.profile_psd_analyzer.q_raw) if self.profile_psd_analyzer.q_raw is not None else 0
                 n_binned = len(self.profile_psd_analyzer.q)
-                ppd = self.profile_psd_analyzer.points_per_decade
+                nbins = self.profile_psd_analyzer.n_bins
                 if n_raw != n_binned:
                     lines.append(f"\n[로그 구간 평균화]")
                     lines.append(f"  Raw 점: {n_raw} → Binned 점: {n_binned}")
-                    lines.append(f"  점/decade: {ppd}")
+                    lines.append(f"  Log bins: {nbins}")
 
         # Top PSD info
         if self.profile_psd_analyzer.phi is not None:
