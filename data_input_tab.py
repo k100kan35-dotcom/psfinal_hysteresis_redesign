@@ -741,6 +741,17 @@ class DataInputTab:
         app.tab1_finalized = True
         app.material_source = f"데이터 입력: {cpd.name}"
 
+        # ── DEBUG: material modulus 값 확인 ──
+        try:
+            E_test = cpd.material.get_modulus(2 * np.pi * 1.0, temperature=20.0)
+            E_stor_test = cpd.material.get_storage_modulus(2 * np.pi * 1.0, temperature=20.0)
+            print(f"[DataInput] {cpd.name} material check: "
+                  f"|E*|(1Hz)={abs(E_test):.3e} Pa, E'(1Hz)={E_stor_test:.3e} Pa")
+            if abs(E_test) > 1e10:
+                print(f"[DataInput] WARNING: |E*| > 1e10 Pa — 단위가 과대할 수 있음!")
+        except Exception as e_dbg:
+            print(f"[DataInput] material debug error: {e_dbg}")
+
         # aT 시프트 팩터 설정
         if cpd.aT_interp is not None:
             app.persson_aT_interp = cpd.aT_interp
@@ -1131,26 +1142,56 @@ class DataInputTab:
 
         마스터커브 탭 프리셋과 동일한 방식:
         - 헤더에 '(Pa)' → Pa 단위 (변환 없음)
-        - 헤더에 '(MPa)' 또는 단위 표기 없음 → MPa 단위 (×1e6)
+        - 헤더에 '(MPa)' → MPa 단위 (×1e6)
         - 헤더에 '(GPa)' → GPa 단위 (×1e9)
+        - 또는 값 크기로 자동 감지: E' > 10000 이면 Pa로 간주
         """
         # Read header to detect unit
-        modulus_unit = 'MPa'  # default
-        with open(fp, 'r', encoding='utf-8-sig', errors='replace') as f:
-            for line in f:
-                line_lower = line.lower().strip()
-                if not line_lower or not line_lower.startswith('#'):
-                    break
-                if '(pa)' in line_lower and '(mpa)' not in line_lower and '(gpa)' not in line_lower:
-                    modulus_unit = 'Pa'
-                    break
-                elif '(gpa)' in line_lower:
-                    modulus_unit = 'GPa'
-                    break
-                elif '(mpa)' in line_lower:
-                    modulus_unit = 'MPa'
-                    break
+        modulus_unit = None
+        first_E_value = None
 
+        for enc in ['utf-8-sig', 'utf-8', 'cp949', 'latin-1']:
+            try:
+                with open(fp, 'r', encoding=enc) as f:
+                    for line in f:
+                        line_s = line.strip()
+                        if not line_s:
+                            continue
+                        if line_s.startswith('#'):
+                            ll = line_s.lower()
+                            if '(gpa)' in ll:
+                                modulus_unit = 'GPa'
+                            elif '(mpa)' in ll:
+                                modulus_unit = 'MPa'
+                            elif '(pa)' in ll:
+                                modulus_unit = 'Pa'
+                        else:
+                            # First data line: check E' magnitude
+                            parts = line_s.split()
+                            if len(parts) >= 2:
+                                try:
+                                    first_E_value = float(parts[1])
+                                except ValueError:
+                                    pass
+                            break
+                break
+            except UnicodeDecodeError:
+                continue
+
+        # If header didn't specify unit, detect from value magnitude
+        if modulus_unit is None and first_E_value is not None:
+            if first_E_value > 1e4:
+                # E' > 10000 → likely Pa (typical rubber E' ~ 1e6-1e9 Pa)
+                modulus_unit = 'Pa'
+                print(f"[DMA unit] Auto-detected Pa (first E'={first_E_value:.2e})")
+            else:
+                # E' < 10000 → likely MPa (typical rubber E' ~ 1-1000 MPa)
+                modulus_unit = 'MPa'
+                print(f"[DMA unit] Auto-detected MPa (first E'={first_E_value:.2e})")
+        elif modulus_unit is None:
+            modulus_unit = 'MPa'  # fallback
+
+        print(f"[DMA unit] File: {os.path.basename(fp)}, unit={modulus_unit}")
         omega, E_stor, E_loss = load_dma_from_file(fp, modulus_unit=modulus_unit)
         return omega, E_stor, E_loss
 
