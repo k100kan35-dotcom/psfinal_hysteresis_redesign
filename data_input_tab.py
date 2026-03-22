@@ -889,12 +889,15 @@ class DataInputTab:
             app.persson_aT_data = cpd.aT_data
             if cpd.bT_interp is not None:
                 app.persson_bT_interp = cpd.bT_interp
-            # persson_master_curve 설정 (aT 시프트에 필요)
+            # persson_master_curve 설정 (Flash Temperature aT 시프트에 필요)
             if cpd.material is not None:
-                freq = cpd.material.frequencies if hasattr(cpd.material, 'frequencies') else None
-                E_s = cpd.material.storage_modulus if hasattr(cpd.material, 'storage_modulus') else None
-                E_l = cpd.material.loss_modulus if hasattr(cpd.material, 'loss_modulus') else None
-                if freq is not None and E_s is not None and E_l is not None:
+                mat = cpd.material
+                freq = getattr(mat, '_frequencies', None)
+                E_s = getattr(mat, '_storage_modulus', None)
+                E_l = getattr(mat, '_loss_modulus', None)
+                if freq is not None and E_s is not None:
+                    if E_l is None:
+                        E_l = np.zeros_like(E_s)
                     app.persson_master_curve = {
                         'omega': freq.copy(),
                         'E_storage': E_s.copy(),
