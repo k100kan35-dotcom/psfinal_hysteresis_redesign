@@ -87,6 +87,7 @@ class ResultsOverviewTab:
         # Create sub-tabs
         _tab_defs = [
             ('total_overlay', 'μ_total 오버레이'),
+            ('cold_hot',      'Cold & Hot Branch'),
             ('separated',     '분리 플롯'),
             ('friction_map',  '마찰 맵 (컴파운드별)'),
             ('comparison',    '비교 분석'),
@@ -186,6 +187,7 @@ class ResultsOverviewTab:
                 visible.append((i, cpd))
 
         self._plot_total_overlay(visible)
+        self._plot_cold_hot(visible)
         self._plot_separated(visible)
         self._plot_friction_maps(visible)
         self._plot_comparison(visible)
@@ -236,6 +238,106 @@ class ResultsOverviewTab:
 
         if visible_compounds:
             ax.legend(fontsize=FS - 1, loc='best')
+        fig.tight_layout()
+        canvas.draw_idle()
+
+    # ================================================================
+    #  Plot: Cold & Hot Branch (like Tab 10)
+    # ================================================================
+    def _plot_cold_hot(self, visible_compounds):
+        """Cold & Hot Branch 비교 (10번 탭과 동일 스타일).
+
+        2×2: μ_hys Cold/Hot, μ_adh Cold/Hot, A/A0 Cold/Hot, μ_total Cold/Hot
+        """
+        FS = self.PLOT_FONT_SIZE
+        LW = self.PLOT_LINE_WIDTH
+        LWs = self.PLOT_LINE_WIDTH_SUB
+        fig, canvas = self._plot_tabs['cold_hot']
+        fig.clear()
+
+        # Check if any compound has hot data
+        has_any_hot = any(
+            cpd.results is not None and cpd.results.get('mu_hot_hys') is not None
+            for _, cpd in visible_compounds
+        )
+
+        if not has_any_hot:
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5,
+                    'Flash Temperature를 활성화하고 계산하세요\n'
+                    '(데이터 입력 탭에서 Flash Temperature 체크)',
+                    ha='center', va='center', fontsize=FS, color='gray',
+                    transform=ax.transAxes)
+            ax.set_axis_off()
+            canvas.draw_idle()
+            return
+
+        ax1 = fig.add_subplot(2, 2, 1)
+        ax2 = fig.add_subplot(2, 2, 2)
+        ax3 = fig.add_subplot(2, 2, 3)
+        ax4 = fig.add_subplot(2, 2, 4)
+
+        self._style_ax(ax1, 'μ_hys: Cold vs Hot', 'Velocity (m/s)', 'μ_hys', 'log')
+        self._style_ax(ax2, 'μ_adh: Cold vs Hot', 'Velocity (m/s)', 'μ_adh', 'log')
+        self._style_ax(ax3, 'A/A₀: Cold vs Hot', 'Velocity (m/s)', 'A/A₀', 'log')
+        self._style_ax(ax4, 'μ_total: Cold vs Hot', 'Velocity (m/s)', 'μ_total', 'log')
+
+        for i, cpd in visible_compounds:
+            if cpd.results is None:
+                continue
+            r = cpd.results
+            v = r['v']
+            color = self.COMPOUND_COLORS[i % len(self.COMPOUND_COLORS)]
+
+            # Cold branch
+            mu_cold_hys = r.get('mu_cold_hys')
+            mu_cold_adh = r.get('mu_cold_adh')
+            mu_cold_total = r.get('mu_cold_total')
+            A_A0_cold = r.get('A_A0_cold')
+
+            # Hot branch
+            mu_hot_hys = r.get('mu_hot_hys')
+            mu_hot_adh = r.get('mu_hot_adh')
+            mu_hot_total = r.get('mu_hot_total')
+            A_A0_hot = r.get('A_A0_hot')
+
+            lbl = cpd.name
+
+            # μ_hys
+            if mu_cold_hys is not None:
+                ax1.plot(v, mu_cold_hys, '-', color=color, linewidth=LW,
+                         label=f'{lbl} Cold')
+            if mu_hot_hys is not None:
+                ax1.plot(v, mu_hot_hys, '--', color=color, linewidth=LWs,
+                         label=f'{lbl} Hot')
+
+            # μ_adh
+            if mu_cold_adh is not None:
+                ax2.plot(v, mu_cold_adh, '-', color=color, linewidth=LW,
+                         label=f'{lbl} Cold')
+            if mu_hot_adh is not None:
+                ax2.plot(v, mu_hot_adh, '--', color=color, linewidth=LWs,
+                         label=f'{lbl} Hot')
+
+            # A/A0
+            if A_A0_cold is not None:
+                ax3.plot(v, A_A0_cold, '-', color=color, linewidth=LW,
+                         label=f'{lbl} Cold')
+            if A_A0_hot is not None:
+                ax3.plot(v, A_A0_hot, '--', color=color, linewidth=LWs,
+                         label=f'{lbl} Hot')
+
+            # μ_total
+            if mu_cold_total is not None:
+                ax4.plot(v, mu_cold_total, '-', color=color, linewidth=LW,
+                         label=f'{lbl} Cold')
+            if mu_hot_total is not None:
+                ax4.plot(v, mu_hot_total, '--', color=color, linewidth=LWs,
+                         label=f'{lbl} Hot')
+
+        for ax in [ax1, ax2, ax3, ax4]:
+            ax.legend(fontsize=FS - 3, loc='best')
+
         fig.tight_layout()
         canvas.draw_idle()
 
