@@ -327,16 +327,36 @@ class DataInputTab:
         ttk.Label(sec6, textvariable=self._calc_status_var, font=F['small'],
                   foreground=C['text_secondary']).pack(fill=tk.X, pady=2)
 
-        # ── Right panel (preview plot) ──
+        # ── Right panel (sub-notebook with multiple plot tabs) ──
         right = ttk.Frame(main)
         right.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self._fig = Figure(figsize=(8, 6), dpi=100, facecolor='white')
-        self._fig.subplots_adjust(hspace=0.35, wspace=0.3)
-        self._canvas = FigureCanvasTkAgg(self._fig, right)
-        toolbar = NavigationToolbar2Tk(self._canvas, right)
-        toolbar.update()
-        self._canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        self._plot_notebook = ttk.Notebook(right)
+        self._plot_notebook.pack(fill=tk.BOTH, expand=True)
+
+        # Create sub-tabs with individual figures
+        self._plot_tabs = {}  # key -> (fig, canvas)
+        _plot_defs = [
+            ('viscoelastic', '점탄성 (E\', E\'\')'),
+            ('aT',           'aT 비교'),
+            ('strain',       'Strain / f,g 비교'),
+            ('A_A0',         'A/A0 비교'),
+            ('adh_hys',      'μ_adh / μ_hys 비교'),
+            ('total',        'μ_total 비교'),
+        ]
+        for key, label in _plot_defs:
+            tab_frame = ttk.Frame(self._plot_notebook)
+            self._plot_notebook.add(tab_frame, text=f'  {label}  ')
+            fig = Figure(figsize=(8, 6), dpi=100, facecolor='white')
+            fig.subplots_adjust(hspace=0.35, wspace=0.3)
+            canvas = FigureCanvasTkAgg(fig, tab_frame)
+            toolbar = NavigationToolbar2Tk(canvas, tab_frame)
+            toolbar.update()
+            canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+            self._plot_tabs[key] = (fig, canvas)
+
+        # Legacy single fig/canvas references (for backward compatibility)
+        self._fig, self._canvas = self._plot_tabs['total']
 
         # Initialize with 1 compound
         self._rebuild_compound_columns(1)
@@ -579,6 +599,7 @@ class DataInputTab:
             w = self._compound_widgets.get(idx, {})
             if 'mc_label' in w:
                 w['mc_label'].config(text=f"✓ {fname}", foreground=self.app.COLORS['success'])
+            self._plot_viscoelastic()
         except Exception as e:
             messagebox.showerror("DMA 로드 실패", str(e))
 
@@ -640,6 +661,7 @@ class DataInputTab:
                 w['at_label'].config(
                     text=f"✓ {fname} ({len(T)}pts, Tref={T_ref:.0f}°C{bT_str})",
                     foreground=self.app.COLORS['success'])
+            self._plot_aT()
         except Exception as e:
             messagebox.showerror("aT 로드 실패", str(e))
 
@@ -673,6 +695,7 @@ class DataInputTab:
             if 'str_label' in w:
                 w['str_label'].config(text=f"✓ [sweep] {fname} ({n_T}T)",
                                       foreground=self.app.COLORS['success'])
+            self._plot_strain()
         except Exception as e:
             messagebox.showerror("Strain sweep 로드 실패", str(e))
 
@@ -708,6 +731,7 @@ class DataInputTab:
             if 'str_label' in w:
                 w['str_label'].config(text=f"✓ [f,g] {fname} ({n_pts}pts, {g_str})",
                                       foreground=self.app.COLORS['success'])
+            self._plot_strain()
         except Exception as e:
             messagebox.showerror("f,g 파일 로드 실패", str(e))
 
@@ -1050,15 +1074,252 @@ class DataInputTab:
     #  Preview Plot
     # ================================================================
     def _plot_preview(self):
-        """Draw a quick preview of calculation results."""
-        self._fig.clear()
+        """Draw all preview plots across sub-tabs."""
+        self._plot_viscoelastic()
+        self._plot_aT()
+        self._plot_strain()
+        self._plot_A_A0()
+        self._plot_adh_hys()
+        self._plot_total()
 
-        compounds_with_results = [c for c in self.compounds if c.results is not None]
-        if not compounds_with_results:
-            self._canvas.draw_idle()
+    def _plot_viscoelastic(self):
+        """Plot E'(ω), E''(ω) master curves for all compounds."""
+        fig, canvas = self._plot_tabs['viscoelastic']
+        fig.clear()
+        compounds_with_material = [c for c in self.compounds if c.material is not None]
+        if not compounds_with_material:
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, 'DMA 데이터를 로드하세요', ha='center', va='center',
+                    fontsize=14, color='gray', transform=ax.transAxes)
+            ax.set_axis_off()
+            canvas.draw_idle()
             return
 
-        ax = self._fig.add_subplot(111)
+        ax1 = fig.add_subplot(121)
+        ax2 = fig.add_subplot(122)
+
+        ax1.set_title("Storage Modulus E'(ω)", fontsize=11)
+        ax1.set_xlabel('ω (rad/s)')
+        ax1.set_ylabel("E' (Pa)")
+        ax1.set_xscale('log')
+        ax1.set_yscale('log')
+        ax1.grid(True, alpha=0.3)
+
+        ax2.set_title("Loss Modulus E''(ω)", fontsize=11)
+        ax2.set_xlabel('ω (rad/s)')
+        ax2.set_ylabel("E'' (Pa)")
+        ax2.set_xscale('log')
+        ax2.set_yscale('log')
+        ax2.grid(True, alpha=0.3)
+
+        for i, cpd in enumerate(compounds_with_material):
+            color = self.COMPOUND_COLORS[i % len(self.COMPOUND_COLORS)]
+            mat = cpd.material
+            if hasattr(mat, '_frequencies') and mat._frequencies is not None:
+                omega = mat._frequencies
+                E_stor = mat._storage_modulus
+                E_loss = mat._loss_modulus if mat._loss_modulus is not None else np.zeros_like(E_stor)
+                ax1.plot(omega, E_stor, '-', color=color, linewidth=1.5, label=cpd.name)
+                ax2.plot(omega, E_loss, '-', color=color, linewidth=1.5, label=cpd.name)
+
+        ax1.legend(fontsize=8, loc='best')
+        ax2.legend(fontsize=8, loc='best')
+        fig.tight_layout()
+        canvas.draw_idle()
+
+    def _plot_aT(self):
+        """Plot aT shift factor comparison."""
+        fig, canvas = self._plot_tabs['aT']
+        fig.clear()
+        compounds_with_aT = [c for c in self.compounds if c.aT_data is not None]
+        if not compounds_with_aT:
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, 'aT 데이터를 로드하세요', ha='center', va='center',
+                    fontsize=14, color='gray', transform=ax.transAxes)
+            ax.set_axis_off()
+            canvas.draw_idle()
+            return
+
+        ax1 = fig.add_subplot(121)
+        ax2 = fig.add_subplot(122)
+
+        ax1.set_title('log₁₀(aT) vs Temperature', fontsize=11)
+        ax1.set_xlabel('Temperature (°C)')
+        ax1.set_ylabel('log₁₀(aT)')
+        ax1.grid(True, alpha=0.3)
+
+        ax2.set_title('bT vs Temperature', fontsize=11)
+        ax2.set_xlabel('Temperature (°C)')
+        ax2.set_ylabel('bT')
+        ax2.grid(True, alpha=0.3)
+
+        has_bT = False
+        for i, cpd in enumerate(compounds_with_aT):
+            color = self.COMPOUND_COLORS[i % len(self.COMPOUND_COLORS)]
+            d = cpd.aT_data
+            ax1.plot(d['T'], d['log_aT'], 'o-', color=color, markersize=4,
+                     linewidth=1.5, label=f"{cpd.name} (Tref={d['T_ref']:.0f}°C)")
+            if d.get('has_bT', False):
+                ax2.plot(d['T'], d['bT'], 's-', color=color, markersize=4,
+                         linewidth=1.5, label=cpd.name)
+                has_bT = True
+
+        ax1.legend(fontsize=8, loc='best')
+        if has_bT:
+            ax2.legend(fontsize=8, loc='best')
+        else:
+            ax2.text(0.5, 0.5, 'bT 데이터 없음', ha='center', va='center',
+                     fontsize=12, color='gray', transform=ax2.transAxes)
+            ax2.set_axis_off()
+        fig.tight_layout()
+        canvas.draw_idle()
+
+    def _plot_strain(self):
+        """Plot strain sweep / f,g curves comparison."""
+        fig, canvas = self._plot_tabs['strain']
+        fig.clear()
+        compounds_with_strain = [c for c in self.compounds
+                                 if c.fg_raw is not None or c.fg_by_T is not None
+                                 or c.f_interpolator is not None]
+        if not compounds_with_strain:
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, 'Strain/f,g 데이터를 로드하세요', ha='center', va='center',
+                    fontsize=14, color='gray', transform=ax.transAxes)
+            ax.set_axis_off()
+            canvas.draw_idle()
+            return
+
+        ax1 = fig.add_subplot(121)
+        ax2 = fig.add_subplot(122)
+
+        ax1.set_title('f(strain) 비교', fontsize=11)
+        ax1.set_xlabel('Strain')
+        ax1.set_ylabel('f(strain)')
+        ax1.grid(True, alpha=0.3)
+
+        ax2.set_title('g(strain) 비교', fontsize=11)
+        ax2.set_xlabel('Strain')
+        ax2.set_ylabel('g(strain)')
+        ax2.grid(True, alpha=0.3)
+
+        for i, cpd in enumerate(compounds_with_strain):
+            color = self.COMPOUND_COLORS[i % len(self.COMPOUND_COLORS)]
+            if cpd.fg_raw is not None:
+                strain = cpd.fg_raw.get('strain', None)
+                f_vals = cpd.fg_raw.get('f', None)
+                g_vals = cpd.fg_raw.get('g', None)
+                if strain is not None and f_vals is not None:
+                    ax1.plot(strain, f_vals, 'o-', color=color, markersize=3,
+                             linewidth=1.5, label=cpd.name)
+                if strain is not None and g_vals is not None:
+                    ax2.plot(strain, g_vals, 's-', color=color, markersize=3,
+                             linewidth=1.5, label=cpd.name)
+            elif cpd.f_interpolator is not None:
+                strain = np.linspace(0.001, 1.0, 200)
+                try:
+                    f_vals = cpd.f_interpolator(strain)
+                    ax1.plot(strain, f_vals, '-', color=color, linewidth=1.5, label=cpd.name)
+                except Exception:
+                    pass
+                if cpd.g_interpolator is not None:
+                    try:
+                        g_vals = cpd.g_interpolator(strain)
+                        ax2.plot(strain, g_vals, '-', color=color, linewidth=1.5, label=cpd.name)
+                    except Exception:
+                        pass
+
+        ax1.legend(fontsize=8, loc='best')
+        ax2.legend(fontsize=8, loc='best')
+        fig.tight_layout()
+        canvas.draw_idle()
+
+    def _plot_A_A0(self):
+        """Plot A/A0 (contact area ratio) comparison."""
+        fig, canvas = self._plot_tabs['A_A0']
+        fig.clear()
+        compounds_with_results = [c for c in self.compounds
+                                  if c.results is not None and c.results.get('A_A0') is not None]
+        if not compounds_with_results:
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, '계산 결과가 없습니다\n(계산 실행 후 표시)', ha='center', va='center',
+                    fontsize=14, color='gray', transform=ax.transAxes)
+            ax.set_axis_off()
+            canvas.draw_idle()
+            return
+
+        ax = fig.add_subplot(111)
+        ax.set_title('A/A₀ vs Velocity (All Compounds)', fontsize=11)
+        ax.set_xlabel('Velocity (m/s)')
+        ax.set_ylabel('A/A₀')
+        ax.set_xscale('log')
+        ax.grid(True, alpha=0.3)
+
+        for i, cpd in enumerate(compounds_with_results):
+            color = self.COMPOUND_COLORS[i % len(self.COMPOUND_COLORS)]
+            r = cpd.results
+            ax.plot(r['v'], r['A_A0'], '-', color=color, linewidth=2, label=cpd.name)
+
+        ax.legend(fontsize=9, loc='best')
+        fig.tight_layout()
+        canvas.draw_idle()
+
+    def _plot_adh_hys(self):
+        """Plot μ_adh and μ_hys (visc) comparison."""
+        fig, canvas = self._plot_tabs['adh_hys']
+        fig.clear()
+        compounds_with_results = [c for c in self.compounds if c.results is not None]
+        if not compounds_with_results:
+            ax = fig.add_subplot(111)
+            ax.text(0.5, 0.5, '계산 결과가 없습니다\n(계산 실행 후 표시)', ha='center', va='center',
+                    fontsize=14, color='gray', transform=ax.transAxes)
+            ax.set_axis_off()
+            canvas.draw_idle()
+            return
+
+        ax1 = fig.add_subplot(121)
+        ax2 = fig.add_subplot(122)
+
+        ax1.set_title('μ_hys (Hysteresis) 비교', fontsize=11)
+        ax1.set_xlabel('Velocity (m/s)')
+        ax1.set_ylabel('μ_hys')
+        ax1.set_xscale('log')
+        ax1.grid(True, alpha=0.3)
+
+        ax2.set_title('μ_adh (Adhesion) 비교', fontsize=11)
+        ax2.set_xlabel('Velocity (m/s)')
+        ax2.set_ylabel('μ_adh')
+        ax2.set_xscale('log')
+        ax2.grid(True, alpha=0.3)
+
+        has_adh = False
+        for i, cpd in enumerate(compounds_with_results):
+            color = self.COMPOUND_COLORS[i % len(self.COMPOUND_COLORS)]
+            r = cpd.results
+            ax1.plot(r['v'], r['mu_visc'], '-', color=color, linewidth=2, label=cpd.name)
+            if r.get('mu_adh') is not None:
+                ax2.plot(r['v'], r['mu_adh'], '-', color=color, linewidth=2, label=cpd.name)
+                has_adh = True
+
+        ax1.legend(fontsize=8, loc='best')
+        if has_adh:
+            ax2.legend(fontsize=8, loc='best')
+        else:
+            ax2.text(0.5, 0.5, 'μ_adh 없음', ha='center', va='center',
+                     fontsize=12, color='gray', transform=ax2.transAxes)
+            ax2.set_axis_off()
+        fig.tight_layout()
+        canvas.draw_idle()
+
+    def _plot_total(self):
+        """Plot μ_total comparison (original _plot_preview)."""
+        fig, canvas = self._plot_tabs['total']
+        fig.clear()
+        compounds_with_results = [c for c in self.compounds if c.results is not None]
+        if not compounds_with_results:
+            canvas.draw_idle()
+            return
+
+        ax = fig.add_subplot(111)
         ax.set_xlabel('Velocity (m/s)')
         ax.set_ylabel('μ')
         ax.set_title('μ_total vs Velocity (All Compounds)')
@@ -1077,8 +1338,8 @@ class DataInputTab:
                         linewidth=1, alpha=0.6, label=f'{cpd.name} (adh)')
 
         ax.legend(fontsize=9, loc='best')
-        self._fig.tight_layout()
-        self._canvas.draw_idle()
+        fig.tight_layout()
+        canvas.draw_idle()
 
     # ================================================================
     #  Dataset Preset (저장/불러오기)
@@ -1246,6 +1507,11 @@ class DataInputTab:
                     self._load_mu_dry_from_path(i, mu_dry_file)
                 except Exception as e:
                     print(f"[Dataset] mu_dry 로드 실패 ({cpd.name}): {e}")
+
+        # Refresh input data plots
+        self._plot_viscoelastic()
+        self._plot_aT()
+        self._plot_strain()
 
         messagebox.showinfo("불러오기 완료",
                             f"데이터셋 '{selected}' 로드 완료 ({n}개 컴파운드)")

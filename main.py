@@ -624,6 +624,42 @@ class PerssonModelGUI_V2:
         except Exception:
             return None
 
+    def _save_tab_order(self):
+        """Save tab order to JSON file."""
+        order = [attr for attr, _l, _f in self._all_tabs]
+        path = self._get_font_settings_path()
+        try:
+            cfg = {}
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+            cfg['tab_order'] = order
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _load_tab_order(self):
+        """Load tab order from JSON file."""
+        path = self._get_font_settings_path()
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            return cfg.get('tab_order', None)
+        except Exception:
+            return None
+
+    def _renumber_tabs(self):
+        """Re-add visible tabs with sequential numbering."""
+        _tsp = self._tab_sp
+        num = 1
+        for attr, label, frame in self._all_tabs:
+            if self._tab_visible_vars[attr].get():
+                self.notebook.add(frame, text=f'{_tsp}{num}. {label}{_tsp}')
+                num += 1
+
     # ================================================================
     #  THEME / STYLE  CONFIGURATION
     # ================================================================
@@ -903,7 +939,7 @@ class PerssonModelGUI_V2:
         menubar.add_cascade(label="  Settings  ", menu=settings_menu)
         settings_menu.add_command(label="  초기변수 설정...", command=self._open_initial_var_settings)
         settings_menu.add_separator()
-        settings_menu.add_command(label="  탭 표시/숨기기...", command=self._open_tab_visibility_settings)
+        settings_menu.add_command(label="  탭 표시/순서 설정...", command=self._open_tab_visibility_settings)
 
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0, **menu_cfg)
@@ -954,8 +990,9 @@ class PerssonModelGUI_V2:
         self.notebook = ttk.Notebook(self.root)
         self.notebook.pack(fill=tk.BOTH, expand=True, padx=_nb_pad, pady=(1, 0))
 
-        # ── Tab definitions ──
-        tabs = [
+        # ── Tab definitions (attr, label, builder) ──
+        # 번호는 _build_tab_label()에서 현재 순서 기반으로 자동 부여
+        self._tab_definitions = [
             ('tab_data_input',       '데이터 입력',         self._create_data_input_tab),
             ('tab_results_overview', '계산 결과',           self._create_results_overview_tab),
             ('tab_psd_profile',     'PSD 생성',           self._create_psd_profile_tab),
@@ -984,6 +1021,15 @@ class PerssonModelGUI_V2:
             ('tab_monte_carlo',    'Monte Carlo',         self._create_monte_carlo_tab),
         ]
 
+        # 저장된 탭 순서가 있으면 적용
+        saved_order = self._load_tab_order()
+        if saved_order:
+            order_map = {attr: i for i, attr in enumerate(saved_order)}
+            self._tab_definitions.sort(
+                key=lambda t: order_map.get(t[0], 9999))
+
+        tabs = self._tab_definitions
+
         # 기본 숨김 탭 목록
         default_hidden = {'tab_braking_sim', 'tab_track_sim', 'tab_ve_advisor',
                           'tab_results', 'tab_integrand',
@@ -999,14 +1045,15 @@ class PerssonModelGUI_V2:
         self._all_tabs = []  # (attr, label, frame) for visibility management
         self._tab_visible_vars = {}  # attr → BooleanVar
 
-        _tab_sp = ' ' if getattr(self, '_ui_scale', 1.0) < 0.95 else '  '
+        self._tab_sp = ' ' if getattr(self, '_ui_scale', 1.0) < 0.95 else '  '
         n_tabs = len(tabs)
         for i, (attr, label, builder) in enumerate(tabs):
             pct = 15 + int(65 * (i / n_tabs))  # 15% → 80%
             self._splash_cb(f"탭 생성: {label} ...", pct)
             frame = ttk.Frame(self.notebook)
             setattr(self, attr, frame)
-            self.notebook.add(frame, text=f'{_tab_sp}{label}{_tab_sp}')
+            numbered_label = f'{i+1}. {label}'
+            self.notebook.add(frame, text=f'{self._tab_sp}{numbered_label}{self._tab_sp}')
             builder(frame)
             self._all_tabs.append((attr, label, frame))
             visible = attr not in hidden_set
@@ -7530,29 +7577,30 @@ class PerssonModelGUI_V2:
             pass
 
     def _open_tab_visibility_settings(self):
-        """Open dialog to show/hide tabs."""
+        """Open dialog to show/hide tabs and reorder them."""
         dialog = tk.Toplevel(self.root)
-        dialog.title("탭 표시/숨기기")
+        dialog.title("탭 표시/순서 설정")
         dialog.resizable(False, True)
         dialog.transient(self.root)
         dialog.grab_set()
 
         C = self.COLORS
+        F = self.FONTS
 
         # ── Title ──
         title_frame = tk.Frame(dialog, bg=C['sidebar'], padx=12, pady=8)
         title_frame.pack(side=tk.TOP, fill=tk.X)
-        tk.Label(title_frame, text="탭 표시/숨기기 설정", bg=C['sidebar'], fg='white',
-                 font=self.FONTS['subheading']).pack(anchor=tk.W)
-        tk.Label(title_frame, text="체크 해제한 탭은 숨겨집니다.", bg=C['sidebar'], fg='#94A3B8',
-                 font=self.FONTS['small']).pack(anchor=tk.W)
+        tk.Label(title_frame, text="탭 표시/순서 설정", bg=C['sidebar'], fg='white',
+                 font=F['subheading']).pack(anchor=tk.W)
+        tk.Label(title_frame, text="체크 해제 → 숨기기  |  ▲▼ → 순서 변경",
+                 bg=C['sidebar'], fg='#94A3B8', font=F['small']).pack(anchor=tk.W)
 
         # ── Buttons (pack FIRST with side=BOTTOM so they always stay visible) ──
         btn_frame = ttk.Frame(dialog, padding=10)
         btn_frame.pack(side=tk.BOTTOM, fill=tk.X)
         ttk.Separator(dialog, orient='horizontal').pack(side=tk.BOTTOM, fill=tk.X)
 
-        # ── Scrollable checkbutton list ──
+        # ── Scrollable list with reorder buttons ──
         canvas = tk.Canvas(dialog, highlightthickness=0, bd=0)
         scrollbar = ttk.Scrollbar(dialog, orient=tk.VERTICAL, command=canvas.yview)
         canvas.configure(yscrollcommand=scrollbar.set)
@@ -7563,9 +7611,50 @@ class PerssonModelGUI_V2:
         inner = ttk.Frame(canvas, padding=10)
         inner_id = canvas.create_window((0, 0), window=inner, anchor='nw')
 
-        for attr, label, _frame in self._all_tabs:
-            var = self._tab_visible_vars[attr]
-            ttk.Checkbutton(inner, text=label, variable=var).pack(anchor=tk.W, pady=3)
+        # Working copy of tab order (list of indices into self._all_tabs)
+        _order = list(range(len(self._all_tabs)))
+        _row_widgets = []  # list of (row_frame, checkbox, label_widget)
+
+        def _rebuild_rows():
+            """Rebuild the listbox rows from current _order."""
+            for w in inner.winfo_children():
+                w.destroy()
+            _row_widgets.clear()
+
+            for display_idx, tab_idx in enumerate(_order):
+                attr, label, _frame = self._all_tabs[tab_idx]
+                var = self._tab_visible_vars[attr]
+
+                row = ttk.Frame(inner)
+                row.pack(fill=tk.X, pady=1)
+
+                # Number label
+                num_lbl = ttk.Label(row, text=f"{display_idx + 1}.", width=3,
+                                    font=F['small'], anchor='e')
+                num_lbl.pack(side=tk.LEFT, padx=(0, 2))
+
+                # Checkbox
+                cb = ttk.Checkbutton(row, text=label, variable=var)
+                cb.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+                # Move buttons
+                btn_up = ttk.Button(row, text="▲", width=3,
+                                    command=lambda di=display_idx: _move(di, -1))
+                btn_up.pack(side=tk.RIGHT, padx=1)
+                btn_down = ttk.Button(row, text="▼", width=3,
+                                      command=lambda di=display_idx: _move(di, 1))
+                btn_down.pack(side=tk.RIGHT, padx=1)
+
+                _row_widgets.append((row, cb, num_lbl))
+
+        def _move(display_idx, direction):
+            """Swap tab at display_idx with neighbor in given direction."""
+            new_idx = display_idx + direction
+            if 0 <= new_idx < len(_order):
+                _order[display_idx], _order[new_idx] = _order[new_idx], _order[display_idx]
+                _rebuild_rows()
+
+        _rebuild_rows()
 
         def _on_inner_configure(event):
             canvas.configure(scrollregion=canvas.bbox('all'))
@@ -7590,24 +7679,25 @@ class PerssonModelGUI_V2:
         # ── Save original state so Cancel can restore it ──
         _saved_state = {attr: self._tab_visible_vars[attr].get()
                         for attr, _l, _f in self._all_tabs}
+        _saved_order = list(self._all_tabs)  # shallow copy of original order
 
         # ── Apply / Cancel logic ──
         def _apply():
-            # Hide ALL tabs first, then re-add only checked ones in order.
-            # (notebook.index() returns an index even for hidden tabs,
-            #  so the old approach of checking index() was unreliable.)
+            # Reorder self._all_tabs according to _order
+            new_all_tabs = [self._all_tabs[i] for i in _order]
+            self._all_tabs[:] = new_all_tabs
+
+            # Hide ALL tabs first
             for attr, label, frame in self._all_tabs:
                 try:
                     self.notebook.hide(frame)
                 except tk.TclError:
                     pass
-            # Re-add checked tabs in original order
-            _tsp = ' ' if getattr(self, '_ui_scale', 1.0) < 0.95 else '  '
-            for attr, label, frame in self._all_tabs:
-                if self._tab_visible_vars[attr].get():
-                    self.notebook.add(frame, text=f'{_tsp}{label}{_tsp}')
-            # Save tab visibility to settings file
+            # Re-add with new order and numbering
+            self._renumber_tabs()
+            # Save both visibility and order
             self._save_tab_visibility()
+            self._save_tab_order()
             dialog.destroy()
 
         def _cancel():
@@ -7618,12 +7708,21 @@ class PerssonModelGUI_V2:
 
         ttk.Button(btn_frame, text="적용", command=_apply, style='Accent.TButton').pack(side=tk.RIGHT, padx=4)
         ttk.Button(btn_frame, text="취소", command=_cancel).pack(side=tk.RIGHT, padx=4)
+        def _reset_order():
+            # Restore default order based on _tab_definitions
+            def_attrs = [t[0] for t in self._tab_definitions]
+            all_attrs = [self._all_tabs[i][0] for i in range(len(self._all_tabs))]
+            _order[:] = sorted(range(len(self._all_tabs)),
+                               key=lambda i: def_attrs.index(all_attrs[i])
+                               if all_attrs[i] in def_attrs else i)
+            _rebuild_rows()
+        ttk.Button(btn_frame, text="기본 순서 복원",
+                   command=_reset_order).pack(side=tk.LEFT, padx=4)
 
         # ── Size & position (after widgets are built) ──
         dialog.update_idletasks()
-        dlg_w = 370
+        dlg_w = 420
         n_tabs = len(self._all_tabs)
-        # Fit all items if possible, cap at 80% of screen height
         desired_h = min(title_frame.winfo_reqheight() + n_tabs * 32 + 80,
                         int(self.root.winfo_screenheight() * 0.8))
         dlg_h = max(desired_h, 400)
