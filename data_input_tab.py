@@ -1125,42 +1125,43 @@ class DataInputTab:
     def _calc_hot_adhesion(self, app, cpd, v_array, A_A0_hot, T_hot_arr):
         """Hot adhesion: Arrhenius aT 시프트로 τ_f(T_hot) 계산 → μ_adh_hot.
 
-        10번 탭(Cold & Hot Branch)과 동일한 로직.
+        10번 탭(Cold & Hot Branch)과 **완전히 동일한 로직**:
+        - 피팅된 adh_params (τ_f0, v0*, c, ε, T_ref) 사용
+        - per-velocity Arrhenius 시프트: aT'(T_hot(v))
+        - vectorized 계산 (for 루프 제거)
+
         Returns (mu_adh_hot, tau_f_hot) tuple.
         """
         zeros = np.zeros_like(v_array)
         if T_hot_arr is None or A_A0_hot is None:
             return zeros, zeros
 
-        p0 = float(self._sigma0_var.get()) * 1e6
+        # ── 피팅된 파라미터 사용 (Tab 10과 동일) ──
+        adh_params = app.mu_adh_results.get('params') if app.mu_adh_results else None
+        if adh_params is None:
+            return zeros, zeros
+
+        tau_f0 = adh_params['tau_f0']       # Pa (이미 Pa 단위)
+        v0_star = adh_params['v0_star']     # m/s
+        c_val = adh_params['c']             # Gaussian width
+        epsilon = adh_params['epsilon']     # eV
+        T_ref_K = adh_params['T_ref']       # K (피팅 시 사용된 기준 온도)
+        p0 = adh_params['p0']              # Pa
+        k_B = 8.6173e-5                     # eV/K
+
         if p0 <= 0:
             return zeros, zeros
 
-        # Adhesion parameters
-        try:
-            tau_f0 = float(self._tau_f0_var.get()) * 1e6  # MPa → Pa
-            v0_star = float(self._v0_star_var.get())
-            c_gauss = float(self._c_gauss_var.get())
-            epsilon = float(self._epsilon_var.get())
-        except (ValueError, AttributeError):
-            return zeros, zeros
+        # Per-velocity Arrhenius shift: aT'(T_hot(v))
+        T_hot_arr_K = np.where(T_hot_arr > -200, T_hot_arr + 273.15, T_ref_K)
+        aT_prime_hot = np.exp((epsilon / k_B) * (1.0 / T_hot_arr_K - 1.0 / T_ref_K))
 
-        T0 = float(self._temp_var.get())
+        # τ_f_hot: per-velocity Arrhenius shifted Gaussian
+        v_eff_hot = v_array * aT_prime_hot
+        log_ratio_hot = np.log10(np.maximum(v_eff_hot, 1e-30) / v0_star)
+        tau_f_hot = tau_f0 * np.exp(-c_val * log_ratio_hot**2)
 
-        # aT' Arrhenius shift factor at each T_hot
-        kB_eV = 8.617333262e-5  # eV/K
-        T_ref_K = T0 + 273.15
-
-        tau_f_hot = np.zeros_like(v_array)
-        mu_adh_hot = np.zeros_like(v_array)
-        for iv, v_val in enumerate(v_array):
-            T_hot_K = T_hot_arr[iv] + 273.15 if T_hot_arr[iv] > -200 else T_ref_K
-            aT_prime = np.exp(epsilon / kB_eV * (1.0 / T_hot_K - 1.0 / T_ref_K))
-            v_shifted = v_val * aT_prime
-            # τ_f Gaussian (log10 consistent with main cold_hot_branch)
-            log_ratio = np.log10(max(v_shifted, 1e-30) / v0_star)
-            tau_f_hot[iv] = tau_f0 * np.exp(-c_gauss * log_ratio**2)
-            mu_adh_hot[iv] = A_A0_hot[iv] * tau_f_hot[iv] / p0
+        mu_adh_hot = (A_A0_hot * tau_f_hot) / p0
 
         return mu_adh_hot, tau_f_hot
 
@@ -1289,7 +1290,7 @@ class DataInputTab:
 
     # ── Tab 2: 마찰 결과 (A/A0 + hys/adh + total) ──
     def _plot_results(self):
-        """3-row: A/A0, μ_hys+μ_adh, μ_total."""
+        """3×2: A/A0, μ_hys, τ_f, μ_adh, μ_total, peak 비교."""
         FS = self.PLOT_FONT_SIZE
         LW = self.PLOT_LINE_WIDTH
         LWs = self.PLOT_LINE_WIDTH_SUB
@@ -1305,15 +1306,22 @@ class DataInputTab:
             canvas.draw_idle()
             return
 
-        ax1 = fig.add_subplot(2, 2, 1)
-        ax2 = fig.add_subplot(2, 2, 2)
-        ax3 = fig.add_subplot(2, 2, 3)
-        ax4 = fig.add_subplot(2, 2, 4)
+        ax1 = fig.add_subplot(3, 2, 1)
+        ax2 = fig.add_subplot(3, 2, 2)
+        ax3 = fig.add_subplot(3, 2, 3)
+        ax4 = fig.add_subplot(3, 2, 4)
+        ax5 = fig.add_subplot(3, 2, 5)
+        ax6 = fig.add_subplot(3, 2, 6)
 
         self._style_ax(ax1, 'A/A₀', 'v (m/s)', 'A/A₀', 'log')
         self._style_ax(ax2, 'μ_hys', 'v (m/s)', 'μ_hys', 'log')
-        self._style_ax(ax3, 'μ_adh', 'v (m/s)', 'μ_adh', 'log')
-        self._style_ax(ax4, 'μ_total', 'v (m/s)', 'μ', 'log')
+        self._style_ax(ax3, 'τ_f (전단응력)', 'v (m/s)', 'τ_f (MPa)', 'log')
+        self._style_ax(ax4, 'μ_adh', 'v (m/s)', 'μ_adh', 'log')
+        self._style_ax(ax5, 'μ_total', 'v (m/s)', 'μ', 'log')
+        self._style_ax(ax6, 'μ_total 피크 비교', '', 'μ_peak')
+
+        peak_names = []
+        peak_vals = []
 
         for i, cpd in enumerate(cpds):
             color = self.COMPOUND_COLORS[i % len(self.COMPOUND_COLORS)]
@@ -1322,14 +1330,36 @@ class DataInputTab:
             if r.get('A_A0') is not None:
                 ax1.plot(r['v'], r['A_A0'], '-', color=color, linewidth=LW, label=cpd.name)
             ax2.plot(r['v'], r['mu_visc'], '-', color=color, linewidth=LW, label=cpd.name)
-            if r.get('mu_adh') is not None:
-                ax3.plot(r['v'], r['mu_adh'], '-', color=color, linewidth=LW, label=cpd.name)
-            ax4.plot(r['v'], r['mu_total'], '-', color=color, linewidth=LW, label=cpd.name)
-            ax4.plot(r['v'], r['mu_visc'], '--', color=color, linewidth=LWs, alpha=0.5)
-            if r.get('mu_adh') is not None:
-                ax4.plot(r['v'], r['mu_adh'], ':', color=color, linewidth=LWs, alpha=0.5)
 
-        for ax in [ax1, ax2, ax3, ax4]:
+            # τ_f 플롯
+            tau_f = r.get('tau_f_cold')
+            if tau_f is not None:
+                ax3.plot(r['v'], tau_f / 1e6, '-', color=color, linewidth=LW, label=cpd.name)
+
+            if r.get('mu_adh') is not None:
+                ax4.plot(r['v'], r['mu_adh'], '-', color=color, linewidth=LW, label=cpd.name)
+
+            ax5.plot(r['v'], r['mu_total'], '-', color=color, linewidth=LW, label=cpd.name)
+            ax5.plot(r['v'], r['mu_visc'], '--', color=color, linewidth=LWs, alpha=0.5)
+            if r.get('mu_adh') is not None:
+                ax5.plot(r['v'], r['mu_adh'], ':', color=color, linewidth=LWs, alpha=0.5)
+
+            # 피크 비교
+            peak_names.append(cpd.name)
+            peak_vals.append(np.max(r['mu_total']))
+
+        # 바 차트: μ_total 피크 비교
+        if peak_names:
+            colors = [self.COMPOUND_COLORS[i % len(self.COMPOUND_COLORS)]
+                      for i in range(len(peak_names))]
+            bars = ax6.bar(range(len(peak_names)), peak_vals, color=colors, alpha=0.8)
+            ax6.set_xticks(range(len(peak_names)))
+            ax6.set_xticklabels(peak_names, fontsize=FS - 3, rotation=30, ha='right')
+            for bar, val in zip(bars, peak_vals):
+                ax6.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                         f'{val:.3f}', ha='center', va='bottom', fontsize=FS - 3)
+
+        for ax in [ax1, ax2, ax3, ax4, ax5]:
             if ax.get_legend_handles_labels()[1]:
                 ax.legend(fontsize=FS - 3, loc='best')
         fig.tight_layout()
@@ -1337,7 +1367,7 @@ class DataInputTab:
 
     # ── Tab 3: Cold & Hot Branch ──
     def _plot_cold_hot(self):
-        """3×2: μ_hys C/H, A/A0 C/H, τ_f C/H, μ_adh C/H, μ_total C/H, T_hot(v)."""
+        """3×2: μ_hys C/H, A/A0 C/H, τ_f C/H, μ_adh C/H, μ_total C/H, 피크 비교."""
         FS = self.PLOT_FONT_SIZE
         LW = self.PLOT_LINE_WIDTH
         LWs = self.PLOT_LINE_WIDTH_SUB
@@ -1361,14 +1391,18 @@ class DataInputTab:
         ax_tau   = fig.add_subplot(3, 2, 3)
         ax_adh   = fig.add_subplot(3, 2, 4)
         ax_total = fig.add_subplot(3, 2, 5)
-        ax_thot  = fig.add_subplot(3, 2, 6)
+        ax_peak  = fig.add_subplot(3, 2, 6)
 
         self._style_ax(ax_hys,   'μ_hys: Cold vs Hot',   'v (m/s)', 'μ_hys', 'log')
         self._style_ax(ax_aa0,   'A/A₀: Cold vs Hot',    'v (m/s)', 'A/A₀', 'log')
         self._style_ax(ax_tau,   'τ_f: Cold vs Hot',     'v (m/s)', 'τ_f (MPa)', 'log')
         self._style_ax(ax_adh,   'μ_adh: Cold vs Hot',   'v (m/s)', 'μ_adh', 'log')
         self._style_ax(ax_total, 'μ_total: Cold vs Hot', 'v (m/s)', 'μ_total', 'log')
-        self._style_ax(ax_thot,  'T_hot(v)',             'v (m/s)', 'T (°C)', 'log')
+        self._style_ax(ax_peak,  'μ_peak: Cold vs Hot',  '', 'μ_peak')
+
+        peak_cold_names = []
+        peak_cold_vals = []
+        peak_hot_vals = []
 
         for i, cpd in enumerate(self.compounds):
             if cpd.results is None:
@@ -1420,14 +1454,34 @@ class DataInputTab:
                     ax_total.plot(v, d, style, color=color, linewidth=LW if style == '-' else LWs,
                                   label=f'{lbl} {branch}')
 
-            # T_hot(v)
-            T_hot = r.get('T_hot')
-            T0 = r.get('temperature', 20.0)
-            if T_hot is not None:
-                ax_thot.plot(v, T_hot, '-', color=color, linewidth=LW, label=lbl)
-                ax_thot.axhline(y=T0, color=color, linestyle=':', linewidth=0.8, alpha=0.5)
+            # 피크 수집
+            mu_c = r.get('mu_cold_total')
+            mu_h = r.get('mu_hot_total')
+            if mu_c is not None and mu_h is not None:
+                peak_cold_names.append(lbl)
+                peak_cold_vals.append(np.max(mu_c))
+                peak_hot_vals.append(np.max(mu_h))
 
-        for ax in [ax_hys, ax_aa0, ax_tau, ax_adh, ax_total, ax_thot]:
+        # 피크 비교 바 차트 (Cold vs Hot)
+        if peak_cold_names:
+            x = np.arange(len(peak_cold_names))
+            w = 0.35
+            colors = [self.COMPOUND_COLORS[i % len(self.COMPOUND_COLORS)]
+                      for i in range(len(peak_cold_names))]
+            bars_c = ax_peak.bar(x - w/2, peak_cold_vals, w, color=colors, alpha=0.7, label='Cold')
+            bars_h = ax_peak.bar(x + w/2, peak_hot_vals, w, color=colors, alpha=0.4,
+                                 edgecolor=colors, linewidth=1.5, label='Hot', hatch='//')
+            ax_peak.set_xticks(x)
+            ax_peak.set_xticklabels(peak_cold_names, fontsize=FS - 3, rotation=30, ha='right')
+            for bar, val in zip(bars_c, peak_cold_vals):
+                ax_peak.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                             f'{val:.3f}', ha='center', va='bottom', fontsize=FS - 4)
+            for bar, val in zip(bars_h, peak_hot_vals):
+                ax_peak.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
+                             f'{val:.3f}', ha='center', va='bottom', fontsize=FS - 4)
+            ax_peak.legend(fontsize=FS - 3)
+
+        for ax in [ax_hys, ax_aa0, ax_tau, ax_adh, ax_total]:
             if ax.get_legend_handles_labels()[1]:
                 ax.legend(fontsize=FS - 3, loc='best')
         fig.tight_layout()
