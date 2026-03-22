@@ -110,6 +110,7 @@ class ResultsOverviewTab:
                 toolbar.update()
                 canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
                 self._plot_tabs[key] = (fig, canvas)
+                self._bind_auto_resize(fig, canvas)
 
                 # Bottom: text comment area
                 comment_frame = ttk.LabelFrame(pane, text="비교 분석 코멘트", padding=6)
@@ -130,9 +131,36 @@ class ResultsOverviewTab:
                 toolbar.update()
                 canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
                 self._plot_tabs[key] = (fig, canvas)
+                self._bind_auto_resize(fig, canvas)
 
         # Legacy reference for _save_figure
         self._fig, self._canvas = self._plot_tabs['total_overlay']
+
+    # ================================================================
+    #  Auto-resize binding for canvases
+    # ================================================================
+    @staticmethod
+    def _bind_auto_resize(fig, canvas):
+        """Bind <Configure> so figure fills its widget on resize."""
+        widget = canvas.get_tk_widget()
+        _after_id = [None]
+
+        def _on_resize(event, _fig=fig, _cv=canvas):
+            w, h = event.width, event.height
+            if w > 1 and h > 1:
+                _fig.set_size_inches(w / _fig.dpi, h / _fig.dpi, forward=False)
+                try:
+                    _fig.tight_layout()
+                except Exception:
+                    pass
+                if _after_id[0] is not None:
+                    try:
+                        widget.after_cancel(_after_id[0])
+                    except Exception:
+                        pass
+                _after_id[0] = widget.after(50, lambda: _cv.draw_idle())
+
+        widget.bind('<Configure>', _on_resize, add='+')
 
     # ================================================================
     #  Plot styling helper
@@ -142,7 +170,7 @@ class ResultsOverviewTab:
         """Apply consistent styling: 12pt fonts, grid."""
         FS = ResultsOverviewTab.PLOT_FONT_SIZE
         if title:
-            ax.set_title(title, fontsize=FS + 1, fontweight='bold')
+            ax.set_title(title, fontsize=FS, fontweight='bold')
         if xlabel:
             ax.set_xlabel(xlabel, fontsize=FS)
         if ylabel:
@@ -151,7 +179,7 @@ class ResultsOverviewTab:
             ax.set_xscale(xscale)
         if yscale:
             ax.set_yscale(yscale)
-        ax.tick_params(axis='both', labelsize=FS - 1)
+        ax.tick_params(axis='both', labelsize=FS)
         ax.grid(True, alpha=0.3)
 
     # ================================================================
@@ -167,7 +195,7 @@ class ResultsOverviewTab:
                 fig.clear()
                 ax = fig.add_subplot(111)
                 ax.text(0.5, 0.5, '데이터 입력 탭에서 계산을 실행하세요',
-                        ha='center', va='center', fontsize=14,
+                        ha='center', va='center', fontsize=12,
                         transform=ax.transAxes, color='gray')
                 ax.set_axis_off()
                 canvas.draw_idle()
@@ -237,7 +265,7 @@ class ResultsOverviewTab:
                         label=f'{cpd.name} (adh)')
 
         if visible_compounds:
-            ax.legend(fontsize=FS - 1, loc='best')
+            ax.legend(fontsize=FS, loc='best')
         fig.tight_layout()
         canvas.draw_idle()
 
@@ -336,7 +364,7 @@ class ResultsOverviewTab:
                          label=f'{lbl} Hot')
 
         for ax in [ax1, ax2, ax3, ax4]:
-            ax.legend(fontsize=FS - 3, loc='best')
+            ax.legend(fontsize=FS, loc='best')
 
         fig.tight_layout()
         canvas.draw_idle()
@@ -373,7 +401,7 @@ class ResultsOverviewTab:
                 if y is not None:
                     ax.plot(r['v'], y, '-', color=color, linewidth=LW, label=cpd.name)
 
-            ax.legend(fontsize=FS - 2, loc='best')
+            ax.legend(fontsize=FS, loc='best')
 
         # 4th panel: bar chart at key speeds
         self._style_ax(ax4, '속도별 μ_total 비교', '', 'μ_total')
@@ -396,8 +424,8 @@ class ResultsOverviewTab:
                 ax4.bar(x + ci_local * width, vals, width, label=cpd.name, color=color, alpha=0.85)
 
             ax4.set_xticks(x + width * (n_cpd - 1) / 2)
-            ax4.set_xticklabels([f'{s} m/s' for s in key_speeds], fontsize=FS - 1)
-            ax4.legend(fontsize=FS - 2, loc='best')
+            ax4.set_xticklabels([f'{s} m/s' for s in key_speeds], fontsize=FS)
+            ax4.legend(fontsize=FS, loc='best')
 
         fig.tight_layout()
         canvas.draw_idle()
@@ -421,7 +449,7 @@ class ResultsOverviewTab:
         if not valid:
             ax = fig.add_subplot(111)
             ax.text(0.5, 0.5, '결과 없음', ha='center', va='center',
-                    fontsize=14, color='gray', transform=ax.transAxes)
+                    fontsize=12, color='gray', transform=ax.transAxes)
             ax.set_axis_off()
             canvas.draw_idle()
             return
@@ -505,24 +533,24 @@ class ResultsOverviewTab:
             ax.scatter([peak_v], [y_peak], [peak_mu], color='red', s=50, zorder=10)
             ax.text(peak_v, y_peak, peak_mu * 1.05,
                     f'peak={peak_mu:.3f}\n@{v[peak_idx]:.1e}',
-                    fontsize=FS - 4, ha='center', color='#333')
+                    fontsize=FS, ha='center', color='#333')
 
             # Labels and styling
-            ax.set_xlabel('log₁₀(v)', fontsize=FS - 1, labelpad=8)
-            ax.set_ylabel('Component', fontsize=FS - 1, labelpad=8)
-            ax.set_zlabel('μ', fontsize=FS - 1, labelpad=6)
+            ax.set_xlabel('log₁₀(v)', fontsize=FS, labelpad=8)
+            ax.set_ylabel('Component', fontsize=FS, labelpad=8)
+            ax.set_zlabel('μ', fontsize=FS, labelpad=6)
             ax.set_title(cpd.name, fontsize=FS, fontweight='bold', pad=10)
 
             # Y-axis tick labels
             if has_adh:
                 ax.set_yticks([0, 1, 2])
-                ax.set_yticklabels(Y_labels, fontsize=FS - 3)
+                ax.set_yticklabels(Y_labels, fontsize=FS)
             else:
                 ax.set_yticks([0, 1])
-                ax.set_yticklabels(Y_labels, fontsize=FS - 3)
+                ax.set_yticklabels(Y_labels, fontsize=FS)
 
-            ax.tick_params(axis='x', labelsize=FS - 2)
-            ax.tick_params(axis='z', labelsize=FS - 2)
+            ax.tick_params(axis='x', labelsize=FS)
+            ax.tick_params(axis='z', labelsize=FS)
 
             # Condition info
             sigma0 = r.get('sigma_0', 0)
@@ -530,10 +558,10 @@ class ResultsOverviewTab:
             flash = 'Flash ON' if r.get('use_flash', False) else ''
             info = f"σ₀={sigma0/1e6:.1f}MPa  T={temp:.0f}°C  {flash}".strip()
             ax.text2D(0.02, 0.98, info, transform=ax.transAxes,
-                      fontsize=FS - 3, va='top', color='#666')
+                      fontsize=FS, va='top', color='#666')
 
             ax.view_init(elev=25, azim=225)
-            ax.legend(fontsize=FS - 3, loc='upper left')
+            ax.legend(fontsize=FS, loc='upper left')
 
         fig.tight_layout()
         canvas.draw_idle()
@@ -551,7 +579,7 @@ class ResultsOverviewTab:
         if not valid:
             ax = fig.add_subplot(111)
             ax.text(0.5, 0.5, '결과 없음', ha='center', va='center',
-                    fontsize=14, color='gray', transform=ax.transAxes)
+                    fontsize=12, color='gray', transform=ax.transAxes)
             ax.set_axis_off()
             canvas.draw_idle()
             if self._comment_text:
@@ -595,9 +623,9 @@ class ResultsOverviewTab:
             }
 
         ax.set_xticks(x + width * (n_cpd - 1) / 2)
-        ax.set_xticklabels(speed_labels, fontsize=FS - 1)
+        ax.set_xticklabels(speed_labels, fontsize=FS)
         self._style_ax(ax, '컴파운드별 마찰 비교', '', 'μ_total')
-        ax.legend(fontsize=FS - 2, loc='best')
+        ax.legend(fontsize=FS, loc='best')
         fig.tight_layout()
         canvas.draw_idle()
 

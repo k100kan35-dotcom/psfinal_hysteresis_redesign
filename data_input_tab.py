@@ -83,7 +83,7 @@ class DataInputTab:
     PLOT_FONT_SIZE = 12
     PLOT_LINE_WIDTH = 2.0
     PLOT_LINE_WIDTH_SUB = 1.3  # 보조 선 (visc, adh)
-    PLOT_LEGEND_SIZE = 9
+    PLOT_LEGEND_SIZE = 12
 
     def __init__(self, app):
         self.app = app
@@ -1304,7 +1304,7 @@ class DataInputTab:
         if not cpds:
             ax = fig.add_subplot(111)
             ax.text(0.5, 0.5, '계산 실행 후 표시됩니다', ha='center', va='center',
-                    fontsize=14, color='gray', transform=ax.transAxes)
+                    fontsize=12, color='gray', transform=ax.transAxes)
             ax.set_axis_off()
             canvas.draw_idle()
             return

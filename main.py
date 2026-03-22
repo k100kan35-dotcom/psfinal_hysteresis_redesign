@@ -53,12 +53,12 @@ matplotlib.rcParams.update({
     'axes.unicode_minus': False,       # ASCII 마이너스 (유니코드 − 깨짐 방지)
     'text.usetex': False,              # LaTeX 비활성화
     'mathtext.fontset': 'dejavusans',  # 수식 폰트: DejaVu Sans (음수 지수 표기 완벽 지원)
-    'font.size': 18,
-    'axes.titlesize': 18,
-    'axes.labelsize': 16,
-    'xtick.labelsize': 14,
-    'ytick.labelsize': 14,
-    'legend.fontsize': 14,
+    'font.size': 12,
+    'axes.titlesize': 12,
+    'axes.labelsize': 12,
+    'xtick.labelsize': 12,
+    'ytick.labelsize': 12,
+    'legend.fontsize': 12,
     'legend.loc': 'best',              # 데이터 겹침 최소화
     'legend.framealpha': 0.85,         # 반투명 배경
     'legend.edgecolor': '#CCCCCC',     # 연한 테두리
@@ -271,15 +271,15 @@ class PerssonModelGUI_V2:
     # ── Plot Font Size Constants ──
     # Base values for 1920×1080.  Scaled up for 4K in main().
     PLOT_FONTS = {
-        'title': 14,
+        'title': 12,
         'label': 12,
-        'tick': 11,
-        'legend': 11,
-        'suptitle': 16,
+        'tick': 12,
+        'legend': 12,
+        'suptitle': 12,
         'annotation': 12,
         'title_sm': 12,
-        'label_sm': 11,
-        'legend_sm': 10,
+        'label_sm': 12,
+        'legend_sm': 12,
     }
 
     def __init__(self, root, splash_callback=None):
@@ -457,32 +457,14 @@ class PerssonModelGUI_V2:
         # 이 시점에서는 실제 위젯 크기를 모르므로 서브플롯 배치가 어긋남.
         # 윈도우가 화면에 표시된 후 한 번 더 recalc하면 정상 배치됨.
         self._splash_cb("레이아웃 최적화 중...", 100)
-        self.root.after(300, self._initial_layout_refresh)
-
-    def _initial_layout_refresh(self):
-        """창이 화면에 표시된 후 모든 Figure의 레이아웃을 재계산."""
-        # 위젯 geometry 확정
-        self.root.update_idletasks()
-        for _, fig, canvas in self._get_all_figures_and_canvases():
-            try:
-                widget = canvas.get_tk_widget()
-                w = widget.winfo_width()
-                h = widget.winfo_height()
-                if w > 1 and h > 1:
-                    fig.set_size_inches(w / fig.dpi, h / fig.dpi,
-                                        forward=False)
-            except Exception:
-                pass
-            try:
-                canvas.draw_idle()
-            except Exception:
-                pass
+        # 반복 리프레시: 창이 완전히 배치될 때까지 여러 번 재계산
+        for delay in (200, 500, 1000):
+            self.root.after(delay, self._refresh_all_figures)
 
         # ── Bind window-level resize so all visible figures adapt ──
         self._window_resize_after_id = None
 
         def _on_window_resize(event):
-            # Only respond to root window resize events
             if event.widget is not self.root:
                 return
             if self._window_resize_after_id is not None:
@@ -490,30 +472,49 @@ class PerssonModelGUI_V2:
                     self.root.after_cancel(self._window_resize_after_id)
                 except Exception:
                     pass
-
-            def _refresh_visible():
-                self._window_resize_after_id = None
-                self.root.update_idletasks()
-                for fig_attr, fig, canvas in self._get_all_figures_and_canvases():
-                    try:
-                        widget = canvas.get_tk_widget()
-                        if widget.winfo_ismapped():
-                            w = widget.winfo_width()
-                            h = widget.winfo_height()
-                            if w > 1 and h > 1:
-                                fig.set_size_inches(w / fig.dpi, h / fig.dpi,
-                                                    forward=False)
-                                # Reapply fixed subplot params if defined
-                                params = self._FIXED_SUBPLOT_PARAMS.get(fig_attr)
-                                if params:
-                                    fig.subplots_adjust(**params)
-                            canvas.draw_idle()
-                    except Exception:
-                        pass
-
-            self._window_resize_after_id = self.root.after(150, _refresh_visible)
+            self._window_resize_after_id = self.root.after(
+                150, self._refresh_all_figures)
 
         self.root.bind('<Configure>', _on_window_resize)
+
+    def _get_all_figures_and_canvases_extended(self):
+        """Return all figure/canvas pairs including Results Overview Tab."""
+        triples = list(self._get_all_figures_and_canvases())
+        # Include Results Overview Tab canvases
+        rot = getattr(self, '_results_overview_tab', None)
+        if rot is not None:
+            plot_tabs = getattr(rot, '_plot_tabs', {})
+            for key, (fig, canvas) in plot_tabs.items():
+                triples.append((f'_rot_{key}', fig, canvas))
+        return triples
+
+    def _refresh_all_figures(self):
+        """모든 Figure의 크기를 위젯에 맞추고 레이아웃을 재계산."""
+        self._window_resize_after_id = None
+        self.root.update_idletasks()
+        for fig_attr, fig, canvas in self._get_all_figures_and_canvases_extended():
+            try:
+                widget = canvas.get_tk_widget()
+                if not widget.winfo_ismapped():
+                    continue
+                w = widget.winfo_width()
+                h = widget.winfo_height()
+                if w > 1 and h > 1:
+                    fig.set_size_inches(w / fig.dpi, h / fig.dpi,
+                                        forward=False)
+                    # Reapply fixed subplot params if defined
+                    params = self._FIXED_SUBPLOT_PARAMS.get(fig_attr)
+                    if params:
+                        fig.subplots_adjust(**params)
+                    else:
+                        # tight_layout for figures without fixed params
+                        try:
+                            fig.tight_layout()
+                        except Exception:
+                            pass
+                canvas.draw_idle()
+            except Exception:
+                pass
 
     # ================================================================
     #  FONT SETTINGS PERSISTENCE
@@ -1077,37 +1078,7 @@ class PerssonModelGUI_V2:
 
             def _stabilize():
                 self._tab_switch_after_id = None
-                # 위젯 geometry 확정 후 Figure 크기를 위젯에 맞춤
-                self.root.update_idletasks()
-                for canvas_attr in ('canvas_psd_profile', 'canvas_mc',
-                                    'canvas_calc_progress', 'canvas_results',
-                                    'canvas_rms', 'canvas_flash_temp',
-                                    'canvas_mu_visc',
-                                    'canvas_mu_adh',
-                                    'canvas_integrand', 'canvas_strain_map',
-                                    'canvas_ve_advisor',
-                                    'canvas_cold_hot',
-                                    'canvas_brush',
-                                    'canvas_pb',
-                                    'canvas_fm_graph',
-                                    'canvas_track',
-                                    '_ts_steer_canvas', '_ts_tire_canvas',
-                                    '_ts_contour_canvas', '_ts_fy_canvas'):
-                    canvas = getattr(self, canvas_attr, None)
-                    if canvas is not None:
-                        try:
-                            widget = canvas.get_tk_widget()
-                            if widget.winfo_ismapped():
-                                w = widget.winfo_width()
-                                h = widget.winfo_height()
-                                if w > 1 and h > 1:
-                                    fig = canvas.figure
-                                    fig.set_size_inches(w / fig.dpi,
-                                                        h / fig.dpi,
-                                                        forward=False)
-                                canvas.draw_idle()
-                        except Exception:
-                            pass
+                self._refresh_all_figures()
 
             self._tab_switch_after_id = self.root.after(100, _stabilize)
 
@@ -1437,6 +1408,11 @@ class PerssonModelGUI_V2:
                 params = self._FIXED_SUBPLOT_PARAMS.get(_fig_attr)
                 if params:
                     _fig.subplots_adjust(**params)
+                else:
+                    try:
+                        _fig.tight_layout()
+                    except Exception:
+                        pass
                 # Debounce: cancel pending redraw, schedule new one
                 if _resize_after_id[0] is not None:
                     try:
@@ -1459,6 +1435,10 @@ class PerssonModelGUI_V2:
             w, h = event.width, event.height
             if w > 1 and h > 1:
                 _fig.set_size_inches(w / _fig.dpi, h / _fig.dpi, forward=False)
+                try:
+                    _fig.tight_layout()
+                except Exception:
+                    pass
                 if _after_id[0] is not None:
                     try:
                         widget.after_cancel(_after_id[0])
@@ -6616,8 +6596,8 @@ class PerssonModelGUI_V2:
         ax6 = self.fig_results.add_subplot(2, 3, 6)
 
         # Standard font settings for all plots
-        TITLE_FONT = 16
-        LABEL_FONT = 14
+        TITLE_FONT = 12
+        LABEL_FONT = 12
         LEGEND_FONT = 12
         TITLE_PAD = 10
 

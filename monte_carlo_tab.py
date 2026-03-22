@@ -1003,7 +1003,7 @@ class MonteCarloTab:
         ax.set_ylabel('Height (um)')
         ax.set_title(f'Road Surface Profiles ({len(self.psd_computers)} files)')
         if 0 < len(self.psd_computers) <= 15:
-            ax.legend(fontsize=7, loc='upper right', ncol=2)
+            ax.legend(fontsize=12, loc='upper right', ncol=2)
         ax.grid(True, alpha=0.3)
         self._fig_prof.tight_layout()
         self._cv_prof.draw_idle()
@@ -1032,7 +1032,7 @@ class MonteCarloTab:
         ax.set_ylabel('log10(C(q)) [m^4]')
         ax.set_title(f'PSD — {len(self.psd_scans)} curves')
         if 0 < len(self.psd_scans) <= 15:
-            ax.legend(fontsize=7, loc='upper right', ncol=2)
+            ax.legend(fontsize=12, loc='upper right', ncol=2)
         ax.grid(True, alpha=0.3)
         self._fig_psd.tight_layout()
         self._canvas_psd.draw_idle()
@@ -1067,7 +1067,7 @@ class MonteCarloTab:
         ax.set_xlabel('log10(q) [1/m]')
         ax.set_ylabel('log10(C(q)) [m^4]')
         ax.set_title(f'Ensemble: {len(self.C_pool)} samples')
-        ax.legend(loc='upper right', fontsize=9)
+        ax.legend(loc='upper right', fontsize=12)
         ax.grid(True, alpha=0.3)
         self._fig_ens.tight_layout()
         self._cv_ens.draw_idle()
@@ -1091,7 +1091,7 @@ class MonteCarloTab:
         self._ax_pca_vec.set_xlabel('log10(q)')
         self._ax_pca_vec.set_ylabel('Eigenvector')
         self._ax_pca_vec.set_title('Principal Components')
-        self._ax_pca_vec.legend(fontsize=9)
+        self._ax_pca_vec.legend(fontsize=12)
         self._ax_pca_vec.grid(True, alpha=0.3)
 
         # 분산 바 차트
@@ -1108,8 +1108,8 @@ class MonteCarloTab:
         self._ax_pca_var.set_xlabel('PC index')
         self._ax_pca_var.set_ylabel('Variance explained (%)')
         self._ax_pca_var.set_title('Explained Variance')
-        self._ax_pca_var.set_xticks(x, [f'PC{i+1}' for i in x], fontsize=7)
-        self._ax_pca_var.legend(fontsize=8)
+        self._ax_pca_var.set_xticks(x, [f'PC{i+1}' for i in x], fontsize=12)
+        self._ax_pca_var.legend(fontsize=12)
         self._ax_pca_var.grid(True, alpha=0.3, axis='y')
 
         self._fig_pca.tight_layout()
@@ -1528,7 +1528,7 @@ class MonteCarloTab:
                         mu_g = granite_mu[cpd_name][gi]
                         ax.axhline(mu_g, color=color, ls=':', lw=1.0, alpha=0.7)
                         ax.text(q1_candidates[-1], mu_g, f' 화강암 {v_label}',
-                                fontsize=8, va='bottom', color=color, alpha=0.8)
+                                fontsize=12, va='bottom', color=color, alpha=0.8)
 
                 # 아스팔트 상한 수평선
                 if cpd_name in asphalt_mu and v in list(asphalt_v):
@@ -1537,14 +1537,14 @@ class MonteCarloTab:
                         mu_a = asphalt_mu[cpd_name][ai]
                         ax.axhline(mu_a, color=color, ls='-.', lw=1.0, alpha=0.7)
                         ax.text(q1_candidates[-1], mu_a, f' 아스팔트 {v_label}',
-                                fontsize=8, va='top', color=color, alpha=0.8)
+                                fontsize=12, va='top', color=color, alpha=0.8)
 
             # 유효 범위 표시
             if self.q1_valid_range:
                 ax.axvspan(self.q1_valid_range[0], self.q1_valid_range[1],
                            alpha=0.08, color='green')
 
-            ax.legend(fontsize=7, loc='best', ncol=1,
+            ax.legend(fontsize=12, loc='best', ncol=1,
                       handlelength=1.5, handletextpad=0.4,
                       borderpad=0.3, labelspacing=0.2)
 
@@ -2021,7 +2021,7 @@ class MonteCarloTab:
             ax1.axvline(med, color='red', linewidth=2, label=f'중앙값 {10**med:.2e}')
             ax1.axvline(ci_lo, color='red', linewidth=1, linestyle='--')
             ax1.axvline(ci_hi, color='red', linewidth=1, linestyle='--')
-        ax1.legend(loc='best', fontsize=8)
+        ax1.legend(loc='best', fontsize=12)
         ax1.grid(True, alpha=0.3)
 
         # ── 플롯 2: C(q) Posterior 밴드 ──
@@ -2054,7 +2054,7 @@ class MonteCarloTab:
                 ax2.plot(self.q_grid, C_median, 'r-', linewidth=2, label='중앙값')
                 ax2.fill_between(self.q_grid, C_lo, C_hi,
                                 color='#3B82F6', alpha=0.2, label='90% CI')
-                ax2.legend(loc='best', fontsize=8)
+                ax2.legend(loc='best', fontsize=12)
 
         # ── 플롯 3: 점수 분포 ──
         ax3 = self._ax_r3
@@ -2070,7 +2070,7 @@ class MonteCarloTab:
                 threshold = min(r['score'] for r in survived)
                 ax3.axvline(threshold, color='red', linewidth=2,
                            linestyle='--', label=f'임계값 {threshold:.4e}')
-                ax3.legend(loc='best', fontsize=8)
+                ax3.legend(loc='best', fontsize=12)
 
         # ── 플롯 4: (q₁, rms) 산점도 ──
         ax4 = self._ax_r4
@@ -2098,7 +2098,7 @@ class MonteCarloTab:
                 log_q1_s = np.log10(q1_surv)
                 ax4.scatter(log_q1_s, rms_surv, s=40, c='red', marker='*',
                            label='생존', zorder=5)
-            ax4.legend(loc='best', fontsize=8)
+            ax4.legend(loc='best', fontsize=12)
 
         self._fig_result.tight_layout(pad=2.5)
         self._canvas_result.draw_idle()
