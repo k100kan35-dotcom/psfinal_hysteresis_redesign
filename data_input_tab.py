@@ -80,10 +80,10 @@ class DataInputTab:
         '#D97706', '#7C3AED', '#DB2777', '#0891B2',
     ]
     # 그래프 기본 스타일
-    PLOT_FONT_SIZE = 9
+    PLOT_FONT_SIZE = 12
     PLOT_LINE_WIDTH = 2.0
     PLOT_LINE_WIDTH_SUB = 1.3  # 보조 선 (visc, adh)
-    PLOT_LEGEND_SIZE = 7
+    PLOT_LEGEND_SIZE = 9
 
     def __init__(self, app):
         self.app = app
@@ -1193,16 +1193,16 @@ class DataInputTab:
         """Apply consistent compact styling to an axis."""
         FS = DataInputTab.PLOT_FONT_SIZE
         if title:
-            ax.set_title(title, fontsize=FS, fontweight='bold', pad=3)
+            ax.set_title(title, fontsize=FS, fontweight='bold', pad=4)
         if xlabel:
-            ax.set_xlabel(xlabel, fontsize=FS - 1, labelpad=2)
+            ax.set_xlabel(xlabel, fontsize=FS, labelpad=3)
         if ylabel:
-            ax.set_ylabel(ylabel, fontsize=FS - 1, labelpad=2)
+            ax.set_ylabel(ylabel, fontsize=FS, labelpad=3)
         if xscale:
             ax.set_xscale(xscale)
         if yscale:
             ax.set_yscale(yscale)
-        ax.tick_params(axis='both', labelsize=FS - 2, pad=1,
+        ax.tick_params(axis='both', labelsize=FS, pad=2,
                        length=3, width=0.6)
         ax.grid(True, alpha=0.3, linewidth=0.5)
 
@@ -1357,10 +1357,10 @@ class DataInputTab:
                       for i in range(len(peak_names))]
             bars = ax6.bar(range(len(peak_names)), peak_vals, color=colors, alpha=0.8)
             ax6.set_xticks(range(len(peak_names)))
-            ax6.set_xticklabels(peak_names, fontsize=FS - 3, rotation=30, ha='right')
+            ax6.set_xticklabels(peak_names, fontsize=FS, rotation=30, ha='right')
             for bar, val in zip(bars, peak_vals):
                 ax6.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                         f'{val:.3f}', ha='center', va='bottom', fontsize=FS - 3)
+                         f'{val:.3f}', ha='center', va='bottom', fontsize=FS)
 
         for ax in [ax1, ax2, ax3, ax4, ax5]:
             if ax.get_legend_handles_labels()[1]:
@@ -1477,13 +1477,13 @@ class DataInputTab:
             bars_h = ax_peak.bar(x + w/2, peak_hot_vals, w, color=colors, alpha=0.4,
                                  edgecolor=colors, linewidth=1.5, label='Hot', hatch='//')
             ax_peak.set_xticks(x)
-            ax_peak.set_xticklabels(peak_cold_names, fontsize=FS - 3, rotation=30, ha='right')
+            ax_peak.set_xticklabels(peak_cold_names, fontsize=FS, rotation=30, ha='right')
             for bar, val in zip(bars_c, peak_cold_vals):
                 ax_peak.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                             f'{val:.3f}', ha='center', va='bottom', fontsize=FS - 4)
+                             f'{val:.3f}', ha='center', va='bottom', fontsize=FS)
             for bar, val in zip(bars_h, peak_hot_vals):
                 ax_peak.text(bar.get_x() + bar.get_width() / 2, bar.get_height(),
-                             f'{val:.3f}', ha='center', va='bottom', fontsize=FS - 4)
+                             f'{val:.3f}', ha='center', va='bottom', fontsize=FS)
             ax_peak.legend(fontsize=self.PLOT_LEGEND_SIZE)
 
         for ax in [ax_hys, ax_aa0, ax_tau, ax_adh, ax_total]:
@@ -1569,13 +1569,13 @@ class DataInputTab:
                                                   cmap='hot', shading='auto',
                                                   vmin=0, vmax=dT_max)
                         cb = fig.colorbar(pcm, ax=ax_hmap, pad=0.02, fraction=0.046)
-                        cb.set_label('ΔT (°C)', fontsize=FS - 2)
-                        cb.ax.tick_params(labelsize=FS - 3)
-                    ax_hmap.set_xlabel('log₁₀(v)', fontsize=FS - 1, labelpad=2)
-                    ax_hmap.set_ylabel('log₁₀(q)', fontsize=FS - 1, labelpad=2)
+                        cb.set_label('ΔT (°C)', fontsize=FS)
+                        cb.ax.tick_params(labelsize=FS)
+                    ax_hmap.set_xlabel('log₁₀(v)', fontsize=FS, labelpad=3)
+                    ax_hmap.set_ylabel('log₁₀(q)', fontsize=FS, labelpad=3)
                     ax_hmap.set_title(f'ΔT(q,v) 히트맵 ({cpd.name})',
-                                      fontsize=FS, fontweight='bold', pad=3)
-                    ax_hmap.tick_params(labelsize=FS - 2)
+                                      fontsize=FS, fontweight='bold', pad=4)
+                    ax_hmap.tick_params(labelsize=FS)
                     hmap_drawn = True
 
             # A/A0 Cold vs Hot
