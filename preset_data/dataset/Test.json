@@ -1,0 +1,42 @@
+{
+  "name": "Test",
+  "psd_file": "C:/Users/colla/OneDrive/Desktop/실리카 이디아다 temp, y1/S100/PSD_persson_S100_.txt",
+  "compound_count": 2,
+  "params": {
+    "sigma_0": "0.3",
+    "temperature": "20",
+    "v_min": "1e-4",
+    "v_max": "100",
+    "n_v": "30",
+    "q0": "2.00e-01",
+    "q1": "0.105129E+06",
+    "n_q": "36",
+    "gamma": "0.57",
+    "n_phi": "14",
+    "nonlinear": false,
+    "flash_temp": false,
+    "tau_f0": "6.5",
+    "v0_star": "10",
+    "c_gauss": "0.1",
+    "epsilon": "0.97",
+    "auto_fit": true
+  },
+  "compounds": [
+    {
+      "name": "Compound 1",
+      "dma_file": "C:/Users/colla/OneDrive/문서/new_onedrive/OneDrive/001_SCI_논문작성/3rd thesis/Data/Resin_Tref20/Resin20/R20_Master.txt",
+      "aT_file": "C:/Users/colla/OneDrive/문서/new_onedrive/OneDrive/001_SCI_논문작성/3rd thesis/Data/Resin_Tref20/Resin20/R20_aT.txt",
+      "strain_mode": "fg",
+      "strain_file": "C:/Users/colla/OneDrive/문서/new_onedrive/OneDrive/001_SCI_논문작성/3rd thesis/Data/Resin_Tref20/Resin20/R20_strain.txt",
+      "mu_dry_file": "C:/Users/colla/OneDrive/문서/new_onedrive/OneDrive/001_SCI_논문작성/3rd thesis/Data/Resin_Tref20/Resin20/dry_R20.txt"
+    },
+    {
+      "name": "Compound 2",
+      "dma_file": "C:/Users/colla/OneDrive/문서/new_onedrive/OneDrive/001_SCI_논문작성/3rd thesis/Data/Resin_Tref20/Resin40/R40_Master.txt",
+      "aT_file": "C:/Users/colla/OneDrive/문서/new_onedrive/OneDrive/001_SCI_논문작성/3rd thesis/Data/Resin_Tref20/Resin40/R40_aT.txt",
+      "strain_mode": "fg",
+      "strain_file": "C:/Users/colla/OneDrive/문서/new_onedrive/OneDrive/001_SCI_논문작성/3rd thesis/Data/Resin_Tref20/Resin40/R40_strain.txt",
+      "mu_dry_file": "C:/Users/colla/OneDrive/문서/new_onedrive/OneDrive/001_SCI_논문작성/3rd thesis/Data/Resin_Tref20/Resin40/dry_R40.txt"
+    }
+  ]
+}

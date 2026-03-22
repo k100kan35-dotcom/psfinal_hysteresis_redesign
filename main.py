@@ -40,27 +40,56 @@ matplotlib.use('TkAgg')
 import matplotlib.pyplot as plt
 import warnings
 warnings.filterwarnings('ignore', category=UserWarning, module='matplotlib')
+warnings.filterwarnings('ignore', message='Glyph.*missing from font')
+
+# Suppress matplotlib font glyph substitution log messages
+import logging
+logging.getLogger('matplotlib.font_manager').setLevel(logging.ERROR)
+logging.getLogger('matplotlib.mathtext').setLevel(logging.ERROR)
+logging.getLogger('matplotlib.backends').setLevel(logging.ERROR)
 
 # === 기본 폰트/수식 설정 (모든 환경에서 안전) ===
 matplotlib.rcParams.update({
     'axes.unicode_minus': False,       # ASCII 마이너스 (유니코드 − 깨짐 방지)
     'text.usetex': False,              # LaTeX 비활성화
-    'mathtext.fontset': 'cm',  # 수식 폰트: Computer Modern (LaTeX 스타일, Cambria Math 유사)
-    'font.size': 9,
-    'axes.titlesize': 10,
-    'axes.labelsize': 9,
-    'xtick.labelsize': 8,
-    'ytick.labelsize': 8,
-    'legend.fontsize': 8,
+    'mathtext.fontset': 'dejavusans',  # 수식 폰트: DejaVu Sans (음수 지수 표기 완벽 지원)
+    'font.size': 12,
+    'axes.titlesize': 12,
+    'axes.labelsize': 12,
+    'xtick.labelsize': 12,
+    'ytick.labelsize': 12,
+    'legend.fontsize': 12,
     'legend.loc': 'best',              # 데이터 겹침 최소화
     'legend.framealpha': 0.85,         # 반투명 배경
     'legend.edgecolor': '#CCCCCC',     # 연한 테두리
     'legend.fancybox': True,
-    'axes.titlepad': 6,                # 제목-축 간격
+    'axes.titlepad': 10,                # 제목-축 간격
 })
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 from matplotlib.figure import Figure
 from matplotlib.colors import LogNorm
+from matplotlib.ticker import FuncFormatter
+
+# ── 음수 지수 표기 글로벌 패치: $10^{-5}$ 형식으로 렌더링 ──
+def _superscript_log_formatter(val, pos=None):
+    """Log axis tick formatter: 10^n 형태의 깔끔한 위첨자 표기."""
+    if val <= 0:
+        return ''
+    exponent = int(np.round(np.log10(val)))
+    if abs(val - 10**exponent) / max(abs(val), 1e-300) < 0.01:
+        return f'$10^{{{exponent}}}$'
+    mantissa = val / (10**exponent)
+    if abs(mantissa - round(mantissa)) < 0.01:
+        return f'${int(round(mantissa))} \\times 10^{{{exponent}}}$'
+    return f'${mantissa:.1f} \\times 10^{{{exponent}}}$'
+
+# Monkey-patch LogScale to use our formatter for all log axes
+import matplotlib.scale as _mscale
+_orig_log_set_defaults = _mscale.LogScale.set_default_locators_and_formatters
+def _patched_log_set_defaults(self, axis):
+    _orig_log_set_defaults(self, axis)
+    axis.set_major_formatter(FuncFormatter(_superscript_log_formatter))
+_mscale.LogScale.set_default_locators_and_formatters = _patched_log_set_defaults
 from scipy.signal import savgol_filter
 from typing import Optional
 import io
@@ -103,7 +132,6 @@ from persson_model.core.friction import (
     RMSSlopeCalculator
 )
 from persson_model.core.master_curve import MasterCurveGenerator, load_multi_temp_dma
-from monte_carlo_tab import bind_monte_carlo_tab
 from persson_model.core.psd_from_profile import ProfilePSDAnalyzer, self_affine_psd_model
 
 # === 한글 폰트 설정 (PyInstaller frozen exe 호환) ===
@@ -153,18 +181,25 @@ try:
 
     if korean_fonts:
         matplotlib.rcParams['font.family'] = 'sans-serif'
-        matplotlib.rcParams['font.sans-serif'] = korean_fonts + ['DejaVu Sans', 'Arial']
+        matplotlib.rcParams['font.sans-serif'] = ['NanumGothic'] + korean_fonts + ['DejaVu Sans']
     else:
         matplotlib.rcParams['font.family'] = 'sans-serif'
-        matplotlib.rcParams['font.sans-serif'] = ['Malgun Gothic', 'DejaVu Sans', 'Arial']
+        matplotlib.rcParams['font.sans-serif'] = ['NanumGothic', 'Malgun Gothic', 'DejaVu Sans']
 except Exception:
     matplotlib.rcParams['font.family'] = 'sans-serif'
-    matplotlib.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial']
+    matplotlib.rcParams['font.sans-serif'] = ['NanumGothic', 'DejaVu Sans']
 
 matplotlib.rcParams['axes.labelweight'] = 'bold'
-matplotlib.rcParams['axes.labelsize'] = 13
+matplotlib.rcParams['axes.labelsize'] = 16
 matplotlib.rcParams['figure.titleweight'] = 'bold'
-matplotlib.rcParams['figure.titlesize'] = 16
+matplotlib.rcParams['figure.titlesize'] = 20
+
+
+from braking_simulation import bind_braking_simulation
+from vehicle_test_matching import bind_vehicle_test_matching
+from monte_carlo_tab import bind_monte_carlo_tab
+from data_input_tab import bind_data_input_tab
+from results_overview_tab import bind_results_overview_tab
 
 
 class PerssonModelGUI_V2:
@@ -196,77 +231,128 @@ class PerssonModelGUI_V2:
         'highlight':    '#DBEAFE',   # 강조 배경 (연한 블루)
     }
 
-    # Font sizes designed for 96 DPI (100% scaling, 1600×1000 window).
-    # On high-DPI displays, the Tk scaling factor is reset in main() so that
-    # these point sizes render at the same physical size on every machine.
+    # Font sizes designed for 96 DPI @ 1920×1080 (reference resolution).
+    # On high-DPI / 4K displays, fonts are scaled up proportionally.
+    _FONT_SIZE = 10  # Base font size (scaled by _hi_dpi_font_scale at runtime)
     FONTS = {
-        'heading':   ('Segoe UI', 17, 'bold'),
-        'subheading':('Segoe UI', 15, 'bold'),
-        'body':      ('Segoe UI', 12),
-        'body_bold': ('Segoe UI', 12, 'bold'),
-        'small':     ('Segoe UI', 11),
-        'small_bold':('Segoe UI', 11, 'bold'),
-        'tiny':      ('Segoe UI', 10),
-        'mono':      ('Consolas', 12),
-        'mono_small':('Consolas', 11),
+        'heading':   ('NanumGothic', 12, 'bold'),
+        'subheading':('NanumGothic', 12, 'bold'),
+        'body':      ('NanumGothic', 12),
+        'body_bold': ('NanumGothic', 12, 'bold'),
+        'small':     ('NanumGothic', 12),
+        'small_bold':('NanumGothic', 12, 'bold'),
+        'tiny':      ('NanumGothic', 12),
+        'mono':      ('NanumGothicCoding', 12),
+        'mono_small':('NanumGothicCoding', 12),
     }
 
     # ── Standardised Dimensions (pixels, applied uniformly to every tab) ──
+    # Base values tuned for 1920×1080.  Scaled up proportionally for 4K.
     DIMS = {
-        'panel_width':   700,     # Left control-panel width
-        'section_pad':   6,       # LabelFrame internal padding
-        'section_gap_y': 3,       # Vertical gap between sections
+        'panel_width':   380,     # Left control-panel width
+        'section_pad':   5,       # LabelFrame internal padding
+        'section_gap_y': 2,       # Vertical gap between sections
         'row_gap_y':     2,       # Vertical gap between rows within a section
         'entry_width':   12,      # Default Entry width (chars)
         'combo_width':   14,      # Default Combobox width (chars)
-        'btn_padx':      10,      # Button horizontal padding
-        'btn_pady':      4,       # Button vertical padding
-        'header_height': 40,      # Top header bar height
-        'log_height':    135,     # Activity-log panel (expanded) — 1.5x
-        'log_collapsed': 22,      # Activity-log panel (collapsed)
-        'statusbar_height': 28,   # Bottom status bar
-        'logo_height':   60,      # Logo area at bottom of control panel
-        'toolbar_pady':  3,       # Toolbar vertical padding
+        'btn_padx':      8,       # Button horizontal padding
+        'btn_pady':      3,       # Button vertical padding
+        'header_height': 32,      # Top header bar height
+        'log_height':    75,      # Activity-log panel (expanded)
+        'log_collapsed': 20,      # Activity-log panel (collapsed)
+        'statusbar_height': 24,   # Bottom status bar
+        'logo_height':   48,      # Logo area at bottom of control panel
+        'toolbar_pady':  2,       # Toolbar vertical padding
     }
 
     # ── NEXEN TIRE Logo ──
     # Logo loaded from assets/nexen_logo.png at runtime
 
-    # ── Plot Font Size Constants (base sizes for 1600px window) ──
+    # ── Plot Font Size Constants ──
+    # Base values for 1920×1080.  Scaled up for 4K in main().
     PLOT_FONTS = {
-        'title': 10,          # subplot titles
-        'label': 9,           # axis labels (x, y)
-        'tick': 8,            # tick labels
-        'legend': 8,          # legend text
-        'suptitle': 11,       # figure suptitle
-        'annotation': 8,      # annotation text
-        'title_sm': 9,        # titles in dense grids (strain map, VE advisor)
-        'label_sm': 8,        # labels in dense grids
-        'legend_sm': 7,       # legends in dense grids
+        'title': 12,
+        'label': 12,
+        'tick': 12,
+        'legend': 12,
+        'suptitle': 12,
+        'annotation': 12,
+        'title_sm': 12,
+        'label_sm': 12,
+        'legend_sm': 12,
     }
-    _REFERENCE_WIDTH = 1600   # reference window width for font scaling
 
-    def __init__(self, root):
+    def __init__(self, root, splash_callback=None):
         """Initialize enhanced GUI."""
+        self._splash_cb = splash_callback or (lambda msg, pct: None)
         self.root = root
         self.root.title("NEXEN Rubber Friction Modelling Program  v3.0")
-        self.root.geometry("1920x1040")
+
+        # ── Auto-fit to monitor resolution ──
+        scr_w = self.root.winfo_screenwidth()
+        scr_h = self.root.winfo_screenheight()
+        # Use 90% of screen as initial geometry (capped at 1920x1040)
+        init_w = min(scr_w, 1920)
+        init_h = min(scr_h - 40, 1040)  # 40px margin for taskbar
+        self.root.geometry(f"{init_w}x{init_h}")
+
         self.root.configure(bg=self.COLORS['bg'])
-        self.root.minsize(1200, 700)
+        self.root.minsize(min(1200, scr_w), min(700, scr_h - 40))
 
-        # ── 항상 전체화면(최대화)으로 시작 ──
-        try:
-            self.root.state('zoomed')          # Windows
-        except tk.TclError:
-            try:
-                self.root.attributes('-zoomed', True)   # Linux (X11)
-            except tk.TclError:
-                pass  # fallback: 기본 geometry 사용
-
-        # Store DPI scale for any component that needs it
+        # Store DPI scale (System DPI Aware + Tk scaling forced to 1.0)
         self._dpi_scale = _get_system_dpi_scale()
 
+        # ── Auto-scale UI for low resolution monitors ──
+        eff_h = scr_h
+        eff_w = scr_w
+        _REF_H = 1080  # 기준 해상도 높이
+        self._ui_scale = min(1.0, eff_h / _REF_H)
+
+        if self._ui_scale < 1.0:
+            s = self._ui_scale
+            # --- DIMS 축소 (base values already tuned for 1080p) ---
+            self.DIMS['header_height'] = max(22, int(32 * s))
+            self.DIMS['log_height'] = max(50, int(75 * s))
+            self.DIMS['log_collapsed'] = max(14, int(20 * s))
+            self.DIMS['statusbar_height'] = max(16, int(24 * s))
+            self.DIMS['logo_height'] = max(28, int(48 * s))
+            self.DIMS['section_pad'] = max(3, int(5 * s))
+            self.DIMS['section_gap_y'] = max(1, int(2 * s))
+            self.DIMS['row_gap_y'] = max(1, int(2 * s))
+            self.DIMS['btn_pady'] = max(2, int(3 * s))
+            self.DIMS['toolbar_pady'] = max(1, int(2 * s))
+            if eff_w < 1600:
+                self.DIMS['panel_width'] = max(340, int(380 * s))
+
+        # ── Load saved layout settings (before theme setup) ──
+        self._saved_window_cfg = None
+        self._load_font_settings()
+
+        # ── Apply saved window settings or default to fullscreen ──
+        wc = getattr(self, '_saved_window_cfg', None)
+        if wc is not None:
+            if wc.get('fullscreen', True):
+                try:
+                    self.root.state('zoomed')
+                except tk.TclError:
+                    try:
+                        self.root.attributes('-zoomed', True)
+                    except tk.TclError:
+                        pass
+            else:
+                self.root.geometry(f"{wc['width']}x{wc['height']}")
+        else:
+            # 기본값: 전체화면(최대화)으로 시작
+            try:
+                self.root.state('zoomed')
+            except tk.TclError:
+                try:
+                    self.root.attributes('-zoomed', True)
+                except tk.TclError:
+                    pass
+
         # ── Apply modern theme ──
+        self._splash_cb("테마 설정 중...", 5)
         self._setup_modern_theme()
 
         # Initialize variables
@@ -277,6 +363,9 @@ class PerssonModelGUI_V2:
         self.raw_dma_data = None  # Store raw DMA data for plotting
         self.raw_psd_data = None  # Store raw PSD data for comparison plotting
         self.target_xi = None  # Target h'rms from Tab 2 PSD settings
+
+        # Early status_var init (used by many methods before _create_status_bar)
+        self.status_var = tk.StringVar(value="초기화 중...")
 
         # Data source tracking
         self.material_source = None  # 마스터 커브 출처: "기본 파일", "예제 SBR", "Tab 1 확정", etc.
@@ -303,6 +392,16 @@ class PerssonModelGUI_V2:
         self.profile_psd_analyzer = None  # ProfilePSDAnalyzer instance
         self.profile_psd_data = None  # Loaded profile data (x, h)
 
+        # ── Friction Map Store ──
+        # 여러 컴파운드의 마찰맵을 이름과 함께 저장/관리
+        # list of dicts: {name, friction_map_results, cold_hot_results, timestamp}
+        self._friction_map_store = []
+        self._selected_friction_map_name = None  # 현재 선택된 마찰맵 이름
+
+        # ── Internal Log System ──
+        # Stores log entries for the Log Analysis tab
+        self._log_entries = []  # list of (timestamp, category, message)
+
         # Graph data registry for automatic data listing
         self.graph_data_registry = {}  # {name: {x, y, header, description, timestamp}}
 
@@ -327,43 +426,240 @@ class PerssonModelGUI_V2:
         self.psd_q1_var = tk.StringVar(value="1e5")
         self.psd_Cq0_var = tk.StringVar(value="3.5e-13")
 
-        # Create UI
+        # Multi-compound data state (for Data Input tab)
+        self.compound_count = 1
+        self.compound_data = []           # list of CompoundData objects
+        self.shared_psd_model = None
+        self.all_compound_results = []    # list of result dicts per compound
+        self.data_input_finalized = False
+
+        # Bind Data Input & Results Overview tabs (must be before _create_main_layout)
+        bind_data_input_tab(self)
+        bind_results_overview_tab(self)
+
+        # Bind Monte Carlo tab (must be before _create_main_layout)
         bind_monte_carlo_tab(self)
+
+        # Create UI
+        self._splash_cb("메뉴 생성 중...", 10)
         self._create_menu()
+        self._splash_cb("탭 UI 구성 중...", 15)
         self._create_main_layout()
+        self._splash_cb("상태바 생성 중...", 85)
         self._create_status_bar()
 
         # Load default measured data
+        self._splash_cb("기본 데이터 로딩 중...", 90)
         self._load_default_data()
 
         # ── 창이 완전히 표시된 후 모든 그래프 레이아웃 재계산 ──
         # Figure는 __init__ 중에 figsize 기준으로 tight_layout이 호출되지만,
         # 이 시점에서는 실제 위젯 크기를 모르므로 서브플롯 배치가 어긋남.
         # 윈도우가 화면에 표시된 후 한 번 더 recalc하면 정상 배치됨.
-        self.root.after(300, self._initial_layout_refresh)
+        self._splash_cb("레이아웃 최적화 중...", 100)
+        # 반복 리프레시: 창이 완전히 배치될 때까지 여러 번 재계산
+        for delay in (200, 500, 1000):
+            self.root.after(delay, self._refresh_all_figures)
 
-    def _initial_layout_refresh(self):
-        """창이 화면에 표시된 후 모든 Figure의 레이아웃을 재계산."""
-        # 위젯 geometry 확정
+        # ── Bind window-level resize so all visible figures adapt ──
+        self._window_resize_after_id = None
+
+        def _on_window_resize(event):
+            if event.widget is not self.root:
+                return
+            if self._window_resize_after_id is not None:
+                try:
+                    self.root.after_cancel(self._window_resize_after_id)
+                except Exception:
+                    pass
+            self._window_resize_after_id = self.root.after(
+                150, self._refresh_all_figures)
+
+        self.root.bind('<Configure>', _on_window_resize)
+
+    def _get_all_figures_and_canvases_extended(self):
+        """Return all figure/canvas pairs including Results Overview Tab."""
+        triples = list(self._get_all_figures_and_canvases())
+        # Include Results Overview Tab canvases
+        rot = getattr(self, '_results_overview_tab', None)
+        if rot is not None:
+            plot_tabs = getattr(rot, '_plot_tabs', {})
+            for key, (fig, canvas) in plot_tabs.items():
+                triples.append((f'_rot_{key}', fig, canvas))
+        return triples
+
+    def _refresh_all_figures(self):
+        """모든 Figure의 크기를 위젯에 맞추고 레이아웃을 재계산."""
+        self._window_resize_after_id = None
         self.root.update_idletasks()
-        for _, fig, canvas in self._get_all_figures_and_canvases():
+        for fig_attr, fig, canvas in self._get_all_figures_and_canvases_extended():
             try:
                 widget = canvas.get_tk_widget()
+                if not widget.winfo_ismapped():
+                    continue
                 w = widget.winfo_width()
                 h = widget.winfo_height()
                 if w > 1 and h > 1:
                     fig.set_size_inches(w / fig.dpi, h / fig.dpi,
                                         forward=False)
-            except Exception:
-                pass
-            try:
+                    # Reapply fixed subplot params if defined
+                    params = self._FIXED_SUBPLOT_PARAMS.get(fig_attr)
+                    if params:
+                        fig.subplots_adjust(**params)
+                    else:
+                        # tight_layout for figures without fixed params
+                        try:
+                            fig.tight_layout()
+                        except Exception:
+                            pass
                 canvas.draw_idle()
             except Exception:
                 pass
-        # 폰트 스케일도 현재 윈도우 크기에 맞게 한 번 보정
-        self._font_scale = 0.0          # force _rescale_all_fonts to run
-        self._last_resize_width = self.root.winfo_width()
-        self._rescale_all_fonts()
+
+    # ================================================================
+    #  FONT SETTINGS PERSISTENCE
+    # ================================================================
+    _FONT_SETTINGS_FILE = 'font_settings.json'
+
+    def _get_font_settings_path(self):
+        """Get path for font settings JSON file.
+
+        For frozen executables (PyInstaller), __file__ points to a temporary
+        extraction directory that is deleted between runs.  We therefore use
+        a persistent, writable location:
+          1. %APPDATA%/NexenRubberFriction/  (Windows)
+          2. ~/.config/NexenRubberFriction/  (Linux/Mac)
+          3. Fallback: directory containing the executable itself
+        For normal Python execution, use the script directory as before.
+        """
+        if getattr(sys, 'frozen', False):
+            # Frozen exe – use a stable, writable directory
+            if sys.platform == 'win32':
+                base = os.environ.get('APPDATA', '')
+                if base:
+                    cfg_dir = os.path.join(base, 'NexenRubberFriction')
+                else:
+                    cfg_dir = os.path.dirname(sys.executable)
+            else:
+                cfg_dir = os.path.join(os.path.expanduser('~'), '.config', 'NexenRubberFriction')
+            os.makedirs(cfg_dir, exist_ok=True)
+            return os.path.join(cfg_dir, self._FONT_SETTINGS_FILE)
+        else:
+            return os.path.join(os.path.dirname(os.path.abspath(__file__)), self._FONT_SETTINGS_FILE)
+
+    def _load_font_settings(self):
+        """Load saved layout settings from JSON file if it exists."""
+        path = self._get_font_settings_path()
+        if not os.path.exists(path):
+            return
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+
+            # Restore panel width
+            if 'panel_width' in cfg:
+                self.DIMS['panel_width'] = cfg['panel_width']
+
+            # Restore window settings
+            if 'window' in cfg:
+                wc = cfg['window']
+                self._saved_window_cfg = {
+                    'width': wc.get('width', 1920),
+                    'height': wc.get('height', 1080),
+                    'fullscreen': wc.get('fullscreen', True),
+                }
+
+        except Exception:
+            pass  # Use defaults if loading fails
+
+    def _save_font_settings(self):
+        """Save current layout settings to JSON file."""
+        cfg = {
+            'panel_width': self.DIMS['panel_width'],
+        }
+        # Save window size & fullscreen state
+        try:
+            is_zoomed = (self.root.state() == 'zoomed')
+        except tk.TclError:
+            try:
+                is_zoomed = bool(self.root.attributes('-zoomed'))
+            except tk.TclError:
+                is_zoomed = False
+        cfg['window'] = {
+            'width': self.root.winfo_width(),
+            'height': self.root.winfo_height(),
+            'fullscreen': is_zoomed,
+        }
+        try:
+            path = self._get_font_settings_path()
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _save_tab_visibility(self):
+        """Save tab visibility settings to JSON file."""
+        hidden_tabs = [attr for attr, _l, _f in self._all_tabs
+                       if not self._tab_visible_vars[attr].get()]
+        path = self._get_font_settings_path()
+        try:
+            cfg = {}
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+            cfg['hidden_tabs'] = hidden_tabs
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _load_tab_visibility(self):
+        """Load tab visibility settings from JSON file."""
+        path = self._get_font_settings_path()
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            return cfg.get('hidden_tabs', None)
+        except Exception:
+            return None
+
+    def _save_tab_order(self):
+        """Save tab order to JSON file."""
+        order = [attr for attr, _l, _f in self._all_tabs]
+        path = self._get_font_settings_path()
+        try:
+            cfg = {}
+            if os.path.exists(path):
+                with open(path, 'r', encoding='utf-8') as f:
+                    cfg = json.load(f)
+            cfg['tab_order'] = order
+            with open(path, 'w', encoding='utf-8') as f:
+                json.dump(cfg, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
+
+    def _load_tab_order(self):
+        """Load tab order from JSON file."""
+        path = self._get_font_settings_path()
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            return cfg.get('tab_order', None)
+        except Exception:
+            return None
+
+    def _renumber_tabs(self):
+        """Re-add visible tabs with sequential numbering."""
+        _tsp = self._tab_sp
+        num = 1
+        for attr, label, frame in self._all_tabs:
+            if self._tab_visible_vars[attr].get():
+                self.notebook.add(frame, text=f'{_tsp}{num}. {label}{_tsp}')
+                num += 1
 
     # ================================================================
     #  THEME / STYLE  CONFIGURATION
@@ -388,9 +684,9 @@ class PerssonModelGUI_V2:
             try:
                 f = tkfont.nametofont(fname)
                 if fname == 'TkFixedFont':
-                    f.configure(family='Consolas', size=_mono_size)
+                    f.configure(family='NanumGothicCoding', size=_mono_size)
                 else:
-                    f.configure(family='Segoe UI', size=_body_size)
+                    f.configure(family='NanumGothic', size=_body_size)
             except Exception:
                 pass
 
@@ -420,11 +716,16 @@ class PerssonModelGUI_V2:
                         foreground=C['primary'], font=F['small_bold'])
 
         # ── TNotebook (Tabs) ──
+        _s = getattr(self, '_ui_scale', 1.0)
+        _tab_px = max(4, int(10 * _s))
+        _tab_py = max(2, int(4 * _s))
+        _tab_margins = [max(1, int(2 * _s)), max(2, int(4 * _s)),
+                        max(1, int(2 * _s)), 0]
         style.configure('TNotebook', background=C['bg'], borderwidth=0,
-                        tabmargins=[2, 4, 2, 0])
+                        tabmargins=_tab_margins)
         style.configure('TNotebook.Tab', background=C['tab_inactive'],
                         foreground=C['text_secondary'], font=F['small_bold'],
-                        padding=[10, 4], borderwidth=0)
+                        padding=[_tab_px, _tab_py], borderwidth=0)
         style.map('TNotebook.Tab',
                   background=[('selected', C['tab_active']),
                               ('active', C['highlight'])],
@@ -433,7 +734,9 @@ class PerssonModelGUI_V2:
                   expand=[('selected', [0, 0, 0, 2])])
 
         # ── TButton (Default) ──
-        style.configure('TButton', font=F['body'], padding=[8, 3],
+        _btn_px = max(4, int(8 * _s))
+        _btn_py = max(2, int(3 * _s))
+        style.configure('TButton', font=F['body'], padding=[_btn_px, _btn_py],
                         background=C['surface'], foreground=C['text'],
                         borderwidth=1, relief='raised', anchor='center')
         style.map('TButton',
@@ -442,9 +745,11 @@ class PerssonModelGUI_V2:
                   relief=[('pressed', 'sunken'), ('!pressed', 'raised')])
 
         # ── Accent.TButton (Primary action - blue) ──
+        _abtn_px = max(5, int(10 * _s))
+        _abtn_py = max(2, int(4 * _s))
         style.configure('Accent.TButton', font=F['body_bold'],
                         background=C['primary'], foreground=C['primary_fg'],
-                        padding=[10, 4], borderwidth=1, relief='raised')
+                        padding=[_abtn_px, _abtn_py], borderwidth=1, relief='raised')
         style.map('Accent.TButton',
                   background=[('pressed', '#0F172A'),
                               ('active', C['primary_hover']),
@@ -455,7 +760,7 @@ class PerssonModelGUI_V2:
         # ── Outline.TButton (Blue outline / border) ──
         style.configure('Outline.TButton', font=F['body_bold'],
                         background=C['surface'], foreground=C['primary'],
-                        padding=[10, 4], borderwidth=1, relief='solid',
+                        padding=[_abtn_px, _abtn_py], borderwidth=1, relief='solid',
                         bordercolor=C['primary'])
         style.map('Outline.TButton',
                   background=[('active', '#EBF5FF'),
@@ -465,7 +770,7 @@ class PerssonModelGUI_V2:
         # ── Success.TButton (Confirm - green) ──
         style.configure('Success.TButton', font=F['body_bold'],
                         background=C['success'], foreground=C['success_fg'],
-                        padding=[10, 4], borderwidth=1, relief='raised')
+                        padding=[_abtn_px, _abtn_py], borderwidth=1, relief='raised')
         style.map('Success.TButton',
                   background=[('pressed', '#064E3B'),
                               ('active', '#047857'),
@@ -476,7 +781,7 @@ class PerssonModelGUI_V2:
         # ── Danger.TButton (Warning action - red) ──
         style.configure('Danger.TButton', font=F['body_bold'],
                         background=C['danger'], foreground=C['danger_fg'],
-                        padding=[10, 4], borderwidth=1, relief='raised')
+                        padding=[_abtn_px, _abtn_py], borderwidth=1, relief='raised')
         style.map('Danger.TButton',
                   background=[('pressed', '#7F1D1D'),
                               ('active', '#B91C1C'),
@@ -485,34 +790,38 @@ class PerssonModelGUI_V2:
                   relief=[('pressed', 'sunken'), ('!pressed', 'raised')])
 
         # ── TEntry ──
+        _ent_px = max(2, int(4 * _s))
+        _ent_py = max(1, int(3 * _s))
         style.configure('TEntry', fieldbackground=C['input_bg'],
                         foreground=C['text'], font=F['body'],
-                        borderwidth=1, relief='solid', padding=[4, 3])
+                        borderwidth=1, relief='solid', padding=[_ent_px, _ent_py])
         style.map('TEntry',
                   fieldbackground=[('focus', '#F0F7FF'), ('readonly', C['bg'])],
                   bordercolor=[('focus', C['primary'])])
 
         # ── TCombobox ──
         style.configure('TCombobox', fieldbackground=C['input_bg'],
-                        foreground=C['text'], font=F['body'], padding=[4, 3])
+                        foreground=C['text'], font=F['body'], padding=[_ent_px, _ent_py])
         style.map('TCombobox',
                   fieldbackground=[('readonly', C['input_bg']),
                                    ('focus', '#F0F7FF')])
 
         # ── TCheckbutton / TRadiobutton ──
+        _ind_sz = max(12, int(16 * _s))
+        _chk_px = max(2, int(3 * _s))
         style.configure('TCheckbutton', background=C['bg'],
                         foreground=C['text'], font=F['body'],
-                        indicatorsize=16, padding=[3, 1])
+                        indicatorsize=_ind_sz, padding=[_chk_px, 1])
         style.configure('TRadiobutton', background=C['bg'],
                         foreground=C['text'], font=F['body'],
-                        indicatorsize=16, padding=[3, 1])
+                        indicatorsize=_ind_sz, padding=[_chk_px, 1])
         # Inside LabelFrames (surface bg)
         style.configure('Surface.TCheckbutton', background=C['surface'],
                         foreground=C['text'], font=F['body'],
-                        indicatorsize=16, padding=[3, 1])
+                        indicatorsize=_ind_sz, padding=[_chk_px, 1])
         style.configure('Surface.TRadiobutton', background=C['surface'],
                         foreground=C['text'], font=F['body'],
-                        indicatorsize=16, padding=[3, 1])
+                        indicatorsize=_ind_sz, padding=[_chk_px, 1])
 
         # ── Horizontal.TProgressbar ──
         style.configure('Horizontal.TProgressbar',
@@ -629,10 +938,9 @@ class PerssonModelGUI_V2:
         # Settings menu
         settings_menu = tk.Menu(menubar, tearoff=0, **menu_cfg)
         menubar.add_cascade(label="  Settings  ", menu=settings_menu)
-        settings_menu.add_command(label="  레이아웃 설정...", command=self._open_layout_settings)
         settings_menu.add_command(label="  초기변수 설정...", command=self._open_initial_var_settings)
         settings_menu.add_separator()
-        settings_menu.add_command(label="  탭 표시/숨기기...", command=self._open_tab_visibility_settings)
+        settings_menu.add_command(label="  탭 표시/순서 설정...", command=self._open_tab_visibility_settings)
 
         # Help menu
         help_menu = tk.Menu(menubar, tearoff=0, **menu_cfg)
@@ -679,11 +987,15 @@ class PerssonModelGUI_V2:
         self._create_log_panel()
 
         # Create notebook (tabbed interface)
+        _nb_pad = 2 if getattr(self, '_ui_scale', 1.0) < 0.95 else 4
         self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill=tk.BOTH, expand=True, padx=4, pady=(2, 0))
+        self.notebook.pack(fill=tk.BOTH, expand=True, padx=_nb_pad, pady=(1, 0))
 
-        # ── Tab definitions ──
-        tabs = [
+        # ── Tab definitions (attr, label, builder) ──
+        # 번호는 _build_tab_label()에서 현재 순서 기반으로 자동 부여
+        self._tab_definitions = [
+            ('tab_data_input',       '데이터 입력',         self._create_data_input_tab),
+            ('tab_results_overview', '계산 결과',           self._create_results_overview_tab),
             ('tab_psd_profile',     'PSD 생성',           self._create_psd_profile_tab),
             ('tab_master_curve',    '마스터 커브',         self._create_master_curve_tab),
             ('tab_parameters',      '계산 설정',           self._create_parameters_tab),
@@ -694,6 +1006,9 @@ class PerssonModelGUI_V2:
             ('tab_cold_hot_branch', 'Cold & Hot Branch',  self._create_cold_hot_branch_tab),
             ('tab_friction_map',    'Friction Map',       self._create_friction_map_tab),
             ('tab_2d_brush',        '2D Brush Model',     self._create_2d_brush_tab),
+            ('tab_persson_brush',   'PerssonBrush',       self._create_persson_brush_tab),
+            ('tab_braking_sim',     'Braking Simulation', self._create_braking_simulation_tab),
+            ('tab_track_sim',       'Track Simulation',   self._create_track_simulation_tab),
             ('tab_ve_advisor',      '점탄성 설계',        self._create_ve_advisor_tab),
             ('tab_strain_map',      'Strain Map',         self._create_strain_map_tab),
             ('tab_results',         '계산 과정',           self._create_results_tab),
@@ -702,22 +1017,47 @@ class PerssonModelGUI_V2:
             ('tab_variables',       '변수 관계',           self._create_variables_tab),
             ('tab_debug',           '디버그',              self._create_debug_tab),
             ('tab_friction_factors','영향 인자',           self._create_friction_factors_tab),
-            ('tab_monte_carlo',    'Monte Carlo',        self._create_monte_carlo_tab),
+            ('tab_vtm',             '실차 매칭',           self._create_vehicle_test_matching_tab),
+            ('tab_log_analysis',    'Log 분석',            self._create_log_analysis_tab),
+            ('tab_monte_carlo',    'Monte Carlo',         self._create_monte_carlo_tab),
         ]
 
+        # 저장된 탭 순서가 있으면 적용
+        saved_order = self._load_tab_order()
+        if saved_order:
+            order_map = {attr: i for i, attr in enumerate(saved_order)}
+            self._tab_definitions.sort(
+                key=lambda t: order_map.get(t[0], 9999))
+
+        tabs = self._tab_definitions
+
         # 기본 숨김 탭 목록
-        default_hidden = {'tab_ve_advisor', 'tab_integrand', 'tab_debug', 'tab_friction_factors'}
+        default_hidden = {'tab_braking_sim', 'tab_track_sim', 'tab_ve_advisor',
+                          'tab_results', 'tab_integrand',
+                          'tab_debug', 'tab_friction_factors'}
+
+        # 저장된 탭 표시 설정이 있으면 사용
+        saved_hidden = self._load_tab_visibility()
+        if saved_hidden is not None:
+            hidden_set = set(saved_hidden)
+        else:
+            hidden_set = default_hidden
 
         self._all_tabs = []  # (attr, label, frame) for visibility management
         self._tab_visible_vars = {}  # attr → BooleanVar
 
-        for attr, label, builder in tabs:
+        self._tab_sp = ' ' if getattr(self, '_ui_scale', 1.0) < 0.95 else '  '
+        n_tabs = len(tabs)
+        for i, (attr, label, builder) in enumerate(tabs):
+            pct = 15 + int(65 * (i / n_tabs))  # 15% → 80%
+            self._splash_cb(f"탭 생성: {label} ...", pct)
             frame = ttk.Frame(self.notebook)
             setattr(self, attr, frame)
-            self.notebook.add(frame, text=f'  {label}  ')
+            numbered_label = f'{i+1}. {label}'
+            self.notebook.add(frame, text=f'{self._tab_sp}{numbered_label}{self._tab_sp}')
             builder(frame)
             self._all_tabs.append((attr, label, frame))
-            visible = attr not in default_hidden
+            visible = attr not in hidden_set
             self._tab_visible_vars[attr] = tk.BooleanVar(value=visible)
             if not visible:
                 self.notebook.hide(frame)
@@ -738,30 +1078,7 @@ class PerssonModelGUI_V2:
 
             def _stabilize():
                 self._tab_switch_after_id = None
-                # 위젯 geometry 확정 후 Figure 크기를 위젯에 맞춤
-                self.root.update_idletasks()
-                for canvas_attr in ('canvas_psd_profile', 'canvas_mc',
-                                    'canvas_calc_progress', 'canvas_results',
-                                    'canvas_rms', 'canvas_flash_temp',
-                                    'canvas_mu_visc',
-                                    'canvas_mu_adh',
-                                    'canvas_integrand', 'canvas_strain_map',
-                                    'canvas_ve_advisor'):
-                    canvas = getattr(self, canvas_attr, None)
-                    if canvas is not None:
-                        try:
-                            widget = canvas.get_tk_widget()
-                            if widget.winfo_ismapped():
-                                w = widget.winfo_width()
-                                h = widget.winfo_height()
-                                if w > 1 and h > 1:
-                                    fig = canvas.figure
-                                    fig.set_size_inches(w / fig.dpi,
-                                                        h / fig.dpi,
-                                                        forward=False)
-                                canvas.draw_idle()
-                        except Exception:
-                            pass
+                self._refresh_all_figures()
 
             self._tab_switch_after_id = self.root.after(100, _stabilize)
 
@@ -779,93 +1096,6 @@ class PerssonModelGUI_V2:
         # Initialize debug log storage
         self.debug_log_messages = []
 
-        # ── Responsive font scaling ──
-        self._setup_responsive_fonts()
-
-    # ──────────────────────────────────────────────────────────
-    # Responsive font scaling for different monitor sizes
-    # ──────────────────────────────────────────────────────────
-    def _setup_responsive_fonts(self):
-        """Setup responsive font scaling based on window size."""
-        self._font_scale = 1.0
-        self._resize_after_id = None
-        self._last_resize_width = 0
-
-        # Base font sizes (match PLOT_FONTS)
-        self._base_font_cfg = {
-            'font.size':        self.PLOT_FONTS['label'],
-            'axes.titlesize':   self.PLOT_FONTS['title'],
-            'axes.labelsize':   self.PLOT_FONTS['label'],
-            'xtick.labelsize':  self.PLOT_FONTS['tick'],
-            'ytick.labelsize':  self.PLOT_FONTS['tick'],
-            'legend.fontsize':  self.PLOT_FONTS['legend'],
-            'figure.titlesize': self.PLOT_FONTS['suptitle'],
-        }
-
-        self.root.bind('<Configure>', self._on_root_configure)
-
-    def _on_root_configure(self, event):
-        """Handle window resize with debouncing."""
-        if event.widget is not self.root:
-            return
-        new_width = event.width
-        # Ignore trivial changes
-        if abs(new_width - self._last_resize_width) < 80:
-            return
-        self._last_resize_width = new_width
-
-        if self._resize_after_id is not None:
-            self.root.after_cancel(self._resize_after_id)
-        self._resize_after_id = self.root.after(250, self._rescale_all_fonts)
-
-    def _rescale_all_fonts(self):
-        """Rescale all plot fonts based on current window size."""
-        self._resize_after_id = None
-        scale = max(0.65, min(1.4, self._last_resize_width / self._REFERENCE_WIDTH))
-
-        if abs(scale - self._font_scale) < 0.05:
-            return
-        self._font_scale = scale
-
-        # Update rcParams for any future plots
-        for key, base_size in self._base_font_cfg.items():
-            matplotlib.rcParams[key] = max(8, round(base_size * scale))
-
-        # Update all existing figures
-        for fig_attr, fig, canvas in self._get_all_figures_and_canvases():
-            for ax in fig.axes:
-                # Title
-                if ax.get_title():
-                    ax.title.set_fontsize(max(7, round(self.PLOT_FONTS['title'] * scale)))
-                # Axis labels
-                ax.xaxis.label.set_fontsize(max(8, round(self.PLOT_FONTS['label'] * scale)))
-                ax.yaxis.label.set_fontsize(max(8, round(self.PLOT_FONTS['label'] * scale)))
-                # Tick labels
-                ax.tick_params(labelsize=max(8, round(self.PLOT_FONTS['tick'] * scale)))
-                # Legend
-                legend = ax.get_legend()
-                if legend:
-                    for text in legend.get_texts():
-                        text.set_fontsize(max(7, round(self.PLOT_FONTS['legend'] * scale)))
-            # Figure 크기를 위젯 실제 크기에 맞춤 (숨겨진 탭 제외)
-            try:
-                widget = canvas.get_tk_widget()
-                w = widget.winfo_width()
-                h = widget.winfo_height()
-                if w > 1 and h > 1:
-                    fig.set_size_inches(w / fig.dpi, h / fig.dpi,
-                                        forward=False)
-            except Exception:
-                pass
-            try:
-                fixed = self._FIXED_SUBPLOT_PARAMS.get(fig_attr)
-                if fixed is not None:
-                    fig.subplots_adjust(**fixed)
-                else:
-                    fig.tight_layout()
-            except Exception:
-                pass
-            canvas.draw_idle()
 
     # ── Fixed subplot layout params (figures that must NOT use tight_layout) ──
     _FIXED_SUBPLOT_PARAMS = {
@@ -885,6 +1115,14 @@ class PerssonModelGUI_V2:
                                 hspace=0.55, wspace=0.40),
         'fig_ve_advisor':  dict(left=0.08, right=0.97, top=0.96, bottom=0.06,
                                 hspace=0.45),
+        'fig_calc_progress': dict(left=0.10, right=0.95, top=0.93, bottom=0.08,
+                                hspace=0.50, wspace=0.35),
+        'fig_cold_hot':    dict(left=0.10, right=0.88, top=0.92, bottom=0.08,
+                                hspace=0.40, wspace=0.45),
+        'fig_brush':       dict(left=0.06, right=0.97, top=0.93, bottom=0.07,
+                                hspace=0.50, wspace=2.5),
+        'fig_pb':          dict(left=0.04, right=0.98, top=0.95, bottom=0.05,
+                                hspace=0.42, wspace=2.0),
     }
 
     _ALL_FIG_CANVAS_PAIRS = [
@@ -898,6 +1136,15 @@ class PerssonModelGUI_V2:
         ('fig_strain_map', 'canvas_strain_map'),
         ('fig_integrand', 'canvas_integrand'),
         ('fig_ve_advisor', 'canvas_ve_advisor'),
+        ('fig_cold_hot', 'canvas_cold_hot'),
+        ('fig_brush', 'canvas_brush'),
+        ('fig_pb', 'canvas_pb'),
+        ('fig_fm_graph', 'canvas_fm_graph'),
+        ('fig_track', 'canvas_track'),
+        ('_ts_steer_fig', '_ts_steer_canvas'),
+        ('_ts_tire_fig', '_ts_tire_canvas'),
+        ('_ts_contour_fig', '_ts_contour_canvas'),
+        ('_ts_fy_fig', '_ts_fy_canvas'),
     ]
 
     def _get_all_figures_and_canvases(self):
@@ -1058,6 +1305,31 @@ class PerssonModelGUI_V2:
 
         return result
 
+    def _redraw_canvas_if_mapped(self, canvas_attr):
+        """Force a canvas redraw after geometry stabilises (tab switch fix)."""
+        canvas = getattr(self, canvas_attr, None)
+        if canvas is None:
+            return
+        try:
+            widget = canvas.get_tk_widget()
+            self.root.update_idletasks()
+            if widget.winfo_ismapped():
+                w = widget.winfo_width()
+                h = widget.winfo_height()
+                if w > 1 and h > 1:
+                    fig = canvas.figure
+                    fig.set_size_inches(w / fig.dpi, h / fig.dpi, forward=False)
+                    # Reapply fixed subplot params if defined
+                    for fig_attr, _ in self._ALL_FIG_CANVAS_PAIRS:
+                        if getattr(self, fig_attr, None) is fig:
+                            params = self._FIXED_SUBPLOT_PARAMS.get(fig_attr)
+                            if params:
+                                fig.subplots_adjust(**params)
+                            break
+                    canvas.draw_idle()
+        except Exception:
+            pass
+
     def _create_section(self, parent, title, padding=None):
         """Create a consistent LabelFrame section inside a control panel.
 
@@ -1104,7 +1376,7 @@ class PerssonModelGUI_V2:
         Returns ``(fig, canvas)``.
         """
         if figsize is None:
-            figsize = (10, 7)
+            figsize = (6, 4)
 
         plot_wrapper = ttk.Frame(parent)
         plot_wrapper.pack(fill=tk.BOTH, expand=True)
@@ -1113,7 +1385,6 @@ class PerssonModelGUI_V2:
         setattr(self, fig_attr, fig)
 
         canvas = FigureCanvasTkAgg(fig, master=plot_wrapper)
-        canvas.draw_idle()          # draw_idle: 위젯 크기 확정 전 즉시 렌더 방지
         setattr(self, canvas_attr, canvas)
 
         if with_toolbar:
@@ -1121,8 +1392,61 @@ class PerssonModelGUI_V2:
             tb_frame.pack(side=tk.BOTTOM, fill=tk.X)
             NavigationToolbar2Tk(canvas, tb_frame)
 
-        canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+        canvas_widget = canvas.get_tk_widget()
+        canvas_widget.pack(fill=tk.BOTH, expand=True)
+        canvas.draw_idle()
+
+        # ── Universal auto-resize: figure follows widget geometry ──
+        _resize_after_id = [None]
+
+        def _on_canvas_resize(event, _fig=fig, _canvas=canvas,
+                              _fig_attr=fig_attr):
+            w, h = event.width, event.height
+            if w > 1 and h > 1:
+                _fig.set_size_inches(w / _fig.dpi, h / _fig.dpi, forward=False)
+                # Reapply fixed subplot params if defined
+                params = self._FIXED_SUBPLOT_PARAMS.get(_fig_attr)
+                if params:
+                    _fig.subplots_adjust(**params)
+                else:
+                    try:
+                        _fig.tight_layout()
+                    except Exception:
+                        pass
+                # Debounce: cancel pending redraw, schedule new one
+                if _resize_after_id[0] is not None:
+                    try:
+                        canvas_widget.after_cancel(_resize_after_id[0])
+                    except Exception:
+                        pass
+                _resize_after_id[0] = canvas_widget.after(
+                    50, lambda: _canvas.draw_idle())
+
+        canvas_widget.bind('<Configure>', _on_canvas_resize, add='+')
+
         return fig, canvas
+
+    def _bind_canvas_auto_resize(self, fig, canvas):
+        """Bind <Configure> to a canvas widget so the figure fills it on resize."""
+        widget = canvas.get_tk_widget()
+        _after_id = [None]
+
+        def _on_resize(event, _fig=fig, _cv=canvas):
+            w, h = event.width, event.height
+            if w > 1 and h > 1:
+                _fig.set_size_inches(w / _fig.dpi, h / _fig.dpi, forward=False)
+                try:
+                    _fig.tight_layout()
+                except Exception:
+                    pass
+                if _after_id[0] is not None:
+                    try:
+                        widget.after_cancel(_after_id[0])
+                    except Exception:
+                        pass
+                _after_id[0] = widget.after(50, lambda: _cv.draw_idle())
+
+        widget.bind('<Configure>', _on_resize, add='+')
 
     def _create_fullpage_scrollable(self, parent, bg='white'):
         """Create a full-page scrollable layout (no left/right split).
@@ -1227,6 +1551,9 @@ class PerssonModelGUI_V2:
         ttk.Button(preset_psd_frame, text="로드", command=self._load_preset_psd, width=4,
                    style='Outline.TButton').pack(side=tk.LEFT)
         ttk.Button(preset_psd_frame, text="삭제", command=self._delete_preset_psd, width=4).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_psd_frame, text="내보내기",
+                   command=lambda: self._export_preset_file('psd', self.preset_psd_var, 'PSD'),
+                   width=6).pack(side=tk.LEFT, padx=1)
 
         # 프로그램 시작 시 내장 PSD 목록 로드
         self._refresh_preset_psd_list()
@@ -1313,17 +1640,17 @@ class PerssonModelGUI_V2:
         detrend_row = ttk.Frame(calc_frame)
         detrend_row.pack(fill=tk.X, pady=2)
         ttk.Label(detrend_row, text="Detrend:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.profile_detrend_var = tk.StringVar(value="mean")
+        self.profile_detrend_var = tk.StringVar(value="linear")
         ttk.Combobox(detrend_row, textvariable=self.profile_detrend_var,
-                     values=['mean', 'linear', 'quadratic'], width=10, state='readonly', font=self.FONTS['body']).pack(side=tk.LEFT, padx=5)
+                     values=['none', 'mean', 'linear', 'quadratic'], width=10, state='readonly', font=self.FONTS['body']).pack(side=tk.LEFT, padx=5)
 
         # Window function
         window_row = ttk.Frame(calc_frame)
         window_row.pack(fill=tk.X, pady=2)
         ttk.Label(window_row, text="Window:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.profile_window_var = tk.StringVar(value="hann")
+        self.profile_window_var = tk.StringVar(value="none")
         ttk.Combobox(window_row, textvariable=self.profile_window_var,
-                     values=['hann', 'hamming', 'blackman', 'none'], width=10, state='readonly', font=self.FONTS['body']).pack(side=tk.LEFT, padx=5)
+                     values=['none', 'hanning', 'hamming', 'blackman'], width=10, state='readonly', font=self.FONTS['body']).pack(side=tk.LEFT, padx=5)
 
         # PSD type selection
         psd_type_frame = ttk.Frame(calc_frame)
@@ -1345,9 +1672,9 @@ class PerssonModelGUI_V2:
         ttk.Checkbutton(bin_frame, text="로그 구간 평균화",
                         variable=self.apply_binning_var).pack(side=tk.LEFT)
 
-        ttk.Label(bin_frame, text="점/decade:", font=self.FONTS['body']).pack(side=tk.LEFT, padx=(10, 0))
-        self.points_per_decade_var = tk.StringVar(value="20")
-        ttk.Entry(bin_frame, textvariable=self.points_per_decade_var, width=4).pack(side=tk.LEFT, padx=2)
+        ttk.Label(bin_frame, text="Log bins:", font=self.FONTS['body']).pack(side=tk.LEFT, padx=(10, 0))
+        self.n_bins_var = tk.StringVar(value="88")
+        ttk.Entry(bin_frame, textvariable=self.n_bins_var, width=4).pack(side=tk.LEFT, padx=2)
 
         # Calculate button
         ttk.Button(calc_frame, text="PSD 계산",
@@ -1504,7 +1831,7 @@ class PerssonModelGUI_V2:
 
         fig, canvas = self._create_plot_frame(
             right_frame, 'fig_psd_profile', 'canvas_psd_profile',
-            figsize=(12, 9))
+            figsize=(6, 4))
 
         # 2x2 subplot layout
         PF = self.PLOT_FONTS
@@ -1613,9 +1940,9 @@ class PerssonModelGUI_V2:
         # Plot 1: Raw profile
         self.ax_profile_raw.clear()
         self.ax_profile_raw.plot(x * 1e3, h * 1e6, 'b-', linewidth=0.5)
-        self.ax_profile_raw.set_title('표면 프로파일', fontweight='bold', fontsize=11)
-        self.ax_profile_raw.set_xlabel('Position (mm)', fontsize=11)
-        self.ax_profile_raw.set_ylabel('Height (μm)', fontsize=11)
+        self.ax_profile_raw.set_title('표면 프로파일', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_profile_raw.set_xlabel('Position (mm)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_profile_raw.set_ylabel('Height (μm)', fontsize=self.PLOT_FONTS['label'])
         self.ax_profile_raw.grid(True, alpha=0.3)
 
         # Plot 2: Height histogram
@@ -1623,9 +1950,9 @@ class PerssonModelGUI_V2:
         h_detrended = h - np.mean(h)
         self.ax_profile_hist.hist(h_detrended * 1e6, bins=50, color='steelblue', edgecolor='white', alpha=0.7)
         self.ax_profile_hist.axvline(x=0, color='r', linestyle='--', linewidth=1, label='Mean')
-        self.ax_profile_hist.set_title('높이 분포 (Detrended)', fontweight='bold', fontsize=11)
-        self.ax_profile_hist.set_xlabel('Height (μm)', fontsize=11)
-        self.ax_profile_hist.set_ylabel('Count', fontsize=11)
+        self.ax_profile_hist.set_title('높이 분포 (Detrended)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_profile_hist.set_xlabel('Height (μm)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_profile_hist.set_ylabel('Count', fontsize=self.PLOT_FONTS['label'])
         self.ax_profile_hist.grid(True, alpha=0.3)
 
         # Mark top region
@@ -1633,7 +1960,7 @@ class PerssonModelGUI_V2:
         phi = n_top / len(h_detrended)
         self.ax_profile_hist.axvspan(0, np.max(h_detrended) * 1e6, alpha=0.2, color='green',
                                       label=f'Top (φ={phi:.2f})')
-        self.ax_profile_hist.legend(fontsize=8, loc='best')
+        self.ax_profile_hist.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
         self.fig_psd_profile.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08, hspace=0.50, wspace=0.35)
         self.canvas_psd_profile.draw()
@@ -1651,9 +1978,9 @@ class PerssonModelGUI_V2:
             apply_binning = self.apply_binning_var.get()
 
             try:
-                points_per_decade = int(self.points_per_decade_var.get())
+                n_bins = int(self.n_bins_var.get())
             except ValueError:
-                points_per_decade = 20
+                n_bins = 88
 
             # Calculate PSD with logarithmic binning
             self.profile_psd_analyzer.calculate_psd(
@@ -1661,7 +1988,7 @@ class PerssonModelGUI_V2:
                 detrend_method=detrend,
                 calculate_top=calc_top,
                 apply_binning=apply_binning,
-                points_per_decade=points_per_decade
+                n_bins=n_bins
             )
 
             # Plot results
@@ -1725,11 +2052,11 @@ class PerssonModelGUI_V2:
                 self.ax_hrms_parseval.loglog(q[valid_top], hrms_cumulative_top[valid_top]*1e6, 'r-',
                                              linewidth=2, label='Top PSD', alpha=0.8)
 
-        self.ax_hrms_parseval.set_title('h_rms 거칠기 & Parseval 검증', fontweight='bold', fontsize=11)
-        self.ax_hrms_parseval.set_xlabel('Wavenumber q (1/m)', fontsize=11)
-        self.ax_hrms_parseval.set_ylabel('누적 h_rms (μm)', fontsize=11)
+        self.ax_hrms_parseval.set_title('h_rms 거칠기 & Parseval 검증', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_hrms_parseval.set_xlabel('Wavenumber q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_hrms_parseval.set_ylabel('누적 h_rms (μm)', fontsize=self.PLOT_FONTS['label'])
         self.ax_hrms_parseval.grid(True, alpha=0.3, which='both')
-        self.ax_hrms_parseval.legend(fontsize=8, loc='best')
+        self.ax_hrms_parseval.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
         # Plot 2D isotropic PSD
         self.ax_psd_2d.clear()
@@ -1780,11 +2107,11 @@ class PerssonModelGUI_V2:
             self.ax_psd_2d.loglog(pdata['q'], pdata['C'], 'm-', linewidth=2, alpha=0.7,
                                    label=f'Param PSD (H={pdata["H"]:.3f})')
 
-        self.ax_psd_2d.set_title('2D Isotropic PSD C(q)', fontweight='bold', fontsize=11)
-        self.ax_psd_2d.set_xlabel('Wavenumber q (1/m)', fontsize=11)
-        self.ax_psd_2d.set_ylabel('C(q) (m^4)', fontsize=11)
+        self.ax_psd_2d.set_title('2D Isotropic PSD C(q)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_psd_2d.set_xlabel('Wavenumber q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_psd_2d.set_ylabel('C(q) (m^4)', fontsize=self.PLOT_FONTS['label'])
         self.ax_psd_2d.grid(True, alpha=0.3, which='both')
-        self.ax_psd_2d.legend(fontsize=8, loc='best')
+        self.ax_psd_2d.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
         self.fig_psd_profile.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08, hspace=0.50, wspace=0.35)
         self.canvas_psd_profile.draw()
@@ -2130,11 +2457,11 @@ class PerssonModelGUI_V2:
             if self.profile_psd_analyzer.q is not None:
                 n_raw = len(self.profile_psd_analyzer.q_raw) if self.profile_psd_analyzer.q_raw is not None else 0
                 n_binned = len(self.profile_psd_analyzer.q)
-                ppd = self.profile_psd_analyzer.points_per_decade
+                nbins = self.profile_psd_analyzer.n_bins
                 if n_raw != n_binned:
                     lines.append(f"\n[로그 구간 평균화]")
                     lines.append(f"  Raw 점: {n_raw} → Binned 점: {n_binned}")
-                    lines.append(f"  점/decade: {ppd}")
+                    lines.append(f"  Log bins: {nbins}")
 
         # Top PSD info
         if self.profile_psd_analyzer.phi is not None:
@@ -2207,6 +2534,7 @@ class PerssonModelGUI_V2:
         filepath = filedialog.asksaveasfilename(
             title="PSD 데이터 저장",
             defaultextension=".csv",
+            initialfile=self._make_export_filename("psd_data"),
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
         )
 
@@ -2453,6 +2781,9 @@ class PerssonModelGUI_V2:
         ttk.Button(preset_mc_frame, text="로드", command=self._load_preset_mastercurve, width=4,
                    style='Outline.TButton').pack(side=tk.LEFT)
         ttk.Button(preset_mc_frame, text="삭제", command=self._delete_preset_mastercurve, width=4).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_mc_frame, text="내보내기",
+                   command=lambda: self._export_preset_file('mastercurve', self.preset_mc_var, '마스터 커브'),
+                   width=6).pack(side=tk.LEFT, padx=1)
 
         # 내장 aT 선택
         preset_aT_frame = ttk.Frame(load_frame)
@@ -2465,6 +2796,9 @@ class PerssonModelGUI_V2:
         ttk.Button(preset_aT_frame, text="로드", command=self._load_preset_aT, width=4,
                    style='Outline.TButton').pack(side=tk.LEFT)
         ttk.Button(preset_aT_frame, text="삭제", command=self._delete_preset_aT, width=4).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_aT_frame, text="내보내기",
+                   command=lambda: self._export_preset_file('aT', self.preset_aT_var, 'aT'),
+                   width=6).pack(side=tk.LEFT, padx=1)
 
         # 프로그램 시작 시 내장 데이터 목록 로드
         self._refresh_preset_mastercurve_list()
@@ -2708,38 +3042,38 @@ class PerssonModelGUI_V2:
         plot_frame.pack(fill=tk.BOTH, expand=True)
 
         # Create figure with 2x2 subplots
-        self.fig_mc = Figure(figsize=(11, 8), dpi=100)
+        self.fig_mc = Figure(figsize=(6, 4), dpi=100)
 
         # Top-left: Raw data (multi-temperature)
         self.ax_mc_raw = self.fig_mc.add_subplot(221)
-        self.ax_mc_raw.set_title('원본 데이터 (온도별)', fontweight='bold', fontsize=11)
-        self.ax_mc_raw.set_xlabel('주파수 f (Hz)', fontsize=11)
-        self.ax_mc_raw.set_ylabel('E\', E\'\' (MPa)', fontsize=11)
+        self.ax_mc_raw.set_title('원본 데이터 (온도별)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_raw.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_raw.set_ylabel('E\', E\'\' (MPa)', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_raw.set_xscale('log')
         self.ax_mc_raw.set_yscale('log')
         self.ax_mc_raw.grid(True, alpha=0.3)
 
         # Top-right: Master curve
         self.ax_mc_master = self.fig_mc.add_subplot(222)
-        self.ax_mc_master.set_title('마스터 커브 (Tref)', fontweight='bold', fontsize=11)
-        self.ax_mc_master.set_xlabel('Reduced Frequency (Hz)', fontsize=11)
-        self.ax_mc_master.set_ylabel('E\', E\'\' (MPa)', fontsize=11)
+        self.ax_mc_master.set_title('마스터 커브 (Tref)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_master.set_xlabel('Reduced Frequency (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_master.set_ylabel('E\', E\'\' (MPa)', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_master.set_xscale('log')
         self.ax_mc_master.set_yscale('log')
         self.ax_mc_master.grid(True, alpha=0.3)
 
         # Bottom-left: aT vs Temperature
         self.ax_mc_aT = self.fig_mc.add_subplot(223)
-        self.ax_mc_aT.set_title('수평 이동 계수 aT', fontweight='bold', fontsize=11)
-        self.ax_mc_aT.set_xlabel('온도 T (°C)', fontsize=11)
-        self.ax_mc_aT.set_ylabel('log10(aT)', fontsize=11)
+        self.ax_mc_aT.set_title('수평 이동 계수 aT', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_aT.set_xlabel('온도 T (°C)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_aT.set_ylabel('log10(aT)', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_aT.grid(True, alpha=0.3)
 
         # Bottom-right: bT vs Temperature
         self.ax_mc_bT = self.fig_mc.add_subplot(224)
-        self.ax_mc_bT.set_title('수직 이동 계수 bT', fontweight='bold', fontsize=11)
-        self.ax_mc_bT.set_xlabel('온도 T (°C)', fontsize=11)
-        self.ax_mc_bT.set_ylabel('bT', fontsize=11)
+        self.ax_mc_bT.set_title('수직 이동 계수 bT', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_bT.set_xlabel('온도 T (°C)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_bT.set_ylabel('bT', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_bT.grid(True, alpha=0.3)
 
         self.fig_mc.tight_layout()
@@ -2848,9 +3182,9 @@ class PerssonModelGUI_V2:
             return
 
         self.ax_mc_raw.clear()
-        self.ax_mc_raw.set_title('원본 데이터 (온도별)', fontweight='bold', fontsize=11)
-        self.ax_mc_raw.set_xlabel('주파수 f (Hz)', fontsize=11)
-        self.ax_mc_raw.set_ylabel('E\', E\'\' (MPa)', fontsize=11)
+        self.ax_mc_raw.set_title('원본 데이터 (온도별)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_raw.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_raw.set_ylabel('E\', E\'\' (MPa)', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_raw.set_xscale('log')
         self.ax_mc_raw.set_yscale('log')
         self.ax_mc_raw.grid(True, alpha=0.3)
@@ -2870,7 +3204,7 @@ class PerssonModelGUI_V2:
 
         # Add legend with limited entries
         if len(temps) <= 8:
-            self.ax_mc_raw.legend(fontsize=8, loc='best', ncol=2)
+            self.ax_mc_raw.legend(fontsize=self.PLOT_FONTS['label'], loc='best', ncol=2)
 
         self.fig_mc.tight_layout()
         self.canvas_mc.draw()
@@ -3120,8 +3454,8 @@ class PerssonModelGUI_V2:
         self.ax_mc_bT.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
         self.ax_mc_bT.axvline(x=T_ref, color='red', linestyle='--', alpha=0.5, label=f'Tref={T_ref:.0f}°C')
 
-        self.ax_mc_bT.set_xlabel('온도 T (°C)', fontsize=11)
-        self.ax_mc_bT.set_ylabel(r'log$_{10}$(aT)', color='blue', fontsize=11)
+        self.ax_mc_bT.set_xlabel('온도 T (°C)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_bT.set_ylabel(r'log$_{10}$(aT)', color='blue', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_bT.tick_params(axis='y', labelcolor='blue')
         self.ax_mc_bT.grid(True, alpha=0.3)
 
@@ -3130,17 +3464,17 @@ class PerssonModelGUI_V2:
             bT = data['bT']
             self._ax_bT_twin = self.ax_mc_bT.twinx()
             line2, = self._ax_bT_twin.plot(T, bT, 'r^-', linewidth=2, markersize=4, label='bT')
-            self._ax_bT_twin.set_ylabel('bT (수직 시프트)', color='red', fontsize=11)
+            self._ax_bT_twin.set_ylabel('bT (수직 시프트)', color='red', fontsize=self.PLOT_FONTS['label'])
             self._ax_bT_twin.tick_params(axis='y', labelcolor='red')
 
             # Combined legend
             lines = [line1, line2]
             labels = [l.get_label() for l in lines]
-            self.ax_mc_bT.legend(lines, labels, loc='best', fontsize=8)
-            self.ax_mc_bT.set_title('시프트 팩터 aT & bT (Persson)', fontweight='bold', fontsize=11)
+            self.ax_mc_bT.legend(lines, labels, loc='best', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mc_bT.set_title('시프트 팩터 aT & bT (Persson)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
         else:
-            self.ax_mc_bT.legend(loc='best', fontsize=8)
-            self.ax_mc_bT.set_title('시프트 팩터 aT (Persson)', fontweight='bold', fontsize=11)
+            self.ax_mc_bT.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mc_bT.set_title('시프트 팩터 aT (Persson)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
 
         self.fig_mc.tight_layout()
         self.canvas_mc.draw()
@@ -3264,10 +3598,10 @@ class PerssonModelGUI_V2:
         if hasattr(self, 'ax_psd_2d'):
             self.ax_psd_2d.clear()
             self.ax_psd_2d.loglog(q, C_q, 'b-', linewidth=2, label='C(q) 직접 로드')
-            self.ax_psd_2d.set_xlabel('파수 q (1/m)', fontsize=11)
-            self.ax_psd_2d.set_ylabel(r'C(q) (m$^4$)', fontsize=11)
-            self.ax_psd_2d.set_title(f"★ PSD 직접 로드: {data['filename']}", fontweight='bold', fontsize=11)
-            self.ax_psd_2d.legend(loc='best', fontsize=8)
+            self.ax_psd_2d.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_psd_2d.set_ylabel(r'C(q) (m$^4$)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_psd_2d.set_title(f"★ PSD 직접 로드: {data['filename']}", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_psd_2d.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_psd_2d.grid(True, alpha=0.3, which='both')
             self.fig_psd_profile.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08, hspace=0.50, wspace=0.35)
             self.canvas_psd_profile.draw()
@@ -3291,19 +3625,19 @@ class PerssonModelGUI_V2:
         self.ax_mc_master.loglog(f, E_storage, 'b-', linewidth=2, label="E' (Persson)")
         self.ax_mc_master.loglog(f, E_loss, 'r-', linewidth=2, label="E'' (Persson)")
 
-        self.ax_mc_master.set_xlabel('주파수 f (Hz)', fontsize=11)
-        self.ax_mc_master.set_ylabel("E', E'' (MPa)", fontsize=11)
-        self.ax_mc_master.set_title(f"★ Persson 정품 마스터 커브: {data['filename']}", fontweight='bold', fontsize=11)
-        self.ax_mc_master.legend(loc='best', fontsize=8)
+        self.ax_mc_master.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_master.set_ylabel("E', E'' (MPa)", fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_master.set_title(f"★ Persson 정품 마스터 커브: {data['filename']}", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_master.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_master.grid(True, alpha=0.3)
 
         # tan δ on the aT plot (bottom-left)
         self.ax_mc_aT.clear()
         self.ax_mc_aT.semilogx(f, tan_delta, 'g-', linewidth=2, label='tan δ (Persson)')
-        self.ax_mc_aT.set_xlabel('주파수 f (Hz)', fontsize=11)
-        self.ax_mc_aT.set_ylabel('tan δ = E\'\'/E\'', fontsize=11)
-        self.ax_mc_aT.set_title('tan δ (Persson 정품)', fontweight='bold', fontsize=11)
-        self.ax_mc_aT.legend(loc='best', fontsize=8)
+        self.ax_mc_aT.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_aT.set_ylabel('tan δ = E\'\'/E\'', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_aT.set_title('tan δ (Persson 정품)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_aT.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_aT.grid(True, alpha=0.3)
         self.ax_mc_aT.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5)
 
@@ -3456,17 +3790,17 @@ class PerssonModelGUI_V2:
         else:
             self.ax_mc_aT.semilogx(f, tan_delta, 'g-', linewidth=2, label='tan δ')
 
-        self.ax_mc_master.set_xlabel('주파수 f (Hz)', fontsize=11)
-        self.ax_mc_master.set_ylabel("E', E'' (MPa)", fontsize=11)
+        self.ax_mc_master.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_master.set_ylabel("E', E'' (MPa)", fontsize=self.PLOT_FONTS['label'])
         smooth_info = f" (w={data.get('smooth_window', 'N/A')})" if data.get('smoothed') else ""
-        self.ax_mc_master.set_title(f"★ Persson 마스터 커브{smooth_info}", fontweight='bold', fontsize=11)
-        self.ax_mc_master.legend(loc='best', fontsize=8)
+        self.ax_mc_master.set_title(f"★ Persson 마스터 커브{smooth_info}", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_master.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_master.grid(True, alpha=0.3)
 
-        self.ax_mc_aT.set_xlabel('주파수 f (Hz)', fontsize=11)
-        self.ax_mc_aT.set_ylabel('tan δ = E\'\'/E\'', fontsize=11)
-        self.ax_mc_aT.set_title('tan δ 비교', fontweight='bold', fontsize=11)
-        self.ax_mc_aT.legend(loc='best', fontsize=8)
+        self.ax_mc_aT.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_aT.set_ylabel('tan δ = E\'\'/E\'', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_aT.set_title('tan δ 비교', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_aT.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_aT.grid(True, alpha=0.3)
         self.ax_mc_aT.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5)
 
@@ -3508,17 +3842,17 @@ class PerssonModelGUI_V2:
             self.ax_mc_master.loglog(f_g, E_gg, 'r--', linewidth=2, label="E'' (생성)", alpha=0.7)
 
         # Configure E' plot
-        self.ax_mc_raw.set_xlabel('주파수 f (Hz)', fontsize=11)
-        self.ax_mc_raw.set_ylabel("E' (MPa)", fontsize=11)
-        self.ax_mc_raw.set_title("E' (저장 탄성률) 비교", fontweight='bold', fontsize=11)
-        self.ax_mc_raw.legend(loc='best', fontsize=8)
+        self.ax_mc_raw.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_raw.set_ylabel("E' (MPa)", fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_raw.set_title("E' (저장 탄성률) 비교", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_raw.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_raw.grid(True, alpha=0.3)
 
         # Configure E'' plot
-        self.ax_mc_master.set_xlabel('주파수 f (Hz)', fontsize=11)
-        self.ax_mc_master.set_ylabel("E'' (MPa)", fontsize=11)
-        self.ax_mc_master.set_title("E'' (손실 탄성률) 비교", fontweight='bold', fontsize=11)
-        self.ax_mc_master.legend(loc='best', fontsize=8)
+        self.ax_mc_master.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_master.set_ylabel("E'' (MPa)", fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_master.set_title("E'' (손실 탄성률) 비교", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_master.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_master.grid(True, alpha=0.3)
 
         # == Plot 3: tan δ comparison ==
@@ -3530,10 +3864,10 @@ class PerssonModelGUI_V2:
             tan_g = E_gg / E_g
             self.ax_mc_aT.semilogx(f_g, tan_g, 'g--', linewidth=2, label='tan δ (생성)', alpha=0.7)
 
-        self.ax_mc_aT.set_xlabel('주파수 f (Hz)', fontsize=11)
-        self.ax_mc_aT.set_ylabel('tan δ = E\'\'/E\'', fontsize=11)
-        self.ax_mc_aT.set_title('tan δ (손실 탄젠트) 비교', fontweight='bold', fontsize=11)
-        self.ax_mc_aT.legend(loc='best', fontsize=8)
+        self.ax_mc_aT.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_aT.set_ylabel('tan δ = E\'\'/E\'', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_aT.set_title('tan δ (손실 탄젠트) 비교', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_aT.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_aT.grid(True, alpha=0.3)
         self.ax_mc_aT.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5, label='tan δ = 1')
 
@@ -3558,10 +3892,10 @@ class PerssonModelGUI_V2:
 
             self.ax_mc_bT.semilogx(f_common, ratio, 'm-', linewidth=2, label="E''정품 / E''생성")
             self.ax_mc_bT.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5)
-            self.ax_mc_bT.set_xlabel('주파수 f (Hz)', fontsize=11)
-            self.ax_mc_bT.set_ylabel("E'' 비율", fontsize=11)
-            self.ax_mc_bT.set_title("E'' 비율 (정품/생성)", fontweight='bold', fontsize=11)
-            self.ax_mc_bT.legend(loc='best', fontsize=8)
+            self.ax_mc_bT.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mc_bT.set_ylabel("E'' 비율", fontsize=self.PLOT_FONTS['label'])
+            self.ax_mc_bT.set_title("E'' 비율 (정품/생성)", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_mc_bT.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_mc_bT.grid(True, alpha=0.3)
 
             # Print comparison summary
@@ -3575,8 +3909,8 @@ class PerssonModelGUI_V2:
             print("="*60)
         else:
             self.ax_mc_bT.text(0.5, 0.5, "비교 데이터 없음\n(정품과 생성 둘 다 필요)",
-                              ha='center', va='center', fontsize=10, transform=self.ax_mc_bT.transAxes)
-            self.ax_mc_bT.set_title("E'' 비율 비교", fontweight='bold', fontsize=11)
+                              ha='center', va='center', fontsize=self.PLOT_FONTS['title'], transform=self.ax_mc_bT.transAxes)
+            self.ax_mc_bT.set_title("E'' 비율 비교", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
 
         self.fig_mc.tight_layout()
         self.canvas_mc.draw()
@@ -3709,9 +4043,9 @@ class PerssonModelGUI_V2:
         colors = plt.cm.coolwarm(np.linspace(0, 1, len(temps)))
 
         # Plot 1: Master curve with shifted data
-        self.ax_mc_master.set_title(f'마스터 커브 (Tref={T_ref}°C, 최적화: {target_display})', fontweight='bold', fontsize=11)
-        self.ax_mc_master.set_xlabel('Reduced Frequency (Hz)', fontsize=11)
-        self.ax_mc_master.set_ylabel('E\', E\'\' (MPa)', fontsize=11)
+        self.ax_mc_master.set_title(f'마스터 커브 (Tref={T_ref}°C, 최적화: {target_display})', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_master.set_xlabel('Reduced Frequency (Hz)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_master.set_ylabel('E\', E\'\' (MPa)', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_master.set_xscale('log')
         self.ax_mc_master.set_yscale('log')
         self.ax_mc_master.grid(True, alpha=0.3)
@@ -3729,12 +4063,12 @@ class PerssonModelGUI_V2:
                               'k-', linewidth=2, label="E' (Master)")
         self.ax_mc_master.plot(master_curve['f'], master_curve['E_loss'],
                               'k--', linewidth=2, label="E'' (Master)")
-        self.ax_mc_master.legend(fontsize=8, loc='best')
+        self.ax_mc_master.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
         # Plot 2: aT vs Temperature
-        self.ax_mc_aT.set_title('수평 이동 계수 aT', fontweight='bold', fontsize=11)
-        self.ax_mc_aT.set_xlabel('온도 T (°C)', fontsize=11)
-        self.ax_mc_aT.set_ylabel('log10(aT)', fontsize=11)
+        self.ax_mc_aT.set_title('수평 이동 계수 aT', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_aT.set_xlabel('온도 T (°C)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_aT.set_ylabel('log10(aT)', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_aT.grid(True, alpha=0.3)
 
         log_aT = [np.log10(aT[T]) for T in temps]
@@ -3746,14 +4080,14 @@ class PerssonModelGUI_V2:
             log_aT_fit = -wlf_result['C1'] * (T_fit - T_ref) / (wlf_result['C2'] + (T_fit - T_ref))
             self.ax_mc_aT.plot(T_fit, log_aT_fit, 'r-', linewidth=2,
                               label=f"WLF (C1={wlf_result['C1']:.2f}, C2={wlf_result['C2']:.1f})")
-        self.ax_mc_aT.legend(fontsize=8, loc='best')
+        self.ax_mc_aT.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         self.ax_mc_aT.axhline(0, color='gray', linestyle=':', alpha=0.5)
         self.ax_mc_aT.axvline(T_ref, color='green', linestyle='--', alpha=0.5, label=f'Tref={T_ref}°C')
 
         # Plot 3: bT vs Temperature
-        self.ax_mc_bT.set_title('수직 이동 계수 bT', fontweight='bold', fontsize=11)
-        self.ax_mc_bT.set_xlabel('온도 T (°C)', fontsize=11)
-        self.ax_mc_bT.set_ylabel('bT', fontsize=11)
+        self.ax_mc_bT.set_title('수직 이동 계수 bT', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mc_bT.set_xlabel('온도 T (°C)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mc_bT.set_ylabel('bT', fontsize=self.PLOT_FONTS['label'])
         self.ax_mc_bT.grid(True, alpha=0.3)
 
         bT_values = [bT[T] for T in temps]
@@ -3766,7 +4100,7 @@ class PerssonModelGUI_V2:
 
         self.ax_mc_bT.axhline(1, color='gray', linestyle=':', alpha=0.5)
         self.ax_mc_bT.axvline(T_ref, color='green', linestyle='--', alpha=0.5)
-        self.ax_mc_bT.legend(fontsize=8, loc='best')
+        self.ax_mc_bT.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
         self.fig_mc.tight_layout()
         self.canvas_mc.draw()
@@ -3900,7 +4234,7 @@ class PerssonModelGUI_V2:
             self.ax_mc_master.plot(self.master_curve_gen.master_f, self.master_curve_gen.master_E_loss,
                                   'k--', linewidth=2, label="E'' (Master)")
 
-        self.ax_mc_master.legend(fontsize=11, loc='best')
+        self.ax_mc_master.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         self.fig_mc.tight_layout()
         self.canvas_mc.draw()
 
@@ -3933,6 +4267,7 @@ class PerssonModelGUI_V2:
         filename = filedialog.asksaveasfilename(
             title="마스터 커브 저장",
             defaultextension=".csv",
+            initialfile=self._make_export_filename("master_curve"),
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
         )
 
@@ -4214,12 +4549,15 @@ class PerssonModelGUI_V2:
         preset_q1_frame.grid(row=row, column=1, pady=5, sticky=tk.W)
         self.surface_q1_var = tk.StringVar(value='(선택...)')
         self.surface_q1_combo = ttk.Combobox(preset_q1_frame, textvariable=self.surface_q1_var,
-                                              state='readonly', width=18, font=self.FONTS['body'])
+                                              state='readonly', width=9, font=self.FONTS['body'])
         self.surface_q1_combo.pack(side=tk.LEFT)
         ttk.Button(preset_q1_frame, text="로드", command=self._load_preset_surface_q1, width=4,
                    style='Outline.TButton').pack(side=tk.LEFT, padx=1)
         ttk.Button(preset_q1_frame, text="삭제", command=self._delete_preset_surface_q1, width=4).pack(side=tk.LEFT, padx=1)
         ttk.Button(preset_q1_frame, text="현재값 저장", command=self._add_preset_surface_q1, width=8).pack(side=tk.LEFT, padx=1)
+        ttk.Button(preset_q1_frame, text="내보내기",
+                   command=lambda: self._export_preset_file('surface_q1', self.surface_q1_var, 'q_max/q1'),
+                   width=6).pack(side=tk.LEFT, padx=1)
         self._refresh_preset_surface_q1_list()
         # IDIADA 프리셋 자동 선택 및 로드
         self.root.after(200, self._auto_load_idiada_preset)
@@ -4284,6 +4622,12 @@ class PerssonModelGUI_V2:
                        variable=self.hrms_q1_mode_var, value="q1_to_hrms",
                        command=self._on_hrms_q1_mode_changed).pack(side=tk.LEFT)
 
+        mode_row3 = ttk.Frame(mode_frame)
+        mode_row3.pack(fill=tk.X, pady=2)
+        ttk.Radiobutton(mode_row3, text="모드 3: 응력 한계법 → q1 계산 (σ_Y 기반)",
+                       variable=self.hrms_q1_mode_var, value="stress_limit",
+                       command=self._on_hrms_q1_mode_changed).pack(side=tk.LEFT)
+
         # 구분선
         ttk.Separator(mode_frame, orient='horizontal').pack(fill=tk.X, pady=5)
 
@@ -4302,6 +4646,26 @@ class PerssonModelGUI_V2:
         self.input_q1_var = tk.StringVar(value="1.0e+06")
         self.q1_entry = ttk.Entry(self.q1_input_frame, textvariable=self.input_q1_var, width=12)
         self.q1_entry.pack(side=tk.LEFT, padx=5)
+
+        # σ_Y 입력 (모드 3: 응력 한계법용)
+        self.stress_limit_frame = ttk.Frame(mode_frame)
+        self.stress_limit_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(self.stress_limit_frame, text="파괴 응력 σ_Y (MPa):").pack(side=tk.LEFT)
+        self.stress_y_var = tk.StringVar(value="100.0")
+        self.stress_y_entry = ttk.Entry(self.stress_limit_frame, textvariable=self.stress_y_var, width=12)
+        self.stress_y_entry.pack(side=tk.LEFT, padx=5)
+        ttk.Label(self.stress_limit_frame, text="(p₀ = 공칭 압력 사용)",
+                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=3)
+
+        # 대표 속도 입력 (모드 3용)
+        self.stress_velocity_frame = ttk.Frame(mode_frame)
+        self.stress_velocity_frame.pack(fill=tk.X, pady=2)
+        ttk.Label(self.stress_velocity_frame, text="대표 속도 v (m/s):").pack(side=tk.LEFT)
+        self.stress_velocity_var = tk.StringVar(value="1.0")
+        self.stress_velocity_entry = ttk.Entry(self.stress_velocity_frame, textvariable=self.stress_velocity_var, width=12)
+        self.stress_velocity_entry.pack(side=tk.LEFT, padx=5)
+        ttk.Label(self.stress_velocity_frame, text="(G(q) 계산용 슬라이딩 속도)",
+                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=3)
 
         # Add trace to sync target_hrms_slope_var with Tab 1's psd_xi_var and Tab 4's display
         self.target_hrms_slope_var.trace_add('write', self._on_target_hrms_changed)
@@ -4348,6 +4712,35 @@ class PerssonModelGUI_V2:
         self.calculated_hrms_label.pack(side=tk.LEFT, padx=5)
         ttk.Label(hrms_result_row, text="(무차원)").pack(side=tk.LEFT)
 
+        # 국부 접촉 압력 표시 (모드 3 결과)
+        stress_result_row = ttk.Frame(result_frame)
+        stress_result_row.pack(fill=tk.X, pady=2)
+        ttk.Label(stress_result_row, text="→ 국부 압력 p(q1):").pack(side=tk.LEFT)
+        self.calculated_local_pressure_var = tk.StringVar(value="(계산 후 표시)")
+        self.calculated_local_pressure_label = ttk.Label(stress_result_row,
+                                                          textvariable=self.calculated_local_pressure_var,
+                                                          font=self.FONTS['small_bold'], foreground='#DC2626')
+        self.calculated_local_pressure_label.pack(side=tk.LEFT, padx=5)
+        ttk.Label(stress_result_row, text="(MPa)").pack(side=tk.LEFT)
+
+        # 계산에 사용된 데이터 출처 표시 (모드 3 결과 하단)
+        self.stress_calc_info_frame = ttk.Frame(result_frame)
+        self.stress_calc_info_frame.pack(fill=tk.X, pady=(5, 2))
+
+        info_header = ttk.Label(self.stress_calc_info_frame,
+                                text="[계산에 사용된 물성/데이터]",
+                                font=self.FONTS['small_bold'], foreground='#6B7280')
+        info_header.pack(anchor=tk.W)
+
+        self.stress_calc_info_var = tk.StringVar(
+            value="  (σ_Y → q1 계산 실행 후 표시됩니다)")
+        self.stress_calc_info_label = ttk.Label(
+            self.stress_calc_info_frame,
+            textvariable=self.stress_calc_info_var,
+            font=self.FONTS['small'], foreground='#6B7280',
+            justify=tk.LEFT, wraplength=500)
+        self.stress_calc_info_label.pack(anchor=tk.W)
+
         # 초기 모드에 따른 UI 상태 설정
         self._on_hrms_q1_mode_changed()
 
@@ -4378,7 +4771,7 @@ class PerssonModelGUI_V2:
         self.calc_status_label.pack()
 
         # Create figure for calculation progress with 2x2 subplots
-        fig, canvas = self._create_plot_frame(right_panel, 'fig_calc_progress', 'canvas_calc_progress', figsize=(12, 10))
+        fig, canvas = self._create_plot_frame(right_panel, 'fig_calc_progress', 'canvas_calc_progress', figsize=(6, 4))
 
         # Top-left: PSD(q) with integration progress
         self.ax_psd_q = self.fig_calc_progress.add_subplot(221)
@@ -4400,45 +4793,45 @@ class PerssonModelGUI_V2:
             for spine in _ax.spines.values():
                 spine.set_color('#D1D5DB')
                 spine.set_linewidth(0.8)
-            _ax.tick_params(colors='#4B5563', labelsize=9, length=4, width=0.7)
+            _ax.tick_params(colors='#4B5563', labelsize=self.PLOT_FONTS['tick'], length=4, width=0.7)
             _ax.grid(True, alpha=0.18, linewidth=0.6, color='#9CA3AF', linestyle='--')
 
         # Initialize PSD(q) plot - top-left
-        self.ax_psd_q.set_xlabel('파수 q (1/m)', fontsize=10, color='#374151')
-        self.ax_psd_q.set_ylabel(r'C(q) (m$^4$)', fontsize=10, color='#374151')
+        self.ax_psd_q.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+        self.ax_psd_q.set_ylabel(r'C(q) (m$^4$)', fontsize=self.PLOT_FONTS['label'], color='#374151')
         self.ax_psd_q.set_xscale('log')
         self.ax_psd_q.set_yscale('log')
-        self.ax_psd_q.set_title('PSD C(q)', fontweight='bold', fontsize=11, color='#1F2937', pad=8)
+        self.ax_psd_q.set_title('PSD C(q)', fontweight='bold', fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
 
         # Initialize DMA plot - top-right
-        self.ax_dma_progress.set_xlabel('주파수 f (Hz)', fontsize=10, color='#374151')
-        self.ax_dma_progress.set_ylabel('탄성률 (Pa)', fontsize=10, color='#374151')
+        self.ax_dma_progress.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+        self.ax_dma_progress.set_ylabel('탄성률 (Pa)', fontsize=self.PLOT_FONTS['label'], color='#374151')
         self.ax_dma_progress.set_xscale('log')
         self.ax_dma_progress.set_yscale('log')
-        self.ax_dma_progress.set_title('DMA 마스터 곡선', fontweight='bold', fontsize=11, color='#1F2937', pad=8)
+        self.ax_dma_progress.set_title('DMA 마스터 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
 
         # Initialize G(q) live plot - bottom-left
-        self.ax_gq_live.set_xlabel('파수 q (1/m)', fontsize=10, color='#374151')
-        self.ax_gq_live.set_ylabel('G(q)', fontsize=10, color='#374151')
+        self.ax_gq_live.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+        self.ax_gq_live.set_ylabel('G(q)', fontsize=self.PLOT_FONTS['label'], color='#374151')
         self.ax_gq_live.set_xscale('log')
         self.ax_gq_live.set_yscale('log')
-        self.ax_gq_live.set_title('실시간 G(q) 적분 누적', fontweight='bold', fontsize=11, color='#1F2937', pad=8)
+        self.ax_gq_live.set_title('실시간 G(q) 적분 누적', fontweight='bold', fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
         self.ax_gq_live.text(0.5, 0.5, '계산 대기 중...',
                              transform=self.ax_gq_live.transAxes,
-                             ha='center', va='center', fontsize=12,
+                             ha='center', va='center', fontsize=self.PLOT_FONTS['title'],
                              color='#CBD5E1', fontweight='light')
 
         # Initialize contact area live plot - bottom-right
-        self.ax_contact_live.set_xlabel('파수 q (1/m)', fontsize=10, color='#374151')
-        self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontsize=10, color='#374151')
+        self.ax_contact_live.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+        self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontsize=self.PLOT_FONTS['label'], color='#374151')
         self.ax_contact_live.set_xscale('log')
-        self.ax_contact_live.set_title(r'접촉 면적비 A(q)/A$_0$', fontweight='bold', fontsize=11, color='#1F2937', pad=8)
+        self.ax_contact_live.set_title(r'접촉 면적비 A(q)/A$_0$', fontweight='bold', fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
         self.ax_contact_live.text(0.5, 0.5, '계산 대기 중...',
                                   transform=self.ax_contact_live.transAxes,
-                                  ha='center', va='center', fontsize=12,
+                                  ha='center', va='center', fontsize=self.PLOT_FONTS['title'],
                                   color='#CBD5E1', fontweight='light')
 
-        self.fig_calc_progress.tight_layout(pad=2.5)
+        self.fig_calc_progress.subplots_adjust(**self._FIXED_SUBPLOT_PARAMS['fig_calc_progress'])
 
         # Save button for calculation progress plot in left panel
         save_btn_frame = ttk.Frame(left_panel)
@@ -4524,13 +4917,13 @@ class PerssonModelGUI_V2:
                 messagebox.showerror("오류", "프리셋 파일 형식이 올바르지 않습니다.")
                 return
 
-            # Apply q_max to the field
-            self.q_max_var.set(q_max_val)
-            # Apply q1 to the target q1 field
-            self.input_q1_var.set(q1_val)
-            # Switch to q1→h'rms mode
+            # Switch to q1→h'rms mode FIRST (enables q1 entry)
             self.hrms_q1_mode_var.set("q1_to_hrms")
             self._on_hrms_q1_mode_changed()
+            # Apply values AFTER entries are enabled
+            self.q_max_var.set(q_max_val)
+            self.input_q1_var.set(q1_val)
+            self.root.update_idletasks()
             # Auto-trigger q1→h'rms calculation
             try:
                 self._calculate_hrms_q1()
@@ -4564,7 +4957,13 @@ class PerssonModelGUI_V2:
     def _add_preset_surface_q1(self):
         """Save current q_max and q1 values as a preset."""
         q_max_val = self.q_max_var.get().strip()
-        q1_val = self.input_q1_var.get().strip()
+        # Use calculated q1 if available (covers mode 1: hrms→q1 case),
+        # otherwise fall back to the input field value
+        mode = self.hrms_q1_mode_var.get()
+        if mode == "hrms_to_q1" and hasattr(self, 'calculated_q1') and self.calculated_q1 is not None:
+            q1_val = f"{self.calculated_q1:.6e}"
+        else:
+            q1_val = self.input_q1_var.get().strip()
 
         if not q_max_val or not q1_val:
             self._show_status("q_max와 목표 q1 값을 먼저 입력하세요.", 'warning')
@@ -4603,15 +5002,33 @@ class PerssonModelGUI_V2:
         """모드 변경 시 UI 상태 업데이트."""
         mode = self.hrms_q1_mode_var.get()
         if mode == "hrms_to_q1":
-            # 모드 1: h'rms 입력 활성화, q1 입력 비활성화
+            # 모드 1: h'rms 입력 활성화, q1/σ_Y/속도 입력 비활성화
             self.hrms_entry.config(state='normal')
             self.q1_entry.config(state='disabled')
+            self.stress_y_entry.config(state='disabled')
+            self.stress_velocity_entry.config(state='disabled')
             self.hrms_q1_calc_btn.config(text="h'rms → q1 계산")
-        else:
-            # 모드 2: q1 입력 활성화, h'rms 입력 비활성화
+        elif mode == "q1_to_hrms":
+            # 모드 2: q1 입력 활성화, h'rms/σ_Y/속도 입력 비활성화
             self.hrms_entry.config(state='disabled')
             self.q1_entry.config(state='normal')
+            self.stress_y_entry.config(state='disabled')
+            self.stress_velocity_entry.config(state='disabled')
             self.hrms_q1_calc_btn.config(text="q1 → h'rms 계산")
+        elif mode == "stress_limit":
+            # 모드 3: σ_Y/속도 입력 활성화, h'rms/q1 입력 비활성화
+            self.hrms_entry.config(state='disabled')
+            self.q1_entry.config(state='disabled')
+            self.stress_y_entry.config(state='normal')
+            self.stress_velocity_entry.config(state='normal')
+            self.hrms_q1_calc_btn.config(text="σ_Y → q1 계산")
+
+        # 모드 3일 때만 계산 데이터 출처 정보 표시
+        if hasattr(self, 'stress_calc_info_frame'):
+            if mode == "stress_limit":
+                self.stress_calc_info_frame.pack(fill=tk.X, pady=(5, 2))
+            else:
+                self.stress_calc_info_frame.pack_forget()
 
     def _calculate_hrms_q1(self):
         """선택된 모드에 따라 h'rms(ξ) 또는 q1 계산.
@@ -4689,6 +5106,11 @@ class PerssonModelGUI_V2:
                 self.calculated_hrms_var.set(f"{xi_verified:.4f} (검증)")
                 self.calculated_q1 = q1_calculated
                 self.target_xi = target_xi
+                # Sync input_q1_var so save preset captures the calculated q1
+                self.input_q1_var.set(f"{q1_calculated:.3e}")
+                # q_max_var에 반영하여 _run_calculation()이 올바른 q1 사용
+                self.q_max_var.set(f"{q1_calculated:.6e}")
+                print(f"[hrms→q1] q_max_var 갱신: {q1_calculated:.6e}")
 
                 self.status_var.set(f"계산 완료: ξ={target_xi:.4f} → q1={q1_calculated:.3e} (1/m)")
                 self._show_status(f"모드 1: h'rms (ξ) → q1 계산\n\n"
@@ -4703,7 +5125,7 @@ class PerssonModelGUI_V2:
                     f"  최대 가능 ξ: {max_xi:.4f}\n\n"
                     f"※ ξ² = 2π∫k³C(k)dk", 'success')
 
-            else:
+            elif mode == "q1_to_hrms":
                 # 모드 2: 주어진 q1로 h'rms(ξ) 계산
                 target_q1 = float(self.input_q1_var.get())
 
@@ -4726,6 +5148,9 @@ class PerssonModelGUI_V2:
 
                 # ξ 입력란에도 반영
                 self.target_hrms_slope_var.set(f"{xi_calculated:.4f}")
+                # q_max_var에 반영하여 _run_calculation()이 올바른 q1 사용
+                self.q_max_var.set(f"{target_q1:.6e}")
+                print(f"[q1→hrms] q_max_var 갱신: {target_q1:.6e}")
 
                 self.status_var.set(f"계산 완료: q1={target_q1:.3e} → ξ={xi_calculated:.4f}")
                 self._show_status(f"모드 2: q1 → h'rms (ξ) 계산\n\n"
@@ -4738,6 +5163,181 @@ class PerssonModelGUI_V2:
                     f"  q 범위: {min_q:.2e} ~ {max_q:.2e}\n"
                     f"  최대 가능 ξ: {max_xi:.4f}\n\n"
                     f"※ ξ² = 2π∫k³C(k)dk", 'success')
+
+            elif mode == "stress_limit":
+                # 모드 3: 응력 한계법 (Steady-state stress limit method)
+                # p(q) = p0 / P(q) >= σ_Y 조건을 만족하는 q를 q1으로 확정
+                from scipy.special import erf as _erf
+
+                p0 = float(self.sigma_0_var.get())  # 공칭 압력 (MPa)
+                stress_y = float(self.stress_y_var.get())  # 파괴 응력 한계 (MPa)
+
+                if p0 <= 0:
+                    self._show_status("공칭 압력 p₀는 0보다 커야 합니다.", 'warning')
+                    return
+                if stress_y <= 0:
+                    self._show_status("파괴 응력 σ_Y는 0보다 커야 합니다.", 'warning')
+                    return
+                if p0 >= stress_y:
+                    self._show_status(f"공칭 압력 p₀ ({p0} MPa)가 이미 파괴 응력 σ_Y ({stress_y} MPa) 이상입니다.\n"
+                        f"q1 = q_min (전체 범위에서 소성 변형 발생)", 'warning')
+                    return
+
+                # G(q) 누적 계산: G(q) = (1/8) ∫ q'³ C(q') |E/(1-ν²)σ₀|² dq'
+                # 여기서는 PSD 기반의 간이 G(q)를 사용 (정적 탄성률 기준)
+                # 실제로는 _run_calculation의 GCalculator를 사용하는 것이 정확하지만,
+                # 여기서는 PSD 데이터로부터 직접 누적 적분을 수행
+                #
+                # Persson 이론: P(q) = erf(1 / (2√G(q)))
+                # G(q) ≈ (π/4) ∫[q0→q] q'³ C(q') dq' × |E*/(1-ν²)σ₀|²
+                #
+                # 간이 방법: xi²(q) = 2π ∫ k³C(k)dk 를 이용
+                # G(q) ∝ xi²(q) 관계를 활용하여 P(q) 계산
+
+                # 이미 계산된 xi_squared_cumulative 사용
+                # G(q) = (1/4) × xi²(q) × |E*/(1-ν²)σ₀|² 에서
+                # 정적 탄성률이 필요하지만, 여기서는 P(q) = erf(1/(2√G))의
+                # 역관계를 활용: p(q) = p0/P(q) >= σ_Y
+                #
+                # P(q)가 p0/σ_Y 이하로 떨어지는 q를 찾으면 됨
+                P_threshold = p0 / stress_y  # P(q)가 이 값 이하가 되면 q1
+
+                # 접촉 면적비 P(q) 계산을 위해 기존 계산 결과 활용
+                # GCalculator가 이미 초기화되어 있는지 확인
+                if hasattr(self, 'g_calculator') and self.g_calculator is not None:
+                    # 기존 GCalculator 사용 (가장 정확)
+                    # 사용자 지정 대표 속도로 계산
+                    v_stress = float(self.stress_velocity_var.get())
+                    # σ₀와 velocity를 현재 UI 값으로 갱신
+                    # G(q) ∝ 1/σ₀² 이므로 σ₀가 다르면 P(q)가 크게 달라짐
+                    self.g_calculator.update_parameters(
+                        sigma_0=p0 * 1e6,  # MPa → Pa
+                        velocity=v_stress
+                    )
+
+                    # q 배열 생성 (세밀한 간격)
+                    n_q_fine = max(500, int(self.n_q_var.get()) * 10)
+                    q_fine = np.logspace(np.log10(min_q), np.log10(max_q), n_q_fine)
+
+                    # G(q) 계산
+                    results_g = self.g_calculator.calculate_G_with_details(q_fine)
+                    P_arr = results_g['contact_area_ratio']
+                    q_arr = results_g['q']
+                    G_arr = results_g['G']
+
+                    # p(q) = p0 / P(q) >= σ_Y 조건 검색
+                    q1_found = None
+                    p_local_at_q1 = None
+                    P_at_q1 = None
+                    xi_at_q1 = None
+
+                    for i in range(len(q_arr)):
+                        if P_arr[i] > 0 and P_arr[i] < 1.0:
+                            p_local = p0 / P_arr[i]
+                            if p_local >= stress_y:
+                                q1_found = q_arr[i]
+                                p_local_at_q1 = p_local
+                                P_at_q1 = P_arr[i]
+                                # 해당 q에서의 ξ 보간
+                                from scipy.interpolate import interp1d
+                                f_xi = interp1d(q_data, xi_cumulative, kind='linear',
+                                                fill_value='extrapolate', bounds_error=False)
+                                xi_at_q1 = float(f_xi(q1_found))
+                                break
+
+                else:
+                    # GCalculator가 없는 경우: PSD 기반 간이 계산
+                    # P(q) ≈ P_threshold 조건으로 xi 역산
+                    # 이 방법은 정확도가 낮지만 GCalculator 없이도 사용 가능
+                    self._show_status(
+                        "응력 한계법 계산을 위해서는 먼저 'G(q,v) 계산 실행' 버튼을 한 번 실행하여\n"
+                        "GCalculator를 초기화해야 합니다.\n\n"
+                        "또는 먼저 모드 1/2로 q1을 설정한 후 계산을 실행하세요.",
+                        'warning')
+                    return
+
+                if q1_found is not None:
+                    # 결과 표시
+                    self.calculated_q1_var.set(f"{q1_found:.3e}")
+                    self.calculated_local_pressure_var.set(f"{p_local_at_q1:.2f}")
+                    self.calculated_q1 = q1_found
+                    if xi_at_q1 is not None:
+                        self.calculated_hrms_var.set(f"{xi_at_q1:.4f}")
+                        self.target_xi = xi_at_q1
+                        self.target_hrms_slope_var.set(f"{xi_at_q1:.4f}")
+                    # q1 입력란에도 반영
+                    self.input_q1_var.set(f"{q1_found:.3e}")
+                    # q_max_var에 반영하여 _run_calculation()이 올바른 q1 사용
+                    self.q_max_var.set(f"{q1_found:.6e}")
+                    print(f"[stress→q1] q_max_var 갱신: {q1_found:.6e}")
+
+                    self.status_var.set(
+                        f"응력 한계법: σ_Y={stress_y:.1f} MPa → q1={q1_found:.3e} (1/m)")
+                    self._show_status(
+                        f"모드 3: 응력 한계법 (Steady-state stress limit)\n\n"
+                        f"[입력]\n"
+                        f"  공칭 압력 p₀: {p0} MPa\n"
+                        f"  파괴 응력 σ_Y: {stress_y} MPa\n"
+                        f"  대표 속도 v: {v_stress} m/s\n"
+                        f"  임계 P(q) = p₀/σ_Y: {P_threshold:.6f}\n\n"
+                        f"[출력]\n"
+                        f"  q1 (컷오프 파수): {q1_found:.3e} (1/m)\n"
+                        f"  국부 접촉 압력 p(q1): {p_local_at_q1:.2f} MPa\n"
+                        f"  접촉 면적비 P(q1): {P_at_q1:.6f}\n"
+                        f"  해당 q1에서 ξ (h'rms): {xi_at_q1:.4f}\n\n"
+                        f"[원리]\n"
+                        f"  p(q) = p₀/P(q) ≥ σ_Y 조건 도달 시 q1 확정\n"
+                        f"  고무의 국부 압력이 파괴 응력에 도달하여\n"
+                        f"  소성 변형/찢어짐이 시작되는 스케일입니다.\n\n"
+                        f"[PSD 정보]\n"
+                        f"  {q_source}\n"
+                        f"  q 범위: {min_q:.2e} ~ {max_q:.2e}",
+                        'success')
+                else:
+                    # σ_Y에 도달하지 못한 경우
+                    # 마지막 q에서의 p_local 값 계산
+                    last_P = P_arr[-1] if P_arr[-1] > 0 else 1e-10
+                    last_p_local = p0 / last_P
+                    self.calculated_local_pressure_var.set(f"{last_p_local:.2f} (미도달)")
+
+                    self._show_status(
+                        f"모드 3: 응력 한계법 - q1 미발견\n\n"
+                        f"PSD 데이터 전체 범위 ({min_q:.2e} ~ {max_q:.2e} 1/m)에서\n"
+                        f"국부 압력 p(q)가 σ_Y ({stress_y} MPa)에 도달하지 못했습니다.\n\n"
+                        f"  대표 속도 v: {v_stress} m/s\n"
+                        f"  최대 q에서의 국부 압력: {last_p_local:.2f} MPa\n"
+                        f"  최대 q에서의 P(q): {last_P:.6f}\n\n"
+                        f"[해결 방법]\n"
+                        f"  1. 대표 속도를 높이세요 (E* 증가 → G(q) 증가)\n"
+                        f"  2. σ_Y 값을 낮추세요\n"
+                        f"  3. 공칭 압력 p₀를 높이세요\n"
+                        f"  4. q_max 범위를 늘리세요",
+                        'warning')
+
+                # 계산에 사용된 데이터 출처 정보 표시 (성공/실패 공통)
+                if hasattr(self, 'stress_calc_info_var'):
+                    temp_used = float(self.temperature_var.get()) if hasattr(self, 'temperature_var') else None
+                    poisson_used = float(self.poisson_var.get()) if hasattr(self, 'poisson_var') else None
+                    psd_source = getattr(self, 'psd_source_name', None) or q_source
+
+                    # 비선형 보정 여부 확인 (g_calculator 내부 상태)
+                    has_nonlinear = (hasattr(self.g_calculator, 'f_interpolator') and
+                                     self.g_calculator.f_interpolator is not None)
+                    if has_nonlinear:
+                        modulus_mode = "비선형 보정 E*(ω)·f(ε),g(ε)"
+                    else:
+                        modulus_mode = "선형 E*(ω) (마스터커브 원본)"
+
+                    info_lines = []
+                    info_lines.append(f"  수식: p_local(q) = p₀ × A₀/A(q),  조건: p_local ≥ σ_Y → q1 확정")
+                    info_lines.append(f"  ① σ_Y (파괴응력): {stress_y} MPa ← 사용자 입력")
+                    info_lines.append(f"  ② p₀ (명목압력): {p0} MPa ← 계산 설정 탭")
+                    info_lines.append(f"  ③ C(q) (노면 PSD): {psd_source}")
+                    info_lines.append(f"  ④ E*(ω): {modulus_mode}, T={temp_used}°C")
+                    info_lines.append(f"  ⚠ A(q)/A₀: Cold 방식 (Flash Temp 미반영, 독립 재계산)")
+                    info_lines.append(f"     → 기존 Cold/Hot 결과를 가져오지 않고 현재 v={v_stress} m/s로 새로 계산")
+                    info_lines.append(f"  · ν={poisson_used}")
+                    self.stress_calc_info_var.set("\n".join(info_lines))
 
         except ValueError as e:
             messagebox.showerror("오류", f"입력값이 유효하지 않습니다: {e}")
@@ -4790,15 +5390,18 @@ class PerssonModelGUI_V2:
         plot_frame = ttk.Frame(parent)
         plot_frame.pack(fill=tk.BOTH, expand=True, padx=6, pady=3)
         self._create_plot_frame(plot_frame, 'fig_results', 'canvas_results',
-                                figsize=(16, 10))
+                                figsize=(6, 4))
 
     def _create_log_panel(self):
         """Create a compact activity-log panel at the bottom of the window."""
         C = self.COLORS
         D = self.DIMS
+        # 로그 패널은 항상 펼친 상태로 시작 (진행상황 확인 용이)
+        _start_collapsed = False
+        _init_h = D['log_collapsed'] if _start_collapsed else D['log_height']
         log_container = tk.Frame(self.root, bg=C['sidebar'],
-                                 height=D['log_height'])
-        log_container.pack(side=tk.BOTTOM, fill=tk.X, padx=4, pady=(2, 0))
+                                 height=_init_h)
+        log_container.pack(side=tk.BOTTOM, fill=tk.X, padx=4, pady=(1, 0))
         log_container.pack_propagate(False)
 
         # Title bar
@@ -4811,7 +5414,7 @@ class PerssonModelGUI_V2:
                  font=self.FONTS['small_bold']).pack(side=tk.LEFT, padx=6)
 
         # Toggle button to expand/collapse
-        self._log_expanded = True
+        self._log_expanded = not _start_collapsed
         self._log_container = log_container
 
         def _toggle_log():
@@ -4824,7 +5427,7 @@ class PerssonModelGUI_V2:
                 toggle_btn.config(text="\u25B2")
                 self._log_expanded = True
 
-        toggle_btn = tk.Button(title_bar, text="\u25B2", bg=C['sidebar'],
+        toggle_btn = tk.Button(title_bar, text=("\u25BC" if _start_collapsed else "\u25B2"), bg=C['sidebar'],
                                fg='#94A3B8', font=self.FONTS['tiny'], bd=0,
                                command=_toggle_log,
                                activebackground=C['sidebar'],
@@ -4957,6 +5560,10 @@ class PerssonModelGUI_V2:
         # Append to activity log panel
         self._append_log(message, level)
 
+        # Also record in Log Analysis
+        _cat_map = {'info': 'SYSTEM', 'success': 'SYSTEM', 'warning': 'UI', 'error': 'ERROR'}
+        self._log(_cat_map.get(level, 'SYSTEM'), clean_msg)
+
         # Cancel previous auto-clear timer
         if self._status_clear_id is not None:
             try:
@@ -4978,6 +5585,24 @@ class PerssonModelGUI_V2:
     def _update_material_display(self):
         """Update material information (if needed)."""
         pass  # Simplified for now
+
+    def _log(self, category, message):
+        """Add a log entry for the Log Analysis tab.
+
+        Args:
+            category: Log category (e.g., 'CALC', 'PLAYBACK', 'DATA', 'UI', 'ERROR')
+            message: Log message text
+        """
+        import datetime
+        ts = datetime.datetime.now().strftime('%H:%M:%S.%f')[:-3]
+        entry = (ts, category, message)
+        self._log_entries.append(entry)
+        # Update log analysis text widget if it exists
+        if hasattr(self, '_log_analysis_text') and self._log_analysis_text:
+            tag = f'log_{category.lower()}'
+            self._log_analysis_text.insert(
+                'end', f"[{ts}] [{category:>8s}] {message}\n", tag)
+            self._log_analysis_text.see('end')
 
     def _load_material(self):
         """Load DMA data from file."""
@@ -5537,7 +6162,7 @@ class PerssonModelGUI_V2:
 
                 # Colour map for velocity-indexed curves (viridis for clarity)
                 _n_v_total = len(v_array)
-                _cmap = plt.get_cmap('viridis')
+                _cmap = plt.colormaps['viridis']
 
                 # ── Helper: apply modern axis styling ──
                 def _style_calc_ax(ax):
@@ -5545,7 +6170,7 @@ class PerssonModelGUI_V2:
                     for spine in ax.spines.values():
                         spine.set_color('#D1D5DB')
                         spine.set_linewidth(0.8)
-                    ax.tick_params(colors='#4B5563', labelsize=9, length=4, width=0.7)
+                    ax.tick_params(colors='#4B5563', labelsize=self.PLOT_FONTS['tick'], length=4, width=0.7)
                     ax.grid(True, alpha=0.18, linewidth=0.6, color='#9CA3AF', linestyle='--')
 
                 # TOP-LEFT: PSD(q) with integration range
@@ -5583,13 +6208,13 @@ class PerssonModelGUI_V2:
                         x=q_min, color='#EF4444', linestyle='-', linewidth=1.2, alpha=0.0, zorder=5)
 
                     _style_calc_ax(self.ax_psd_q)
-                    self.ax_psd_q.set_xlabel('파수 q (1/m)', fontsize=10, color='#374151')
-                    self.ax_psd_q.set_ylabel(r'C(q) (m$^4$)', fontsize=10, color='#374151')
+                    self.ax_psd_q.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+                    self.ax_psd_q.set_ylabel(r'C(q) (m$^4$)', fontsize=self.PLOT_FONTS['label'], color='#374151')
                     self.ax_psd_q.set_xscale('log'); self.ax_psd_q.set_yscale('log')
-                    self.ax_psd_q.legend(loc='best', fontsize=8, framealpha=0.8,
+                    self.ax_psd_q.legend(loc='best', fontsize=self.PLOT_FONTS['label'], framealpha=0.8,
                                          edgecolor='#E5E7EB', fancybox=False)
                     self.ax_psd_q.set_title('PSD C(q) — 적분 범위', fontweight='bold',
-                                            fontsize=11, color='#1F2937', pad=8)
+                                            fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
 
                 # TOP-RIGHT: DMA master curve
                 if self.material is not None:
@@ -5606,39 +6231,39 @@ class PerssonModelGUI_V2:
                                               linestyle='--', alpha=0.9, label="E''", zorder=3)
 
                     _style_calc_ax(self.ax_dma_progress)
-                    self.ax_dma_progress.set_xlabel('주파수 f (Hz)', fontsize=10, color='#374151')
-                    self.ax_dma_progress.set_ylabel('탄성률 (Pa)', fontsize=10, color='#374151')
+                    self.ax_dma_progress.set_xlabel('주파수 f (Hz)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+                    self.ax_dma_progress.set_ylabel('탄성률 (Pa)', fontsize=self.PLOT_FONTS['label'], color='#374151')
                     self.ax_dma_progress.set_xscale('log'); self.ax_dma_progress.set_yscale('log')
-                    self.ax_dma_progress.legend(loc='best', fontsize=9, framealpha=0.8,
+                    self.ax_dma_progress.legend(loc='best', fontsize=self.PLOT_FONTS['label'], framealpha=0.8,
                                                 edgecolor='#E5E7EB', fancybox=False)
                     self.ax_dma_progress.set_title('DMA 마스터 곡선 — 주파수 스캔', fontweight='bold',
-                                                   fontsize=11, color='#1F2937', pad=8)
+                                                   fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
 
                 # BOTTOM-LEFT: G(q) live accumulation placeholder
                 _style_calc_ax(self.ax_gq_live)
-                self.ax_gq_live.set_xlabel('파수 q (1/m)', fontsize=10, color='#374151')
-                self.ax_gq_live.set_ylabel('G(q)', fontsize=10, color='#374151')
+                self.ax_gq_live.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+                self.ax_gq_live.set_ylabel('G(q)', fontsize=self.PLOT_FONTS['label'], color='#374151')
                 self.ax_gq_live.set_xscale('log'); self.ax_gq_live.set_yscale('log')
                 self.ax_gq_live.set_title('실시간 G(q) 적분 누적', fontweight='bold',
-                                          fontsize=11, color='#1F2937', pad=8)
+                                          fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
                 self.ax_gq_live.text(0.5, 0.5, '적분 시작 대기 중 …',
                                      transform=self.ax_gq_live.transAxes,
-                                     ha='center', va='center', fontsize=12,
+                                     ha='center', va='center', fontsize=self.PLOT_FONTS['title'],
                                      color='#CBD5E1', fontweight='light')
 
                 # BOTTOM-RIGHT: Contact area placeholder
                 _style_calc_ax(self.ax_contact_live)
-                self.ax_contact_live.set_xlabel('파수 q (1/m)', fontsize=10, color='#374151')
-                self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontsize=10, color='#374151')
+                self.ax_contact_live.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+                self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontsize=self.PLOT_FONTS['label'], color='#374151')
                 self.ax_contact_live.set_xscale('log')
                 self.ax_contact_live.set_title(r'접촉 면적비 A(q)/A$_0$', fontweight='bold',
-                                               fontsize=11, color='#1F2937', pad=8)
+                                               fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
                 self.ax_contact_live.text(0.5, 0.5, '적분 시작 대기 중 …',
                                           transform=self.ax_contact_live.transAxes,
-                                          ha='center', va='center', fontsize=12,
+                                          ha='center', va='center', fontsize=self.PLOT_FONTS['title'],
                                           color='#CBD5E1', fontweight='light')
 
-                self.fig_calc_progress.tight_layout(pad=2.5)
+                self.fig_calc_progress.subplots_adjust(**self._FIXED_SUBPLOT_PARAMS['fig_calc_progress'])
                 self.canvas_calc_progress.draw()
             except Exception as e:
                 print(f"Error initializing plots: {e}")
@@ -5739,12 +6364,12 @@ class PerssonModelGUI_V2:
                         if not _placeholder_cleared['gq']:
                             self.ax_gq_live.clear()
                             _style_calc_ax(self.ax_gq_live)
-                            self.ax_gq_live.set_xlabel('파수 q (1/m)', fontsize=10, color='#374151')
-                            self.ax_gq_live.set_ylabel('G(q)', fontsize=10, color='#374151')
+                            self.ax_gq_live.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+                            self.ax_gq_live.set_ylabel('G(q)', fontsize=self.PLOT_FONTS['label'], color='#374151')
                             self.ax_gq_live.set_xscale('log')
                             self.ax_gq_live.set_yscale('log')
                             self.ax_gq_live.set_title('실시간 G(q) 적분 누적', fontweight='bold',
-                                                      fontsize=11, color='#1F2937', pad=8)
+                                                      fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
                             _placeholder_cleared['gq'] = True
 
                         # Remove previous glow line
@@ -5784,7 +6409,7 @@ class PerssonModelGUI_V2:
                             if handles:
                                 self.ax_gq_live.legend(
                                     handles=handles[-5:], loc='upper left',
-                                    fontsize=8, framealpha=0.85,
+                                    fontsize=self.PLOT_FONTS['title'], framealpha=0.85,
                                     edgecolor='#E5E7EB', fancybox=False)
                     except Exception:
                         pass
@@ -5795,11 +6420,11 @@ class PerssonModelGUI_V2:
                         if not _placeholder_cleared['contact']:
                             self.ax_contact_live.clear()
                             _style_calc_ax(self.ax_contact_live)
-                            self.ax_contact_live.set_xlabel('파수 q (1/m)', fontsize=10, color='#374151')
-                            self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontsize=10, color='#374151')
+                            self.ax_contact_live.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'], color='#374151')
+                            self.ax_contact_live.set_ylabel(r'A(q)/A$_0$', fontsize=self.PLOT_FONTS['label'], color='#374151')
                             self.ax_contact_live.set_xscale('log')
                             self.ax_contact_live.set_title(r'접촉 면적비 A(q)/A$_0$', fontweight='bold',
-                                                           fontsize=11, color='#1F2937', pad=8)
+                                                           fontsize=self.PLOT_FONTS['title'], color='#1F2937', pad=8)
                             _placeholder_cleared['contact'] = True
 
                         # Remove previous glow line
@@ -5838,14 +6463,14 @@ class PerssonModelGUI_V2:
                             if handles:
                                 self.ax_contact_live.legend(
                                     handles=handles[-5:], loc='upper right',
-                                    fontsize=8, framealpha=0.85,
+                                    fontsize=self.PLOT_FONTS['title'], framealpha=0.85,
                                     edgecolor='#E5E7EB', fancybox=False)
                     except Exception:
                         pass
 
                 # Redraw canvas once per callback
                 try:
-                    self.fig_calc_progress.tight_layout(pad=2.5)
+                    self.fig_calc_progress.subplots_adjust(**self._FIXED_SUBPLOT_PARAMS['fig_calc_progress'])
                     self.canvas_calc_progress.draw()
                 except Exception:
                     pass
@@ -5900,7 +6525,7 @@ class PerssonModelGUI_V2:
                     foreground='#059669'
                 )
 
-                self.fig_calc_progress.tight_layout(pad=2.5)
+                self.fig_calc_progress.subplots_adjust(**self._FIXED_SUBPLOT_PARAMS['fig_calc_progress'])
                 self.canvas_calc_progress.draw()
             except Exception as e:
                 print(f"Error clearing highlights: {e}")
@@ -5971,13 +6596,13 @@ class PerssonModelGUI_V2:
         ax6 = self.fig_results.add_subplot(2, 3, 6)
 
         # Standard font settings for all plots
-        TITLE_FONT = 16
-        LABEL_FONT = 14
+        TITLE_FONT = 12
+        LABEL_FONT = 12
         LEGEND_FONT = 12
         TITLE_PAD = 10
 
         # Plot 1: Multi-velocity G(q) curves (다중 속도 G(q) 곡선)
-        cmap = plt.get_cmap('viridis')
+        cmap = plt.colormaps['viridis']
         colors = [cmap(i / len(v)) for i in range(len(v))]
 
         for j, (v_val, color) in enumerate(zip(v, colors)):
@@ -6064,7 +6689,7 @@ class PerssonModelGUI_V2:
         q_indices = np.linspace(0, len(q_stress)-1, n_q_selected, dtype=int)
 
         # Create color map for wavenumbers (viridis - 같은 탭 다른 그래프와 색조 통일)
-        cmap_q = plt.get_cmap('viridis')
+        cmap_q = plt.colormaps['viridis']
         colors_q = [cmap_q(i / max(n_q_selected-1, 1)) for i in range(n_q_selected)]
 
         # σ0 주변으로 확대할 범위 계산 (최소 5개 파수가 보이도록)
@@ -6198,7 +6823,7 @@ class PerssonModelGUI_V2:
                       '높을수록 → 고무가 단단 → 응력 불균일 증가\n'
                       '낮을수록 → 고무가 말랑 → 완전 접촉에 가까움')
             props = dict(boxstyle='round', facecolor='wheat', alpha=0.3)
-            ax5.text(0.98, 0.02, textstr, transform=ax5.transAxes, fontsize=11,
+            ax5.text(0.98, 0.02, textstr, transform=ax5.transAxes, fontsize=self.PLOT_FONTS['title'],
                     verticalalignment='bottom', horizontalalignment='right', bbox=props)
 
             # Fix axis formatter
@@ -6307,7 +6932,7 @@ class PerssonModelGUI_V2:
                           f"(목표 {target_slope_rms} 미달)")
 
             props = dict(boxstyle='round', facecolor='lightyellow', alpha=0.8, edgecolor='black')
-            ax6.text(0.02, 0.98, textstr, transform=ax6.transAxes, fontsize=10,
+            ax6.text(0.02, 0.98, textstr, transform=ax6.transAxes, fontsize=self.PLOT_FONTS['title'],
                     verticalalignment='top', bbox=props)
 
             # Fix axis formatter
@@ -6317,7 +6942,7 @@ class PerssonModelGUI_V2:
                     ha='center', va='center', transform=ax6.transAxes, fontsize=LABEL_FONT)
             ax6.set_title('(f) Parseval 정리', fontweight='bold', fontsize=TITLE_FONT, pad=TITLE_PAD)
 
-        self.fig_results.suptitle('G(q,v) 2D 행렬 계산 결과', fontweight='bold', fontsize=9, y=0.98)
+        self.fig_results.suptitle('G(q,v) 2D 행렬 계산 결과', fontweight='bold', fontsize=self.PLOT_FONTS['title'], y=0.98)
         self.fig_results.subplots_adjust(left=0.08, right=0.95, top=0.92, bottom=0.06, hspace=0.55, wspace=0.38)
         self.canvas_results.draw()
 
@@ -6329,6 +6954,7 @@ class PerssonModelGUI_V2:
 
         filename = filedialog.asksaveasfilename(
             defaultextension=".csv",
+            initialfile=self._make_export_filename("results"),
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
         )
 
@@ -6499,7 +7125,7 @@ class PerssonModelGUI_V2:
         main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Title
-        ttk.Label(main_frame, text="Available Graph Data", font=('Arial', 15, 'bold')).pack(anchor=tk.W)
+        ttk.Label(main_frame, text="Available Graph Data", font=('NanumGothic', 12, 'bold')).pack(anchor=tk.W)
         ttk.Label(main_frame, text="Select data to export as txt files", font=self.FONTS['body']).pack(anchor=tk.W)
 
         # Listbox with scrollbar
@@ -6657,15 +7283,15 @@ class PerssonModelGUI_V2:
                                   spacing1=10, spacing3=4)
         text_widget.tag_configure('section', font=self.FONTS['heading'], foreground='#7C3AED',
                                   spacing1=12, spacing3=4)
-        text_widget.tag_configure('subsection', font=('Segoe UI', 14, 'bold'), foreground='#059669',
+        text_widget.tag_configure('subsection', font=('NanumGothic', 12, 'bold'), foreground='#059669',
                                   spacing1=8, spacing3=2, lmargin1=10, lmargin2=10)
         text_widget.tag_configure('body', font=self.FONTS['tiny'], foreground='#1E293B',
                                   spacing1=1, spacing3=1, lmargin1=15, lmargin2=15)
         text_widget.tag_configure('indent', font=self.FONTS['tiny'], foreground='#64748B',
                                   lmargin1=30, lmargin2=30, spacing1=1, spacing3=1)
-        text_widget.tag_configure('feature', font=('Segoe UI', 13, 'bold'), foreground='#2563EB',
+        text_widget.tag_configure('feature', font=('NanumGothic', 12, 'bold'), foreground='#2563EB',
                                   lmargin1=30, lmargin2=30, spacing1=1, spacing3=1)
-        text_widget.tag_configure('note', font=('Segoe UI', 13, 'italic'), foreground='#DC2626',
+        text_widget.tag_configure('note', font=('NanumGothic', 12, 'italic'), foreground='#DC2626',
                                   lmargin1=15, lmargin2=15, spacing1=2, spacing3=2)
 
         def add(text, tag='body'):
@@ -6931,378 +7557,159 @@ class PerssonModelGUI_V2:
             pass
 
     def _open_tab_visibility_settings(self):
-        """Open dialog to show/hide tabs."""
+        """Open dialog to show/hide tabs and reorder them."""
         dialog = tk.Toplevel(self.root)
-        dialog.title("탭 표시/숨기기")
-        dialog.resizable(False, False)
+        dialog.title("탭 표시/순서 설정")
+        dialog.resizable(False, True)
         dialog.transient(self.root)
         dialog.grab_set()
 
-        dlg_w, dlg_h = 350, 500
-        x = self.root.winfo_x() + (self.root.winfo_width() - dlg_w) // 2
-        y = self.root.winfo_y() + max(0, (self.root.winfo_height() - dlg_h) // 2)
-        dialog.geometry(f"{dlg_w}x{dlg_h}+{x}+{y}")
-
         C = self.COLORS
+        F = self.FONTS
 
+        # ── Title ──
         title_frame = tk.Frame(dialog, bg=C['sidebar'], padx=12, pady=8)
-        title_frame.pack(fill=tk.X)
-        tk.Label(title_frame, text="탭 표시/숨기기 설정", bg=C['sidebar'], fg='white',
-                 font=self.FONTS['subheading']).pack(anchor=tk.W)
-        tk.Label(title_frame, text="체크 해제한 탭은 숨겨집니다.", bg=C['sidebar'], fg='#94A3B8',
-                 font=self.FONTS['small']).pack(anchor=tk.W)
+        title_frame.pack(side=tk.TOP, fill=tk.X)
+        tk.Label(title_frame, text="탭 표시/순서 설정", bg=C['sidebar'], fg='white',
+                 font=F['subheading']).pack(anchor=tk.W)
+        tk.Label(title_frame, text="체크 해제 → 숨기기  |  ▲▼ → 순서 변경",
+                 bg=C['sidebar'], fg='#94A3B8', font=F['small']).pack(anchor=tk.W)
 
-        content = ttk.Frame(dialog, padding=10)
-        content.pack(fill=tk.BOTH, expand=True)
-
-        for attr, label, _frame in self._all_tabs:
-            var = self._tab_visible_vars[attr]
-            ttk.Checkbutton(content, text=label, variable=var).pack(anchor=tk.W, pady=2)
-
+        # ── Buttons (pack FIRST with side=BOTTOM so they always stay visible) ──
         btn_frame = ttk.Frame(dialog, padding=10)
-        btn_frame.pack(fill=tk.X)
+        btn_frame.pack(side=tk.BOTTOM, fill=tk.X)
+        ttk.Separator(dialog, orient='horizontal').pack(side=tk.BOTTOM, fill=tk.X)
 
+        # ── Scrollable list with reorder buttons ──
+        canvas = tk.Canvas(dialog, highlightthickness=0, bd=0)
+        scrollbar = ttk.Scrollbar(dialog, orient=tk.VERTICAL, command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        inner = ttk.Frame(canvas, padding=10)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor='nw')
+
+        # Working copy of tab order (list of indices into self._all_tabs)
+        _order = list(range(len(self._all_tabs)))
+        _row_widgets = []  # list of (row_frame, checkbox, label_widget)
+
+        def _rebuild_rows():
+            """Rebuild the listbox rows from current _order."""
+            for w in inner.winfo_children():
+                w.destroy()
+            _row_widgets.clear()
+
+            for display_idx, tab_idx in enumerate(_order):
+                attr, label, _frame = self._all_tabs[tab_idx]
+                var = self._tab_visible_vars[attr]
+
+                row = ttk.Frame(inner)
+                row.pack(fill=tk.X, pady=1)
+
+                # Number label
+                num_lbl = ttk.Label(row, text=f"{display_idx + 1}.", width=3,
+                                    font=F['small'], anchor='e')
+                num_lbl.pack(side=tk.LEFT, padx=(0, 2))
+
+                # Checkbox
+                cb = ttk.Checkbutton(row, text=label, variable=var)
+                cb.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+                # Move buttons
+                btn_up = ttk.Button(row, text="▲", width=3,
+                                    command=lambda di=display_idx: _move(di, -1))
+                btn_up.pack(side=tk.RIGHT, padx=1)
+                btn_down = ttk.Button(row, text="▼", width=3,
+                                      command=lambda di=display_idx: _move(di, 1))
+                btn_down.pack(side=tk.RIGHT, padx=1)
+
+                _row_widgets.append((row, cb, num_lbl))
+
+        def _move(display_idx, direction):
+            """Swap tab at display_idx with neighbor in given direction."""
+            new_idx = display_idx + direction
+            if 0 <= new_idx < len(_order):
+                _order[display_idx], _order[new_idx] = _order[new_idx], _order[display_idx]
+                _rebuild_rows()
+
+        _rebuild_rows()
+
+        def _on_inner_configure(event):
+            canvas.configure(scrollregion=canvas.bbox('all'))
+        inner.bind('<Configure>', _on_inner_configure)
+
+        def _on_canvas_configure(event):
+            canvas.itemconfig(inner_id, width=event.width)
+        canvas.bind('<Configure>', _on_canvas_configure)
+
+        # Mouse wheel scrolling
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+        def _on_mousewheel_linux(event):
+            if event.num == 4:
+                canvas.yview_scroll(-3, 'units')
+            elif event.num == 5:
+                canvas.yview_scroll(3, 'units')
+        canvas.bind('<MouseWheel>', _on_mousewheel)
+        canvas.bind('<Button-4>', _on_mousewheel_linux)
+        canvas.bind('<Button-5>', _on_mousewheel_linux)
+
+        # ── Save original state so Cancel can restore it ──
+        _saved_state = {attr: self._tab_visible_vars[attr].get()
+                        for attr, _l, _f in self._all_tabs}
+        _saved_order = list(self._all_tabs)  # shallow copy of original order
+
+        # ── Apply / Cancel logic ──
         def _apply():
+            # Reorder self._all_tabs according to _order
+            new_all_tabs = [self._all_tabs[i] for i in _order]
+            self._all_tabs[:] = new_all_tabs
+
+            # Hide ALL tabs first
             for attr, label, frame in self._all_tabs:
-                if self._tab_visible_vars[attr].get():
-                    # Show: re-add if currently hidden
-                    try:
-                        self.notebook.index(frame)
-                    except tk.TclError:
-                        # Find correct position
-                        desired_idx = next(i for i, (a, l, f) in enumerate(self._all_tabs) if a == attr)
-                        # Count visible tabs before this one
-                        insert_pos = 0
-                        for a2, l2, f2 in self._all_tabs[:desired_idx]:
-                            if self._tab_visible_vars[a2].get():
-                                try:
-                                    self.notebook.index(f2)
-                                    insert_pos += 1
-                                except tk.TclError:
-                                    pass
-                        self.notebook.insert(insert_pos, frame, text=f'  {label}  ')
-                else:
-                    # Hide
-                    try:
-                        self.notebook.hide(frame)
-                    except tk.TclError:
-                        pass
+                try:
+                    self.notebook.hide(frame)
+                except tk.TclError:
+                    pass
+            # Re-add with new order and numbering
+            self._renumber_tabs()
+            # Save both visibility and order
+            self._save_tab_visibility()
+            self._save_tab_order()
+            dialog.destroy()
+
+        def _cancel():
+            # Restore original BooleanVar values
+            for attr, val in _saved_state.items():
+                self._tab_visible_vars[attr].set(val)
             dialog.destroy()
 
         ttk.Button(btn_frame, text="적용", command=_apply, style='Accent.TButton').pack(side=tk.RIGHT, padx=4)
-        ttk.Button(btn_frame, text="취소", command=dialog.destroy).pack(side=tk.RIGHT, padx=4)
+        ttk.Button(btn_frame, text="취소", command=_cancel).pack(side=tk.RIGHT, padx=4)
+        def _reset_order():
+            # Restore default order based on _tab_definitions
+            def_attrs = [t[0] for t in self._tab_definitions]
+            all_attrs = [self._all_tabs[i][0] for i in range(len(self._all_tabs))]
+            _order[:] = sorted(range(len(self._all_tabs)),
+                               key=lambda i: def_attrs.index(all_attrs[i])
+                               if all_attrs[i] in def_attrs else i)
+            _rebuild_rows()
+        ttk.Button(btn_frame, text="기본 순서 복원",
+                   command=_reset_order).pack(side=tk.LEFT, padx=4)
 
-    def _open_layout_settings(self):
-        """Open global layout settings control panel."""
-        dialog = tk.Toplevel(self.root)
-        dialog.title("레이아웃 설정")
-        dialog.resizable(True, True)
-        dialog.transient(self.root)
-        dialog.grab_set()
-
-        dlg_w, dlg_h = 700, 850
+        # ── Size & position (after widgets are built) ──
+        dialog.update_idletasks()
+        dlg_w = 420
+        n_tabs = len(self._all_tabs)
+        desired_h = min(title_frame.winfo_reqheight() + n_tabs * 32 + 80,
+                        int(self.root.winfo_screenheight() * 0.8))
+        dlg_h = max(desired_h, 400)
         x = self.root.winfo_x() + (self.root.winfo_width() - dlg_w) // 2
         y = self.root.winfo_y() + max(0, (self.root.winfo_height() - dlg_h) // 2)
         dialog.geometry(f"{dlg_w}x{dlg_h}+{x}+{y}")
-        dialog.minsize(600, 700)
-
-        C = self.COLORS
-
-        # Title
-        title_frame = tk.Frame(dialog, bg=C['sidebar'], padx=12, pady=8)
-        title_frame.pack(fill=tk.X)
-        tk.Label(title_frame, text="레이아웃 제어판", bg=C['sidebar'], fg='white',
-                 font=self.FONTS['subheading']).pack(anchor=tk.W)
-
-        # Scrollable content area to fit all settings
-        outer_frame = ttk.Frame(dialog)
-        outer_frame.pack(fill=tk.BOTH, expand=True)
-
-        settings_canvas = tk.Canvas(outer_frame, highlightthickness=0)
-        settings_scrollbar = ttk.Scrollbar(outer_frame, orient=tk.VERTICAL, command=settings_canvas.yview)
-        content_frame = ttk.Frame(settings_canvas, padding=15)
-
-        content_frame.bind("<Configure>",
-                           lambda e: settings_canvas.configure(scrollregion=settings_canvas.bbox("all")))
-        _settings_cw = settings_canvas.create_window((0, 0), window=content_frame, anchor="nw")
-        settings_canvas.configure(yscrollcommand=settings_scrollbar.set)
-
-        def _on_settings_canvas_configure(event):
-            settings_canvas.itemconfig(_settings_cw, width=event.width)
-        settings_canvas.bind('<Configure>', _on_settings_canvas_configure)
-
-        settings_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        settings_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-
-        # ── Section 1: Font Settings ──
-        font_frame = ttk.LabelFrame(content_frame, text="글꼴 설정", padding=10)
-        font_frame.pack(fill=tk.X, pady=(0, 10))
-
-        # UI Font Family
-        row1 = ttk.Frame(font_frame)
-        row1.pack(fill=tk.X, pady=3)
-        ttk.Label(row1, text="UI 글꼴:", width=15).pack(side=tk.LEFT)
-        ui_font_var = tk.StringVar(value=self.FONTS['body'][0])
-        ui_font_combo = ttk.Combobox(row1, textvariable=ui_font_var, width=20,
-                                      values=['Segoe UI', 'Malgun Gothic', 'NanumGothic',
-                                              'Arial', 'Helvetica', 'Verdana', 'Consolas'])
-        ui_font_combo.pack(side=tk.LEFT, padx=5)
-
-        # UI Font Size
-        row2 = ttk.Frame(font_frame)
-        row2.pack(fill=tk.X, pady=3)
-        ttk.Label(row2, text="UI 글꼴 크기:", width=15).pack(side=tk.LEFT)
-        ui_size_var = tk.IntVar(value=self.FONTS['body'][1])
-        ui_size_spin = ttk.Spinbox(row2, from_=10, to=30, textvariable=ui_size_var, width=6)
-        ui_size_spin.pack(side=tk.LEFT, padx=5)
-        ttk.Label(row2, text="pt", font=self.FONTS['tiny']).pack(side=tk.LEFT)
-
-        # Plot Font Size
-        row3 = ttk.Frame(font_frame)
-        row3.pack(fill=tk.X, pady=3)
-        ttk.Label(row3, text="그래프 글꼴 크기:", width=15).pack(side=tk.LEFT)
-        plot_size_var = tk.IntVar(value=self.PLOT_FONTS['title'])
-        plot_size_spin = ttk.Spinbox(row3, from_=8, to=28, textvariable=plot_size_var, width=6)
-        plot_size_spin.pack(side=tk.LEFT, padx=5)
-        ttk.Label(row3, text="pt (title 기준)", font=self.FONTS['tiny']).pack(side=tk.LEFT)
-
-        # Mono Font
-        row4 = ttk.Frame(font_frame)
-        row4.pack(fill=tk.X, pady=3)
-        ttk.Label(row4, text="코드 글꼴:", width=15).pack(side=tk.LEFT)
-        mono_font_var = tk.StringVar(value=self.FONTS['mono'][0])
-        mono_font_combo = ttk.Combobox(row4, textvariable=mono_font_var, width=20,
-                                        values=['Consolas', 'Courier New', 'Lucida Console',
-                                                'DejaVu Sans Mono', 'Source Code Pro'])
-        mono_font_combo.pack(side=tk.LEFT, padx=5)
-
-        # ── Section 2: 프로그램 해상도 설정 ──
-        resolution_frame = ttk.LabelFrame(content_frame, text="프로그램 해상도", padding=10)
-        resolution_frame.pack(fill=tk.X, pady=(0, 10))
-
-        # 해상도 프리셋
-        RESOLUTION_PRESETS = {
-            'FHD (1920×1080)':    {'win_w': 1920, 'win_h': 1080, 'panel_w': 600},
-            'QHD (2560×1440)':    {'win_w': 2560, 'win_h': 1440, 'panel_w': 800},
-            '4K UHD (3840×2160)': {'win_w': 3840, 'win_h': 2160, 'panel_w': 1100},
-            '사용자 지정':         None,
-        }
-
-        row_preset = ttk.Frame(resolution_frame)
-        row_preset.pack(fill=tk.X, pady=3)
-        ttk.Label(row_preset, text="해상도 프리셋:", width=15).pack(side=tk.LEFT)
-        preset_var = tk.StringVar(value='사용자 지정')
-        preset_combo = ttk.Combobox(row_preset, textvariable=preset_var, width=22,
-                                     values=list(RESOLUTION_PRESETS.keys()), state='readonly')
-        preset_combo.pack(side=tk.LEFT, padx=5)
-
-        # 창 크기
-        current_panel_width = self.DIMS['panel_width']
-        win_w_var = tk.IntVar(value=self.root.winfo_width())
-        win_h_var = tk.IntVar(value=self.root.winfo_height())
-        panel_width_var = tk.IntVar(value=current_panel_width)
-
-        row_win = ttk.Frame(resolution_frame)
-        row_win.pack(fill=tk.X, pady=3)
-        ttk.Label(row_win, text="창 크기:", width=15).pack(side=tk.LEFT)
-        win_w_spin = ttk.Spinbox(row_win, from_=1000, to=5000, textvariable=win_w_var, width=6)
-        win_w_spin.pack(side=tk.LEFT, padx=2)
-        ttk.Label(row_win, text="x").pack(side=tk.LEFT)
-        win_h_spin = ttk.Spinbox(row_win, from_=600, to=3000, textvariable=win_h_var, width=6)
-        win_h_spin.pack(side=tk.LEFT, padx=2)
-        ttk.Label(row_win, text="px", font=self.FONTS['tiny']).pack(side=tk.LEFT, padx=3)
-
-        # 컨트롤 패널 폭
-        row_panel = ttk.Frame(resolution_frame)
-        row_panel.pack(fill=tk.X, pady=3)
-        ttk.Label(row_panel, text="컨트롤 패널 폭:", width=15).pack(side=tk.LEFT)
-        panel_width_scale = ttk.Scale(row_panel, from_=300, to=1200, variable=panel_width_var,
-                                       orient=tk.HORIZONTAL, length=250)
-        panel_width_scale.pack(side=tk.LEFT, padx=5)
-        panel_width_label = ttk.Label(row_panel, text=f"{current_panel_width}px", width=8)
-        panel_width_label.pack(side=tk.LEFT)
-
-        def _update_panel_width_label(*args):
-            panel_width_label.config(text=f"{panel_width_var.get()}px")
-        panel_width_var.trace_add('write', _update_panel_width_label)
-
-        # 전체화면 체크박스
-        fullscreen_var = tk.BooleanVar(value=True)
-        try:
-            is_zoomed = (self.root.state() == 'zoomed')
-        except tk.TclError:
-            is_zoomed = bool(self.root.attributes('-zoomed'))
-        fullscreen_var.set(is_zoomed)
-        row_fs = ttk.Frame(resolution_frame)
-        row_fs.pack(fill=tk.X, pady=3)
-        ttk.Checkbutton(row_fs, text="시작 시 전체화면 (최대화)",
-                         variable=fullscreen_var).pack(side=tk.LEFT)
-
-        # 프리셋 선택 시 자동 반영
-        def _on_preset_change(event=None):
-            sel = preset_var.get()
-            vals = RESOLUTION_PRESETS.get(sel)
-            if vals is not None:
-                win_w_var.set(vals['win_w'])
-                win_h_var.set(vals['win_h'])
-                panel_width_var.set(vals['panel_w'])
-        preset_combo.bind('<<ComboboxSelected>>', _on_preset_change)
-
-        # 수동 변경 시 프리셋을 '사용자 지정'으로
-        def _on_manual_change(*args):
-            preset_var.set('사용자 지정')
-        for var in (win_w_var, win_h_var, panel_width_var):
-            var.trace_add('write', _on_manual_change)
-
-        # ── Section 4: Plot Theme ──
-        theme_frame = ttk.LabelFrame(content_frame, text="그래프 테마", padding=10)
-        theme_frame.pack(fill=tk.X, pady=(0, 10))
-
-        row7 = ttk.Frame(theme_frame)
-        row7.pack(fill=tk.X, pady=3)
-        ttk.Label(row7, text="수식 폰트:", width=15).pack(side=tk.LEFT)
-        math_font_var = tk.StringVar(value=matplotlib.rcParams.get('mathtext.fontset', 'dejavusans'))
-        math_combo = ttk.Combobox(row7, textvariable=math_font_var, width=20,
-                                   values=['cm', 'stix', 'stixsans', 'dejavusans', 'dejavuserif'])
-        math_combo.pack(side=tk.LEFT, padx=5)
-        ttk.Label(row7, text="(cm=Cambria Math \uc2a4\ud0c0\uc77c)", font=self.FONTS['tiny'],
-                  foreground='#64748B').pack(side=tk.LEFT, padx=3)
-
-        # ── Buttons ──
-        btn_frame = ttk.Frame(dialog, padding=10)
-        btn_frame.pack(fill=tk.X)
-
-        def apply_settings():
-            """Apply all layout settings."""
-            import tkinter.font as tkfont
-
-            # 1. Update FONTS dict
-            new_family = ui_font_var.get()
-            new_size = ui_size_var.get()
-            mono_family = mono_font_var.get()
-
-            self.FONTS = {
-                'heading':   (new_family, new_size + 5, 'bold'),
-                'subheading':(new_family, new_size + 3, 'bold'),
-                'body':      (new_family, new_size),
-                'body_bold': (new_family, new_size, 'bold'),
-                'small':     (new_family, new_size - 1),
-                'small_bold':(new_family, new_size - 1, 'bold'),
-                'tiny':      (new_family, new_size - 2),
-                'mono':      (mono_family, new_size),
-                'mono_small':(mono_family, new_size - 1),
-            }
-
-            # Update tk default fonts
-            for fname in ('TkDefaultFont', 'TkTextFont'):
-                try:
-                    f = tkfont.nametofont(fname)
-                    f.configure(family=new_family, size=new_size)
-                except Exception:
-                    pass
-            try:
-                f = tkfont.nametofont('TkFixedFont')
-                f.configure(family=mono_family, size=new_size)
-            except Exception:
-                pass
-
-            # 2. Update plot font sizes
-            new_plot_title = plot_size_var.get()
-            scale = new_plot_title / 10.0  # 10 is default title size
-            self.PLOT_FONTS = {
-                'title': new_plot_title,
-                'label': max(8, round(13 * scale)),
-                'tick': max(8, round(12 * scale)),
-                'legend': max(8, round(12 * scale)),
-                'suptitle': max(10, round(16 * scale)),
-                'annotation': max(8, round(12 * scale)),
-                'title_sm': max(8, round(13 * scale)),
-                'label_sm': max(8, round(12 * scale)),
-                'legend_sm': max(7, round(10 * scale)),
-            }
-
-            # Update matplotlib rcParams
-            matplotlib.rcParams.update({
-                'font.size': self.PLOT_FONTS['label'],
-                'axes.titlesize': self.PLOT_FONTS['title'],
-                'axes.labelsize': self.PLOT_FONTS['label'],
-                'xtick.labelsize': self.PLOT_FONTS['tick'],
-                'ytick.labelsize': self.PLOT_FONTS['tick'],
-                'legend.fontsize': self.PLOT_FONTS['legend'],
-                'figure.titlesize': self.PLOT_FONTS['suptitle'],
-                'mathtext.fontset': math_font_var.get(),
-            })
-
-            # 3. Update base font config for responsive scaling
-            self._base_font_cfg = {
-                'font.size':        self.PLOT_FONTS['label'],
-                'axes.titlesize':   self.PLOT_FONTS['title'],
-                'axes.labelsize':   self.PLOT_FONTS['label'],
-                'xtick.labelsize':  self.PLOT_FONTS['tick'],
-                'ytick.labelsize':  self.PLOT_FONTS['tick'],
-                'legend.fontsize':  self.PLOT_FONTS['legend'],
-                'figure.titlesize': self.PLOT_FONTS['suptitle'],
-            }
-
-            # 4. Update left panel width and apply to existing frames
-            new_panel_w = panel_width_var.get()
-            self.DIMS['panel_width'] = new_panel_w
-
-            # Apply width to all existing left panel frames in notebook tabs
-            for tab_id in self.notebook.tabs():
-                tab_widget = self.notebook.nametowidget(tab_id)
-                self._apply_panel_width_recursive(tab_widget, new_panel_w)
-
-            # 5. Update window size / fullscreen
-            if fullscreen_var.get():
-                try:
-                    self.root.state('zoomed')
-                except tk.TclError:
-                    try:
-                        self.root.attributes('-zoomed', True)
-                    except tk.TclError:
-                        pass
-            else:
-                try:
-                    self.root.state('normal')
-                except tk.TclError:
-                    try:
-                        self.root.attributes('-zoomed', False)
-                    except tk.TclError:
-                        pass
-                new_win_w = win_w_var.get()
-                new_win_h = win_h_var.get()
-                self.root.geometry(f"{new_win_w}x{new_win_h}")
-
-            # 6. Force geometry recalculation
-            self.root.update_idletasks()
-
-            # 7. Re-apply theme with new fonts
-            self._setup_modern_theme()
-
-            # 8. Rescale all existing plot fonts
-            self._font_scale = 0  # force rescale
-            self._rescale_all_fonts()
-
-            dialog.destroy()
-            self._show_status("레이아웃 설정이 적용되었습니다.\n일부 변경은 탭 전환 시 반영됩니다.", 'success')
-
-        def reset_defaults():
-            """Reset to default settings."""
-            ui_font_var.set('Segoe UI')
-            ui_size_var.set(12)
-            plot_size_var.set(10)
-            mono_font_var.set('Consolas')
-            panel_width_var.set(700)
-            win_w_var.set(1920)
-            win_h_var.set(1080)
-            math_font_var.set('dejavusans')
-            preset_var.set('사용자 지정')
-            fullscreen_var.set(True)
-
-        ttk.Button(btn_frame, text="적용", command=apply_settings, width=12).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_frame, text="초기화", command=reset_defaults, width=12).pack(side=tk.RIGHT, padx=5)
-        ttk.Button(btn_frame, text="취소", command=dialog.destroy, width=12).pack(side=tk.RIGHT, padx=5)
+        dialog.minsize(dlg_w, 300)
 
     def _open_initial_var_settings(self):
         """Open comprehensive initial variable settings dialog."""
@@ -7450,23 +7857,23 @@ class PerssonModelGUI_V2:
         content = tk.Frame(dialog, bg='white', padx=25, pady=20)
         content.pack(fill=tk.BOTH, expand=True)
 
-        def add_label(text, size=14, bold=False, fg='#1E293B', pady=(0, 2)):
+        def add_label(text, size=10, bold=False, fg='#1E293B', pady=(0, 2)):
             weight = 'bold' if bold else 'normal'
             tk.Label(content, text=text, bg='white', fg=fg,
-                     font=('Segoe UI', size, weight),
+                     font=('NanumGothic', size, weight),
                      anchor='w', justify=tk.LEFT).pack(anchor='w', pady=pady)
 
-        add_label('이론적 기반', size=15, bold=True, fg='#7C3AED', pady=(5, 4))
+        add_label('이론적 기반', size=10, bold=True, fg='#7C3AED', pady=(5, 4))
         add_label('Persson, B.N.J. (2001, 2006)')
         add_label('Rubber friction and contact mechanics theory')
         add_label('')
 
-        add_label('개발', size=15, bold=True, fg='#7C3AED', pady=(5, 4))
+        add_label('개발', size=10, bold=True, fg='#7C3AED', pady=(5, 4))
         add_label('NEXENTIRE Material Research Team')
         add_label('Baekhwan Kim (김백환)')
         add_label('')
 
-        add_label('빌드 일자', size=15, bold=True, fg='#7C3AED', pady=(5, 4))
+        add_label('빌드 일자', size=10, bold=True, fg='#7C3AED', pady=(5, 4))
         add_label('2026.02.25')
 
         # Separator + Close button
@@ -7491,13 +7898,13 @@ class PerssonModelGUI_V2:
             frame = tk.Frame(scrollable_frame, bg=bg_color, padx=15, pady=12)
             frame.pack(fill=tk.X, padx=10, pady=(18, 4))
             tk.Label(frame, text=title_text, bg=bg_color, fg=fg_color,
-                     font=('Segoe UI', 16, 'bold')).pack(anchor=tk.W)
+                     font=('NanumGothic', 12, 'bold')).pack(anchor=tk.W)
 
-        def add_text(text, font_size=13, fg='#1E293B', bold=False, padx=20, pady=4):
+        def add_text(text, font_size=10, fg='#1E293B', bold=False, padx=20, pady=4):
             """Add a plain text label."""
             weight = 'bold' if bold else 'normal'
             lbl = tk.Label(scrollable_frame, text=text, bg='white', fg=fg,
-                           font=('Segoe UI', font_size, weight),
+                           font=('NanumGothic', font_size, weight),
                            justify=tk.LEFT, anchor='w', wraplength=1400)
             lbl.pack(fill=tk.X, padx=padx, pady=pady, anchor='w')
 
@@ -7530,7 +7937,7 @@ class PerssonModelGUI_V2:
             ax = fig.add_subplot(111)
             ax.set_facecolor('#FAFBFC')
             plot_func(ax, np)
-            ax.tick_params(labelsize=13)
+            ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
             for spine in ax.spines.values():
                 spine.set_color('#CBD5E1')
             fig.tight_layout(pad=2.5)
@@ -7549,7 +7956,50 @@ class PerssonModelGUI_V2:
         title_frame.pack(fill=tk.X, padx=10)
         tk.Label(title_frame, text='Persson 마찰 이론 - 계산 수식 정리',
                  bg='white', fg='#1B2A4A',
-                 font=('Segoe UI', 13, 'bold')).pack(anchor='w', padx=10)
+                 font=('NanumGothic', 12, 'bold')).pack(anchor='w', padx=10)
+
+        # ═══════════════════════════════════════════════════════
+        # 핵심 수식 요약 테이블
+        # ═══════════════════════════════════════════════════════
+        add_section_title('핵심 수식 요약표', bg_color='#7C3AED')
+
+        eq_summary_frame = tk.Frame(scrollable_frame, bg='white', padx=20, pady=6)
+        eq_summary_frame.pack(fill=tk.X, padx=10)
+        eq_summary_data = [
+            ('Section 0', '\u03c9 (진동 주파수)', '\u03c9 = q \u00b7 v \u00b7 cos\u03c6', '고무가 요철을 타고 넘으며 느끼는 주파수'),
+            ('Section 0', 'E* (유효 탄성률)', 'E* = E(\u03c9) / (1\u2212\u03bd\u00b2)', '평면 변형 보정된 복소 탄성률'),
+            ('Section 1', 'G(q) (탄성 에너지)', 'G = (1/8)\u222bq\u00b3C(q)|E*/\u03c3\u2080|\u00b2 dq d\u03c6', '거칠기에 의한 탄성 에너지 누적 (접촉 방해)'),
+            ('Section 1', 'P(q) (접촉 면적)', 'P = erf(1/(2\u221aG))', '파수 q까지의 실접촉 면적 비율'),
+            ('Section 1', 'S(q) (보정 계수)', 'S = \u03b3 + (1\u2212\u03b3)P\u00b2', '비접촉 영역 변형 참여 보정'),
+            ('Section 1', '\u03bc_visc (점탄성 마찰)', '\u03bc = (1/2)\u222bq\u00b3C(q)P\u00b7S\u00b7Im[E/\u03c3\u2080] dq d\u03c6', '거칠기 변형에 의한 에너지 소산 마찰'),
+            ('Section 2', 'h_rms (RMS 높이)', 'h\u00b2_rms = 2\u03c0\u222bk\u00b7C(k)dk', '표면 높이의 RMS (큰 파장 지배)'),
+            ('Section 2', "h'_rms = \u03be (RMS 기울기)", '\u03be\u00b2 = 2\u03c0\u222bk\u00b3\u00b7C(k)dk', '표면 경사의 RMS (짧은 파장 지배)'),
+            ('Section 2', '\u03b5(q) (국소 변형률)', '\u03b5 = \u03b1\u00b7\u03be (\u03b1\u22480.5)', '비선형 Payne 효과 보정에 사용'),
+            ('Section 3', '\u0394T (Flash Temp)', '\u0394T = \u03a3 \u03b4T(q_i), Greenwood 보간', '파수별 순차 누적 온도 상승'),
+            ('Section 3', 'a_T (WLF 시프트)', 'log a_T = \u2212C\u2081(T\u2212T_ref)/(C\u2082+(T\u2212T_ref))', '온도→주파수 시프트 (마찰 피드백)'),
+            ('Section 4', '\u03bc_adh (점착 마찰)', '\u03bc_adh = (\u03c4_f/p\u2080)\u00d7(A/A\u2080)', '표면 분자 점착에 의한 마찰'),
+            ('Section 4', '\u03c4_f (전단 응력)', '\u03c4_f = \u03c4_f0\u00b7exp[\u2212c(log v_eff/v\u2080*)\u00b2]', 'Gaussian 점착 전단 응력 마스터 커브'),
+            ('Section 4', '\u03bc_total (전체 마찰)', '\u03bc_total = \u03bc_visc + \u03bc_adh', '히스테리시스 + 점착 = 전체 건조 마찰'),
+        ]
+        for col_idx, header in enumerate(['섹션', '수식 이름', '핵심 수식 (간략)', '물리적 의미']):
+            lbl = tk.Label(eq_summary_frame, text=header, bg='#7C3AED', fg='white',
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
+            lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
+        for row_idx, (sec, name, formula, meaning) in enumerate(eq_summary_data, start=1):
+            bg = '#F5F3FF' if row_idx % 2 == 0 else 'white'
+            for col_idx, val in enumerate([sec, name, formula, meaning]):
+                weight = 'bold' if col_idx <= 1 else 'normal'
+                lbl = tk.Label(eq_summary_frame, text=val, bg=bg, fg='#1E293B',
+                               font=('NanumGothic', 12, weight), padx=10, pady=6, anchor='w',
+                               wraplength=400 if col_idx >= 2 else 200)
+                lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
+        eq_summary_frame.columnconfigure(0, weight=1)
+        eq_summary_frame.columnconfigure(1, weight=2)
+        eq_summary_frame.columnconfigure(2, weight=3)
+        eq_summary_frame.columnconfigure(3, weight=3)
+
+        add_text('  * 각 수식의 상세 유도 과정과 직관적 설명은 아래 각 섹션에서 확인할 수 있습니다.',
+                 font_size=10, fg='#64748B', pady=(4, 8))
 
         # ═══════════════════════════════════════════════════════
         # Section 0: 기본 물리량 정의
@@ -7558,10 +8008,10 @@ class PerssonModelGUI_V2:
 
         add_text('주파수 (고무가 느끼는 진동수):', bold=True, pady=(8, 0))
         add_equation(r'$\omega = q \cdot v \cdot \cos\phi$', fig_height=0.9)
-        add_text('  q : 파수(wavenumber) — 표면 거칠기의 공간 진동수. 값이 클수록 더 미세한 요철을 의미', font_size=17, fg='#64748B')
-        add_text('  v : 슬라이딩 속도 — 고무가 바닥 위를 미끄러지는 속도 [m/s]', font_size=17, fg='#64748B')
-        add_text('  \u03c6 : 슬라이딩 방향과 파수 벡터 사이의 각도 (0~2\u03c0)', font_size=17, fg='#64748B')
-        add_text('  \u03c9 : 고무가 표면 요철을 타고 넘으며 느끼는 진동 주파수. q가 클수록(미세 요철), v가 빠를수록 \u03c9 증가', font_size=17, fg='#64748B')
+        add_text('  q : 파수(wavenumber) — 표면 거칠기의 공간 진동수. 값이 클수록 더 미세한 요철을 의미', font_size=10, fg='#64748B')
+        add_text('  v : 슬라이딩 속도 — 고무가 바닥 위를 미끄러지는 속도 [m/s]', font_size=10, fg='#64748B')
+        add_text('  \u03c6 : 슬라이딩 방향과 파수 벡터 사이의 각도 (0~2\u03c0)', font_size=10, fg='#64748B')
+        add_text('  \u03c9 : 고무가 표면 요철을 타고 넘으며 느끼는 진동 주파수. q가 클수록(미세 요철), v가 빠를수록 \u03c9 증가', font_size=10, fg='#64748B')
 
         def _plot_omega_vs_phi(ax, np):
             phi = np.linspace(0, 2*np.pi, 300)
@@ -7570,12 +8020,12 @@ class PerssonModelGUI_V2:
                 omega = q_val * v * np.cos(phi)
                 ax.plot(np.degrees(phi), omega, linewidth=2.5, color=c,
                         label=f'q = {q_val:.0e} (v={v} m/s)')
-            ax.set_xlabel(r'$\phi$ (degrees)', fontsize=12)
-            ax.set_ylabel(r'$\omega$ (rad/s)', fontsize=12)
-            ax.legend(fontsize=10, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel(r'$\phi$ (degrees)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\omega$ (rad/s)', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3)
             ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
-            ax.set_title(r'$\omega = q \cdot v \cdot \cos\phi$ — 각도에 따른 진동수 변화', fontsize=12, pad=10)
+            ax.set_title(r'$\omega = q \cdot v \cdot \cos\phi$ — 각도에 따른 진동수 변화', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_omega_vs_phi)
 
         add_separator()
@@ -7583,29 +8033,29 @@ class PerssonModelGUI_V2:
                  bold=True, fg='#7C3AED', pady=(8, 0))
         add_text('', pady=2)
         add_text('  핵심: 노면은 프랙탈(fractal) 구조 → 거칠기가 모든 스케일에 동시에 존재',
-                 font_size=17, bold=True, fg='#1E293B')
+                 font_size=10, bold=True, fg='#1E293B')
         add_text('', pady=2)
         add_text('  실제 도로 표면은 하나의 파장이 아니라, 수mm ~ 수μm까지 다양한 스케일의 요철이 겹쳐져 있습니다.',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  이를 수학적으로 분해하면 파수(q)가 q₀ ~ q₁까지 넓은 범위에 걸쳐 C(q) > 0 입니다.',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('', pady=2)
-        add_text('  고무가 v = 1 m/s로 미끄러질 때:', font_size=17, bold=True, fg='#1E293B')
+        add_text('  고무가 v = 1 m/s로 미끄러질 때:', font_size=10, bold=True, fg='#1E293B')
         add_text('    • q = 10^2 (파장 ~6cm, 큰 돌) -> w = 10^2 rad/s (느린 진동)',
-                 font_size=17, fg='#059669')
+                 font_size=10, fg='#059669')
         add_text('    • q = 10^4 (파장 ~0.6mm, 모래알) -> w = 10^4 rad/s (빠른 진동)',
-                 font_size=17, fg='#2563EB')
+                 font_size=10, fg='#2563EB')
         add_text('    • q = 10^6 (파장 ~6um, 미세 결정) -> w = 10^6 rad/s (매우 빠른 진동)',
-                 font_size=17, fg='#DC2626')
+                 font_size=10, fg='#DC2626')
         add_text('    • q = 10^8 (파장 ~60nm, 나노 스케일) -> w = 10^8 rad/s (초고주파)',
-                 font_size=17, fg='#7C3AED')
+                 font_size=10, fg='#7C3AED')
         add_text('', pady=2)
         add_text('  -> 속도 v는 하나이지만, 프랙탈 노면의 q가 10^2~10^8까지 분포하므로',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('    고무가 동시에 느끼는 ω도 6자릿수 이상의 범위를 가짐!',
-                 font_size=17, bold=True, fg='#DC2626')
+                 font_size=10, bold=True, fg='#DC2626')
         add_text('  → 이것이 G(q) 적분에서 q₀→q₁ 넓은 범위를 적분해야 하는 이유입니다.',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
 
         def _plot_fractal_omega(ax, np):
             """Show how single velocity generates diverse frequencies on fractal surface."""
@@ -7627,9 +8077,9 @@ class PerssonModelGUI_V2:
                        label='C(q) — 프랙탈 PSD')
             ax2.fill_between(q, C_q, alpha=0.08, color='#059669')
 
-            ax.set_xlabel('파수 q (1/m)', fontsize=13)
-            ax.set_ylabel(r'주파수 $\omega$ (rad/s)', fontsize=13, color='#DC2626')
-            ax2.set_ylabel(r'C(q) (m$^4$)', fontsize=13, color='#059669')
+            ax.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'주파수 $\omega$ (rad/s)', fontsize=self.PLOT_FONTS['label'], color='#DC2626')
+            ax2.set_ylabel(r'C(q) (m$^4$)', fontsize=self.PLOT_FONTS['label'], color='#059669')
 
             ax.tick_params(axis='y', labelcolor='#DC2626')
             ax2.tick_params(axis='y', labelcolor='#059669')
@@ -7642,28 +8092,62 @@ class PerssonModelGUI_V2:
             ]:
                 omega_pt = q_pt * v
                 ax.plot(q_pt, omega_pt, 'o', color=color, markersize=10, zorder=5)
-                ax.annotate(label_txt, xy=(q_pt, omega_pt), fontsize=10,
+                ax.annotate(label_txt, xy=(q_pt, omega_pt), fontsize=self.PLOT_FONTS['title'],
                             color=color, fontweight='bold',
                             xytext=(q_pt * 3, omega_pt * 0.25),
                             arrowprops=dict(arrowstyle='->', color=color, lw=1.5))
 
             lines1, labels1 = ax.get_legend_handles_labels()
             lines2, labels2 = ax2.get_legend_handles_labels()
-            ax.legend(lines1 + lines2, labels1 + labels2, fontsize=11,
+            ax.legend(lines1 + lines2, labels1 + labels2, fontsize=self.PLOT_FONTS['label'],
                       loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('프랙탈 노면: 속도 v=1m/s 하나로 다양한 ω 생성', fontsize=13, pad=10)
+            ax.set_title('프랙탈 노면: 속도 v=1m/s 하나로 다양한 ω 생성', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_fractal_omega)
 
         add_separator()
 
+        # --- 기본 물리량 정리 테이블 ---
+        add_text('기본 물리량 정리:', bold=True, fg='#374151', pady=(10, 0))
+
+        phys_frame = tk.Frame(scrollable_frame, bg='white', padx=20, pady=6)
+        phys_frame.pack(fill=tk.X, padx=10)
+        phys_data = [
+            ('q', '[1/m]', '파수 (wavenumber)', '표면 거칠기의 공간 진동수. 클수록 미세 요철'),
+            ('v', '[m/s]', '슬라이딩 속도', '고무가 바닥 위를 미끄러지는 속도'),
+            ('\u03c6', '[rad]', '파수 벡터 각도', '슬라이딩 방향과 파수 벡터 사이각 (0~2\u03c0)'),
+            ('\u03c9', '[rad/s]', '각진동수', '\u03c9 = q\u00b7v\u00b7cos\u03c6. q\u2191 or v\u2191 \u2192 \u03c9\u2191'),
+            ("E'(\u03c9)", '[Pa]', '저장 탄성률', '탄성 에너지 저장 능력 (스프링 성분)'),
+            ("E''(\u03c9)", '[Pa]', '손실 탄성률', '에너지 열 소산 능력 (댐퍼 성분, 마찰 원인)'),
+            ('E*(\u03c9)', '[Pa]', '유효 탄성률', 'E/(1\u2212\u03bd\u00b2), 평면 변형 상태 보정'),
+            ('\u03bd', '[\u2212]', '푸아송 비', '고무 \u2248 0.5 (거의 비압축성)'),
+            ('\u03c3\u2080', '[Pa]', '공칭 접촉 압력', '하중/전체면적. 접촉 구동력'),
+        ]
+        for col_idx, header in enumerate(['기호', '단위', '이름', '물리적 의미']):
+            lbl = tk.Label(phys_frame, text=header, bg='#1B2A4A', fg='white',
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
+            lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
+        for row_idx, (sym, unit, name, meaning) in enumerate(phys_data, start=1):
+            bg = '#F1F5F9' if row_idx % 2 == 0 else 'white'
+            for col_idx, val in enumerate([sym, unit, name, meaning]):
+                weight = 'bold' if col_idx == 0 else 'normal'
+                lbl = tk.Label(phys_frame, text=val, bg=bg, fg='#1E293B',
+                               font=('NanumGothic', 12, weight), padx=10, pady=6, anchor='w',
+                               wraplength=400 if col_idx == 3 else 200)
+                lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
+        phys_frame.columnconfigure(0, weight=1)
+        phys_frame.columnconfigure(1, weight=1)
+        phys_frame.columnconfigure(2, weight=2)
+        phys_frame.columnconfigure(3, weight=4)
+
+        add_separator()
         add_text('유효 탄성률 (평면 변형 상태):', bold=True, pady=(10, 0))
         add_equation(r'$E^*(\omega) = \frac{E(\omega)}{1-\nu^2}$', fig_height=1.0)
-        add_text('  E(\u03c9) = E\'(\u03c9) + iE\'\'(\u03c9) : DMA 실험에서 측정한 복소 탄성률', font_size=17, fg='#64748B')
-        add_text('    E\'(\u03c9) : 저장 탄성률 — 탄성 에너지를 저장하는 능력 (스프링 성분)', font_size=17, fg='#64748B')
-        add_text('    E\'\'(\u03c9) : 손실 탄성률 — 에너지를 열로 소산하는 능력 (댐퍼 성분, 마찰의 원인)', font_size=17, fg='#64748B')
-        add_text('  \u03bd : 푸아송 비 — 고무를 누를 때 옆으로 퍼지는 정도 (고무 \u2248 0.5, 거의 비압축성)', font_size=17, fg='#64748B')
-        add_text('  (1-\u03bd\u00b2) 보정: 표면 접촉은 3차원 구속 상태이므로 단축 탄성률보다 더 뻣뻣하게 보정', font_size=17, fg='#64748B')
+        add_text('  E(\u03c9) = E\'(\u03c9) + iE\'\'(\u03c9) : DMA 실험에서 측정한 복소 탄성률', font_size=10, fg='#64748B')
+        add_text('    E\'(\u03c9) : 저장 탄성률 — 탄성 에너지를 저장하는 능력 (스프링 성분)', font_size=10, fg='#64748B')
+        add_text('    E\'\'(\u03c9) : 손실 탄성률 — 에너지를 열로 소산하는 능력 (댐퍼 성분, 마찰의 원인)', font_size=10, fg='#64748B')
+        add_text('  \u03bd : 푸아송 비 — 고무를 누를 때 옆으로 퍼지는 정도 (고무 \u2248 0.5, 거의 비압축성)', font_size=10, fg='#64748B')
+        add_text('  (1-\u03bd\u00b2) 보정: 표면 접촉은 3차원 구속 상태이므로 단축 탄성률보다 더 뻣뻣하게 보정', font_size=10, fg='#64748B')
 
         def _plot_master_curve(ax, np):
             omega = np.logspace(-2, 10, 500)
@@ -7671,11 +8155,11 @@ class PerssonModelGUI_V2:
             E_loss = 0.35e9 * (omega / 1e4)**0.5 / (1 + (omega / 1e4)**0.85)
             ax.loglog(omega, E_stor, '-', linewidth=2.5, color='#2563EB', label="E' (저장 탄성률)")
             ax.loglog(omega, E_loss, '--', linewidth=2.5, color='#DC2626', label="E'' (손실 탄성률)")
-            ax.set_xlabel(r'$\omega$ (rad/s)', fontsize=12)
-            ax.set_ylabel('E (Pa)', fontsize=12)
-            ax.legend(fontsize=10, loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel(r'$\omega$ (rad/s)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('E (Pa)', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title("복소 탄성률 마스터 커브 (대표적 형상)", fontsize=12, pad=10)
+            ax.set_title("복소 탄성률 마스터 커브 (대표적 형상)", fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_master_curve)
 
         # ═══════════════════════════════════════════════════════
@@ -7688,24 +8172,24 @@ class PerssonModelGUI_V2:
             r'$G(q) = \frac{1}{8} \int_{q_0}^{q} dq^{\prime}\, (q^{\prime})^3\, C(q^{\prime})'
             r' \int_{0}^{2\pi} d\phi\, \left| \frac{E(q^{\prime}v\cos\phi)}{(1-\nu^2)\sigma_0} \right|^2$',
             fig_height=1.3)
-        add_text('물리적 의미:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  G(q)는 "파수 q₀부터 q까지의 거칠기 성분이 고무를 변형시키며 저장하는 탄성 에너지의 누적량"', font_size=17, fg='#64748B')
-        add_text('  → G(q)가 크면: 고무가 요철을 따라가기 어려워 접촉 면적이 줄어듦', font_size=17, fg='#64748B')
-        add_text('  → G(q)가 작으면: 고무가 요철에 잘 밀착하여 접촉 면적이 넓음', font_size=17, fg='#64748B')
-        add_text('각 변수의 역할:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  q\'³ C(q\') : 파수 q\'에서의 거칠기 기여분. q\'³은 미세 요철일수록 기울기 기여가 큰 것을 반영', font_size=17, fg='#64748B')
-        add_text('  |E/(σ₀(1-ν²))|² : 탄성률 대비 압력의 비율. 고무가 뻣뻣할수록(E↑) 변형 에너지가 커지고, 압력이 클수록(σ₀↑) 상대적으로 줄어듦', font_size=17, fg='#64748B')
-        add_text('  단위: 무차원 (σ₀로 나누었으므로)', font_size=17, fg='#64748B')
+        add_text('물리적 의미:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  G(q)는 "파수 q₀부터 q까지의 거칠기 성분이 고무를 변형시키며 저장하는 탄성 에너지의 누적량"', font_size=10, fg='#64748B')
+        add_text('  → G(q)가 크면: 고무가 요철을 따라가기 어려워 접촉 면적이 줄어듦', font_size=10, fg='#64748B')
+        add_text('  → G(q)가 작으면: 고무가 요철에 잘 밀착하여 접촉 면적이 넓음', font_size=10, fg='#64748B')
+        add_text('각 변수의 역할:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  q\'³ C(q\') : 파수 q\'에서의 거칠기 기여분. q\'³은 미세 요철일수록 기울기 기여가 큰 것을 반영', font_size=10, fg='#64748B')
+        add_text('  |E/(σ₀(1-ν²))|² : 탄성률 대비 압력의 비율. 고무가 뻣뻣할수록(E↑) 변형 에너지가 커지고, 압력이 클수록(σ₀↑) 상대적으로 줄어듦', font_size=10, fg='#64748B')
+        add_text('  단위: 무차원 (σ₀로 나누었으므로)', font_size=10, fg='#64748B')
 
         def _plot_G_vs_q(ax, np):
             q = np.logspace(2, 8, 500)
             G = 0.01 * (q / 1e2)**1.2 / (1 + (q / 1e7)**0.3)
             ax.loglog(q, G, '-', linewidth=2.5, color='#2563EB')
-            ax.set_xlabel('q (1/m)', fontsize=12)
-            ax.set_ylabel('G(q)', fontsize=12)
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('G(q)', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('G(q) — 탄성 에너지 누적 적분', fontsize=12, pad=10)
-            ax.annotate('G 증가 → 접촉면적 감소', xy=(1e6, 50), fontsize=11, color='#DC2626',
+            ax.set_title('G(q) — 탄성 에너지 누적 적분', fontsize=self.PLOT_FONTS['title'], pad=10)
+            ax.annotate('G 증가 → 접촉면적 감소', xy=(1e6, 50), fontsize=self.PLOT_FONTS['title'], color='#DC2626',
                         fontweight='bold')
         add_graph(_plot_G_vs_q)
 
@@ -7715,69 +8199,69 @@ class PerssonModelGUI_V2:
                  bold=True, fg='#7C3AED', pady=(8, 0))
         add_text('', pady=2)
         add_text('  G(q)를 한 마디로: "고무가 바닥 요철을 따라가기가 얼마나 힘든가"를 나타내는 숫자',
-                 font_size=17, fg='#1E293B')
+                 font_size=10, fg='#1E293B')
         add_text('', pady=2)
         add_text('  비유: 부드러운 이불을 울퉁불퉁한 바닥에 덮는다고 상상해 보세요:',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('    • 요철이 작고 완만하면 → 이불이 바닥에 쉽게 밀착 → G 작음 → 접촉면적 넓음',
-                 font_size=17, fg='#059669')
+                 font_size=10, fg='#059669')
         add_text('    • 요철이 크고 날카로우면 → 이불 아래 빈 공간이 많이 생김 → G 큼 → 접촉면적 좁음',
-                 font_size=17, fg='#DC2626')
+                 font_size=10, fg='#DC2626')
         add_text('', pady=4)
         add_text('  핵심: G는 "바닥의 거칠기(PSD)"와 "고무의 뻣뻣함(E)"을 모두 반영한 종합 지표',
-                 font_size=17, bold=True, fg='#1E293B')
+                 font_size=10, bold=True, fg='#1E293B')
         add_text('  → 같은 바닥이라도 고무가 뻣뻣하면 G↑, 유연하면 G↓',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  → 같은 고무라도 거칠기가 심하면 G↑, 매끈하면 G↓',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('', pady=4)
-        add_text('  G가 속도(v)에도 의존하는 이유:', font_size=17, bold=True, fg='#1E293B')
+        add_text('  G가 속도(v)에도 의존하는 이유:', font_size=10, bold=True, fg='#1E293B')
         add_text('  G 수식 안의 E(ω)는 주파수 의존적입니다 (ω = q·v·cosφ)',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  → 속도 v↑ → ω 증가 → 고주파에서 고무가 유리 전이 근처로 이동 → E 크게 증가',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  → 뻣뻣해진 고무는 요철을 더 못 따라감 → G 급격히 증가',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  → 한 마디로: "천천히 누르면 잘 밀착, 빨리 밀면 접촉이 확 줄어든다"',
-                 font_size=17, bold=True, fg='#DC2626')
+                 font_size=10, bold=True, fg='#DC2626')
 
         add_text('', pady=6)
         add_text('▼ G의 구체적인 값이 의미하는 것 — "이 숫자가 대체 뭔데?"',
                  bold=True, fg='#7C3AED', pady=(6, 0))
         add_text('', pady=2)
         add_text('  G(q₁)은 파수 적분의 최종 누적합입니다. 파수 q₀부터 q₁까지 모든 스케일의 거칠기 기여를 더한 것.',
-                 font_size=17, fg='#1E293B')
+                 font_size=10, fg='#1E293B')
         add_text('  각 파수 q에서 ΔG ∝ q³·C(q)·|E/σ₀|² 만큼의 기여가 쌓여 최종 G(q₁)이 결정됩니다.',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('', pady=2)
         add_text('  직관적 해석: G는 "(고무의 뻣뻣함 × 바닥 기울기)² / 압력²" 의 누적합',
-                 font_size=17, bold=True, fg='#1E293B')
+                 font_size=10, bold=True, fg='#1E293B')
         add_text('  → 즉, 고무가 변형되며 저장해야 할 탄성 에너지가 누르는 힘(σ₀)에 비해 얼마나 큰가의 척도',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('', pady=2)
         add_text('  G값 → 접촉면적 변환 (A/A₀ = erf(1/(2√G)))으로 체감하면:',
-                 font_size=17, bold=True, fg='#1E293B')
+                 font_size=10, bold=True, fg='#1E293B')
         add_text('    G ≈ 0.1   →  A/A₀ ≈ 94%  (거의 완전 밀착 — 매우 유연한 고무 + 완만한 바닥)',
-                 font_size=17, fg='#059669')
+                 font_size=10, fg='#059669')
         add_text('    G ≈ 1     →  A/A₀ ≈ 43%  (절반 가까이 접촉 — 일반적인 저속 조건)',
-                 font_size=17, fg='#059669')
+                 font_size=10, fg='#059669')
         add_text('    G ≈ 10    →  A/A₀ ≈ 16%  (상당히 접촉 감소 — 중속 영역)',
-                 font_size=17, fg='#F59E0B')
+                 font_size=10, fg='#F59E0B')
         add_text('    G ≈ 100   →  A/A₀ ≈ 5%   (접촉 거의 없음 — 고속 또는 뻣뻣한 고무)',
-                 font_size=17, fg='#DC2626')
+                 font_size=10, fg='#DC2626')
         add_text('    G ≈ 1000  →  A/A₀ ≈ 1.6% (극히 미미한 접촉 — 유리 전이 영역 고속)',
-                 font_size=17, fg='#DC2626')
+                 font_size=10, fg='#DC2626')
         add_text('    G ≈ 10000 →  A/A₀ ≈ 0.5% (사실상 접촉 없음)',
-                 font_size=17, fg='#7C3AED')
+                 font_size=10, fg='#7C3AED')
         add_text('', pady=2)
         add_text('  요약: G는 "접촉을 방해하는 총 에너지 장벽"의 크기.',
-                 font_size=17, bold=True, fg='#DC2626')
+                 font_size=10, bold=True, fg='#DC2626')
         add_text('  작을수록 고무가 바닥에 잘 눌러붙고, 클수록 접촉이 어렵습니다.',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  G 자체는 무차원이지만, 실질적으로는 "(E/σ₀)² × (기울기)²"에 비례하는 양이라',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  탄성률이 높거나 압력이 낮거나 기울기가 가파르면 G가 빠르게 커집니다.',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
 
         def _plot_G_to_contact(ax, np):
             """Show G value to contact area mapping intuitively."""
@@ -7801,7 +8285,7 @@ class PerssonModelGUI_V2:
                 aa0_val = erf(1 / (2 * np.sqrt(g_val))) * 100
                 ax.plot(g_val, aa0_val, 'o', color=color, markersize=10, zorder=5)
                 offset_y = 8 if aa0_val > 50 else 5
-                ax.annotate(txt, xy=(g_val, aa0_val), fontsize=11,
+                ax.annotate(txt, xy=(g_val, aa0_val), fontsize=self.PLOT_FONTS['title'],
                             color=color, fontweight='bold',
                             xytext=(g_val * 1.8, aa0_val + offset_y),
                             arrowprops=dict(arrowstyle='->', color=color, lw=1.5))
@@ -7811,19 +8295,19 @@ class PerssonModelGUI_V2:
             ax.axhspan(10, 50, alpha=0.06, color='#F59E0B')
             ax.axhspan(0, 10, alpha=0.06, color='#DC2626')
 
-            ax.set_xlabel('G (무차원 — 탄성 에너지 누적합)', fontsize=13)
-            ax.set_ylabel(r'A/A$_0$ (%)', fontsize=13)
+            ax.set_xlabel('G (무차원 — 탄성 에너지 누적합)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'A/A$_0$ (%)', fontsize=self.PLOT_FONTS['label'])
             ax.set_ylim(-2, 105)
             ax.grid(True, alpha=0.3, which='both')
             ax.set_title(r'G값이 구체적으로 의미하는 접촉면적 — 한눈에 보는 변환표',
-                         fontsize=13, pad=10)
+                         fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_G_to_contact)
 
         add_text('', pady=4)
         add_text('▼ 실측 데이터: 3개 샘플의 속도별 G(q₁) 값',
                  bold=True, fg='#059669', pady=(6, 0))
         add_text('  동일한 바닥면(PSD) 위에서 3개 샘플을 다양한 속도로 측정한 결과입니다.',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
 
         def _plot_G_vs_v_real(ax, np):
             """Plot measured G(q1) vs velocity for 3 rubber samples."""
@@ -7863,29 +8347,29 @@ class PerssonModelGUI_V2:
             ax.fill_between(v, np.minimum(G_S100, np.minimum(G_S120, G_S140)),
                             np.maximum(G_S100, np.maximum(G_S120, G_S140)),
                             alpha=0.08, color='#7C3AED')
-            ax.set_xlabel('슬라이딩 속도 v (m/s)', fontsize=13)
-            ax.set_ylabel(r'G(q$_1$)', fontsize=13)
-            ax.legend(fontsize=11, loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel('슬라이딩 속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'G(q$_1$)', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title(r'실측: 속도별 G(q$_1$) — 속도$\uparrow$ → G$\uparrow$', fontsize=13, pad=10)
+            ax.set_title(r'실측: 속도별 G(q$_1$) — 속도$\uparrow$ → G$\uparrow$', fontsize=self.PLOT_FONTS['title'], pad=10)
             ax.annotate('속도 증가 →\nG 급격히 상승',
-                        xy=(50, G_S100[26]), fontsize=11, color='#DC2626',
+                        xy=(50, G_S100[26]), fontsize=self.PLOT_FONTS['title'], color='#DC2626',
                         fontweight='bold',
                         xytext=(5e-3, 500),
                         arrowprops=dict(arrowstyle='->', color='#DC2626', lw=1.5))
             ax.annotate('고속에서 S120이\nS100을 추월',
-                        xy=(300, G_S120[29]), fontsize=10, color='#2563EB',
+                        xy=(300, G_S120[29]), fontsize=self.PLOT_FONTS['title'], color='#2563EB',
                         fontweight='bold',
                         xytext=(1e-2, 5000),
                         arrowprops=dict(arrowstyle='->', color='#2563EB', lw=1.5))
         add_graph(_plot_G_vs_v_real)
 
         add_text('  → 저속: S100이 G 최대 (가장 뻣뻣) → S140 ≈ S120 (유사한 수준)',
-                 font_size=17, fg='#DC2626')
+                 font_size=10, fg='#DC2626')
         add_text('  → 고속 (v > 100 m/s): S120이 S100을 추월하여 G 최대 — 유리 전이 영역에서의 E 차이',
-                 font_size=17, fg='#2563EB')
+                 font_size=10, fg='#2563EB')
         add_text('  → 공통점: 모든 샘플에서 속도↑ → G 급증 (고주파에서 유리 전이 → 고무가 뻣뻣해짐)',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
 
         add_text('', pady=6)
         add_text('▼ 위의 G 값이 접촉면적 A/A₀에 어떻게 반영되는가?',
@@ -7895,7 +8379,7 @@ class PerssonModelGUI_V2:
             r' \quad \longleftarrow$ 위의 G를 이 수식에 대입',
             fig_height=1.1)
         add_text('  G가 커지면 erf의 인자 1/(2√G)가 작아지고 → erf 값이 0에 가까워짐 → 접촉면적 급감',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
 
         def _plot_AA0_vs_v_real(ax, np):
             """Convert measured G to A/A0 and show contact area vs velocity."""
@@ -7940,45 +8424,45 @@ class PerssonModelGUI_V2:
             ax.axhspan(10, 30, alpha=0.06, color='#F59E0B')
             ax.axhspan(0, 10, alpha=0.06, color='#DC2626')
             ax.axhline(y=10, color='#DC2626', linestyle=':', alpha=0.5, linewidth=1)
-            ax.text(1.5e-5, 14, '중간 접촉', fontsize=10, color='#B45309',
+            ax.text(1.5e-5, 14, '중간 접촉', fontsize=self.PLOT_FONTS['title'], color='#B45309',
                     fontweight='bold', alpha=0.7)
-            ax.text(1.5e-5, 3, '접촉 거의 없음', fontsize=10, color='#DC2626',
+            ax.text(1.5e-5, 3, '접촉 거의 없음', fontsize=self.PLOT_FONTS['title'], color='#DC2626',
                     fontweight='bold', alpha=0.7)
-            ax.set_xlabel('슬라이딩 속도 v (m/s)', fontsize=13)
-            ax.set_ylabel(r'A/A$_0$ (%)', fontsize=13)
+            ax.set_xlabel('슬라이딩 속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'A/A$_0$ (%)', fontsize=self.PLOT_FONTS['label'])
             ax.set_ylim(-1, 22)
-            ax.legend(fontsize=11, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3)
-            ax.set_title(r'G → A/A$_0$ 변환: 속도$\uparrow$ → G$\uparrow$ → 접촉면적 급감', fontsize=13, pad=10)
+            ax.set_title(r'G → A/A$_0$ 변환: 속도$\uparrow$ → G$\uparrow$ → 접촉면적 급감', fontsize=self.PLOT_FONTS['title'], pad=10)
             ax.annotate('S120: 저속 ~17%\n→ 고속 <1%',
-                        xy=(500, P_S120[-2]), fontsize=10, color='#2563EB',
+                        xy=(500, P_S120[-2]), fontsize=self.PLOT_FONTS['title'], color='#2563EB',
                         fontweight='bold',
                         xytext=(1e-2, 18),
                         arrowprops=dict(arrowstyle='->', color='#2563EB', lw=1.5))
         add_graph(_plot_AA0_vs_v_real)
 
-        add_text('  해석:', font_size=17, bold=True, fg='#1E293B')
+        add_text('  해석:', font_size=10, bold=True, fg='#1E293B')
         add_text('  → 저속 (v < 0.01 m/s): S120 ≈ S140 ≈ 17%, S100 ≈ 12% 접촉 (G가 이미 크므로 접촉면적 작음)',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  → 중속 (v ≈ 1 m/s): 모든 샘플에서 접촉면적 5% 이하로 급감',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  → 고속 (v > 100 m/s): 접촉면적 1% 미만 — 거의 접촉 없음',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('  → 핵심: G가 커지면 erf(1/(2√G))가 급격히 0에 수렴 → 접촉면적 비선형 급감',
-                 font_size=17, bold=True, fg='#DC2626')
+                 font_size=10, bold=True, fg='#DC2626')
         add_text('    (G=10 → A/A₀≈16%,  G=25 → ≈10%,  G=100 → ≈5%,  G=1000 → ≈1.6%)',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
 
         add_separator()
 
         # ── 각도 적분의 물리적 의미 ──
         add_text('각도 적분 ∫₀²π dφ 의 물리적 의미:', bold=True, fg='#7C3AED', pady=(8, 0))
-        add_text('  실제 표면 거칠기는 2차원(x,y 평면)에 분포하지만, 슬라이딩은 한 방향(예: x축)으로 일어남', font_size=17, fg='#64748B')
-        add_text('  → 파수 벡터 q = (qₓ, qᵧ)를 극좌표로 표현하면: qₓ = q·cos\u03c6, qᵧ = q·sin\u03c6', font_size=17, fg='#64748B')
-        add_text('  → 슬라이딩 방향(x축)과 각도 \u03c6를 이루는 요철이 고무에 주는 진동 주파수는 \u03c9 = q·v·cos\u03c6', font_size=17, fg='#64748B')
-        add_text('  → \u03c6 = 0° (슬라이딩 방향과 평행): 고무가 요철을 정면으로 타넘어 → 주파수 최대', font_size=17, fg='#64748B')
-        add_text('  → \u03c6 = 90° (슬라이딩 방향과 수직): 고무가 요철과 나란히 미끄러져 → 주파수 0 (기여 없음)', font_size=17, fg='#64748B')
-        add_text('  → 0~2\u03c0 적분 = 모든 방향의 요철 기여를 합산 (2D 표면의 등방 거칠기를 완전하게 반영)', font_size=17, fg='#64748B')
+        add_text('  실제 표면 거칠기는 2차원(x,y 평면)에 분포하지만, 슬라이딩은 한 방향(예: x축)으로 일어남', font_size=10, fg='#64748B')
+        add_text('  → 파수 벡터 q = (qₓ, qᵧ)를 극좌표로 표현하면: qₓ = q·cos\u03c6, qᵧ = q·sin\u03c6', font_size=10, fg='#64748B')
+        add_text('  → 슬라이딩 방향(x축)과 각도 \u03c6를 이루는 요철이 고무에 주는 진동 주파수는 \u03c9 = q·v·cos\u03c6', font_size=10, fg='#64748B')
+        add_text('  → \u03c6 = 0° (슬라이딩 방향과 평행): 고무가 요철을 정면으로 타넘어 → 주파수 최대', font_size=10, fg='#64748B')
+        add_text('  → \u03c6 = 90° (슬라이딩 방향과 수직): 고무가 요철과 나란히 미끄러져 → 주파수 0 (기여 없음)', font_size=10, fg='#64748B')
+        add_text('  → 0~2\u03c0 적분 = 모든 방향의 요철 기여를 합산 (2D 표면의 등방 거칠기를 완전하게 반영)', font_size=10, fg='#64748B')
 
         add_separator()
 
@@ -7987,53 +8471,53 @@ class PerssonModelGUI_V2:
         add_equation(
             r'$\frac{A(q)}{A_0} = P(q) \approx \mathrm{erf}\!\left( \frac{1}{2\sqrt{G(q)}} \right)$',
             fig_height=1.3)
-        add_text('물리적 의미: 배율 q에서 바닥과 실제로 닿아있는 면적의 비율 (0 ≤ P ≤ 1)', font_size=17, fg='#64748B')
+        add_text('물리적 의미: 배율 q에서 바닥과 실제로 닿아있는 면적의 비율 (0 ≤ P ≤ 1)', font_size=10, fg='#64748B')
 
         def _plot_P_erf(ax, np):
             from scipy.special import erf
             G = np.linspace(0.01, 20, 500)
             P = erf(1 / (2 * np.sqrt(G)))
             ax.plot(G, P, '-', linewidth=2.5, color='#2563EB')
-            ax.set_xlabel('G(q)', fontsize=12)
-            ax.set_ylabel(r'P(q) = A(q)/A$_0$', fontsize=12)
+            ax.set_xlabel('G(q)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'P(q) = A(q)/A$_0$', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3)
             ax.set_ylim(-0.02, 1.05)
-            ax.set_title('P(q) = erf(1/(2√G)) — G 증가에 따른 접촉면적 비율 감소', fontsize=12, pad=10)
-            ax.annotate('G 작음 → 완전접촉', xy=(0.5, 0.92), fontsize=11, color='#059669', fontweight='bold')
-            ax.annotate('G 큼 → 접촉감소', xy=(12, 0.15), fontsize=11, color='#DC2626', fontweight='bold')
+            ax.set_title('P(q) = erf(1/(2√G)) — G 증가에 따른 접촉면적 비율 감소', fontsize=self.PLOT_FONTS['title'], pad=10)
+            ax.annotate('G 작음 → 완전접촉', xy=(0.5, 0.92), fontsize=self.PLOT_FONTS['title'], color='#059669', fontweight='bold')
+            ax.annotate('G 큼 → 접촉감소', xy=(12, 0.15), fontsize=self.PLOT_FONTS['title'], color='#DC2626', fontweight='bold')
         add_graph(_plot_P_erf)
 
         add_text('erf(x) 함수란?', bold=True, fg='#7C3AED', pady=(10, 0))
-        add_text('  erf(x)는 오차 함수(error function)로, 가우시안 분포의 누적 확률을 나타냄:', font_size=17, fg='#64748B')
+        add_text('  erf(x)는 오차 함수(error function)로, 가우시안 분포의 누적 확률을 나타냄:', font_size=10, fg='#64748B')
         add_equation(
             r'$\mathrm{erf}(x) = \frac{2}{\sqrt{\pi}} \int_{0}^{x} e^{-t^2}\, dt$',
             fig_height=1.2)
-        add_text('  x = 0 → erf(0) = 0  |  x → ∞ → erf(∞) = 1  |  S자 형태로 0에서 1까지 증가', font_size=17, fg='#64748B')
-        add_text('  직관: "가우시안 분포에서 평균 ± x 범위 안에 포함되는 비율"', font_size=17, fg='#64748B')
+        add_text('  x = 0 → erf(0) = 0  |  x → ∞ → erf(∞) = 1  |  S자 형태로 0에서 1까지 증가', font_size=10, fg='#64748B')
+        add_text('  직관: "가우시안 분포에서 평균 ± x 범위 안에 포함되는 비율"', font_size=10, fg='#64748B')
 
         def _plot_erf(ax, np):
             from scipy.special import erf
             x = np.linspace(-3, 3, 500)
             ax.plot(x, erf(x), '-', linewidth=2.5, color='#7C3AED')
-            ax.set_xlabel('x', fontsize=12)
-            ax.set_ylabel('erf(x)', fontsize=12)
+            ax.set_xlabel('x', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('erf(x)', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3)
             ax.axhline(y=0, color='gray', linestyle='--', alpha=0.5)
             ax.axhline(y=1, color='gray', linestyle=':', alpha=0.4)
             ax.axhline(y=-1, color='gray', linestyle=':', alpha=0.4)
-            ax.set_title('erf(x) — 오차 함수', fontsize=12, pad=10)
+            ax.set_title('erf(x) — 오차 함수', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_erf)
 
         add_text('왜 A/A₀ = erf(1/(2√G)) 인가?', bold=True, fg='#7C3AED', pady=(10, 0))
-        add_text('  Persson 이론에서 접촉 응력 σ는 가우시안 분포를 따름 (평균=σ₀, 분산∝G)', font_size=17, fg='#64748B')
-        add_text('  실접촉 = 응력이 0보다 큰 영역 → σ > 0 인 확률을 적분', font_size=17, fg='#64748B')
-        add_text('  가우시안의 σ > 0 누적확률을 계산하면 자연스럽게 erf 함수가 나옴:', font_size=17, fg='#64748B')
+        add_text('  Persson 이론에서 접촉 응력 σ는 가우시안 분포를 따름 (평균=σ₀, 분산∝G)', font_size=10, fg='#64748B')
+        add_text('  실접촉 = 응력이 0보다 큰 영역 → σ > 0 인 확률을 적분', font_size=10, fg='#64748B')
+        add_text('  가우시안의 σ > 0 누적확률을 계산하면 자연스럽게 erf 함수가 나옴:', font_size=10, fg='#64748B')
         add_equation(
             r'$P(q) = \int_{0}^{\infty} P(\sigma, q)\, d\sigma = \mathrm{erf}\!\left(\frac{\sigma_0}{2\sqrt{G(q)}\,\sigma_0}\right)'
             r' = \mathrm{erf}\!\left(\frac{1}{2\sqrt{G(q)}}\right)$',
             fig_height=1.3)
-        add_text('  G(q) 작을 때: 분포가 좁음 → 거의 모든 점이 σ>0 → P ≈ 1 (완전 접촉)', font_size=17, fg='#64748B')
-        add_text('  G(q) 클 때: 분포가 넓음 → σ<0인 영역 증가 → P → 0 (접촉 감소)', font_size=17, fg='#64748B')
+        add_text('  G(q) 작을 때: 분포가 좁음 → 거의 모든 점이 σ>0 → P ≈ 1 (완전 접촉)', font_size=10, fg='#64748B')
+        add_text('  G(q) 클 때: 분포가 넓음 → σ<0인 영역 증가 → P → 0 (접촉 감소)', font_size=10, fg='#64748B')
 
         add_separator()
 
@@ -8043,76 +8527,76 @@ class PerssonModelGUI_V2:
             r'$\mu_{visc} \approx \frac{1}{2} \int_{q_0}^{q_1} dq\, q^3 C(q)\, S(q)\, P(q)'
             r' \int_{0}^{2\pi} d\phi\, \cos\phi\, \mathrm{Im}\!\left( \frac{E(qv\cos\phi)}{(1-\nu^2)\sigma_0} \right)$',
             fig_height=1.3)
-        add_text('물리적 의미:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  고무가 거친 바닥 위를 미끄러질 때, 각 파수의 요철이 고무를 변형시키며 소산하는 에너지의 총합', font_size=17, fg='#64748B')
-        add_text('각 항의 역할:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  q³C(q) : 파수 q에서의 거칠기 기울기 기여 (미세 요철일수록 기울기가 가파름)', font_size=17, fg='#64748B')
-        add_text('  P(q) : 실접촉 면적 비율 — 닿아있는 면적만 마찰에 기여', font_size=17, fg='#64748B')
-        add_text('  S(q) : 대변형 보정 — 접촉 면적이 줄어드는 효과를 보정', font_size=17, fg='#64748B')
-        add_text('  Im[E(ω)] : 손실 탄성률 — 에너지 소산 (열로 변환)의 크기. 이것이 마찰력의 직접 원인', font_size=17, fg='#64748B')
-        add_text('  cos\u03c6 : 슬라이딩 방향 성분만 마찰력에 기여 (수직 방향 요철은 마찰에 기여 안 함)', font_size=17, fg='#64748B')
+        add_text('물리적 의미:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  고무가 거친 바닥 위를 미끄러질 때, 각 파수의 요철이 고무를 변형시키며 소산하는 에너지의 총합', font_size=10, fg='#64748B')
+        add_text('각 항의 역할:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  q³C(q) : 파수 q에서의 거칠기 기울기 기여 (미세 요철일수록 기울기가 가파름)', font_size=10, fg='#64748B')
+        add_text('  P(q) : 실접촉 면적 비율 — 닿아있는 면적만 마찰에 기여', font_size=10, fg='#64748B')
+        add_text('  S(q) : 대변형 보정 — 접촉 면적이 줄어드는 효과를 보정', font_size=10, fg='#64748B')
+        add_text('  Im[E(ω)] : 손실 탄성률 — 에너지 소산 (열로 변환)의 크기. 이것이 마찰력의 직접 원인', font_size=10, fg='#64748B')
+        add_text('  cos\u03c6 : 슬라이딩 방향 성분만 마찰력에 기여 (수직 방향 요철은 마찰에 기여 안 함)', font_size=10, fg='#64748B')
 
         def _plot_mu_integrand(ax, np):
             q = np.logspace(2, 8, 500)
             integrand = q**3 * np.exp(-0.5 * ((np.log10(q) - 5) / 1.2)**2) * 1e-20
             ax.semilogx(q, integrand, '-', linewidth=2.5, color='#DC2626')
             ax.fill_between(q, integrand, alpha=0.15, color='#DC2626')
-            ax.set_xlabel('q (1/m)', fontsize=12)
-            ax.set_ylabel(r'$\mu$ 피적분함수', fontsize=12)
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\mu$ 피적분함수', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3)
-            ax.set_title(r'$\mu_{visc}$ 피적분함수 — 파수별 마찰 기여도', fontsize=12, pad=10)
+            ax.set_title(r'$\mu_{visc}$ 피적분함수 — 파수별 마찰 기여도', fontsize=self.PLOT_FONTS['title'], pad=10)
             peak_idx = np.argmax(integrand)
             ax.annotate('마찰 기여 피크', xy=(q[peak_idx], integrand[peak_idx]),
-                        fontsize=11, fontweight='bold', color='#DC2626',
+                        fontsize=self.PLOT_FONTS['title'], fontweight='bold', color='#DC2626',
                         xytext=(q[peak_idx]*5, integrand[peak_idx]*0.8),
                         arrowprops=dict(arrowstyle='->', color='#DC2626'))
         add_graph(_plot_mu_integrand)
 
         add_text('보정 계수 S(q):', bold=True, pady=(10, 0))
         add_equation(r'$S(q) = \gamma + (1-\gamma)\,P^2(q) \qquad (\gamma \approx 0.5)$', fig_height=0.9)
-        add_text('  접촉 면적이 줄어들면 비접촉 영역의 고무도 변형에 참여 → 이를 보정하는 계수', font_size=17, fg='#64748B')
+        add_text('  접촉 면적이 줄어들면 비접촉 영역의 고무도 변형에 참여 → 이를 보정하는 계수', font_size=10, fg='#64748B')
 
         def _plot_S_correction(ax, np):
             P = np.linspace(0, 1, 200)
             gamma = 0.5
             S = gamma + (1 - gamma) * P**2
             ax.plot(P, S, '-', linewidth=2.5, color='#059669')
-            ax.set_xlabel('P(q)', fontsize=12)
-            ax.set_ylabel('S(q)', fontsize=12)
+            ax.set_xlabel('P(q)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('S(q)', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3)
             ax.set_ylim(0.4, 1.05)
-            ax.set_title(r'S(q) = $\gamma$ + (1-$\gamma$)P$^2$  (보정 계수, $\gamma$=0.5)', fontsize=12, pad=10)
+            ax.set_title(r'S(q) = $\gamma$ + (1-$\gamma$)P$^2$  (보정 계수, $\gamma$=0.5)', fontsize=self.PLOT_FONTS['title'], pad=10)
             ax.axhline(y=0.5, color='gray', linestyle=':', alpha=0.5)
-            ax.annotate(r'$\gamma$ = 0.5 (최솟값)', xy=(0.05, 0.52), fontsize=11, color='#059669')
+            ax.annotate(r'$\gamma$ = 0.5 (최솟값)', xy=(0.05, 0.52), fontsize=self.PLOT_FONTS['title'], color='#059669')
         add_graph(_plot_S_correction)
 
         add_separator()
 
         # ── μ_adh ──
         add_text('D. 점착 마찰 계수 μ_adh:', bold=True, pady=(6, 0))
-        add_text('  표면 분자 점착에 의한 마찰 (Arrhenius 온도 시프트 + 가우시안 마스터 커브)', font_size=17, fg='#64748B')
+        add_text('  표면 분자 점착에 의한 마찰 (Arrhenius 온도 시프트 + 가우시안 마스터 커브)', font_size=10, fg='#64748B')
 
-        add_text('Step 1. 아레니우스 점착 이동 계수:', font_size=17, bold=True, fg='#1E293B')
+        add_text('Step 1. 아레니우스 점착 이동 계수:', font_size=10, bold=True, fg='#1E293B')
         add_equation(
             r"$a'_T = \exp\!\left[\frac{\epsilon}{k_B}\left(\frac{1}{T} - \frac{1}{T_{ref}}\right)\right]$",
             fig_height=1.3)
-        add_text('  벌크 WLF와 달리, 표면 분자의 활성화 에너지(ε ≈ 0.94~1.0 eV)에 의한 Arrhenius 법칙', font_size=17, fg='#64748B')
+        add_text('  벌크 WLF와 달리, 표면 분자의 활성화 에너지(ε ≈ 0.94~1.0 eV)에 의한 Arrhenius 법칙', font_size=10, fg='#64748B')
 
-        add_text('Step 2. 온도 보정 유효 속도:', font_size=17, bold=True, fg='#1E293B')
+        add_text('Step 2. 온도 보정 유효 속도:', font_size=10, bold=True, fg='#1E293B')
         add_equation(r"$v_{eff} = v \times a'_T$", fig_height=0.8)
 
-        add_text('Step 3. 유효 점착 전단 응력 (가우시안 마스터 커브):', font_size=17, bold=True, fg='#1E293B')
+        add_text('Step 3. 유효 점착 전단 응력 (가우시안 마스터 커브):', font_size=10, bold=True, fg='#1E293B')
         add_equation(
             r"$\tau_f = \tau_{f0} \exp\!\left[-c\left(\log_{10}\frac{v_{eff}}{v_0^*}\right)^{\!2}\right]$",
             fig_height=1.3)
-        add_text('  τ_f0: 최대 점착 전단 응력 (5~8 MPa), v₀*: 피크 속도, c: 가우시안 폭', font_size=17, fg='#64748B')
+        add_text('  τ_f0: 최대 점착 전단 응력 (5~8 MPa), v₀*: 피크 속도, c: 가우시안 폭', font_size=10, fg='#64748B')
 
-        add_text('Step 4. 최종 점착 마찰 계수:', font_size=17, bold=True, fg='#1E293B')
+        add_text('Step 4. 최종 점착 마찰 계수:', font_size=10, bold=True, fg='#1E293B')
         add_equation(
             r"$\mu_{adh} = \frac{\tau_f}{p_0} \times \frac{A}{A_0}$",
             fig_height=1.0)
-        add_text('  A/A0는 μ_visc 계산에서 구한 실접촉 면적비 (q1에서의 P(q) 값)', font_size=17, fg='#64748B')
-        add_text('  최종 마찰 계수: μ_total = μ_visc + μ_adh', font_size=17, fg='#059669')
+        add_text('  A/A0는 μ_visc 계산에서 구한 실접촉 면적비 (q1에서의 P(q) 값)', font_size=10, fg='#64748B')
+        add_text('  최종 마찰 계수: μ_total = μ_visc + μ_adh', font_size=10, fg='#059669')
 
         # ═══════════════════════════════════════════════════════
         # Section 2: h_rms, h'_rms (RMS slope), Strain
@@ -8123,21 +8607,21 @@ class PerssonModelGUI_V2:
         add_equation(
             r'$h_{rms}^2(q) = 2\pi \int_{q_0}^{q} k\, C(k)\, dk$',
             fig_height=1.2)
-        add_text('물리적 의미:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  h_rms는 표면 높이의 RMS(root mean square) 값으로, "표면이 평균으로부터 얼마나 위아래로 출렁이는가"', font_size=17, fg='#64748B')
-        add_text('  피적분함수 k·C(k): 파수 k에서의 높이 기여분. 긴 파장(작은 q)의 거칠기가 h_rms에 주로 기여', font_size=17, fg='#64748B')
-        add_text('  단위: [m] (미터)', font_size=17, fg='#64748B')
+        add_text('물리적 의미:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  h_rms는 표면 높이의 RMS(root mean square) 값으로, "표면이 평균으로부터 얼마나 위아래로 출렁이는가"', font_size=10, fg='#64748B')
+        add_text('  피적분함수 k·C(k): 파수 k에서의 높이 기여분. 긴 파장(작은 q)의 거칠기가 h_rms에 주로 기여', font_size=10, fg='#64748B')
+        add_text('  단위: [m] (미터)', font_size=10, fg='#64748B')
 
         def _plot_hrms(ax, np):
             q = np.logspace(2, 8, 500)
             hrms = 1e-5 * (1 - np.exp(-q / 1e4))
             ax.semilogx(q, hrms * 1e6, '-', linewidth=2.5, color='#2563EB')
-            ax.set_xlabel('q (1/m)', fontsize=12)
-            ax.set_ylabel(r'$h_{rms}$ ($\mu$m)', fontsize=12)
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$h_{rms}$ ($\mu$m)', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3)
-            ax.set_title(r'$h_{rms}(q)$ — 누적 RMS 높이 (큰 파장이 지배)', fontsize=12, pad=10)
+            ax.set_title(r'$h_{rms}(q)$ — 누적 RMS 높이 (큰 파장이 지배)', fontsize=self.PLOT_FONTS['title'], pad=10)
             ax.annotate('긴 파장(작은 q)에서\n빠르게 포화', xy=(5e3, hrms[100]*1e6),
-                        fontsize=11, color='#2563EB', fontweight='bold',
+                        fontsize=self.PLOT_FONTS['title'], color='#2563EB', fontweight='bold',
                         xytext=(1e5, hrms[100]*1e6*0.5),
                         arrowprops=dict(arrowstyle='->', color='#2563EB'))
         add_graph(_plot_hrms)
@@ -8147,22 +8631,22 @@ class PerssonModelGUI_V2:
         add_equation(
             r"$h_{rms}^{\prime\,2}(q) = \xi^2(q) = 2\pi \int_{q_0}^{q} k^3\, C(k)\, dk$",
             fig_height=1.2)
-        add_text('물리적 의미:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  h\'_rms (= ξ)는 표면 기울기의 RMS 값으로, "표면이 얼마나 가파르게 경사져 있는가"', font_size=17, fg='#64748B')
-        add_text('  피적분함수 k³·C(k): k³ 가중치로 인해 미세 요철(큰 q)일수록 기울기 기여가 매우 큼', font_size=17, fg='#64748B')
-        add_text('  → h_rms는 긴 파장이 지배, h\'_rms는 짧은 파장이 지배 (같은 PSD에서 완전히 다른 특성)', font_size=17, fg='#64748B')
-        add_text('  단위: [무차원] (길이/길이 = 기울기)', font_size=17, fg='#64748B')
+        add_text('물리적 의미:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  h\'_rms (= ξ)는 표면 기울기의 RMS 값으로, "표면이 얼마나 가파르게 경사져 있는가"', font_size=10, fg='#64748B')
+        add_text('  피적분함수 k³·C(k): k³ 가중치로 인해 미세 요철(큰 q)일수록 기울기 기여가 매우 큼', font_size=10, fg='#64748B')
+        add_text('  → h_rms는 긴 파장이 지배, h\'_rms는 짧은 파장이 지배 (같은 PSD에서 완전히 다른 특성)', font_size=10, fg='#64748B')
+        add_text('  단위: [무차원] (길이/길이 = 기울기)', font_size=10, fg='#64748B')
 
         def _plot_hrms_slope(ax, np):
             q = np.logspace(2, 8, 500)
             hrms_slope = 0.001 * (q / 1e2)**0.8
             ax.loglog(q, hrms_slope, '-', linewidth=2.5, color='#DC2626')
-            ax.set_xlabel('q (1/m)', fontsize=12)
-            ax.set_ylabel(r"$h'_{rms} = \xi(q)$", fontsize=12)
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r"$h'_{rms} = \xi(q)$", fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title(r"$h'_{rms}(q)$ — 누적 RMS 기울기 (짧은 파장이 지배)", fontsize=12, pad=10)
+            ax.set_title(r"$h'_{rms}(q)$ — 누적 RMS 기울기 (짧은 파장이 지배)", fontsize=self.PLOT_FONTS['title'], pad=10)
             ax.annotate('짧은 파장(큰 q)에서\n계속 증가', xy=(1e6, 0.5),
-                        fontsize=11, color='#DC2626', fontweight='bold')
+                        fontsize=self.PLOT_FONTS['title'], color='#DC2626', fontweight='bold')
         add_graph(_plot_hrms_slope)
 
         add_separator()
@@ -8170,18 +8654,18 @@ class PerssonModelGUI_V2:
         add_equation(
             r"$\varepsilon(q) = \alpha \cdot h_{rms}^{\prime}(q) = \alpha \cdot \xi(q)$",
             fig_height=1.0)
-        add_text('물리적 의미:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  고무가 거친 표면 요철을 따라 변형될 때, 접촉점 부근에서 고무가 받는 국소 변형률(strain)', font_size=17, fg='#64748B')
-        add_text('  표면 기울기(h\'_rms)가 가파를수록 → 고무가 요철을 감싸기 위해 더 크게 변형 → ε 증가', font_size=17, fg='#64748B')
-        add_text('  α : 비례 상수 (Persson 이론에서 α ≈ 0.5)', font_size=17, fg='#64748B')
-        add_text('  비선형 보정에서의 역할:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  → ε(q)이 크면 고무의 Payne 효과(대변형 연화)가 발생', font_size=17, fg='#64748B')
-        add_text('  → Strain Sweep 데이터에서 f(ε), g(ε) 함수를 구해 탄성률을 보정:', font_size=17, fg='#64748B')
+        add_text('물리적 의미:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  고무가 거친 표면 요철을 따라 변형될 때, 접촉점 부근에서 고무가 받는 국소 변형률(strain)', font_size=10, fg='#64748B')
+        add_text('  표면 기울기(h\'_rms)가 가파를수록 → 고무가 요철을 감싸기 위해 더 크게 변형 → ε 증가', font_size=10, fg='#64748B')
+        add_text('  α : 비례 상수 (Persson 이론에서 α ≈ 0.5)', font_size=10, fg='#64748B')
+        add_text('  비선형 보정에서의 역할:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  → ε(q)이 크면 고무의 Payne 효과(대변형 연화)가 발생', font_size=10, fg='#64748B')
+        add_text('  → Strain Sweep 데이터에서 f(ε), g(ε) 함수를 구해 탄성률을 보정:', font_size=10, fg='#64748B')
         add_equation(
             r"$E'_{eff}(\omega) = E'(\omega) \times f(\varepsilon), \qquad E''_{eff}(\omega) = E''(\omega) \times g(\varepsilon)$",
             fig_height=1.0)
-        add_text('  f(ε) ≤ 1 : 변형이 커지면 저장 탄성률 감소 (고무가 연화)', font_size=17, fg='#64748B')
-        add_text('  g(ε) : 변형이 커지면 손실 탄성률이 먼저 증가했다 감소 (에너지 소산 패턴 변화)', font_size=17, fg='#64748B')
+        add_text('  f(ε) ≤ 1 : 변형이 커지면 저장 탄성률 감소 (고무가 연화)', font_size=10, fg='#64748B')
+        add_text('  g(ε) : 변형이 커지면 손실 탄성률이 먼저 증가했다 감소 (에너지 소산 패턴 변화)', font_size=10, fg='#64748B')
 
         def _plot_payne_effect(ax, np):
             eps = np.linspace(0, 50, 200)
@@ -8189,15 +8673,15 @@ class PerssonModelGUI_V2:
             g_eps = (1 + 2.5 * (eps / 10)) / (1 + 3 * (eps / 10)**1.4)
             ax.plot(eps, f_eps, '-', linewidth=2.5, color='#2563EB', label=r"f($\varepsilon$) — E' 감소율")
             ax.plot(eps, g_eps, '--', linewidth=2.5, color='#DC2626', label=r"g($\varepsilon$) — E'' 변화율")
-            ax.set_xlabel(r'$\varepsilon$ (%)', fontsize=12)
-            ax.set_ylabel('보정 계수', fontsize=12)
-            ax.legend(fontsize=10, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel(r'$\varepsilon$ (%)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('보정 계수', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3)
             ax.set_ylim(0, 1.5)
             ax.axhline(y=1, color='gray', linestyle=':', alpha=0.5)
-            ax.set_title('Payne 효과 — 대변형 시 탄성률 보정 계수', fontsize=12, pad=10)
-            ax.annotate('E\' 연화', xy=(30, f_eps[120]), fontsize=11, color='#2563EB', fontweight='bold')
-            ax.annotate('E\'\' 피크 후 감소', xy=(15, max(g_eps)*0.95), fontsize=11, color='#DC2626', fontweight='bold')
+            ax.set_title('Payne 효과 — 대변형 시 탄성률 보정 계수', fontsize=self.PLOT_FONTS['title'], pad=10)
+            ax.annotate('E\' 연화', xy=(30, f_eps[120]), fontsize=self.PLOT_FONTS['title'], color='#2563EB', fontweight='bold')
+            ax.annotate('E\'\' 피크 후 감소', xy=(15, max(g_eps)*0.95), fontsize=self.PLOT_FONTS['title'], color='#DC2626', fontweight='bold')
         add_graph(_plot_payne_effect)
 
         # ═══════════════════════════════════════════════════════
@@ -8206,50 +8690,50 @@ class PerssonModelGUI_V2:
         add_separator()
         add_section_title('Section 3: Flash Temperature — Per-q Sequential Accumulation')
 
-        add_text('  고무가 거친 표면 위를 미끄러질 때, 마찰 에너지가 열로 변환되어 접촉점의 온도가 상승합니다.', font_size=17, fg='#1E293B')
-        add_text('  이 "flash temperature"는 고무의 점탄성 물성(E\'\')을 변화시켜 마찰 계수에 영향을 줍니다.', font_size=17, fg='#1E293B')
-        add_text('  특히 고속 영역에서 마찰 피크를 넘은 후의 하강 거동을 물리적으로 설명하는 핵심 메커니즘입니다.', font_size=17, fg='#1E293B')
+        add_text('  고무가 거친 표면 위를 미끄러질 때, 마찰 에너지가 열로 변환되어 접촉점의 온도가 상승합니다.', font_size=10, fg='#1E293B')
+        add_text('  이 "flash temperature"는 고무의 점탄성 물성(E\'\')을 변화시켜 마찰 계수에 영향을 줍니다.', font_size=10, fg='#1E293B')
+        add_text('  특히 고속 영역에서 마찰 피크를 넘은 후의 하강 거동을 물리적으로 설명하는 핵심 메커니즘입니다.', font_size=10, fg='#1E293B')
 
         # 3-A: Thermal parameters
         add_separator()
-        add_text('  3-A. 열물성 파라미터', font_size=19, bold=True, fg='#1E293B')
-        add_text('  고무의 열적 특성을 기술하는 3개 기본 상수로부터 열확산도를 계산합니다:', font_size=17, fg='#64748B')
+        add_text('  3-A. 열물성 파라미터', font_size=10, bold=True, fg='#1E293B')
+        add_text('  고무의 열적 특성을 기술하는 3개 기본 상수로부터 열확산도를 계산합니다:', font_size=10, fg='#64748B')
 
         add_equation(r"$D_{th} = \frac{\kappa}{\rho \cdot C_v} \quad [\mathrm{m^2/s}]$", fig_height=1.0)
 
-        add_text('  ρ : 밀도 [kg/m³] — 일반 고무 ≈ 1100~1200 kg/m³', font_size=17, fg='#64748B')
-        add_text('  C_v : 비열 [J/(kg·K)] — 일반 고무 ≈ 1400~1600 J/(kg·K)', font_size=17, fg='#64748B')
-        add_text('  κ : 열전도도 [W/(m·K)] — 일반 고무 ≈ 0.15~0.35 W/(m·K)', font_size=17, fg='#64748B')
-        add_text('  D_th : 열이 재료 내부로 확산되는 속도. 값이 작을수록 열이 접촉점에 집중 → ΔT 증가', font_size=17, fg='#64748B')
+        add_text('  ρ : 밀도 [kg/m³] — 일반 고무 ≈ 1100~1200 kg/m³', font_size=10, fg='#64748B')
+        add_text('  C_v : 비열 [J/(kg·K)] — 일반 고무 ≈ 1400~1600 J/(kg·K)', font_size=10, fg='#64748B')
+        add_text('  κ : 열전도도 [W/(m·K)] — 일반 고무 ≈ 0.15~0.35 W/(m·K)', font_size=10, fg='#64748B')
+        add_text('  D_th : 열이 재료 내부로 확산되는 속도. 값이 작을수록 열이 접촉점에 집중 → ΔT 증가', font_size=10, fg='#64748B')
 
         # 3-B: Peclet number
         add_separator()
-        add_text('  3-B. Peclet 수 (Jd, Jh) — 대류 vs 전도 비율', font_size=19, bold=True, fg='#1E293B')
-        add_text('  이동 열원 문제에서 열 수송의 특성을 결정하는 무차원수:', font_size=17, fg='#64748B')
+        add_text('  3-B. Peclet 수 (Jd, Jh) — 대류 vs 전도 비율', font_size=10, bold=True, fg='#1E293B')
+        add_text('  이동 열원 문제에서 열 수송의 특성을 결정하는 무차원수:', font_size=10, fg='#64748B')
 
         add_equation(r"$J_d = \frac{v \cdot d}{D_{th}}, \qquad J_h = \frac{v \cdot h}{D_{th}}$", fig_height=0.9)
 
-        add_text('  v : 미끄럼 속도 [m/s],  d : 접촉 패치의 특성 직경 [m],  h : 표면층 두께 [m] (≈1/q₁)', font_size=17, fg='#64748B')
-        add_text('  Jd : 열이 핫스팟 직경(d) 밖으로 빠져나가는 비율 — Jd≫1이면 이동 열원', font_size=17, fg='#059669')
-        add_text('  Jh : 초고속에서 열이 표면층(h) 깊이 이상 침투 못함 — Jh≫1이면 ΔT∝1/v (포화)', font_size=17, fg='#059669')
-        add_text('  Jd ≪ 1 (느린 속도): 정상 열전도에 가까움 → ΔT ∝ q̇·d/κ', font_size=17, fg='#059669')
+        add_text('  v : 미끄럼 속도 [m/s],  d : 접촉 패치의 특성 직경 [m],  h : 표면층 두께 [m] (≈1/q₁)', font_size=10, fg='#64748B')
+        add_text('  Jd : 열이 핫스팟 직경(d) 밖으로 빠져나가는 비율 — Jd≫1이면 이동 열원', font_size=10, fg='#059669')
+        add_text('  Jh : 초고속에서 열이 표면층(h) 깊이 이상 침투 못함 — Jh≫1이면 ΔT∝1/v (포화)', font_size=10, fg='#059669')
+        add_text('  Jd ≪ 1 (느린 속도): 정상 열전도에 가까움 → ΔT ∝ q̇·d/κ', font_size=10, fg='#059669')
 
         # 3-C: Greenwood formula
         add_separator()
-        add_text('  3-C. Greenwood 원형 접촉 보간식 (Persson 2006) — ΔT', font_size=19, bold=True, fg='#1E293B')
-        add_text('  Persson(2006)이 채택한 Greenwood 보간식 — 원형(3D) 접촉 패치에 대한 이동 열원 공식:', font_size=17, fg='#64748B')
+        add_text('  3-C. Greenwood 원형 접촉 보간식 (Persson 2006) — ΔT', font_size=10, bold=True, fg='#1E293B')
+        add_text('  Persson(2006)이 채택한 Greenwood 보간식 — 원형(3D) 접촉 패치에 대한 이동 열원 공식:', font_size=10, fg='#64748B')
 
         add_equation(
             r"$\Delta T = \frac{\dot{q} \cdot d}{4\kappa \sqrt{1 + \frac{\pi}{32} J_d + \frac{J_h^2}{4}}}$"
             r"  (d = 직경, a = d/2 = 반경)",
             fig_height=1.3)
 
-        add_text('  q̇ = μ × σ₀ × v / P(q_m) : 매크로 접촉면에 집중된 열유속(heat flux) [W/m²]', font_size=17, fg='#64748B')
-        add_text('  P(q_m) = A(q_m)/A₀ : 매크로 돌기 파수 q_m에서의 접촉 면적 비율', font_size=17, fg='#DC2626')
-        add_text('  이 공식은 세 가지 속도 영역을 부드럽게 보간합니다:', font_size=17, fg='#64748B')
-        add_text('  → 저속 극한 (Jd,Jh→0): ΔT ≈ q̇·d/(4κ)  (정상 열전도, d=직경, a=d/2=반경)', font_size=17, fg='#059669')
-        add_text('  → 중속 극한 (Jd≫1):     ΔT ∝ 1/√Jd ∝ 1/√v  (이동 열원)', font_size=17, fg='#059669')
-        add_text('  → 고속 극한 (Jh≫1):     ΔT ∝ 1/Jh ∝ 1/v  (표면층 포화)', font_size=17, fg='#059669')
+        add_text('  q̇ = μ × σ₀ × v / P(q_m) : 매크로 접촉면에 집중된 열유속(heat flux) [W/m²]', font_size=10, fg='#64748B')
+        add_text('  P(q_m) = A(q_m)/A₀ : 매크로 돌기 파수 q_m에서의 접촉 면적 비율', font_size=10, fg='#DC2626')
+        add_text('  이 공식은 세 가지 속도 영역을 부드럽게 보간합니다:', font_size=10, fg='#64748B')
+        add_text('  → 저속 극한 (Jd,Jh→0): ΔT ≈ q̇·d/(4κ)  (정상 열전도, d=직경, a=d/2=반경)', font_size=10, fg='#059669')
+        add_text('  → 중속 극한 (Jd≫1):     ΔT ∝ 1/√Jd ∝ 1/√v  (이동 열원)', font_size=10, fg='#059669')
+        add_text('  → 고속 극한 (Jh≫1):     ΔT ∝ 1/Jh ∝ 1/v  (표면층 포화)', font_size=10, fg='#059669')
 
         def _plot_greenwood(ax, np):
             Jd = np.logspace(-2, 5, 500)
@@ -8265,31 +8749,31 @@ class PerssonModelGUI_V2:
             ax.semilogx(Jd, dT_Jh10, '--', linewidth=2, color='#2563EB', label='Jh=10')
             ax.semilogx(Jd, dT_Jh100, ':', linewidth=2, color='#059669', label='Jh=100')
             ax.axhline(y=1.0, color='gray', linestyle=':', alpha=0.5)
-            ax.set_xlabel(r'$J_d = v \cdot d / D_{th}$', fontsize=12)
-            ax.set_ylabel(r'$\Delta T \;/\; (\dot{q} d / 2\kappa)$', fontsize=12)
-            ax.legend(fontsize=10, loc='upper right')
+            ax.set_xlabel(r'$J_d = v \cdot d / D_{th}$', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\Delta T \;/\; (\dot{q} d / 2\kappa)$', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right')
             ax.grid(True, alpha=0.3)
-            ax.set_title('Greenwood 원형 보간식: 정규화 ΔT vs Jd (Jh 비교)', fontsize=12, pad=10)
-            ax.annotate('정상 전도\n(Jd \u226a 1)', xy=(0.03, 0.92), fontsize=11,
+            ax.set_title('Greenwood 원형 보간식: 정규화 ΔT vs Jd (Jh 비교)', fontsize=self.PLOT_FONTS['title'], pad=10)
+            ax.annotate('정상 전도\n(Jd \u226a 1)', xy=(0.03, 0.92), fontsize=self.PLOT_FONTS['title'],
                          color='#2563EB', fontweight='bold')
-            ax.annotate('고속 포화\n(Jh 효과)', xy=(1e3, 0.15), fontsize=11,
+            ax.annotate('고속 포화\n(Jh 효과)', xy=(1e3, 0.15), fontsize=self.PLOT_FONTS['title'],
                          color='#DC2626', fontweight='bold')
             ax.set_ylim(0, 1.15)
         add_graph(_plot_greenwood)
 
         # 3-D: WLF time-temperature superposition
         add_separator()
-        add_text('  3-D. WLF 시간-온도 중첩 (Time-Temperature Superposition)', font_size=19, bold=True, fg='#1E293B')
-        add_text('  온도가 변하면 고분자 사슬의 이동도가 바뀌어 주파수 응답이 시프트됩니다:', font_size=17, fg='#64748B')
+        add_text('  3-D. WLF 시간-온도 중첩 (Time-Temperature Superposition)', font_size=10, bold=True, fg='#1E293B')
+        add_text('  온도가 변하면 고분자 사슬의 이동도가 바뀌어 주파수 응답이 시프트됩니다:', font_size=10, fg='#64748B')
 
         add_equation(
             r"$\log_{10} a_T(T) = \frac{-C_1 \, (T - T_{ref})}{C_2 + (T - T_{ref})}$",
             fig_height=1.0)
 
-        add_text('  C₁, C₂ : WLF 상수 (재료 고유값). T_ref : 기준 온도', font_size=17, fg='#64748B')
-        add_text('  마스터 곡선에서의 조회: E\'\'(ω, T) = E\'\'_master(ω × a_T(T))', font_size=17, fg='#374151', bold=True)
-        add_text('  T 증가 → a_T 감소 → ω×a_T 감소 → 더 낮은 주파수 영역의 E\'\' 사용', font_size=17, fg='#64748B')
-        add_text('  → 유리 전이 피크에서 벗어남 → E\'\' 감소 → μ 감소 (Negative Feedback!)', font_size=17, fg='#DC2626', bold=True)
+        add_text('  C₁, C₂ : WLF 상수 (재료 고유값). T_ref : 기준 온도', font_size=10, fg='#64748B')
+        add_text('  마스터 곡선에서의 조회: E\'\'(ω, T) = E\'\'_master(ω × a_T(T))', font_size=10, fg='#374151', bold=True)
+        add_text('  T 증가 → a_T 감소 → ω×a_T 감소 → 더 낮은 주파수 영역의 E\'\' 사용', font_size=10, fg='#64748B')
+        add_text('  → 유리 전이 피크에서 벗어남 → E\'\' 감소 → μ 감소 (Negative Feedback!)', font_size=10, fg='#DC2626', bold=True)
 
         def _plot_wlf_shift(ax, np):
             T = np.linspace(-20, 150, 300)
@@ -8299,30 +8783,30 @@ class PerssonModelGUI_V2:
             ax.plot(T, log_aT, '-', linewidth=2.5, color='#2563EB')
             ax.axhline(y=0, color='gray', linestyle=':', alpha=0.5)
             ax.axvline(x=T_ref, color='gray', linestyle='--', alpha=0.5)
-            ax.set_xlabel('T (\u00b0C)', fontsize=12)
-            ax.set_ylabel(r'$\log_{10}\, a_T$', fontsize=12)
+            ax.set_xlabel('T (\u00b0C)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\log_{10}\, a_T$', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3)
-            ax.set_title('WLF 시프트 팩터 \u2014 온도에 따른 주파수 시프트', fontsize=12, pad=10)
-            ax.annotate(f'T_ref = {T_ref}\u00b0C', xy=(T_ref + 2, 0.3), fontsize=11, color='#64748B')
+            ax.set_title('WLF 시프트 팩터 \u2014 온도에 따른 주파수 시프트', fontsize=self.PLOT_FONTS['title'], pad=10)
+            ax.annotate(f'T_ref = {T_ref}\u00b0C', xy=(T_ref + 2, 0.3), fontsize=self.PLOT_FONTS['title'], color='#64748B')
             ax.annotate('T\u2191 \u2192 aT\u2193\n주파수 왼쪽 시프트', xy=(80, -5),
-                         fontsize=11, color='#DC2626', fontweight='bold')
+                         fontsize=self.PLOT_FONTS['title'], color='#DC2626', fontweight='bold')
             ax.annotate('T\u2193 \u2192 aT\u2191\n주파수 오른쪽 시프트', xy=(-15, 3),
-                         fontsize=11, color='#2563EB', fontweight='bold')
+                         fontsize=self.PLOT_FONTS['title'], color='#2563EB', fontweight='bold')
         add_graph(_plot_wlf_shift)
 
         # 3-E: Per-q accumulation — the core algorithm
         add_separator()
-        add_text('  3-E. Per-q Sequential Accumulation — 핵심 알고리즘', font_size=19, bold=True, fg='#1E293B')
-        add_text('  파수별 순차 누적: 각 q 단계에서 누적 온도 기반 WLF shift 적용', font_size=17, fg='#DC2626', bold=True)
-        add_text('  Greenwood 원형 보간식: δT(q_i) = q̇·d/(4κ)/√(1+(π/32)Jd+Jh²/4)', font_size=17, fg='#DC2626', bold=True)
-        add_text('  면적 보정: q̇ = dμ·σ₀·v / P(q_i) (접촉면에 열 집중)', font_size=17, fg='#DC2626', bold=True)
+        add_text('  3-E. Per-q Sequential Accumulation — 핵심 알고리즘', font_size=10, bold=True, fg='#1E293B')
+        add_text('  파수별 순차 누적: 각 q 단계에서 누적 온도 기반 WLF shift 적용', font_size=10, fg='#DC2626', bold=True)
+        add_text('  Greenwood 원형 보간식: δT(q_i) = q̇·d/(4κ)/√(1+(π/32)Jd+Jh²/4)', font_size=10, fg='#DC2626', bold=True)
+        add_text('  면적 보정: q̇ = dμ·σ₀·v / P(q_i) (접촉면에 열 집중)', font_size=10, fg='#DC2626', bold=True)
 
         add_equation(
             r"$d(q_i) = \frac{2\pi}{q_i}, \qquad"
             r" d\mu_i = \frac{1}{2}\,\frac{f(q_{i-1}) + f(q_i)}{2}\,\Delta q_i$",
             fig_height=1.0)
 
-        add_text('  여기서 f(q) = q³ C(q) P(q) S(q) × (각도 적분) 은 마찰 피적분함수', font_size=17, fg='#64748B')
+        add_text('  여기서 f(q) = q³ C(q) P(q) S(q) × (각도 적분) 은 마찰 피적분함수', font_size=10, fg='#64748B')
 
         add_equation(
             r"$\dot{q}(q_i) = \frac{d\mu_i \cdot \sigma_0 \cdot v}{P(q_i)}"
@@ -8334,30 +8818,30 @@ class PerssonModelGUI_V2:
             r"{2\kappa\,\sqrt{1 + \frac{\pi}{16} J_d(q_i) + \frac{J_h^2}{4}}}$",
             fig_height=1.3)
 
-        add_text('  Jh = v·h/D_th (h=1/q₁): 고속 표면층 포화 효과', font_size=17, fg='#DC2626', bold=True)
-        add_text('  A/A₀ 보정: P(q) = A(q)/A₀ 는 파수 q까지의 접촉 면적 비율', font_size=17, fg='#DC2626', bold=True)
-        add_text('  → 열유속 q̇ = dμ·σ₀·v / P(q) : 접촉 패치에 열이 집중됨', font_size=17, fg='#DC2626', bold=True)
-        add_text('  → P(q)가 작을수록 (접촉 면적 ↓) 열유속 ↑ → ΔT ↑', font_size=17, fg='#DC2626')
+        add_text('  Jh = v·h/D_th (h=1/q₁): 고속 표면층 포화 효과', font_size=10, fg='#DC2626', bold=True)
+        add_text('  A/A₀ 보정: P(q) = A(q)/A₀ 는 파수 q까지의 접촉 면적 비율', font_size=10, fg='#DC2626', bold=True)
+        add_text('  → 열유속 q̇ = dμ·σ₀·v / P(q) : 접촉 패치에 열이 집중됨', font_size=10, fg='#DC2626', bold=True)
+        add_text('  → P(q)가 작을수록 (접촉 면적 ↓) 열유속 ↑ → ΔT ↑', font_size=10, fg='#DC2626')
 
         add_equation(
             r"$\Delta T(q_i) = \sum_{k=1}^{i} \delta T(q_k)$"
             r"  (순차 누적, $q_0 \to q_1$)",
             fig_height=0.9)
 
-        add_text('\n  Per-q Sequential Accumulation 순서:', font_size=17, bold=True, fg='#1E293B')
-        add_text('  \u2460 초기: T_current = T_base, ΔT_accum = 0', font_size=17, fg='#059669')
-        add_text('  \u2461 각 q[i]에서: WLF shift a_T(T_current) → E\'\'(ω·a_T) 조회', font_size=17, fg='#059669')
-        add_text('  \u2462 dμ[i] 계산: shifted E\'\'로 마찰 피적분함수 적분', font_size=17, fg='#059669')
-        add_text('  \u2463 열유속: q̇(q_i) = dμ[i]·σ₀·v / P(q_i) (파수별 면적 보정)', font_size=17, fg='#059669')
-        add_text('  \u2464 δT(q_i) = Greenwood(q̇, d=π/q_i, v): (q̇·d)/(4κ)/√(1+(π/32)Jd+Jh²/4)  [원형 접촉, d=직경→a=d/2]', font_size=17, fg='#059669')
-        add_text('  \u2465 T_current = T_base + ΔT_accum + δT(q_i) → 다음 q에서 사용', font_size=17, fg='#059669')
-        add_text('  \u2466 최종: ΔT_total = Σ δT(q_i), μ_hot = Σ dμ[i]', font_size=17, fg='#059669')
+        add_text('\n  Per-q Sequential Accumulation 순서:', font_size=10, bold=True, fg='#1E293B')
+        add_text('  \u2460 초기: T_current = T_base, ΔT_accum = 0', font_size=10, fg='#059669')
+        add_text('  \u2461 각 q[i]에서: WLF shift a_T(T_current) → E\'\'(ω·a_T) 조회', font_size=10, fg='#059669')
+        add_text('  \u2462 dμ[i] 계산: shifted E\'\'로 마찰 피적분함수 적분', font_size=10, fg='#059669')
+        add_text('  \u2463 열유속: q̇(q_i) = dμ[i]·σ₀·v / P(q_i) (파수별 면적 보정)', font_size=10, fg='#059669')
+        add_text('  \u2464 δT(q_i) = Greenwood(q̇, d=π/q_i, v): (q̇·d)/(4κ)/√(1+(π/32)Jd+Jh²/4)  [원형 접촉, d=직경→a=d/2]', font_size=10, fg='#059669')
+        add_text('  \u2465 T_current = T_base + ΔT_accum + δT(q_i) → 다음 q에서 사용', font_size=10, fg='#059669')
+        add_text('  \u2466 최종: ΔT_total = Σ δT(q_i), μ_hot = Σ dμ[i]', font_size=10, fg='#059669')
 
-        add_text('\n  물리적 의미 — 왜 Per-q Sequential인가?', font_size=17, bold=True, fg='#1E293B')
-        add_text('  → 큰 스케일(저 q)에서 작은 스케일(고 q)로 순차적 온도 누적', font_size=17, fg='#64748B')
-        add_text('  → 각 q 단계에서 누적 온도에 따른 WLF shift 자동 적용', font_size=17, fg='#64748B')
-        add_text('  → 고 q (작은 접촉 패치): 이전 q들의 발열 효과가 반영됨', font_size=17, fg='#64748B')
-        add_text('  → P(q_i) 보정: 각 파수의 실접촉 면적에 열유속 집중', font_size=17, fg='#64748B')
+        add_text('\n  물리적 의미 — 왜 Per-q Sequential인가?', font_size=10, bold=True, fg='#1E293B')
+        add_text('  → 큰 스케일(저 q)에서 작은 스케일(고 q)로 순차적 온도 누적', font_size=10, fg='#64748B')
+        add_text('  → 각 q 단계에서 누적 온도에 따른 WLF shift 자동 적용', font_size=10, fg='#64748B')
+        add_text('  → 고 q (작은 접촉 패치): 이전 q들의 발열 효과가 반영됨', font_size=10, fg='#64748B')
+        add_text('  → P(q_i) 보정: 각 파수의 실접촉 면적에 열유속 집중', font_size=10, fg='#64748B')
 
         def _plot_dT_accumulation(ax, np):
             q = np.logspace(2, 8, 200)
@@ -8382,27 +8866,27 @@ class PerssonModelGUI_V2:
                 if np.max(dT_accum) > 0:
                     dT_accum = dT_accum / np.max(dT_accum) * v_val * 30
                 ax.semilogx(q, dT_accum, '-', linewidth=2, color=color, label=label)
-            ax.set_xlabel('q (1/m)', fontsize=12)
-            ax.set_ylabel(r'$\Delta T(q)$ 누적 (\u00b0C)', fontsize=12)
-            ax.legend(fontsize=10, loc='upper left')
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\Delta T(q)$ 누적 (\u00b0C)', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper left')
             ax.grid(True, alpha=0.3)
-            ax.set_title('파수별 \u0394T 누적 \u2014 속도별 비교 (개념도)', fontsize=12, pad=10)
-            ax.annotate('큰 스케일\n(낮은 q)', xy=(q[20], 0), fontsize=10, color='#64748B')
+            ax.set_title('파수별 \u0394T 누적 \u2014 속도별 비교 (개념도)', fontsize=self.PLOT_FONTS['title'], pad=10)
+            ax.annotate('큰 스케일\n(낮은 q)', xy=(q[20], 0), fontsize=self.PLOT_FONTS['title'], color='#64748B')
         add_graph(_plot_dT_accumulation)
 
         # 3-F: Final hot friction result
         add_separator()
-        add_text('  3-F. 최종 결과 — Hot 마찰 계수와 접촉 면적', font_size=19, bold=True, fg='#1E293B')
+        add_text('  3-F. 최종 결과 — Hot 마찰 계수와 접촉 면적', font_size=10, bold=True, fg='#1E293B')
 
         add_equation(
             r"$\mu_{hot} = \frac{1}{2}\int_{q_0}^{q_1} dq\, q^3 C(q) P(q) S(q)"
             r" \int d\phi\, \cos\phi\, \frac{\mathrm{Im}[E(\omega \cdot a_T(T_{hot}))]}{(1-\nu^2)\sigma_0}$",
             fig_height=1.0)
 
-        add_text('  μ_hot: 파수별 순차 누적 — 각 q에서 누적 온도 기반 WLF shift 적용', font_size=17, fg='#64748B')
-        add_text('  ΔT: Persson 2006 원형 접촉 공식, 파수별 순차 누적 (q₀→q₁)', font_size=17, fg='#64748B')
-        add_text('  A/A0_hot: 최종 ΔT에서 G(q) 재계산 → P(q₁) = erf(1/(2√G(q₁)))', font_size=17, fg='#64748B')
-        add_text('  T_hot(v) = T_base + ΔT_total(v): 각 속도에서의 접촉 온도', font_size=17, fg='#64748B')
+        add_text('  μ_hot: 파수별 순차 누적 — 각 q에서 누적 온도 기반 WLF shift 적용', font_size=10, fg='#64748B')
+        add_text('  ΔT: Persson 2006 원형 접촉 공식, 파수별 순차 누적 (q₀→q₁)', font_size=10, fg='#64748B')
+        add_text('  A/A0_hot: 최종 ΔT에서 G(q) 재계산 → P(q₁) = erf(1/(2√G(q₁)))', font_size=10, fg='#64748B')
+        add_text('  T_hot(v) = T_base + ΔT_total(v): 각 속도에서의 접촉 온도', font_size=10, fg='#64748B')
 
         def _plot_feedback(ax, np):
             v = np.logspace(-6, 2, 300)
@@ -8414,20 +8898,20 @@ class PerssonModelGUI_V2:
             ax.semilogx(v, mu_cold, 'b-', linewidth=2, label=r'$\mu_{cold}$ (Flash OFF)')
             ax.semilogx(v, mu_hot, 'r-', linewidth=2, label=r'$\mu_{hot}$ (Flash ON, per-q)')
             ax.fill_between(v, mu_hot, mu_cold, alpha=0.1, color='red')
-            ax.set_xlabel('v (m/s)', fontsize=12)
-            ax.set_ylabel(r'$\mu_{visc}$', fontsize=12)
-            ax.legend(fontsize=10, loc='upper right')
+            ax.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\mu_{visc}$', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right')
             ax.grid(True, alpha=0.3)
-            ax.set_title(r'Flash Negative Feedback: $\mu_{cold}$ vs $\mu_{hot}$', fontsize=12, pad=10)
+            ax.set_title(r'Flash Negative Feedback: $\mu_{cold}$ vs $\mu_{hot}$', fontsize=self.PLOT_FONTS['title'], pad=10)
             ax.annotate('Flash 감소 영역\n(고속에서 연화)',
                          xy=(1, (mu_cold[200] + mu_hot[200]) / 2),
-                         fontsize=11, color='#DC2626', fontweight='bold')
+                         fontsize=self.PLOT_FONTS['title'], color='#DC2626', fontweight='bold')
         add_graph(_plot_feedback)
 
-        add_text('\n  Negative Feedback Loop (고속 영역):', font_size=17, bold=True, fg='#1E293B')
-        add_text('  v\u2191 → q̇\u2191 → ΔT\u2191 → a_T\u2193 → E\'\'\u2193 → μ\u2193 → q̇\u2193 → ΔT\u2193', font_size=17, fg='#DC2626', bold=True)
-        add_text('  → 이 피드백은 per-q 순차 처리에서 자연스럽게 구현됨 (외부 반복 불필요)', font_size=17, fg='#64748B')
-        add_text('  → A/A₀ 보정(q̇ /= P(q))으로 접촉 패치의 실제 열유속을 정확히 반영', font_size=17, fg='#DC2626')
+        add_text('\n  Negative Feedback Loop (고속 영역):', font_size=10, bold=True, fg='#1E293B')
+        add_text('  v\u2191 → q̇\u2191 → ΔT\u2191 → a_T\u2193 → E\'\'\u2193 → μ\u2193 → q̇\u2193 → ΔT\u2193', font_size=10, fg='#DC2626', bold=True)
+        add_text('  → 이 피드백은 per-q 순차 처리에서 자연스럽게 구현됨 (외부 반복 불필요)', font_size=10, fg='#64748B')
+        add_text('  → A/A₀ 보정(q̇ /= P(q))으로 접촉 패치의 실제 열유속을 정확히 반영', font_size=10, fg='#DC2626')
 
         # ═══════════════════════════════════════════════════════
         # Section 4: μ_adh (점착 마찰)
@@ -8436,9 +8920,9 @@ class PerssonModelGUI_V2:
         add_section_title('4. μ_adh — 점착 마찰 계수')
 
         add_text('접착 마찰은 고무 표면 분자와 노면 분자 사이의 점착(adhesion)에 의해 발생하는 마찰 성분입니다.',
-                 font_size=17, fg='#1E293B')
+                 font_size=10, fg='#1E293B')
         add_text('이 모델은 Arrhenius 온도 시프트 + Gaussian 전단 응력 마스터 커브를 사용합니다.',
-                 font_size=17, fg='#64748B')
+                 font_size=10, fg='#64748B')
         add_text('', pady=4)
 
         add_text('4-A. Arrhenius 온도 시프트 팩터:', bold=True, pady=(8, 0))
@@ -8446,18 +8930,18 @@ class PerssonModelGUI_V2:
             r"$a_T' = \exp\!\left[\frac{\varepsilon}{k_B}"
             r"\left(\frac{1}{T} - \frac{1}{T_{ref}}\right)\right]$",
             fig_height=1.2)
-        add_text('  aT\' : 점착 온도 시프트 팩터 — 온도에 따라 분자 이동도가 변하는 정도', font_size=17, fg='#64748B')
-        add_text('  epsilon : 활성화 에너지 [eV] — 표면 분자의 점착 결합을 끊는 데 필요한 에너지 장벽 (보통 ~0.97 eV)', font_size=17, fg='#64748B')
-        add_text('  k_B : 볼츠만 상수 = 8.6173 x 10^-5 eV/K', font_size=17, fg='#64748B')
-        add_text('  T : 계산 온도 [K], T_ref : 기준 온도 [K] (마스터 커브의 기준 온도)', font_size=17, fg='#64748B')
-        add_text('  → T > T_ref이면 aT\' < 1 (고온에서 분자 이동 빨라짐 → 점착 감소)', font_size=17, fg='#DC2626')
-        add_text('  → T < T_ref이면 aT\' > 1 (저온에서 분자 이동 느려짐 → 점착 증가 가능)', font_size=17, fg='#DC2626')
+        add_text('  aT\' : 점착 온도 시프트 팩터 — 온도에 따라 분자 이동도가 변하는 정도', font_size=10, fg='#64748B')
+        add_text('  epsilon : 활성화 에너지 [eV] — 표면 분자의 점착 결합을 끊는 데 필요한 에너지 장벽 (보통 ~0.97 eV)', font_size=10, fg='#64748B')
+        add_text('  k_B : 볼츠만 상수 = 8.6173 x 10^-5 eV/K', font_size=10, fg='#64748B')
+        add_text('  T : 계산 온도 [K], T_ref : 기준 온도 [K] (마스터 커브의 기준 온도)', font_size=10, fg='#64748B')
+        add_text('  → T > T_ref이면 aT\' < 1 (고온에서 분자 이동 빨라짐 → 점착 감소)', font_size=10, fg='#DC2626')
+        add_text('  → T < T_ref이면 aT\' > 1 (저온에서 분자 이동 느려짐 → 점착 증가 가능)', font_size=10, fg='#DC2626')
         add_text('', pady=4)
 
         add_text('4-B. 유효 속도 (온도 보정):', bold=True, pady=(8, 0))
         add_equation(r"$v_{eff} = v \times a_T'$", fig_height=0.9)
-        add_text('  v_eff : 유효 속도 — 온도 효과를 속도 축으로 변환한 값', font_size=17, fg='#64748B')
-        add_text('  → 온도가 높으면 분자가 빨리 움직이므로, 실제보다 느린 속도와 같은 효과', font_size=17, fg='#64748B')
+        add_text('  v_eff : 유효 속도 — 온도 효과를 속도 축으로 변환한 값', font_size=10, fg='#64748B')
+        add_text('  → 온도가 높으면 분자가 빨리 움직이므로, 실제보다 느린 속도와 같은 효과', font_size=10, fg='#64748B')
         add_text('', pady=4)
 
         add_text('4-C. Gaussian 전단 응력 마스터 커브:', bold=True, pady=(8, 0))
@@ -8465,31 +8949,31 @@ class PerssonModelGUI_V2:
             r"$\tau_f = \tau_{f0} \cdot \exp\!\left[-c \cdot"
             r" \left(\log_{10}\frac{v_{eff}}{v_0^*}\right)^2\right]$",
             fig_height=1.2)
-        add_text('  tau_f : 점착 전단 응력 [Pa] — 고무 표면의 점착 결합이 끊어질 때의 전단 응력', font_size=17, fg='#64748B')
-        add_text('  tau_f0 : 최대 점착 전단 응력 [Pa] — Gaussian 피크값 (피팅 파라미터)', font_size=17, fg='#2563EB')
-        add_text('  v0* : 기준 속도 [m/s] — 점착 피크가 나타나는 유효 속도 (피팅 파라미터)', font_size=17, fg='#2563EB')
-        add_text('  c : Gaussian 폭 상수 — 값이 작을수록 넓은 속도 범위에서 점착 발생 (피팅 파라미터)', font_size=17, fg='#2563EB')
-        add_text('  → v_eff = v0* 일 때 tau_f가 최대 (tau_f0)', font_size=17, fg='#DC2626')
-        add_text('  → v_eff >> v0* 또는 v_eff << v0* 이면 tau_f 급격히 감소', font_size=17, fg='#DC2626')
+        add_text('  tau_f : 점착 전단 응력 [Pa] — 고무 표면의 점착 결합이 끊어질 때의 전단 응력', font_size=10, fg='#64748B')
+        add_text('  tau_f0 : 최대 점착 전단 응력 [Pa] — Gaussian 피크값 (피팅 파라미터)', font_size=10, fg='#2563EB')
+        add_text('  v0* : 기준 속도 [m/s] — 점착 피크가 나타나는 유효 속도 (피팅 파라미터)', font_size=10, fg='#2563EB')
+        add_text('  c : Gaussian 폭 상수 — 값이 작을수록 넓은 속도 범위에서 점착 발생 (피팅 파라미터)', font_size=10, fg='#2563EB')
+        add_text('  → v_eff = v0* 일 때 tau_f가 최대 (tau_f0)', font_size=10, fg='#DC2626')
+        add_text('  → v_eff >> v0* 또는 v_eff << v0* 이면 tau_f 급격히 감소', font_size=10, fg='#DC2626')
         add_text('', pady=4)
 
         add_text('4-D. 최종 점착 마찰 계수:', bold=True, pady=(8, 0))
         add_equation(
             r"$\mu_{adh} = \frac{\tau_f}{p_0} \times \frac{A}{A_0}$",
             fig_height=1.0)
-        add_text('  mu_adh : 점착 마찰 계수 — 실접촉 면적에 작용하는 전단 응력의 마찰 기여분', font_size=17, fg='#64748B')
-        add_text('  p0 : 명목 접촉 압력 [Pa] — 하중/전체면적 (sigma_0)', font_size=17, fg='#64748B')
-        add_text('  A/A0 : 실접촉 면적비 — mu_visc 계산의 P(q1) 결과에서 가져옴', font_size=17, fg='#64748B')
-        add_text('  → tau_f가 크고 A/A0가 클수록 점착 마찰 증가', font_size=17, fg='#DC2626')
+        add_text('  mu_adh : 점착 마찰 계수 — 실접촉 면적에 작용하는 전단 응력의 마찰 기여분', font_size=10, fg='#64748B')
+        add_text('  p0 : 명목 접촉 압력 [Pa] — 하중/전체면적 (sigma_0)', font_size=10, fg='#64748B')
+        add_text('  A/A0 : 실접촉 면적비 — mu_visc 계산의 P(q1) 결과에서 가져옴', font_size=10, fg='#64748B')
+        add_text('  → tau_f가 크고 A/A0가 클수록 점착 마찰 증가', font_size=10, fg='#DC2626')
         add_text('', pady=4)
 
         add_text('4-E. 전체 마찰 합산:', bold=True, pady=(8, 0))
         add_equation(
             r"$\mu_{total} = \mu_{visc} + \mu_{adh}$",
             fig_height=0.9)
-        add_text('  mu_total : 전체 건조 마찰 계수 — 점탄성 마찰(히스테리시스) + 점착 마찰의 합', font_size=17, fg='#64748B')
-        add_text('  mu_visc : 점탄성 마찰 — 고무 내부 에너지 소산에 의한 마찰 (Section 2)', font_size=17, fg='#64748B')
-        add_text('  mu_adh : 점착 마찰 — 표면 분자 결합/해체에 의한 마찰 (이 Section)', font_size=17, fg='#64748B')
+        add_text('  mu_total : 전체 건조 마찰 계수 — 점탄성 마찰(히스테리시스) + 점착 마찰의 합', font_size=10, fg='#64748B')
+        add_text('  mu_visc : 점탄성 마찰 — 고무 내부 에너지 소산에 의한 마찰 (Section 2)', font_size=10, fg='#64748B')
+        add_text('  mu_adh : 점착 마찰 — 표면 분자 결합/해체에 의한 마찰 (이 Section)', font_size=10, fg='#64748B')
 
         def _plot_mu_adh_components(ax, np):
             """Show mu_visc, mu_adh, and mu_total."""
@@ -8502,11 +8986,11 @@ class PerssonModelGUI_V2:
             ax.semilogx(v, mu_total, 'r-', linewidth=2.5, label=r'$\mu_{total}$ (합산)')
             ax.fill_between(v, 0, mu_visc, alpha=0.06, color='blue')
             ax.fill_between(v, mu_visc, mu_total, alpha=0.06, color='green')
-            ax.set_xlabel('v (m/s)', fontsize=12)
-            ax.set_ylabel(r'$\mu$', fontsize=12)
-            ax.legend(fontsize=10, loc='upper right')
+            ax.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\mu$', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right')
             ax.grid(True, alpha=0.3)
-            ax.set_title(r'$\mu_{total} = \mu_{visc} + \mu_{adh}$ (대표적 형상)', fontsize=12, pad=10)
+            ax.set_title(r'$\mu_{total} = \mu_{visc} + \mu_{adh}$ (대표적 형상)', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_mu_adh_components)
 
         # Bottom padding for scroll
@@ -8684,9 +9168,9 @@ class PerssonModelGUI_V2:
         self.ax_rms_slope = self.fig_rms.add_subplot(221)
         self.ax_rms_slope.set_title("① h'rms ξ(q) — 누적 RMS 기울기\n"
             "ξ²=2π∫k³C(k)dk  |  고파수일수록 기울기 기여 ↑",
-            fontweight='bold', fontsize=9, loc='left')
-        self.ax_rms_slope.set_xlabel('파수 q (1/m)', fontsize=10)
-        self.ax_rms_slope.set_ylabel("ξ (h'rms slope)", fontsize=10)
+            fontweight='bold', fontsize=self.PLOT_FONTS['title'], loc='left')
+        self.ax_rms_slope.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_rms_slope.set_ylabel("ξ (h'rms slope)", fontsize=self.PLOT_FONTS['label'])
         self.ax_rms_slope.set_xscale('log')
         self.ax_rms_slope.set_yscale('log')
         self.ax_rms_slope.grid(True, alpha=0.3)
@@ -8695,9 +9179,9 @@ class PerssonModelGUI_V2:
         self.ax_local_strain = self.fig_rms.add_subplot(222)
         self.ax_local_strain.set_title("② Local Strain ε(q) — 고무 국소 변형률\n"
             "ε=factor×ξ  |  고파수 거칠기가 큰 변형 유발",
-            fontweight='bold', fontsize=9, loc='left')
-        self.ax_local_strain.set_xlabel('파수 q (1/m)', fontsize=10)
-        self.ax_local_strain.set_ylabel('ε (%)', fontsize=10)
+            fontweight='bold', fontsize=self.PLOT_FONTS['title'], loc='left')
+        self.ax_local_strain.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_local_strain.set_ylabel('ε (%)', fontsize=self.PLOT_FONTS['label'])
         self.ax_local_strain.set_xscale('log')
         self.ax_local_strain.set_yscale('log')
         self.ax_local_strain.grid(True, alpha=0.3)
@@ -8706,9 +9190,9 @@ class PerssonModelGUI_V2:
         self.ax_rms_height = self.fig_rms.add_subplot(223)
         self.ax_rms_height.set_title("③ RMS Height h_rms(q) — 누적 RMS 높이\n"
             "h²=2π∫kC(k)dk  |  저파수(큰 파장)가 높이 지배",
-            fontweight='bold', fontsize=9, loc='left')
-        self.ax_rms_height.set_xlabel('파수 q (1/m)', fontsize=10)
-        self.ax_rms_height.set_ylabel('h_rms (μm)', fontsize=10)
+            fontweight='bold', fontsize=self.PLOT_FONTS['title'], loc='left')
+        self.ax_rms_height.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_rms_height.set_ylabel('h_rms (μm)', fontsize=self.PLOT_FONTS['label'])
         self.ax_rms_height.set_xscale('log')
         self.ax_rms_height.set_yscale('log')
         self.ax_rms_height.grid(True, alpha=0.3)
@@ -8717,9 +9201,9 @@ class PerssonModelGUI_V2:
         self.ax_psd_ref = self.fig_rms.add_subplot(224)
         self.ax_psd_ref.set_title("④ PSD C(q) — 표면 파워 스펙트럼\n"
             "C(q)∝q^(-2-2H)  |  C↓이지만 k³C↑ → 기울기↑",
-            fontweight='bold', fontsize=9, loc='left')
-        self.ax_psd_ref.set_xlabel('파수 q (1/m)', fontsize=10)
-        self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=10)
+            fontweight='bold', fontsize=self.PLOT_FONTS['title'], loc='left')
+        self.ax_psd_ref.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=self.PLOT_FONTS['label'])
         self.ax_psd_ref.set_xscale('log')
         self.ax_psd_ref.set_yscale('log')
         self.ax_psd_ref.grid(True, alpha=0.3)
@@ -8861,9 +9345,9 @@ class PerssonModelGUI_V2:
         self.ax_rms_slope.set_title(
             "① h'rms ξ(q) — 누적 RMS 기울기\n"
             "ξ²=2π∫k³C(k)dk  |  고파수일수록 기울기 기여 ↑",
-            fontweight='bold', fontsize=9, loc='left')
-        self.ax_rms_slope.set_xlabel('파수 q (1/m)', fontsize=10)
-        self.ax_rms_slope.set_ylabel("ξ (h'rms slope)", fontsize=10)
+            fontweight='bold', fontsize=self.PLOT_FONTS['title'], loc='left')
+        self.ax_rms_slope.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_rms_slope.set_ylabel("ξ (h'rms slope)", fontsize=self.PLOT_FONTS['label'])
         self.ax_rms_slope.grid(True, alpha=0.3)
 
         # Add final value annotation - use target_xi from Tab 2 if available
@@ -8872,12 +9356,12 @@ class PerssonModelGUI_V2:
             self.ax_rms_slope.axhline(y=xi_max_display, color='r', linestyle='--', alpha=0.5)
             self.ax_rms_slope.annotate(f'ξ_max={xi_max_display:.4f}',
                 xy=(q[-1], xi_max_display), xytext=(0.7, 0.85),
-                textcoords='axes fraction', fontsize=9,
+                textcoords='axes fraction', fontsize=self.PLOT_FONTS['title'],
                 arrowprops=dict(arrowstyle='->', color='red', alpha=0.5))
             # 물리적 해석 텍스트 박스
             self.ax_rms_slope.text(0.03, 0.05,
                 "k³ 가중 → 작은 스케일(고파수)이\n기울기를 지배",
-                transform=self.ax_rms_slope.transAxes, fontsize=7.5,
+                transform=self.ax_rms_slope.transAxes, fontsize=self.PLOT_FONTS['title'],
                 verticalalignment='bottom',
                 bbox=dict(boxstyle='round,pad=0.3', facecolor='#DBEAFE', alpha=0.8))
 
@@ -8888,25 +9372,25 @@ class PerssonModelGUI_V2:
         self.ax_local_strain.set_title(
             "② Local Strain ε(q) — 고무 국소 변형률\n"
             "ε=factor×ξ  |  고파수 거칠기가 큰 변형 유발",
-            fontweight='bold', fontsize=9, loc='left')
-        self.ax_local_strain.set_xlabel('파수 q (1/m)', fontsize=10)
-        self.ax_local_strain.set_ylabel('ε (%)', fontsize=10)
+            fontweight='bold', fontsize=self.PLOT_FONTS['title'], loc='left')
+        self.ax_local_strain.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_local_strain.set_ylabel('ε (%)', fontsize=self.PLOT_FONTS['label'])
         self.ax_local_strain.grid(True, alpha=0.3)
 
         # Add strain thresholds with 물리적 의미
         self.ax_local_strain.axhline(y=1, color='g', linestyle=':', alpha=0.5, label='1% (선형 영역)')
         self.ax_local_strain.axhline(y=10, color='orange', linestyle=':', alpha=0.5, label='10% (비선형 시작)')
         self.ax_local_strain.axhline(y=100, color='red', linestyle=':', alpha=0.5, label='100% (극한)')
-        self.ax_local_strain.legend(loc='upper left', fontsize=7)
+        self.ax_local_strain.legend(loc='upper left', fontsize=self.PLOT_FONTS['label'])
 
         if len(strain) > 0 and strain[-1] > 0:
             self.ax_local_strain.annotate(f'ε_max={strain[-1]*100:.2f}%',
                 xy=(q[-1], strain[-1]*100), xytext=(0.7, 0.85),
-                textcoords='axes fraction', fontsize=9,
+                textcoords='axes fraction', fontsize=self.PLOT_FONTS['title'],
                 arrowprops=dict(arrowstyle='->', color='red', alpha=0.5))
             self.ax_local_strain.text(0.03, 0.05,
                 "변형률이 클수록 고무가 비선형\n(Payne 효과: E' 감소, tan δ 변화)",
-                transform=self.ax_local_strain.transAxes, fontsize=7.5,
+                transform=self.ax_local_strain.transAxes, fontsize=self.PLOT_FONTS['title'],
                 verticalalignment='bottom',
                 bbox=dict(boxstyle='round,pad=0.3', facecolor='#FEE2E2', alpha=0.8))
 
@@ -8917,19 +9401,19 @@ class PerssonModelGUI_V2:
         self.ax_rms_height.set_title(
             "③ RMS Height h_rms(q) — 누적 RMS 높이\n"
             "h²=2π∫kC(k)dk  |  저파수(큰 파장)가 높이 지배",
-            fontweight='bold', fontsize=9, loc='left')
-        self.ax_rms_height.set_xlabel('파수 q (1/m)', fontsize=10)
-        self.ax_rms_height.set_ylabel('h_rms (μm)', fontsize=10)
+            fontweight='bold', fontsize=self.PLOT_FONTS['title'], loc='left')
+        self.ax_rms_height.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_rms_height.set_ylabel('h_rms (μm)', fontsize=self.PLOT_FONTS['label'])
         self.ax_rms_height.grid(True, alpha=0.3)
 
         if len(hrms) > 0 and hrms[-1] > 0:
             self.ax_rms_height.annotate(f'h_rms={hrms[-1]*1e6:.2f}μm',
                 xy=(q[-1], hrms[-1]*1e6), xytext=(0.7, 0.85),
-                textcoords='axes fraction', fontsize=9,
+                textcoords='axes fraction', fontsize=self.PLOT_FONTS['title'],
                 arrowprops=dict(arrowstyle='->', color='green', alpha=0.5))
             self.ax_rms_height.text(0.03, 0.05,
                 "k 가중 → 큰 파장이 높이 기여 큼\n(기울기와 반대: 높이≠기울기)",
-                transform=self.ax_rms_height.transAxes, fontsize=7.5,
+                transform=self.ax_rms_height.transAxes, fontsize=self.PLOT_FONTS['title'],
                 verticalalignment='bottom',
                 bbox=dict(boxstyle='round,pad=0.3', facecolor='#DCFCE7', alpha=0.8))
 
@@ -8943,19 +9427,19 @@ class PerssonModelGUI_V2:
             ax2 = self.ax_psd_ref.twinx()
             ax2.loglog(q[valid_C], k3C, color='#2563EB', linewidth=1.2,
                        linestyle='--', alpha=0.7, label='k³C(k)')
-            ax2.set_ylabel('k³C(k) (기울기 피적분함수)', fontsize=8, color='#2563EB')
-            ax2.tick_params(axis='y', labelcolor='#2563EB', labelsize=8)
+            ax2.set_ylabel('k³C(k) (기울기 피적분함수)', fontsize=self.PLOT_FONTS['label'], color='#2563EB')
+            ax2.tick_params(axis='y', labelcolor='#2563EB', labelsize=self.PLOT_FONTS['tick'])
             # 범례 통합
             lines1, labels1 = self.ax_psd_ref.get_legend_handles_labels()
             lines2, labels2 = ax2.get_legend_handles_labels()
             self.ax_psd_ref.legend(lines1 + lines2, labels1 + labels2,
-                                   loc='upper right', fontsize=7)
+                                   loc='upper right', fontsize=self.PLOT_FONTS['title'])
         self.ax_psd_ref.set_title(
             "④ PSD C(q) vs k³C(k) — 기울기의 원인\n"
             "C(q)↓ 이지만 k³C(k)↑ → h'rms가 고파수에서 증가!",
-            fontweight='bold', fontsize=9, loc='left')
-        self.ax_psd_ref.set_xlabel('파수 q (1/m)', fontsize=10)
-        self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=10)
+            fontweight='bold', fontsize=self.PLOT_FONTS['title'], loc='left')
+        self.ax_psd_ref.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_psd_ref.set_ylabel(r'C(q) (m$^4$)', fontsize=self.PLOT_FONTS['label'])
         self.ax_psd_ref.grid(True, alpha=0.3)
 
         # 핵심 물리 설명 텍스트 박스
@@ -8963,7 +9447,7 @@ class PerssonModelGUI_V2:
             "C(q)는 감소하지만 k³C(k)는 증가!\n"
             "∵ slope = ∇h → 미분 ≈ q×h\n"
             "→ 기울기 ∝ q³C(q) (2D 적분 포함)",
-            transform=self.ax_psd_ref.transAxes, fontsize=7,
+            transform=self.ax_psd_ref.transAxes, fontsize=self.PLOT_FONTS['title'],
             verticalalignment='bottom',
             bbox=dict(boxstyle='round,pad=0.3', facecolor='#FEF9C3', alpha=0.9))
 
@@ -9282,44 +9766,44 @@ class PerssonModelGUI_V2:
 
         # Row 1: ΔT(v) and T_hot(v)
         self.ax_flash_dT = self.fig_flash_temp.add_subplot(321)
-        self.ax_flash_dT.set_title('ΔT(v) - Flash 온도 상승', fontweight='bold', fontsize=10)
-        self.ax_flash_dT.set_xlabel('속도 v (m/s)', fontsize=9)
-        self.ax_flash_dT.set_ylabel('ΔT (°C)', fontsize=9)
+        self.ax_flash_dT.set_title('ΔT(v) - Flash 온도 상승', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_flash_dT.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_flash_dT.set_ylabel('ΔT (°C)', fontsize=self.PLOT_FONTS['label'])
         self.ax_flash_dT.set_xscale('log')
         self.ax_flash_dT.grid(True, alpha=0.3)
 
         self.ax_flash_Thot = self.fig_flash_temp.add_subplot(322)
-        self.ax_flash_Thot.set_title('T_hot(v) - 접촉 온도', fontweight='bold', fontsize=10)
-        self.ax_flash_Thot.set_xlabel('속도 v (m/s)', fontsize=9)
-        self.ax_flash_Thot.set_ylabel('T_hot (°C)', fontsize=9)
+        self.ax_flash_Thot.set_title('T_hot(v) - 접촉 온도', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_flash_Thot.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_flash_Thot.set_ylabel('T_hot (°C)', fontsize=self.PLOT_FONTS['label'])
         self.ax_flash_Thot.set_xscale('log')
         self.ax_flash_Thot.grid(True, alpha=0.3)
 
         # Row 2: Per-q ΔT accumulation curves and heatmap
         self.ax_flash_dT_q = self.fig_flash_temp.add_subplot(323)
-        self.ax_flash_dT_q.set_title('ΔT(q) 파수별 누적', fontweight='bold', fontsize=10)
-        self.ax_flash_dT_q.set_xlabel('파수 q (1/m)', fontsize=9)
-        self.ax_flash_dT_q.set_ylabel('누적 ΔT (°C)', fontsize=9)
+        self.ax_flash_dT_q.set_title('ΔT(q) 파수별 누적', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_flash_dT_q.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_flash_dT_q.set_ylabel('누적 ΔT (°C)', fontsize=self.PLOT_FONTS['label'])
         self.ax_flash_dT_q.set_xscale('log')
         self.ax_flash_dT_q.grid(True, alpha=0.3)
 
         self.ax_flash_heatmap = self.fig_flash_temp.add_subplot(324)
-        self.ax_flash_heatmap.set_title('ΔT(q, v) 히트맵', fontweight='bold', fontsize=10)
-        self.ax_flash_heatmap.set_xlabel('속도 v (m/s)', fontsize=9)
-        self.ax_flash_heatmap.set_ylabel('파수 q (1/m)', fontsize=9)
+        self.ax_flash_heatmap.set_title('ΔT(q, v) 히트맵', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_flash_heatmap.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_flash_heatmap.set_ylabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
         self._flash_heatmap_cb = None  # colorbar reference for cleanup
 
         # Row 3: ζ vs ΔT comparison and A/A0 comparison
         self.ax_flash_zeta_dT = self.fig_flash_temp.add_subplot(325)
-        self.ax_flash_zeta_dT.set_title('ζ vs ΔT (v≈0.6758 m/s)', fontweight='bold', fontsize=10)
-        self.ax_flash_zeta_dT.set_xlabel('log₁₀(ζ) = log₁₀(q/q₀)', fontsize=9)
-        self.ax_flash_zeta_dT.set_ylabel('T (°C)', fontsize=9)
+        self.ax_flash_zeta_dT.set_title('ζ vs ΔT (v≈0.6758 m/s)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_flash_zeta_dT.set_xlabel('log₁₀(ζ) = log₁₀(q/q₀)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_flash_zeta_dT.set_ylabel('T (°C)', fontsize=self.PLOT_FONTS['label'])
         self.ax_flash_zeta_dT.grid(True, alpha=0.3)
 
         self.ax_flash_area_compare = self.fig_flash_temp.add_subplot(326)
-        self.ax_flash_area_compare.set_title('A/A0 Cold vs Hot', fontweight='bold', fontsize=10)
-        self.ax_flash_area_compare.set_xlabel('속도 v (m/s)', fontsize=9)
-        self.ax_flash_area_compare.set_ylabel('A/A0', fontsize=9)
+        self.ax_flash_area_compare.set_title('A/A0 Cold vs Hot', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_flash_area_compare.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_flash_area_compare.set_ylabel('A/A0', fontsize=self.PLOT_FONTS['label'])
         self.ax_flash_area_compare.set_xscale('log')
         self.ax_flash_area_compare.grid(True, alpha=0.3)
 
@@ -9349,10 +9833,10 @@ class PerssonModelGUI_V2:
                                            label='ΔT_cold (WLF 피드백 없음)')
             self.ax_flash_dT.semilogx(v, flash_results['delta_T'], 'r-', linewidth=2.5,
                                        marker='o', markersize=3, label='ΔT_hot (per-q 누적)')
-            self.ax_flash_dT.set_title('ΔT(v) - Flash 온도 상승', fontweight='bold', fontsize=10)
-            self.ax_flash_dT.set_xlabel('속도 v (m/s)', fontsize=9)
-            self.ax_flash_dT.set_ylabel('ΔT (°C)', fontsize=9)
-            self.ax_flash_dT.legend(fontsize=7)
+            self.ax_flash_dT.set_title('ΔT(v) - Flash 온도 상승', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_flash_dT.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_dT.set_ylabel('ΔT (°C)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_dT.legend(fontsize=self.PLOT_FONTS['label'])
             self.ax_flash_dT.grid(True, alpha=0.3)
 
             # === Row 1 Right: T_hot vs velocity ===
@@ -9361,10 +9845,10 @@ class PerssonModelGUI_V2:
                                          marker='s', markersize=3)
             self.ax_flash_Thot.axhline(y=T_base, color='b', linestyle='--', alpha=0.5,
                                         label=f'T_base = {T_base:.1f}°C')
-            self.ax_flash_Thot.set_title('T_hot(v) - 접촉 온도', fontweight='bold', fontsize=10)
-            self.ax_flash_Thot.set_xlabel('속도 v (m/s)', fontsize=9)
-            self.ax_flash_Thot.set_ylabel('T_hot (°C)', fontsize=9)
-            self.ax_flash_Thot.legend(fontsize=7)
+            self.ax_flash_Thot.set_title('T_hot(v) - 접촉 온도', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_flash_Thot.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_Thot.set_ylabel('T_hot (°C)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_Thot.legend(fontsize=self.PLOT_FONTS['label'])
             self.ax_flash_Thot.grid(True, alpha=0.3)
 
             # === Row 2 Left: ΔT(q) accumulation curves (per velocity) ===
@@ -9378,7 +9862,7 @@ class PerssonModelGUI_V2:
                 else:
                     v_indices = np.linspace(0, n_v_total - 1, n_curves, dtype=int).tolist()
 
-                cmap = __import__('matplotlib').cm.get_cmap('coolwarm', n_curves)
+                cmap = plt.colormaps['coolwarm'].resampled(n_curves)
                 for k, j_idx in enumerate(v_indices):
                     color = cmap(k / max(n_curves - 1, 1))
                     dT_curve = delta_T_profile[:, j_idx]
@@ -9386,11 +9870,11 @@ class PerssonModelGUI_V2:
                         q_array, dT_curve, '-', color=color, linewidth=1.5,
                         label=f'v={v[j_idx]:.3g} m/s')
 
-                self.ax_flash_dT_q.legend(fontsize=6, loc='upper left', ncol=2)
+                self.ax_flash_dT_q.legend(fontsize=self.PLOT_FONTS['label'], loc='upper left', ncol=2)
 
-            self.ax_flash_dT_q.set_title('ΔT(q) 파수별 누적', fontweight='bold', fontsize=10)
-            self.ax_flash_dT_q.set_xlabel('파수 q (1/m)', fontsize=9)
-            self.ax_flash_dT_q.set_ylabel('누적 ΔT (°C)', fontsize=9)
+            self.ax_flash_dT_q.set_title('ΔT(q) 파수별 누적', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_flash_dT_q.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_dT_q.set_ylabel('누적 ΔT (°C)', fontsize=self.PLOT_FONTS['label'])
             self.ax_flash_dT_q.grid(True, alpha=0.3)
 
             # === Row 2 Right: ΔT(q, v) heatmap ===
@@ -9415,12 +9899,12 @@ class PerssonModelGUI_V2:
                         vmin=0, vmax=dT_max)
                     self._flash_heatmap_cb = self.fig_flash_temp.colorbar(
                         pcm, ax=self.ax_flash_heatmap, pad=0.02)
-                    self._flash_heatmap_cb.set_label('ΔT (°C)', fontsize=8)
-                    self._flash_heatmap_cb.ax.tick_params(labelsize=7)
+                    self._flash_heatmap_cb.set_label('ΔT (°C)', fontsize=self.PLOT_FONTS['label'])
+                    self._flash_heatmap_cb.ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
 
-                self.ax_flash_heatmap.set_xlabel('log₁₀(v) [m/s]', fontsize=9)
-                self.ax_flash_heatmap.set_ylabel('log₁₀(q) [1/m]', fontsize=9)
-            self.ax_flash_heatmap.set_title('ΔT(q, v) 히트맵', fontweight='bold', fontsize=10)
+                self.ax_flash_heatmap.set_xlabel('log₁₀(v) [m/s]', fontsize=self.PLOT_FONTS['label'])
+                self.ax_flash_heatmap.set_ylabel('log₁₀(q) [1/m]', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_heatmap.set_title('ΔT(q, v) 히트맵', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
 
             # === Row 3 Left: ζ vs ΔT (preset comparison at v≈0.6758 m/s) ===
             self.ax_flash_zeta_dT.clear()
@@ -9545,10 +10029,10 @@ class PerssonModelGUI_V2:
                 self.ax_flash_zeta_dT.plot(log_zeta_calc, T_calc, 'b-', linewidth=2,
                                             label=f'계산 (v={v_ref_val:.4f} m/s)')
 
-            self.ax_flash_zeta_dT.set_title(f'ζ vs ΔT (v={v_ref_val:.4f} m/s)', fontweight='bold', fontsize=10)
-            self.ax_flash_zeta_dT.set_xlabel('log₁₀(ζ) = log₁₀(q/q₀)', fontsize=9)
-            self.ax_flash_zeta_dT.set_ylabel('T (°C)', fontsize=9)
-            self.ax_flash_zeta_dT.legend(fontsize=7)
+            self.ax_flash_zeta_dT.set_title(f'ζ vs ΔT (v={v_ref_val:.4f} m/s)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_flash_zeta_dT.set_xlabel('log₁₀(ζ) = log₁₀(q/q₀)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_zeta_dT.set_ylabel('T (°C)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_zeta_dT.legend(fontsize=self.PLOT_FONTS['label'])
             self.ax_flash_zeta_dT.grid(True, alpha=0.3)
 
             # === Row 3 Right: A/A0 cold vs hot ===
@@ -9559,10 +10043,10 @@ class PerssonModelGUI_V2:
             if A_A0_hot is not None:
                 self.ax_flash_area_compare.semilogx(v, A_A0_hot, '-', color='#DC2626', linewidth=2,
                                                      marker='s', markersize=3, label='A/A0 Hot')
-            self.ax_flash_area_compare.set_title('A/A0 Cold vs Hot', fontweight='bold', fontsize=10)
-            self.ax_flash_area_compare.set_xlabel('속도 v (m/s)', fontsize=9)
-            self.ax_flash_area_compare.set_ylabel('A/A0', fontsize=9)
-            self.ax_flash_area_compare.legend(fontsize=7)
+            self.ax_flash_area_compare.set_title('A/A0 Cold vs Hot', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_flash_area_compare.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_area_compare.set_ylabel('A/A0', fontsize=self.PLOT_FONTS['label'])
+            self.ax_flash_area_compare.legend(fontsize=self.PLOT_FONTS['label'])
             self.ax_flash_area_compare.grid(True, alpha=0.3)
 
             self.canvas_flash_temp.draw_idle()
@@ -9976,7 +10460,7 @@ class PerssonModelGUI_V2:
                 title="배율별 ΔT CSV 저장",
                 defaultextension=".csv",
                 filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-                initialfile=f"flash_zeta_dT_profile.csv",
+                initialfile=self._make_export_filename("flash_zeta_dT_profile"),
                 parent=dialog
             )
             if not save_path:
@@ -10056,7 +10540,7 @@ class PerssonModelGUI_V2:
             title="검증 데이터 CSV 저장 (정품 + 계산)",
             defaultextension=".csv",
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")],
-            initialfile=f"flash_verification_v{v_ref:.4f}.csv",
+            initialfile=self._make_export_filename(f"flash_verification_v{v_ref:.4f}"),
         )
         if not save_path:
             return
@@ -10250,6 +10734,9 @@ class PerssonModelGUI_V2:
         self.preset_ss_combo.pack(side=tk.LEFT, padx=2)
         ttk.Button(preset_ss_frame, text="로드", command=self._load_preset_strain_sweep, width=4).pack(side=tk.LEFT)
         ttk.Button(preset_ss_frame, text="삭제", command=self._delete_preset_strain_sweep, width=4).pack(side=tk.LEFT, padx=1)
+        ttk.Button(preset_ss_frame, text="내보내기",
+                   command=lambda: self._export_preset_file('strain_sweep', self.preset_ss_var, 'Strain Sweep'),
+                   width=6).pack(side=tk.LEFT, padx=1)
 
         self._refresh_preset_strain_sweep_list()
 
@@ -10283,6 +10770,9 @@ class PerssonModelGUI_V2:
         self.preset_fg_combo.pack(side=tk.LEFT, padx=2)
         ttk.Button(preset_fg_frame, text="로드", command=self._load_preset_fg, width=4).pack(side=tk.LEFT)
         ttk.Button(preset_fg_frame, text="삭제", command=self._delete_preset_fg, width=4).pack(side=tk.LEFT, padx=1)
+        ttk.Button(preset_fg_frame, text="내보내기",
+                   command=lambda: self._export_preset_file('fg_curve', self.preset_fg_var, 'f,g 곡선'),
+                   width=6).pack(side=tk.LEFT, padx=1)
 
         self._refresh_preset_fg_list()
 
@@ -10677,6 +11167,9 @@ class PerssonModelGUI_V2:
         ttk.Button(export_btn_frame, text="μ CSV", command=self._export_mu_visc_results, width=10).pack(side=tk.LEFT, padx=1)
         ttk.Button(export_btn_frame, text="f,g CSV", command=self._export_fg_curves, width=10).pack(side=tk.LEFT, padx=1)
         ttk.Button(export_btn_frame, text="μ+A/A0 CSV", command=self._export_mu_and_area_csv, width=12).pack(side=tk.LEFT, padx=1)
+        ttk.Button(export_btn_frame, text="그래프 저장",
+                   command=lambda: self._save_plot(self.fig_mu_visc, "mu_visc_plot"),
+                   width=10).pack(side=tk.LEFT, padx=1)
 
         # Reference data comparison section
         ref_frame = ttk.LabelFrame(results_frame, text="참조 데이터 비교", padding=3)
@@ -10732,37 +11225,68 @@ class PerssonModelGUI_V2:
         plot_frame = ttk.LabelFrame(right_panel, text="그래프", padding=5)
         plot_frame.pack(fill=tk.BOTH, expand=True)
 
+        # ── Plot visibility checkboxes ──
+        chk_frame = ttk.Frame(plot_frame)
+        chk_frame.pack(fill=tk.X, pady=(0, 2))
+
+        toggle_cmd = lambda: self._toggle_mu_plot_visibility()
+
+        ttk.Label(chk_frame, text="μ_visc:", font=('NanumGothic', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 0))
+        self.show_mu_cold_var = tk.BooleanVar(value=True)
+        self.show_mu_hot_var = tk.BooleanVar(value=True)
+        self.show_mu_peak_var = tk.BooleanVar(value=True)
+        self.show_mu_v1_var = tk.BooleanVar(value=True)
+        self.show_mu_ref_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(chk_frame, text="Cold", variable=self.show_mu_cold_var, command=toggle_cmd).pack(side=tk.LEFT, padx=1)
+        ttk.Checkbutton(chk_frame, text="Hot", variable=self.show_mu_hot_var, command=toggle_cmd).pack(side=tk.LEFT, padx=1)
+        ttk.Checkbutton(chk_frame, text="Peak", variable=self.show_mu_peak_var, command=toggle_cmd).pack(side=tk.LEFT, padx=1)
+        ttk.Checkbutton(chk_frame, text="v=1", variable=self.show_mu_v1_var, command=toggle_cmd).pack(side=tk.LEFT, padx=1)
+        ttk.Checkbutton(chk_frame, text="참조", variable=self.show_mu_ref_var, command=toggle_cmd).pack(side=tk.LEFT, padx=1)
+
+        ttk.Separator(chk_frame, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=4, pady=1)
+
+        ttk.Label(chk_frame, text="A/A0:", font=('NanumGothic', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 0))
+        self.show_aa_cold_var = tk.BooleanVar(value=True)
+        self.show_aa_hot_var = tk.BooleanVar(value=True)
+        self.show_aa_ref_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(chk_frame, text="Cold", variable=self.show_aa_cold_var, command=toggle_cmd).pack(side=tk.LEFT, padx=1)
+        ttk.Checkbutton(chk_frame, text="Hot", variable=self.show_aa_hot_var, command=toggle_cmd).pack(side=tk.LEFT, padx=1)
+        ttk.Checkbutton(chk_frame, text="참조", variable=self.show_aa_ref_var, command=toggle_cmd).pack(side=tk.LEFT, padx=1)
+
+        # Initialize plot line storage for visibility toggling
+        self._mu_plot_lines = {}
+
         # Create figure with 2x2 subplots
         self.fig_mu_visc = Figure(figsize=(9, 7), dpi=100)
 
         # Top-left: f,g curves
         self.ax_fg_curves = self.fig_mu_visc.add_subplot(221)
-        self.ax_fg_curves.set_title('f(ε), g(ε) 곡선', fontweight='bold', fontsize=11)
-        self.ax_fg_curves.set_xlabel('변형률 ε (fraction)', fontsize=11)
-        self.ax_fg_curves.set_ylabel('보정 계수', fontsize=11)
+        self.ax_fg_curves.set_title('f(ε), g(ε) 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_fg_curves.set_xlabel('변형률 ε (fraction)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_fg_curves.set_ylabel('보정 계수', fontsize=self.PLOT_FONTS['label'])
         self.ax_fg_curves.grid(True, alpha=0.3)
 
         # Top-right: mu_visc vs velocity
         self.ax_mu_v = self.fig_mu_visc.add_subplot(222)
-        self.ax_mu_v.set_title('μ_visc(v) 곡선', fontweight='bold', fontsize=11)
-        self.ax_mu_v.set_xlabel('속도 v (m/s)', fontsize=11)
-        self.ax_mu_v.set_ylabel('마찰 계수 μ_visc', fontsize=11)
+        self.ax_mu_v.set_title('μ_visc(v) 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mu_v.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mu_v.set_ylabel('마찰 계수 μ_visc', fontsize=self.PLOT_FONTS['label'])
         self.ax_mu_v.set_xscale('log')
         self.ax_mu_v.grid(True, alpha=0.3)
 
         # Bottom-left: Contact Area Ratio vs Velocity
         self.ax_mu_cumulative = self.fig_mu_visc.add_subplot(223)
-        self.ax_mu_cumulative.set_title('실접촉 면적비율 P(v)', fontweight='bold', fontsize=11)
-        self.ax_mu_cumulative.set_xlabel('속도 v (m/s)', fontsize=11)
-        self.ax_mu_cumulative.set_ylabel('평균 P(q)', fontsize=11)
+        self.ax_mu_cumulative.set_title('실접촉 면적비율 P(v)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_mu_cumulative.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_mu_cumulative.set_ylabel('평균 P(q)', fontsize=self.PLOT_FONTS['label'])
         self.ax_mu_cumulative.set_xscale('log')
         self.ax_mu_cumulative.grid(True, alpha=0.3)
 
         # Bottom-right: P(q) and S(q)
         self.ax_ps = self.fig_mu_visc.add_subplot(224)
-        self.ax_ps.set_title('P(q), S(q) 분포', fontweight='bold', fontsize=11)
-        self.ax_ps.set_xlabel('파수 q (1/m)', fontsize=11)
-        self.ax_ps.set_ylabel('P(q), S(q)', fontsize=11)
+        self.ax_ps.set_title('P(q), S(q) 분포', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_ps.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_ps.set_ylabel('P(q), S(q)', fontsize=self.PLOT_FONTS['label'])
         self.ax_ps.set_xscale('log')
         self.ax_ps.grid(True, alpha=0.3)
 
@@ -10986,9 +11510,9 @@ class PerssonModelGUI_V2:
     def _update_fg_plot_persson_avg(self):
         """Update f,g curves plot with Persson average visualization."""
         self.ax_fg_curves.clear()
-        self.ax_fg_curves.set_title('f(ε), g(ε) Persson Average (RANK1)', fontweight='bold', fontsize=11)
-        self.ax_fg_curves.set_xlabel('변형률 ε (fraction)', fontsize=11)
-        self.ax_fg_curves.set_ylabel('보정 계수', fontsize=11)
+        self.ax_fg_curves.set_title('f(ε), g(ε) Persson Average (RANK1)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_fg_curves.set_xlabel('변형률 ε (fraction)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_fg_curves.set_ylabel('보정 계수', fontsize=self.PLOT_FONTS['label'])
         self.ax_fg_curves.grid(True, alpha=0.3)
 
         # Plot individual temperature curves (thin, low alpha)
@@ -11033,7 +11557,7 @@ class PerssonModelGUI_V2:
 
         self.ax_fg_curves.set_xlim(0, x_max)
         self.ax_fg_curves.set_ylim(0, 1.1)
-        self.ax_fg_curves.legend(loc='best', fontsize=8, ncol=2)
+        self.ax_fg_curves.legend(loc='best', fontsize=self.PLOT_FONTS['label'], ncol=2)
 
         self.canvas_mu_visc.draw()
 
@@ -11177,7 +11701,7 @@ class PerssonModelGUI_V2:
         try:
             fg_data = load_fg_curve_file(
                 filename,
-                strain_is_percent=self.strain_is_percent_var.get()
+                strain_is_percent=False
             )
 
             if fg_data is None:
@@ -11197,6 +11721,10 @@ class PerssonModelGUI_V2:
                 'f_avg': fg_data['f'],
                 'g_avg': fg_data['g'] if fg_data['g'] is not None else fg_data['f']
             }
+
+            # Reset previous computation state so plot shows newly loaded data
+            self.piecewise_result = None
+            self.fg_by_T = None
 
             # Update label
             self.fg_file_label.config(text=os.path.basename(filename))
@@ -11470,9 +11998,9 @@ class PerssonModelGUI_V2:
     def _update_fg_plot(self):
         """Update f,g curves plot."""
         self.ax_fg_curves.clear()
-        self.ax_fg_curves.set_title('f(ε), g(ε) 곡선', fontweight='bold', fontsize=11)
-        self.ax_fg_curves.set_xlabel('변형률 ε (fraction)', fontsize=11)
-        self.ax_fg_curves.set_ylabel('보정 계수', fontsize=11)
+        self.ax_fg_curves.set_title('f(ε), g(ε) 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_fg_curves.set_xlabel('변형률 ε (fraction)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_fg_curves.set_ylabel('보정 계수', fontsize=self.PLOT_FONTS['label'])
         self.ax_fg_curves.grid(True, alpha=0.3)
 
         # Plot individual temperature curves
@@ -11499,7 +12027,7 @@ class PerssonModelGUI_V2:
             self.ax_fg_curves.plot(s, g_final, 'r-', linewidth=3.5, label='g(ε) Persson Avg')
             self.ax_fg_curves.axvline(split, color='green', linewidth=2, linestyle=':', alpha=0.8,
                                       label=f'Split @ {split*100:.1f}%')
-            self.ax_fg_curves.legend(loc='best', fontsize=8, ncol=2)
+            self.ax_fg_curves.legend(loc='best', fontsize=self.PLOT_FONTS['label'], ncol=2)
         elif self.fg_averaged is not None:
             s = self.fg_averaged['strain']
             f_avg = self.fg_averaged['f_avg']
@@ -11603,6 +12131,9 @@ class PerssonModelGUI_V2:
             status_str = f"T={T_target}°C, aT={aT:.2e} (Tref={T_ref}°C)"
             self.mu_aT_status_var.set(status_str)
 
+            # Sync G(q,v) tab temperature to match μ_visc target temperature
+            self.temperature_var.set(str(T_target))
+
             # Now recalculate G(q,v) with shifted material
             self.g_calc_status_var.set(f"G(q,v) 재계산 시작...")
             self.root.update_idletasks()
@@ -11640,7 +12171,11 @@ class PerssonModelGUI_V2:
 
             # Get parameters from Tab 3 settings
             sigma_0 = float(self.sigma_0_var.get()) * 1e6  # MPa to Pa
-            temperature = float(self.temperature_var.get())
+            # Use shifted target temperature if available, otherwise fall back to Tab 3
+            if hasattr(self, 'current_temp_shift') and self.current_temp_shift is not None:
+                temperature = self.current_temp_shift['T_target']
+            else:
+                temperature = float(self.temperature_var.get())
             poisson = float(self.poisson_var.get())
             n_q = int(self.n_q_var.get())
             n_phi = int(self.n_phi_var.get())
@@ -11748,6 +12283,9 @@ class PerssonModelGUI_V2:
         - S(q) = γ + (1-γ)P(q)² : contact correction factor
         - Im[E(ω,T)] : loss modulus (optionally corrected by g(strain))
         """
+        import time as _time
+        _t0 = _time.perf_counter()
+        self._log('CALC', 'mu_visc calculation started')
         # Check if data is from Tab 0 and Tab 1
         tab0_ready = getattr(self, 'tab0_finalized', False)
         tab1_ready = getattr(self, 'tab1_finalized', False)
@@ -13064,6 +13602,13 @@ class PerssonModelGUI_V2:
                 self.status_var.set("μ_visc 계산 완료")
             self.mu_calc_button.config(state='normal')
 
+            _elapsed = _time.perf_counter() - _t0
+            self._log('CALC', f'mu_visc completed in {_elapsed:.2f}s: '
+                       f'cold [{smart_fmt(mu_min)}~{smart_fmt(mu_max)}], '
+                       f'peak={smart_fmt(peak_mu)} @ v={v[peak_idx]:.4f} m/s')
+            if use_flash and mu_hot_array is not None:
+                self._log('CALC', f'  Flash: hot [{smart_fmt(np.min(mu_hot_array))}~{smart_fmt(np.max(mu_hot_array))}], '
+                           f'ΔT=[{np.min(flash_results["delta_T"]):.1f}~{np.max(flash_results["delta_T"]):.1f}°C]')
             status_msg = (f"μ_visc 계산 완료\n"
                           f"Cold: {smart_fmt(mu_min)} ~ {smart_fmt(mu_max)}\n"
                           f"최대: μ={smart_fmt(peak_mu)} @ v={v[peak_idx]:.4f} m/s")
@@ -13084,6 +13629,9 @@ class PerssonModelGUI_V2:
         try:
             # Sanitize input arrays - replace NaN/Inf with safe values
             mu_array = np.nan_to_num(mu_array, nan=0.0, posinf=0.0, neginf=0.0)
+
+            # Reset line storage for visibility toggling
+            self._mu_plot_lines = {}
 
             # Clear all subplots
             self.ax_mu_v.clear()
@@ -13107,25 +13655,27 @@ class PerssonModelGUI_V2:
             has_flash = mu_hot is not None
             cold_label = 'μ_cold (WITHOUT FLASH)' if has_flash else None
             if np.any(valid_mask):
-                self.ax_mu_v.semilogx(v[valid_mask], mu_array[valid_mask], 'b-',
+                ln_cold, = self.ax_mu_v.semilogx(v[valid_mask], mu_array[valid_mask], 'b-',
                                       linewidth=2.5, marker='o', markersize=4, label=cold_label)
             else:
-                self.ax_mu_v.semilogx(v, np.zeros_like(v), 'b-',
+                ln_cold, = self.ax_mu_v.semilogx(v, np.zeros_like(v), 'b-',
                                       linewidth=2.5, marker='o', markersize=4, label=cold_label)
+            self._mu_plot_lines['mu_cold'] = ln_cold
 
             # Flash temperature: overlay hot curve
             if has_flash:
                 mu_hot_safe = np.nan_to_num(mu_hot, nan=0.0, posinf=0.0, neginf=0.0)
                 valid_hot = np.isfinite(mu_hot_safe) & (mu_hot_safe > 0)
                 if np.any(valid_hot):
-                    self.ax_mu_v.semilogx(v[valid_hot], mu_hot_safe[valid_hot], '-',
+                    ln_hot, = self.ax_mu_v.semilogx(v[valid_hot], mu_hot_safe[valid_hot], '-',
                                           color='#DC2626', linewidth=2.5, marker='s',
                                           markersize=4, label='μ_hot (WITH FLASH)')
-                self.ax_mu_v.set_title('μ_visc(v) - Cold vs Hot', fontweight='bold', fontsize=11)
+                    self._mu_plot_lines['mu_hot'] = ln_hot
+                self.ax_mu_v.set_title('μ_visc(v) - Cold vs Hot', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
             else:
-                self.ax_mu_v.set_title('μ_visc(v) 곡선', fontweight='bold', fontsize=11)
-            self.ax_mu_v.set_xlabel('속도 v (m/s)', fontsize=11)
-            self.ax_mu_v.set_ylabel('마찰 계수 μ_visc', fontsize=11)
+                self.ax_mu_v.set_title('μ_visc(v) 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_mu_v.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mu_v.set_ylabel('마찰 계수 μ_visc', fontsize=self.PLOT_FONTS['label'])
             self.ax_mu_v.grid(True, alpha=0.3)
 
             # Find peak (handle NaN values) - use hot curve if available, else cold
@@ -13136,10 +13686,12 @@ class PerssonModelGUI_V2:
             peak_mu = mu_for_peak_src[peak_idx] if np.isfinite(mu_for_peak_src[peak_idx]) else 0.0
             peak_v = v[peak_idx]
             peak_label_prefix = 'Hot 최대' if has_flash else '최대값'
-            self.ax_mu_v.plot(peak_v, peak_mu, 'r*', markersize=15,
+            ln_peak, = self.ax_mu_v.plot(peak_v, peak_mu, 'r*', markersize=15,
                              label=f'{peak_label_prefix}: μ={smart_format(peak_mu)} @ v={peak_v:.4f} m/s')
+            self._mu_plot_lines['mu_peak'] = ln_peak
 
             # Find and mark μ at v=1 m/s (important reference point)
+            v1_artists = []
             if np.min(v) <= 1.0 <= np.max(v):
                 from scipy.interpolate import interp1d
                 # Interpolate to find μ at exactly 1 m/s
@@ -13148,21 +13700,25 @@ class PerssonModelGUI_V2:
                     f_interp = interp1d(np.log10(v[valid_for_interp]), mu_array[valid_for_interp],
                                        kind='linear', fill_value='extrapolate')
                     mu_at_1ms = float(f_interp(0))  # log10(1) = 0
-                    self.ax_mu_v.plot(1.0, mu_at_1ms, 'go', markersize=12, markeredgecolor='black',
+                    ln_v1, = self.ax_mu_v.plot(1.0, mu_at_1ms, 'go', markersize=12, markeredgecolor='black',
                                      markeredgewidth=1.5, zorder=10,
                                      label=f'v=1m/s: μ={smart_format(mu_at_1ms)}')
                     # Add vertical line at v=1 m/s
-                    self.ax_mu_v.axvline(x=1.0, color='green', linestyle='--', alpha=0.5, linewidth=1)
+                    ln_vline = self.ax_mu_v.axvline(x=1.0, color='green', linestyle='--', alpha=0.5, linewidth=1)
+                    v1_artists = [ln_v1, ln_vline]
+            self._mu_plot_lines['mu_v1'] = v1_artists
 
             # Plot reference μ_visc data: single active + multiple overlay datasets
-            ref_colors = ['#E53E3E', '#DD6B20', '#38A169', '#3182CE', '#805AD5',
-                          '#D53F8C', '#718096', '#D69E2E', '#00B5D8', '#9F7AEA']
+            ref_colors = ['#E6194B', '#3CB44B', '#4363D8', '#F58231', '#911EB4',
+                          '#42D4F4', '#F032E6', '#BFEF45', '#FABED4', '#469990']
+            mu_ref_artists = []
             try:
                 if self.reference_mu_data is not None:
                     ref_v = self.reference_mu_data['v']
                     ref_mu = self.reference_mu_data['mu']
-                    self.ax_mu_v.semilogx(ref_v, ref_mu, 'r-', linewidth=2, alpha=0.8,
+                    ln_ref, = self.ax_mu_v.semilogx(ref_v, ref_mu, 'r-', linewidth=2, alpha=0.8,
                                          label='참조 (Persson)', zorder=5)
+                    mu_ref_artists.append(ln_ref)
                 # Plot multiple overlay reference datasets
                 if hasattr(self, 'plotted_ref_datasets'):
                     for i, ds in enumerate(self.plotted_ref_datasets):
@@ -13170,13 +13726,15 @@ class PerssonModelGUI_V2:
                         if ds['mu_log_v'] and ds['mu_vals']:
                             log_v_ref = np.array(ds['mu_log_v'])
                             mu_ref = np.array(ds['mu_vals'])
-                            self.ax_mu_v.semilogx(10**log_v_ref, mu_ref, '-', color=color,
+                            ln_ovr, = self.ax_mu_v.semilogx(10**log_v_ref, mu_ref, '-', color=color,
                                                   linewidth=1.8, alpha=0.8,
                                                   label=f'참조: {ds["name"]}', zorder=4)
+                            mu_ref_artists.append(ln_ovr)
             except Exception as e:
                 print(f"[DEBUG] 참조 μ_visc 플롯 오류: {e}")
+            self._mu_plot_lines['mu_ref'] = mu_ref_artists
 
-            self.ax_mu_v.legend(loc='best', fontsize=8)
+            self.ax_mu_v.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
 
             # Plot 2: Real Contact Area Ratio A/A0 = P(q_max) vs velocity
             P_qmax_array = np.zeros(len(v))
@@ -13208,25 +13766,29 @@ class PerssonModelGUI_V2:
             color = 'b'  # 계산값은 항상 BLUE
 
             # Plot A/A0 = P(q_max) - Cold
-            self.ax_mu_cumulative.semilogx(v, P_qmax_array, f'{color}-', linewidth=2,
+            ln_aa_cold, = self.ax_mu_cumulative.semilogx(v, P_qmax_array, f'{color}-', linewidth=2,
                                             marker='s', markersize=4, label=label_str)
+            self._mu_plot_lines['aa_cold'] = ln_aa_cold
 
             # Flash temperature: overlay hot A/A0
             if has_flash and A_A0_hot is not None:
                 A_A0_hot_safe = np.nan_to_num(A_A0_hot, nan=0.0, posinf=1.0, neginf=0.0)
-                self.ax_mu_cumulative.semilogx(v, A_A0_hot_safe, '-',
+                ln_aa_hot, = self.ax_mu_cumulative.semilogx(v, A_A0_hot_safe, '-',
                                                 color='#DC2626', linewidth=2,
                                                 marker='s', markersize=4,
                                                 label='A/A0 Hot (WITH FLASH)')
+                self._mu_plot_lines['aa_hot'] = ln_aa_hot
 
             # Overlay reference A/A0 data: single active + multiple overlay datasets
+            aa_ref_artists = []
             try:
                 if self.reference_area_data is not None:
                     ref_v = self.reference_area_data['v']
                     ref_area = self.reference_area_data['area']
-                    self.ax_mu_cumulative.semilogx(ref_v, ref_area, 'r-', linewidth=2,
+                    ln_aa_ref, = self.ax_mu_cumulative.semilogx(ref_v, ref_area, 'r-', linewidth=2,
                                                     marker='o', markersize=3,
                                                     alpha=0.8, label='참조 A/A0 (Persson)', zorder=5)
+                    aa_ref_artists.append(ln_aa_ref)
                 # Plot multiple overlay reference datasets
                 if hasattr(self, 'plotted_ref_datasets'):
                     for i, ds in enumerate(self.plotted_ref_datasets):
@@ -13234,16 +13796,18 @@ class PerssonModelGUI_V2:
                         if ds['area_log_v'] and ds['area_vals']:
                             log_v_ref = np.array(ds['area_log_v'])
                             area_ref = np.array(ds['area_vals'])
-                            self.ax_mu_cumulative.semilogx(10**log_v_ref, area_ref, '-', color=clr,
+                            ln_aa_ovr, = self.ax_mu_cumulative.semilogx(10**log_v_ref, area_ref, '-', color=clr,
                                                             linewidth=1.8, alpha=0.8,
                                                             label=f'참조: {ds["name"]}', zorder=4)
+                            aa_ref_artists.append(ln_aa_ovr)
             except Exception as e:
                 print(f"[DEBUG] 참조 A/A0 플롯 오류: {e}")
+            self._mu_plot_lines['aa_ref'] = aa_ref_artists
 
-            self.ax_mu_cumulative.set_title(f'실접촉 면적비율 A/A0{title_suffix}', fontweight='bold', fontsize=11)
-            self.ax_mu_cumulative.set_xlabel('속도 v (m/s)', fontsize=11)
-            self.ax_mu_cumulative.set_ylabel('A/A0 = P(q_max)', fontsize=11)
-            self.ax_mu_cumulative.legend(loc='best', fontsize=10)
+            self.ax_mu_cumulative.set_title(f'실접촉 면적비율 A/A0{title_suffix}', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_mu_cumulative.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mu_cumulative.set_ylabel('A/A0 = P(q_max)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mu_cumulative.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_mu_cumulative.grid(True, alpha=0.3)
 
             # Set y-axis to show data with padding (auto-scale based on actual data)
@@ -13281,12 +13845,12 @@ class PerssonModelGUI_V2:
             self.ax_ps.semilogx(q, S, 'r--', linewidth=1.5, label='S(q)')
             ax_twin.semilogx(q, cumulative, 'g-', linewidth=1.5, alpha=0.7, label='누적μ')
 
-            self.ax_ps.set_title('P(q), S(q) / 누적 μ', fontweight='bold', fontsize=11)
-            self.ax_ps.set_xlabel('파수 q (1/m)', fontsize=11)
-            self.ax_ps.set_ylabel('P(q), S(q)', color='blue', fontsize=11)
-            ax_twin.set_ylabel('누적 μ', color='green', fontsize=11)
-            self.ax_ps.legend(loc='best', fontsize=8)
-            ax_twin.legend(loc='best', fontsize=8)
+            self.ax_ps.set_title('P(q), S(q) / 누적 μ', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_ps.set_xlabel('파수 q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ps.set_ylabel('P(q), S(q)', color='blue', fontsize=self.PLOT_FONTS['label'])
+            ax_twin.set_ylabel('누적 μ', color='green', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ps.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
+            ax_twin.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_ps.grid(True, alpha=0.3)
             self.ax_ps.set_ylim(0, 1.1)
 
@@ -13297,6 +13861,13 @@ class PerssonModelGUI_V2:
             ax_twin.set_ylim(0, cumulative_max * 1.2)
 
             self.fig_mu_visc.subplots_adjust(left=0.12, right=0.90, top=0.96, bottom=0.08, hspace=0.50, wspace=0.38)
+
+            # Enable interactive legend (click to toggle line visibility)
+            self._setup_interactive_legends()
+
+            # Apply checkbox visibility states
+            self._apply_mu_plot_visibility()
+
             self.canvas_mu_visc.draw()
 
             # Auto-register graph data for friction results
@@ -13319,6 +13890,77 @@ class PerssonModelGUI_V2:
                              ha='center', va='center', transform=self.ax_mu_v.transAxes)
             self.canvas_mu_visc.draw()
 
+    def _setup_interactive_legends(self):
+        """Set up click-to-toggle visibility on legends for all mu_visc subplots."""
+        # Disconnect previous handler if any
+        if hasattr(self, '_legend_pick_cid') and self._legend_pick_cid is not None:
+            self.fig_mu_visc.canvas.mpl_disconnect(self._legend_pick_cid)
+
+        # Build mapping: legend line -> plot line for each axis
+        self._legend_line_map = {}
+        for ax in [self.ax_mu_v, self.ax_mu_cumulative, self.ax_ps]:
+            legend = ax.get_legend()
+            if legend is None:
+                continue
+            lines = ax.get_lines()
+            legend_lines = legend.get_lines()
+            for leg_line, orig_line in zip(legend_lines, lines):
+                leg_line.set_picker(8)  # 8pt tolerance
+                self._legend_line_map[leg_line] = orig_line
+
+        def _on_pick(event):
+            leg_line = event.artist
+            if leg_line not in self._legend_line_map:
+                return
+            orig_line = self._legend_line_map[leg_line]
+            visible = not orig_line.get_visible()
+            orig_line.set_visible(visible)
+            # Dim legend entry for hidden lines
+            leg_line.set_alpha(1.0 if visible else 0.2)
+            self.fig_mu_visc.canvas.draw_idle()
+
+        self._legend_pick_cid = self.fig_mu_visc.canvas.mpl_connect('pick_event', _on_pick)
+
+    def _apply_mu_plot_visibility(self):
+        """Apply checkbox visibility states to stored plot line objects."""
+        if not hasattr(self, '_mu_plot_lines') or not self._mu_plot_lines:
+            return
+        mapping = {
+            'mu_cold': self.show_mu_cold_var,
+            'mu_hot': self.show_mu_hot_var,
+            'mu_peak': self.show_mu_peak_var,
+            'mu_v1': self.show_mu_v1_var,
+            'mu_ref': self.show_mu_ref_var,
+            'aa_cold': self.show_aa_cold_var,
+            'aa_hot': self.show_aa_hot_var,
+            'aa_ref': self.show_aa_ref_var,
+        }
+        for key, var in mapping.items():
+            if key not in self._mu_plot_lines:
+                continue
+            objs = self._mu_plot_lines[key]
+            if not isinstance(objs, list):
+                objs = [objs]
+            for obj in objs:
+                if obj is not None:
+                    obj.set_visible(var.get())
+        # Rebuild legends to only include visible lines
+        for ax in [self.ax_mu_v, self.ax_mu_cumulative]:
+            handles, labels = ax.get_legend_handles_labels()
+            visible = [(h, l) for h, l in zip(handles, labels) if h.get_visible()]
+            if visible:
+                ax.legend(*zip(*visible), loc='best', fontsize=self.PLOT_FONTS['label'])
+            else:
+                leg = ax.get_legend()
+                if leg:
+                    leg.remove()
+
+    def _toggle_mu_plot_visibility(self):
+        """Checkbox callback: toggle plot line visibility and redraw."""
+        self._apply_mu_plot_visibility()
+        if hasattr(self, 'canvas_mu_visc'):
+            self.canvas_mu_visc.draw_idle()
+
     def _toggle_reference_mu(self):
         """Toggle reference μ_visc display and redraw plot."""
         if self.mu_visc_results is not None:
@@ -13332,20 +13974,20 @@ class PerssonModelGUI_V2:
         if not hasattr(self, 'plotted_ref_datasets') or not self.plotted_ref_datasets:
             return
         try:
-            ref_colors = ['#E53E3E', '#DD6B20', '#38A169', '#3182CE', '#805AD5',
-                          '#D53F8C', '#718096', '#D69E2E', '#00B5D8', '#9F7AEA']
+            ref_colors = ['#E6194B', '#3CB44B', '#4363D8', '#F58231', '#911EB4',
+                          '#42D4F4', '#F032E6', '#BFEF45', '#FABED4', '#469990']
             # Clear and re-plot on mu_v and mu_cumulative axes
             self.ax_mu_v.clear()
-            self.ax_mu_v.set_title('μ_visc(v) 곡선', fontweight='bold', fontsize=11)
-            self.ax_mu_v.set_xlabel('속도 v (m/s)', fontsize=11)
-            self.ax_mu_v.set_ylabel('마찰 계수 μ_visc', fontsize=11)
+            self.ax_mu_v.set_title('μ_visc(v) 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_mu_v.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mu_v.set_ylabel('마찰 계수 μ_visc', fontsize=self.PLOT_FONTS['label'])
             self.ax_mu_v.set_xscale('log')
             self.ax_mu_v.grid(True, alpha=0.3)
 
             self.ax_mu_cumulative.clear()
-            self.ax_mu_cumulative.set_title('실접촉 면적비율 P(v)', fontweight='bold', fontsize=11)
-            self.ax_mu_cumulative.set_xlabel('속도 v (m/s)', fontsize=11)
-            self.ax_mu_cumulative.set_ylabel('평균 P(q)', fontsize=11)
+            self.ax_mu_cumulative.set_title('실접촉 면적비율 P(v)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_mu_cumulative.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mu_cumulative.set_ylabel('평균 P(q)', fontsize=self.PLOT_FONTS['label'])
             self.ax_mu_cumulative.set_xscale('log')
             self.ax_mu_cumulative.grid(True, alpha=0.3)
 
@@ -13363,8 +14005,8 @@ class PerssonModelGUI_V2:
                     self.ax_mu_cumulative.semilogx(10**log_v, area_vals, '-', color=color,
                                                     linewidth=1.8, alpha=0.8, label=f'참조: {name}')
 
-            self.ax_mu_v.legend(loc='best', fontsize=8)
-            self.ax_mu_cumulative.legend(loc='best', fontsize=10)
+            self.ax_mu_v.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
+            self.ax_mu_cumulative.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.canvas_mu_visc.draw()
         except Exception as e:
             print(f"[DEBUG] _plot_ref_datasets_on_initial_axes error: {e}")
@@ -13492,7 +14134,7 @@ class PerssonModelGUI_V2:
         text_frame = ttk.Frame(dialog, padding=10)
         text_frame.pack(fill=tk.BOTH, expand=True)
 
-        text = tk.Text(text_frame, wrap=tk.WORD, font=('Courier', 15))
+        text = tk.Text(text_frame, wrap=tk.WORD, font=('NanumGothicCoding', 12))
         scrollbar = ttk.Scrollbar(text_frame, orient=tk.VERTICAL, command=text.yview)
         text.configure(yscrollcommand=scrollbar.set)
         scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
@@ -15111,7 +15753,7 @@ class PerssonModelGUI_V2:
         plot_frame = ttk.Frame(main_frame)
         plot_frame.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
 
-        self.fig_strain_map = Figure(figsize=(18, 13), dpi=100)
+        self.fig_strain_map = Figure(figsize=(8, 6), dpi=100)
 
         # 3x4 subplots layout:
         # Row 1: Local Strain | E' Storage (linear) | E'' Loss (linear) | E''*g Loss (nonlinear)
@@ -15154,30 +15796,30 @@ class PerssonModelGUI_V2:
             (self.ax_contact_nonlinear, "A/A0 (nonlinear)")
         ]
         for ax, title in heatmap_axes:
-            ax.set_title(title, fontweight='bold', fontsize=10)
-            ax.set_xlabel('log10(v) [m/s]', fontsize=10)
-            ax.set_ylabel('log10(q) [1/m]', fontsize=10)
+            ax.set_title(title, fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            ax.set_xlabel('log10(v) [m/s]', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('log10(q) [1/m]', fontsize=self.PLOT_FONTS['label'])
             ax.text(0.5, 0.5, 'No data',
                    ha='center', va='center', transform=ax.transAxes,
-                   fontsize=10, color='gray')
+                   fontsize=self.PLOT_FONTS['title'], color='gray')
 
         # f,g factor graph placeholder
-        self.ax_fg_factors.set_title('f(ε), g(ε) Factors', fontweight='bold', fontsize=10)
-        self.ax_fg_factors.set_xlabel('Strain', fontsize=10)
-        self.ax_fg_factors.set_ylabel('Factor', fontsize=10)
+        self.ax_fg_factors.set_title('f(ε), g(ε) Factors', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_fg_factors.set_xlabel('Strain', fontsize=self.PLOT_FONTS['label'])
+        self.ax_fg_factors.set_ylabel('Factor', fontsize=self.PLOT_FONTS['label'])
         self.ax_fg_factors.text(0.5, 0.5, 'No data',
                ha='center', va='center', transform=self.ax_fg_factors.transAxes,
-               fontsize=10, color='gray')
+               fontsize=self.PLOT_FONTS['title'], color='gray')
 
         # G cumulative vs velocity graph placeholders
         for ax, title in [(self.ax_G_cumul_linear, 'G(q_max) vs v (lin)'),
                           (self.ax_G_cumul_nonlinear, 'G(q_max) vs v (nl)')]:
-            ax.set_title(title, fontweight='bold', fontsize=10)
-            ax.set_xlabel('log10(v) [m/s]', fontsize=10)
-            ax.set_ylabel('G(q_max)', fontsize=10)
+            ax.set_title(title, fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            ax.set_xlabel('log10(v) [m/s]', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('G(q_max)', fontsize=self.PLOT_FONTS['label'])
             ax.text(0.5, 0.5, 'No data',
                    ha='center', va='center', transform=ax.transAxes,
-                   fontsize=10, color='gray')
+                   fontsize=self.PLOT_FONTS['title'], color='gray')
 
         self.fig_strain_map.subplots_adjust(left=0.08, right=0.95, top=0.96, bottom=0.06, hspace=0.45, wspace=0.30)
         self.canvas_strain_map.draw()
@@ -15524,39 +16166,39 @@ class PerssonModelGUI_V2:
         strain_pct = np.nan_to_num(strain, nan=0.0) * 100
         im1 = self.ax_strain_contour.pcolormesh(V, Q, strain_pct, cmap=strain_cmap, shading='auto')
         self.ax_strain_contour.set_facecolor('white')
-        self.ax_strain_contour.set_title('Local Strain [%]', fontweight='bold', fontsize=10)
-        self.ax_strain_contour.set_xlabel('log10(v)', fontsize=10)
-        self.ax_strain_contour.set_ylabel('log10(q)', fontsize=10)
+        self.ax_strain_contour.set_title('Local Strain [%]', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_strain_contour.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_strain_contour.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
         cbar1 = self.fig_strain_map.colorbar(im1, ax=self.ax_strain_contour)
-        cbar1.set_label('%', fontsize=11)
+        cbar1.set_label('%', fontsize=self.PLOT_FONTS['label'])
         self._strain_map_colorbars.append(cbar1)
         try:
             cs = self.ax_strain_contour.contour(V, Q, strain_pct,
                                                  levels=[1, 5, 10], colors='k', linewidths=0.5)
-            self.ax_strain_contour.clabel(cs, inline=True, fontsize=11, fmt='%.0f%%')
+            self.ax_strain_contour.clabel(cs, inline=True, fontsize=self.PLOT_FONTS['title'], fmt='%.0f%%')
         except:
             pass
         strain_flat = strain.ravel()
         if len(strain_flat) > 0:
             self.ax_strain_contour.text(0.02, 0.98,
                 f'Mean:{np.mean(strain_flat)*100:.1f}%\nMax:{np.max(strain_flat)*100:.1f}%',
-                transform=self.ax_strain_contour.transAxes, fontsize=11, va='top',
+                transform=self.ax_strain_contour.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
                 bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # Plot 2: E' Storage [MPa] — E' + E'×f 공유 LogNorm
         im2 = self.ax_E_storage.pcolormesh(V, Q, E_s_MPa, cmap=E_storage_cmap, shading='auto',
                                             norm=stor_norm)
         self.ax_E_storage.set_facecolor('white')
-        self.ax_E_storage.set_title("E' Storage [MPa]", fontweight='bold', fontsize=10)
-        self.ax_E_storage.set_xlabel('log10(v)', fontsize=10)
-        self.ax_E_storage.set_ylabel('log10(q)', fontsize=10)
+        self.ax_E_storage.set_title("E' Storage [MPa]", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_E_storage.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_E_storage.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
         cbar2 = self.fig_strain_map.colorbar(im2, ax=self.ax_E_storage)
-        cbar2.set_label('MPa', fontsize=11)
+        cbar2.set_label('MPa', fontsize=self.PLOT_FONTS['label'])
         self._strain_map_colorbars.append(cbar2)
         E_s_at1 = E_s_MPa[:, v_1ms_idx]
         self.ax_E_storage.text(0.02, 0.98,
             f"v=1: {E_s_at1.min():.1f}~{E_s_at1.max():.1f} MPa",
-            transform=self.ax_E_storage.transAxes, fontsize=11, va='top',
+            transform=self.ax_E_storage.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
             bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # Plot 3: E'' Loss [MPa] — E'' + E''×g 공유 LogNorm
@@ -15564,32 +16206,32 @@ class PerssonModelGUI_V2:
             im3 = self.ax_E_loss_linear.pcolormesh(V, Q, E_ll_MPa, cmap=E_loss_cmap, shading='auto',
                                                     norm=loss_norm)
             self.ax_E_loss_linear.set_facecolor('white')
-            self.ax_E_loss_linear.set_title("E'' Loss [MPa]", fontweight='bold', fontsize=10)
-            self.ax_E_loss_linear.set_xlabel('log10(v)', fontsize=10)
-            self.ax_E_loss_linear.set_ylabel('log10(q)', fontsize=10)
+            self.ax_E_loss_linear.set_title("E'' Loss [MPa]", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_E_loss_linear.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_E_loss_linear.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
             cbar3 = self.fig_strain_map.colorbar(im3, ax=self.ax_E_loss_linear)
-            cbar3.set_label('MPa', fontsize=11)
+            cbar3.set_label('MPa', fontsize=self.PLOT_FONTS['label'])
             self._strain_map_colorbars.append(cbar3)
             E_ll_at1 = E_ll_MPa[:, v_1ms_idx]
             self.ax_E_loss_linear.text(0.02, 0.98,
                 f"v=1: {E_ll_at1.min():.2f}~{E_ll_at1.max():.1f} MPa",
-                transform=self.ax_E_loss_linear.transAxes, fontsize=11, va='top',
+                transform=self.ax_E_loss_linear.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
                 bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # Plot 4: E''×g [MPa] — E'' + E''×g 공유 LogNorm
         im4 = self.ax_E_loss_nonlinear.pcolormesh(V, Q, E_lnl_MPa, cmap=E_loss_cmap, shading='auto',
                                                     norm=loss_norm)
         self.ax_E_loss_nonlinear.set_facecolor('white')
-        self.ax_E_loss_nonlinear.set_title("E''×g [MPa]", fontweight='bold', fontsize=10)
-        self.ax_E_loss_nonlinear.set_xlabel('log10(v)', fontsize=10)
-        self.ax_E_loss_nonlinear.set_ylabel('log10(q)', fontsize=10)
+        self.ax_E_loss_nonlinear.set_title("E''×g [MPa]", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_E_loss_nonlinear.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_E_loss_nonlinear.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
         cbar4 = self.fig_strain_map.colorbar(im4, ax=self.ax_E_loss_nonlinear)
-        cbar4.set_label('MPa', fontsize=11)
+        cbar4.set_label('MPa', fontsize=self.PLOT_FONTS['label'])
         self._strain_map_colorbars.append(cbar4)
         E_lnl_at1 = E_lnl_MPa[:, v_1ms_idx]
         self.ax_E_loss_nonlinear.text(0.02, 0.98,
             f"v=1: {E_lnl_at1.min():.2f}~{E_lnl_at1.max():.1f} MPa",
-            transform=self.ax_E_loss_nonlinear.transAxes, fontsize=11, va='top',
+            transform=self.ax_E_loss_nonlinear.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
             bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # ===== Row 2 =====
@@ -15597,16 +16239,16 @@ class PerssonModelGUI_V2:
         im5 = self.ax_E_storage_nonlinear.pcolormesh(V, Q, E_snl_MPa, cmap=E_storage_cmap, shading='auto',
                                                       norm=stor_norm)
         self.ax_E_storage_nonlinear.set_facecolor('white')
-        self.ax_E_storage_nonlinear.set_title("E'×f [MPa]", fontweight='bold', fontsize=10)
-        self.ax_E_storage_nonlinear.set_xlabel('log10(v)', fontsize=10)
-        self.ax_E_storage_nonlinear.set_ylabel('log10(q)', fontsize=10)
+        self.ax_E_storage_nonlinear.set_title("E'×f [MPa]", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_E_storage_nonlinear.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_E_storage_nonlinear.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
         cbar5 = self.fig_strain_map.colorbar(im5, ax=self.ax_E_storage_nonlinear)
-        cbar5.set_label('MPa', fontsize=11)
+        cbar5.set_label('MPa', fontsize=self.PLOT_FONTS['label'])
         self._strain_map_colorbars.append(cbar5)
         E_snl_at1 = E_snl_MPa[:, v_1ms_idx]
         self.ax_E_storage_nonlinear.text(0.02, 0.98,
             f"v=1: {E_snl_at1.min():.1f}~{E_snl_at1.max():.1f} MPa",
-            transform=self.ax_E_storage_nonlinear.transAxes, fontsize=11, va='top',
+            transform=self.ax_E_storage_nonlinear.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
             bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # ===== Y축 크롭: G integrand가 유의미해지는 q부터만 표시 =====
@@ -15636,11 +16278,11 @@ class PerssonModelGUI_V2:
             s_plot = np.linspace(0, 0.5, 200)
             g_vals = np.array([self.g_interpolator(s) for s in s_plot])
             self.ax_fg_factors.plot(s_plot * 100, g_vals, 'r-', linewidth=2, label='g(ε)')
-        self.ax_fg_factors.set_title('f(ε), g(ε) Factors', fontweight='bold', fontsize=10)
-        self.ax_fg_factors.set_xlabel('Strain [%]', fontsize=10)
-        self.ax_fg_factors.set_ylabel('Factor', fontsize=10)
+        self.ax_fg_factors.set_title('f(ε), g(ε) Factors', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_fg_factors.set_xlabel('Strain [%]', fontsize=self.PLOT_FONTS['label'])
+        self.ax_fg_factors.set_ylabel('Factor', fontsize=self.PLOT_FONTS['label'])
         self.ax_fg_factors.set_ylim(0, 1.1)
-        self.ax_fg_factors.legend(fontsize=8, loc='best')
+        self.ax_fg_factors.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         self.ax_fg_factors.grid(True, alpha=0.3)
 
         # G integrand 공유 범위 계산 (linear + nonlinear)
@@ -15663,11 +16305,11 @@ class PerssonModelGUI_V2:
             log_G_lin_masked = _masked(g_lin_log)
             im7a = self.ax_G_integrand_linear.pcolormesh(V, Q, log_G_lin_masked, cmap=g_cmap, shading='auto',
                                                           vmin=g_vmin, vmax=g_vmax)
-            self.ax_G_integrand_linear.set_title('G(q) (lin) [log]', fontweight='bold', fontsize=10)
-            self.ax_G_integrand_linear.set_xlabel('log10(v)', fontsize=10)
-            self.ax_G_integrand_linear.set_ylabel('log10(q)', fontsize=10)
+            self.ax_G_integrand_linear.set_title('G(q) (lin) [log]', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_G_integrand_linear.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_G_integrand_linear.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
             cbar7a = self.fig_strain_map.colorbar(im7a, ax=self.ax_G_integrand_linear)
-            cbar7a.set_label('log10(G)', fontsize=11)
+            cbar7a.set_label('log10(G)', fontsize=self.PLOT_FONTS['label'])
             self._strain_map_colorbars.append(cbar7a)
             crop_axes.append(self.ax_G_integrand_linear)
 
@@ -15676,11 +16318,11 @@ class PerssonModelGUI_V2:
             log_G_nl_masked = _masked(g_nl_log)
             im7b = self.ax_G_integrand.pcolormesh(V, Q, log_G_nl_masked, cmap=g_cmap, shading='auto',
                                                    vmin=g_vmin, vmax=g_vmax)
-            self.ax_G_integrand.set_title('G(q) (nl) [log]', fontweight='bold', fontsize=10)
-            self.ax_G_integrand.set_xlabel('log10(v)', fontsize=10)
-            self.ax_G_integrand.set_ylabel('log10(q)', fontsize=10)
+            self.ax_G_integrand.set_title('G(q) (nl) [log]', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_G_integrand.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_G_integrand.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
             cbar7b = self.fig_strain_map.colorbar(im7b, ax=self.ax_G_integrand)
-            cbar7b.set_label('log10(G)', fontsize=11)
+            cbar7b.set_label('log10(G)', fontsize=self.PLOT_FONTS['label'])
             self._strain_map_colorbars.append(cbar7b)
             crop_axes.append(self.ax_G_integrand)
 
@@ -15693,9 +16335,9 @@ class PerssonModelGUI_V2:
             G_qmax_lin = G_int_lin[-1, :]  # shape (n_v,)
             self.ax_G_cumul_linear.set_facecolor('white')
             self.ax_G_cumul_linear.plot(log_v, G_qmax_lin, 'b-', linewidth=2, label='G(q_max)')
-            self.ax_G_cumul_linear.set_title('G(q_max) vs v (lin)', fontweight='bold', fontsize=10)
-            self.ax_G_cumul_linear.set_xlabel('log10(v) [m/s]', fontsize=10)
-            self.ax_G_cumul_linear.set_ylabel('G(q_max)', fontsize=10)
+            self.ax_G_cumul_linear.set_title('G(q_max) vs v (lin)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_G_cumul_linear.set_xlabel('log10(v) [m/s]', fontsize=self.PLOT_FONTS['label'])
+            self.ax_G_cumul_linear.set_ylabel('G(q_max)', fontsize=self.PLOT_FONTS['label'])
             self.ax_G_cumul_linear.grid(True, alpha=0.3)
             # Add a few intermediate q lines for reference
             n_q_plot = len(q)
@@ -15706,13 +16348,13 @@ class PerssonModelGUI_V2:
                     G_qi = G_int_lin[qi, :]
                     self.ax_G_cumul_linear.plot(log_v, G_qi, color=qc, linewidth=1, alpha=0.6,
                                                 label=f'q={q[qi]:.0e}')
-            self.ax_G_cumul_linear.legend(fontsize=7, loc='best')
+            self.ax_G_cumul_linear.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
             # Annotate max G value
             G_max_lin = np.max(G_qmax_lin)
             v_at_max = log_v[np.argmax(G_qmax_lin)]
             self.ax_G_cumul_linear.text(0.02, 0.98,
                 f'G_max={G_max_lin:.4f}\nv={10**v_at_max:.2e} m/s',
-                transform=self.ax_G_cumul_linear.transAxes, fontsize=9, va='top',
+                transform=self.ax_G_cumul_linear.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
                 bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # Nonlinear G(q_max, v)
@@ -15725,17 +16367,17 @@ class PerssonModelGUI_V2:
                 G_qmax_lin_ref = G_int_lin[-1, :]
                 self.ax_G_cumul_nonlinear.plot(log_v, G_qmax_lin_ref, 'b--', linewidth=1.2,
                                                 alpha=0.5, label='G(q_max) lin')
-            self.ax_G_cumul_nonlinear.set_title('G(q_max) vs v (nl)', fontweight='bold', fontsize=10)
-            self.ax_G_cumul_nonlinear.set_xlabel('log10(v) [m/s]', fontsize=10)
-            self.ax_G_cumul_nonlinear.set_ylabel('G(q_max)', fontsize=10)
+            self.ax_G_cumul_nonlinear.set_title('G(q_max) vs v (nl)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_G_cumul_nonlinear.set_xlabel('log10(v) [m/s]', fontsize=self.PLOT_FONTS['label'])
+            self.ax_G_cumul_nonlinear.set_ylabel('G(q_max)', fontsize=self.PLOT_FONTS['label'])
             self.ax_G_cumul_nonlinear.grid(True, alpha=0.3)
-            self.ax_G_cumul_nonlinear.legend(fontsize=7, loc='best')
+            self.ax_G_cumul_nonlinear.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
             # Annotate max G value
             G_max_nl = np.max(G_qmax_nl)
             v_at_max_nl = log_v[np.argmax(G_qmax_nl)]
             self.ax_G_cumul_nonlinear.text(0.02, 0.98,
                 f'G_max={G_max_nl:.4f}\nv={10**v_at_max_nl:.2e} m/s',
-                transform=self.ax_G_cumul_nonlinear.transAxes, fontsize=9, va='top',
+                transform=self.ax_G_cumul_nonlinear.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
                 bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # Plot 9: A/A0 (linear) — 유효 영역만
@@ -15749,11 +16391,11 @@ class PerssonModelGUI_V2:
                 c_vmin, c_vmax = 0, 1
             im9 = self.ax_contact_linear.pcolormesh(V, Q, c_lin_masked, cmap=contact_cmap, shading='auto',
                                                      vmin=c_vmin, vmax=c_vmax)
-            self.ax_contact_linear.set_title('A/A0 (linear)', fontweight='bold', fontsize=10)
-            self.ax_contact_linear.set_xlabel('log10(v)', fontsize=10)
-            self.ax_contact_linear.set_ylabel('log10(q)', fontsize=10)
+            self.ax_contact_linear.set_title('A/A0 (linear)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_contact_linear.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_contact_linear.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
             cbar9 = self.fig_strain_map.colorbar(im9, ax=self.ax_contact_linear)
-            cbar9.set_label('A/A0', fontsize=11)
+            cbar9.set_label('A/A0', fontsize=self.PLOT_FONTS['label'])
             self._strain_map_colorbars.append(cbar9)
             crop_axes.append(self.ax_contact_linear)
             P_lin_at1 = contact_lin[:, v_1ms_idx]
@@ -15761,7 +16403,7 @@ class PerssonModelGUI_V2:
             if len(P_lin_valid) > 0:
                 self.ax_contact_linear.text(0.02, 0.98,
                     f'v=1: {P_lin_valid.min():.3f}~{P_lin_valid.max():.3f}',
-                    transform=self.ax_contact_linear.transAxes, fontsize=11, va='top',
+                    transform=self.ax_contact_linear.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
                     bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # Plot 10: A/A0 (nonlinear) — 유효 영역만
@@ -15775,11 +16417,11 @@ class PerssonModelGUI_V2:
                 c_nl_vmin, c_nl_vmax = 0, 1
             im10 = self.ax_contact_nonlinear.pcolormesh(V, Q, c_nl_masked, cmap=contact_cmap, shading='auto',
                                                          vmin=c_nl_vmin, vmax=c_nl_vmax)
-            self.ax_contact_nonlinear.set_title('A/A0 (nonlinear)', fontweight='bold', fontsize=10)
-            self.ax_contact_nonlinear.set_xlabel('log10(v)', fontsize=10)
-            self.ax_contact_nonlinear.set_ylabel('log10(q)', fontsize=10)
+            self.ax_contact_nonlinear.set_title('A/A0 (nonlinear)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_contact_nonlinear.set_xlabel('log10(v)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_contact_nonlinear.set_ylabel('log10(q)', fontsize=self.PLOT_FONTS['label'])
             cbar10 = self.fig_strain_map.colorbar(im10, ax=self.ax_contact_nonlinear)
-            cbar10.set_label('A/A0', fontsize=11)
+            cbar10.set_label('A/A0', fontsize=self.PLOT_FONTS['label'])
             self._strain_map_colorbars.append(cbar10)
             crop_axes.append(self.ax_contact_nonlinear)
             P_nl_at1 = contact_nl[:, v_1ms_idx]
@@ -15787,7 +16429,7 @@ class PerssonModelGUI_V2:
             if len(P_nl_valid) > 0:
                 self.ax_contact_nonlinear.text(0.02, 0.98,
                     f'v=1: {P_nl_valid.min():.3f}~{P_nl_valid.max():.3f}',
-                    transform=self.ax_contact_nonlinear.transAxes, fontsize=11, va='top',
+                    transform=self.ax_contact_nonlinear.transAxes, fontsize=self.PLOT_FONTS['title'], va='top',
                     bbox=dict(boxstyle='round', fc='white', alpha=0.8))
 
         # ===== Y축 크롭 적용: G integrand, A/A0 — 유효 데이터 영역만 =====
@@ -16036,7 +16678,7 @@ class PerssonModelGUI_V2:
         plot_frame.pack(fill=tk.BOTH, expand=True)
 
         # Create figure with 2x2 square subplots (1:1 aspect)
-        self.fig_integrand = Figure(figsize=(10, 10), dpi=100)
+        self.fig_integrand = Figure(figsize=(6, 4), dpi=100)
 
         PF = self.PLOT_FONTS
 
@@ -16240,8 +16882,8 @@ class PerssonModelGUI_V2:
                     self.integrand_result_text.insert(tk.END, f"  ε(q) = {strain_at_q:.4f}\n")
                 self.integrand_result_text.insert(tk.END, "\n")
 
-            self.ax_angle_integrand.legend(fontsize=8, loc='best')
-            self.ax_mu_integrand.legend(fontsize=8, loc='best')
+            self.ax_angle_integrand.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
+            self.ax_mu_integrand.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
             self.integrand_progress_var.set(50)
             self.root.update_idletasks()
@@ -16300,7 +16942,7 @@ class PerssonModelGUI_V2:
                     self.ax_q_integrand.axvline(q, color='r', linestyle='--', alpha=0.5)
                     self.ax_q_integrand.plot(q, G_integrand_values[idx], 'ro', markersize=8)
 
-            self.ax_q_integrand.legend(fontsize=8, loc='best')
+            self.ax_q_integrand.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
             self.integrand_progress_var.set(70)
             self.root.update_idletasks()
@@ -16327,7 +16969,7 @@ class PerssonModelGUI_V2:
             # Mark current velocity
             self.ax_freq_range.axvline(v, color='g', linestyle='-', linewidth=2, alpha=0.7, label=f'현재 v = {v:.2e}')
 
-            self.ax_freq_range.legend(fontsize=10, loc='lower right')
+            self.ax_freq_range.legend(fontsize=self.PLOT_FONTS['label'], loc='lower right')
 
             # Frequency range info text
             self.freq_range_text.insert(tk.END, f"선택 q = {q_ref:.2e} 1/m, v = {v:.2e} m/s\n")
@@ -16362,12 +17004,12 @@ class PerssonModelGUI_V2:
             frame = tk.Frame(scrollable_frame, bg=bg_color, padx=15, pady=12)
             frame.pack(fill=tk.X, padx=10, pady=(18, 4))
             tk.Label(frame, text=title_text, bg=bg_color, fg=fg_color,
-                     font=('Segoe UI', 16, 'bold')).pack(anchor=tk.W)
+                     font=('NanumGothic', 12, 'bold')).pack(anchor=tk.W)
 
-        def add_text(text, font_size=13, fg='#1E293B', bold=False, padx=20, pady=4):
+        def add_text(text, font_size=10, fg='#1E293B', bold=False, padx=20, pady=4):
             weight = 'bold' if bold else 'normal'
             lbl = tk.Label(scrollable_frame, text=text, bg='white', fg=fg,
-                           font=('Segoe UI', font_size, weight),
+                           font=('NanumGothic', font_size, weight),
                            justify=tk.LEFT, anchor='w', wraplength=1400)
             lbl.pack(fill=tk.X, padx=padx, pady=pady, anchor='w')
 
@@ -16399,7 +17041,7 @@ class PerssonModelGUI_V2:
             ax = fig.add_subplot(111)
             ax.set_facecolor('#FAFBFC')
             plot_func(ax, np)
-            ax.tick_params(labelsize=13)
+            ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
             for spine in ax.spines.values():
                 spine.set_color('#CBD5E1')
             fig.tight_layout(pad=2.5)
@@ -16418,19 +17060,50 @@ class PerssonModelGUI_V2:
         title_frame.pack(fill=tk.X, padx=10)
         tk.Label(title_frame, text='Persson 마찰 이론 - 변수 관계도',
                  bg='white', fg='#1B2A4A',
-                 font=('Segoe UI', 13, 'bold')).pack(anchor='w', padx=10)
+                 font=('NanumGothic', 12, 'bold')).pack(anchor='w', padx=10)
 
         # ═══════════════════════════════════════════════════════
         # Section 1: 입력 데이터
         # ═══════════════════════════════════════════════════════
         add_section_title('1. 입력 데이터')
 
+        # --- 입력 데이터 요약 테이블 ---
+        add_text('입력 데이터 종합 요약:', bold=True, fg='#374151', pady=(8, 0))
+
+        input_summary_frame = tk.Frame(scrollable_frame, bg='white', padx=20, pady=6)
+        input_summary_frame.pack(fill=tk.X, padx=10)
+        input_summary_data = [
+            ('DMA\n마스터 커브', "E'(\u03c9), E''(\u03c9)", '[Pa]', '점탄성 물성', '고무의 주파수별 저장/손실 탄성률.\n마찰 에너지 소산의 핵심 입력'),
+            ('PSD\n(표면 거칠기)', 'q, C(q)', '[1/m], [m\u2074]', '노면 거칠기', '파수별 거칠기 진폭.\n프랙탈 구조 → 넓은 q 범위'),
+            ('Strain Sweep\n(선택)', 'f(\u03b3), g(\u03b3)', '[\u2212]', '비선형 보정', "Payne 효과: 대변형 시 E', E'' 보정.\n미입력 시 선형 계산"),
+            ('WLF 시프트\n(Tab2 연동)', 'C\u2081, C\u2082, T_ref', '[\u2212], [\u00b0C], [\u00b0C]', '온도-주파수 변환', 'Flash Temp 시 마스터 커브 시프트에 사용'),
+            ('\u03bc_dry 실측\n(선택)', '\u03bc(v) 실험값', '[\u2212]', '\u03bc_adh 피팅', '\u03bc_adh 자동 피팅용 참조 데이터'),
+        ]
+        for col_idx, header in enumerate(['데이터 종류', '핵심 변수', '단위', '역할', '상세 설명']):
+            lbl = tk.Label(input_summary_frame, text=header, bg='#0E7490', fg='white',
+                           font=('NanumGothic', 12, 'bold'), padx=10, pady=7, anchor='center')
+            lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
+        for row_idx, (dtype, var, unit, role, desc) in enumerate(input_summary_data, start=1):
+            bg = '#ECFEFF' if row_idx % 2 == 0 else 'white'
+            for col_idx, val in enumerate([dtype, var, unit, role, desc]):
+                weight = 'bold' if col_idx == 0 else 'normal'
+                lbl = tk.Label(input_summary_frame, text=val, bg=bg, fg='#1E293B',
+                               font=('NanumGothic', 12, weight), padx=10, pady=6, anchor='w',
+                               justify=tk.LEFT, wraplength=350 if col_idx == 4 else 180)
+                lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
+        input_summary_frame.columnconfigure(0, weight=2)
+        input_summary_frame.columnconfigure(1, weight=2)
+        input_summary_frame.columnconfigure(2, weight=1)
+        input_summary_frame.columnconfigure(3, weight=2)
+        input_summary_frame.columnconfigure(4, weight=4)
+
+        add_separator()
         add_text('DMA 데이터 (재료 물성) — 고무의 점탄성 특성:', bold=True, pady=(8, 0))
         add_equation(r"$E(\omega) = E'(\omega) + i\,E''(\omega)$", fig_height=0.9)
-        add_text('  \u03c9 : 각진동수 [rad/s] — 고무에 가해지는 진동의 빠르기', font_size=17, fg='#64748B')
-        add_text('  E\'(\u03c9) : 저장 탄성률 [Pa] — 탄성 에너지를 저장하는 능력 (스프링 성분)', font_size=17, fg='#64748B')
-        add_text('  E\'\'(\u03c9) : 손실 탄성률 [Pa] — 에너지를 열로 소산하는 능력 (댐퍼 성분)', font_size=17, fg='#64748B')
-        add_text('  tan(\u03b4) = E\'\'/E\' : 손실 탄젠트 — E\'에 대한 E\'\'의 비율, 에너지 소산 효율의 척도', font_size=17, fg='#64748B')
+        add_text('  \u03c9 : 각진동수 [rad/s] — 고무에 가해지는 진동의 빠르기', font_size=10, fg='#64748B')
+        add_text('  E\'(\u03c9) : 저장 탄성률 [Pa] — 탄성 에너지를 저장하는 능력 (스프링 성분)', font_size=10, fg='#64748B')
+        add_text('  E\'\'(\u03c9) : 손실 탄성률 [Pa] — 에너지를 열로 소산하는 능력 (댐퍼 성분)', font_size=10, fg='#64748B')
+        add_text('  tan(\u03b4) = E\'\'/E\' : 손실 탄젠트 — E\'에 대한 E\'\'의 비율, 에너지 소산 효율의 척도', font_size=10, fg='#64748B')
 
         def _plot_var_dma(ax, np):
             omega = np.logspace(-2, 10, 500)
@@ -16438,33 +17111,33 @@ class PerssonModelGUI_V2:
             E_loss = 0.35e9 * (omega / 1e4)**0.5 / (1 + (omega / 1e4)**0.85)
             ax.loglog(omega, E_stor, '-', linewidth=2.5, color='#2563EB', label="E' (저장)")
             ax.loglog(omega, E_loss, '--', linewidth=2.5, color='#DC2626', label="E'' (손실)")
-            ax.set_xlabel(r'$\omega$ (rad/s)', fontsize=12)
-            ax.set_ylabel('E (Pa)', fontsize=12)
-            ax.legend(fontsize=10, loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel(r'$\omega$ (rad/s)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('E (Pa)', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('DMA 마스터 커브 — 대표적 형상', fontsize=12, pad=10)
+            ax.set_title('DMA 마스터 커브 — 대표적 형상', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_var_dma)
 
         add_separator()
         add_text('PSD 데이터 (표면 거칠기) — 바닥면의 요철 특성:', bold=True, pady=(6, 0))
-        add_text('  q : 파수 [1/m] — 거칠기의 공간 진동수 (q = 2\u03c0/\u03bb, \u03bb = 파장)', font_size=17, fg='#64748B')
-        add_text('  C(q) : 파워 스펙트럼 밀도 [m\u2074] — 파수 q에서의 거칠기 진폭의 제곱', font_size=17, fg='#64748B')
+        add_text('  q : 파수 [1/m] — 거칠기의 공간 진동수 (q = 2\u03c0/\u03bb, \u03bb = 파장)', font_size=10, fg='#64748B')
+        add_text('  C(q) : 파워 스펙트럼 밀도 [m\u2074] — 파수 q에서의 거칠기 진폭의 제곱', font_size=10, fg='#64748B')
 
         def _plot_var_psd(ax, np):
             q = np.logspace(2, 8, 500)
             C = 1e-10 * (q / 1e2)**(-2.2)
             ax.loglog(q, C, '-', linewidth=2.5, color='#059669')
-            ax.set_xlabel('q (1/m)', fontsize=12)
-            ax.set_ylabel(r'C(q) (m$^4$)', fontsize=12)
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'C(q) (m$^4$)', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('PSD — 파워 스펙트럼 밀도 (대표적 형상)', fontsize=12, pad=10)
+            ax.set_title('PSD — 파워 스펙트럼 밀도 (대표적 형상)', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_var_psd)
 
         add_separator()
         add_text('Strain Sweep 데이터 (비선형 보정용, 선택):', bold=True, pady=(6, 0))
-        add_text('  \u03b3 : strain [%] — 변형률 진폭', font_size=17, fg='#64748B')
-        add_text('  f(\u03b3) = E\'(\u03b3)/E\'(0) : 저장 탄성률 감소율 (대변형 → f < 1)', font_size=17, fg='#64748B')
-        add_text('  g(\u03b3) = E\'\'(\u03b3)/E\'\'(0) : 손실 탄성률 변화율 (Payne 효과)', font_size=17, fg='#64748B')
+        add_text('  \u03b3 : strain [%] — 변형률 진폭', font_size=10, fg='#64748B')
+        add_text('  f(\u03b3) = E\'(\u03b3)/E\'(0) : 저장 탄성률 감소율 (대변형 → f < 1)', font_size=10, fg='#64748B')
+        add_text('  g(\u03b3) = E\'\'(\u03b3)/E\'\'(0) : 손실 탄성률 변화율 (Payne 효과)', font_size=10, fg='#64748B')
 
         def _plot_var_strain(ax, np):
             gamma = np.linspace(0, 50, 200)
@@ -16472,12 +17145,12 @@ class PerssonModelGUI_V2:
             g_g = (1 + 2.5 * (gamma / 10)) / (1 + 3 * (gamma / 10)**1.4)
             ax.plot(gamma, f_g, '-', linewidth=2.5, color='#2563EB', label=r"f($\gamma$) — E' 감소")
             ax.plot(gamma, g_g, '--', linewidth=2.5, color='#DC2626', label=r"g($\gamma$) — E'' 변화")
-            ax.set_xlabel(r'$\gamma$ (%)', fontsize=12)
-            ax.set_ylabel('보정 계수', fontsize=12)
-            ax.legend(fontsize=10, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel(r'$\gamma$ (%)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('보정 계수', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3)
             ax.axhline(y=1, color='gray', linestyle=':', alpha=0.5)
-            ax.set_title('Strain Sweep — Payne 효과', fontsize=12, pad=10)
+            ax.set_title('Strain Sweep — Payne 효과', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_var_strain)
 
         # ═══════════════════════════════════════════════════════
@@ -16501,14 +17174,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['기호', '의미', '설명']):
             lbl = tk.Label(param_frame, text=header, bg='#1B2A4A', fg='white',
-                           font=('Segoe UI', 12, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (sym, meaning, desc) in enumerate(param_data, start=1):
             bg = '#F1F5F9' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([sym, meaning, desc]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(param_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('Segoe UI', 17, weight), padx=12, pady=6, anchor='w')
+                               font=('NanumGothic', 12, weight), padx=12, pady=6, anchor='w')
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         param_frame.columnconfigure(0, weight=1)
         param_frame.columnconfigure(1, weight=2)
@@ -16519,6 +17192,42 @@ class PerssonModelGUI_V2:
         # ═══════════════════════════════════════════════════════
         add_section_title('3. 중간 계산 변수')
 
+        # --- 중간 계산 변수 요약 테이블 ---
+        add_text('중간 계산 변수 종합 요약:', bold=True, fg='#374151', pady=(8, 0))
+
+        mid_var_frame = tk.Frame(scrollable_frame, bg='white', padx=20, pady=6)
+        mid_var_frame.pack(fill=tk.X, padx=10)
+        mid_var_data = [
+            ('G(q)', '[\u2212]', 'DMA + PSD + \u03c3\u2080', '탄성 에너지 누적 적분\n(접촉 방해 정도)'),
+            ('P(q)', '[0~1]', 'G(q)', '실접촉 면적 비율\nerf(1/(2\u221aG))'),
+            ('S(q)', '[\u2212]', 'P(q), \u03b3', '접촉 보정 계수\n\u03b3+(1\u2212\u03b3)P\u00b2'),
+            ('\u03be(q)', '[\u2212]', 'PSD C(q)', "RMS 기울기 = h'_rms\n(짧은 파장 지배)"),
+            ('\u03b5(q)', '[0~1]', '\u03be(q)', '국소 변형률 = 0.5\u00b7\u03be\n(비선형 보정 입력)'),
+            ("E'_eff, E''_eff", '[Pa]', "DMA + f(\u03b5), g(\u03b5)", "비선형 보정 탄성률\nE'\u00d7f(\u03b5), E''\u00d7g(\u03b5)"),
+            ('D_th', '[m\u00b2/s]', '\u03ba, \u03c1, C_v', '열확산도 = \u03ba/(\u03c1\u00b7C_v)'),
+            ('J_d, J_h', '[\u2212]', 'v, d(q), D_th', 'Peclet 수 (대류/전도 비율)'),
+            ('\u03b4T(q_i)', '[\u00b0C]', 'd\u03bc_i, v, P(q_i)', '파수별 Flash 온도 증분\n(Greenwood 보간식)'),
+            ('\u0394T(q)', '[\u00b0C]', '\u03a3\u03b4T(q_i)', '누적 온도 상승\n(q\u2080\u2192q\u2081 순차)'),
+            ('a_T(T)', '[\u2212]', 'WLF C\u2081,C\u2082 + \u0394T', 'WLF 시프트 팩터\n(온도\u2192주파수 변환)'),
+        ]
+        for col_idx, header in enumerate(['변수', '단위', '의존 입력', '물리적 의미 / 역할']):
+            lbl = tk.Label(mid_var_frame, text=header, bg='#B45309', fg='white',
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
+            lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
+        for row_idx, (var, unit, dep, meaning) in enumerate(mid_var_data, start=1):
+            bg = '#FFF7ED' if row_idx % 2 == 0 else 'white'
+            for col_idx, val in enumerate([var, unit, dep, meaning]):
+                weight = 'bold' if col_idx == 0 else 'normal'
+                lbl = tk.Label(mid_var_frame, text=val, bg=bg, fg='#1E293B',
+                               font=('NanumGothic', 12, weight), padx=10, pady=6, anchor='w',
+                               justify=tk.LEFT, wraplength=350 if col_idx == 3 else 200)
+                lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
+        mid_var_frame.columnconfigure(0, weight=2)
+        mid_var_frame.columnconfigure(1, weight=1)
+        mid_var_frame.columnconfigure(2, weight=2)
+        mid_var_frame.columnconfigure(3, weight=4)
+
+        add_separator()
         add_text('G(q) 계산 과정:', bold=True, pady=(8, 0))
         add_equation(r"$E^*(\omega) = E'(\omega) + i\,E''(\omega), \qquad \omega = q \cdot v \cdot \cos\phi$", fig_height=0.9)
         add_equation(
@@ -16530,19 +17239,19 @@ class PerssonModelGUI_V2:
             q = np.logspace(2, 8, 500)
             G = 0.01 * (q / 1e2)**1.2 / (1 + (q / 1e7)**0.3)
             ax.loglog(q, G, '-', linewidth=2.5, color='#2563EB')
-            ax.set_xlabel('q (1/m)', fontsize=12)
-            ax.set_ylabel('G(q)', fontsize=12)
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('G(q)', fontsize=self.PLOT_FONTS['label'])
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title('G(q) — 탄성 에너지 누적 함수', fontsize=12, pad=10)
+            ax.set_title('G(q) — 탄성 에너지 누적 함수', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_var_G)
 
-        add_text('  [비선형 보정 시]', font_size=17, bold=True, fg='#64748B')
+        add_text('  [비선형 보정 시]', font_size=10, bold=True, fg='#64748B')
         add_equation(r"$E'_{eff} = E' \times f(\varepsilon), \qquad E''_{eff} = E'' \times g(\varepsilon)$", fig_height=0.9)
 
         add_separator()
         add_text('접촉 면적 P(q)와 보정 계수 S(q):', bold=True, pady=(6, 0))
         add_equation(r'$P(q) = \mathrm{erf}\!\left(\frac{1}{2\sqrt{G(q)}}\right)$', fig_height=1.0)
-        add_text('  G \u2192 0 : P \u2192 1 (완전 접촉)  |  G \u2192 \u221e : P \u2192 0 (접촉 없음)', font_size=17, fg='#64748B')
+        add_text('  G \u2192 0 : P \u2192 1 (완전 접촉)  |  G \u2192 \u221e : P \u2192 0 (접촉 없음)', font_size=10, fg='#64748B')
         add_equation(r'$S(q) = \gamma + (1-\gamma) \cdot P^2(q)$', fig_height=0.9)
 
         def _plot_var_PS(ax, np):
@@ -16553,19 +17262,19 @@ class PerssonModelGUI_V2:
             gamma = 0.5
             S = gamma + (1 - gamma) * P**2
             ax.plot(G, S, '--', linewidth=2.5, color='#059669', label='S(q)')
-            ax.set_xlabel('G(q)', fontsize=12)
-            ax.set_ylabel('값', fontsize=12)
-            ax.legend(fontsize=10, loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel('G(q)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('값', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3)
-            ax.set_title('P(q)와 S(q) — G에 따른 변화', fontsize=12, pad=10)
+            ax.set_title('P(q)와 S(q) — G에 따른 변화', fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_var_PS)
 
         add_separator()
         add_text('표면 거칠기 통계량:', bold=True, pady=(6, 0))
         add_equation(r"$\xi^2(q) = h_{rms}^{\prime\,2}(q) = 2\pi \int_{q_0}^{q} k^3\, C(k)\, dk$", fig_height=1.0)
-        add_text('  \u03be(q) = h\'_rms(q) : 누적 RMS 기울기 (파수 q까지의 표면 경사)', font_size=17, fg='#64748B')
+        add_text('  \u03be(q) = h\'_rms(q) : 누적 RMS 기울기 (파수 q까지의 표면 경사)', font_size=10, fg='#64748B')
         add_equation(r'$\varepsilon(q) = \alpha \cdot \xi(q) \qquad (\alpha \approx 0.5)$', fig_height=0.9)
-        add_text('  \u03b5(q) : 국소 변형률 — 거칠기에 의한 고무의 국소 변형 크기', font_size=17, fg='#64748B')
+        add_text('  \u03b5(q) : 국소 변형률 — 거칠기에 의한 고무의 국소 변형 크기', font_size=10, fg='#64748B')
 
         def _plot_var_xi_eps(ax, np):
             q = np.logspace(2, 8, 500)
@@ -16573,11 +17282,11 @@ class PerssonModelGUI_V2:
             eps = 0.5 * xi
             ax.loglog(q, xi, '-', linewidth=2.5, color='#DC2626', label=r"$\xi(q) = h'_{rms}$")
             ax.loglog(q, eps, '--', linewidth=2.5, color='#7C3AED', label=r"$\varepsilon(q) = 0.5 \cdot \xi$")
-            ax.set_xlabel('q (1/m)', fontsize=12)
-            ax.set_ylabel('값', fontsize=12)
-            ax.legend(fontsize=10, loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('값', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper left', framealpha=0.92, edgecolor='#CCCCCC')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title(r"$\xi(q)$와 $\varepsilon(q)$ — 파수에 따른 변화", fontsize=12, pad=10)
+            ax.set_title(r"$\xi(q)$와 $\varepsilon(q)$ — 파수에 따른 변화", fontsize=self.PLOT_FONTS['title'], pad=10)
         add_graph(_plot_var_xi_eps)
 
         # --- Flash Temperature 중간 변수 ---
@@ -16591,8 +17300,8 @@ class PerssonModelGUI_V2:
             r" d(q) = \frac{2\pi}{q}$",
             fig_height=1.0)
 
-        add_text('  D_th: 열확산도.  Jd: 거시 Peclet 수 (대류/전도 비).  Jh: 표면층 Peclet 수 (고속 포화)', font_size=17, fg='#64748B')
-        add_text('  d(q): 파수 q에서의 접촉 패치 직경.  h=1/q₁: 표면층 두께 (열 침투 깊이 한계)', font_size=17, fg='#64748B')
+        add_text('  D_th: 열확산도.  Jd: 거시 Peclet 수 (대류/전도 비).  Jh: 표면층 Peclet 수 (고속 포화)', font_size=10, fg='#64748B')
+        add_text('  d(q): 파수 q에서의 접촉 패치 직경.  h=1/q₁: 표면층 두께 (열 침투 깊이 한계)', font_size=10, fg='#64748B')
 
         add_equation(
             r"$\delta T(q_i) = \frac{\dot{q}(q_i) \cdot d(q_i)}"
@@ -16601,22 +17310,22 @@ class PerssonModelGUI_V2:
             r", \quad \dot{q}(q_i) = \frac{d\mu_i \cdot \sigma_0 \cdot v}{P(q_i)}$",
             fig_height=1.3)
 
-        add_text('  ΔT(q_i): 파수별 순차 누적 flash 온도 상승 (Greenwood 원형 접촉 보간식)', font_size=17, fg='#64748B')
-        add_text('  q̇(q_i): 파수별 면적 보정 열유속, P(q_i) = 파수 q_i까지의 접촉 면적비', font_size=17, fg='#64748B')
-        add_text('  a_T(T_base+ΔT): WLF 시프트 → E\'\'(ω, T) = E\'\'_master(ω × a_T)', font_size=17, fg='#DC2626')
+        add_text('  ΔT(q_i): 파수별 순차 누적 flash 온도 상승 (Greenwood 원형 접촉 보간식)', font_size=10, fg='#64748B')
+        add_text('  q̇(q_i): 파수별 면적 보정 열유속, P(q_i) = 파수 q_i까지의 접촉 면적비', font_size=10, fg='#64748B')
+        add_text('  a_T(T_base+ΔT): WLF 시프트 → E\'\'(ω, T) = E\'\'_master(ω × a_T)', font_size=10, fg='#DC2626')
 
         def _plot_var_flash(ax, np):
             q = np.logspace(2, 8, 200)
             dT = 50 * (1 - np.exp(-(q / 1e5)**0.8))
             ax.semilogx(q, dT, '-', linewidth=2.5, color='#DC2626', label=r'$\Delta T(q)$ 누적')
             ax.fill_between(q, 0, dT, alpha=0.1, color='red')
-            ax.set_xlabel('q (1/m)', fontsize=12)
-            ax.set_ylabel(r'$\Delta T$ (\u00b0C)', fontsize=12)
-            ax.legend(fontsize=10, loc='upper left')
+            ax.set_xlabel('q (1/m)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\Delta T$ (\u00b0C)', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper left')
             ax.grid(True, alpha=0.3, which='both')
-            ax.set_title(r'$\Delta T(q)$ 파수별 누적 온도 상승 (대표적 형상)', fontsize=12, pad=10)
-            ax.annotate('큰 스케일\n(ΔT \u2248 0)', xy=(q[10], 2), fontsize=10, color='#64748B')
-            ax.annotate('미세 스케일\n(ΔT 포화)', xy=(q[-40], dT[-40] * 0.8), fontsize=10, color='#DC2626')
+            ax.set_title(r'$\Delta T(q)$ 파수별 누적 온도 상승 (대표적 형상)', fontsize=self.PLOT_FONTS['title'], pad=10)
+            ax.annotate('큰 스케일\n(ΔT \u2248 0)', xy=(q[10], 2), fontsize=self.PLOT_FONTS['title'], color='#64748B')
+            ax.annotate('미세 스케일\n(ΔT 포화)', xy=(q[-40], dT[-40] * 0.8), fontsize=self.PLOT_FONTS['title'], color='#DC2626')
         add_graph(_plot_var_flash)
 
         # ═══════════════════════════════════════════════════════
@@ -16628,16 +17337,16 @@ class PerssonModelGUI_V2:
             r'$\mu_{visc} = \frac{1}{2} \int_{q_0}^{q_1} dq\, q^3 C(q)\, P(q)\, S(q)'
             r' \int_{0}^{2\pi} d\phi\, \cos\phi\, \frac{\mathrm{Im}[E(qv\cos\phi)]}{(1-\nu^2)\sigma_0}$',
             fig_height=1.3)
-        add_text('  [선형] G, P, S 계산 → Im[E] = Im[E_linear]', font_size=17, fg='#64748B')
-        add_text('  [비선형] E_eff 사용, G\u00b7P\u00b7S 재계산, Im[E_eff] = Im[E] \u00d7 g(\u03b5)', font_size=17, fg='#64748B')
+        add_text('  [선형] G, P, S 계산 → Im[E] = Im[E_linear]', font_size=10, fg='#64748B')
+        add_text('  [비선형] E_eff 사용, G\u00b7P\u00b7S 재계산, Im[E_eff] = Im[E] \u00d7 g(\u03b5)', font_size=10, fg='#64748B')
 
-        add_text('\n  Flash Temperature 적용 시 (Per-q Sequential):', bold=True, font_size=17, fg='#DC2626')
+        add_text('\n  Flash Temperature 적용 시 (Per-q Sequential):', bold=True, font_size=10, fg='#DC2626')
         add_equation(
             r"$\mu_{hot} = \sum_i d\mu_i(T_{current})"
             r", \qquad \dot{q}(q_i) = \frac{d\mu_i \cdot \sigma_0 \cdot v}{P(q_i)}$",
             fig_height=1.0)
-        add_text('  → 파수별 순차: 각 q[i]에서 누적 T 기반 WLF shift 적용', font_size=17, fg='#64748B')
-        add_text('  → μ_hot < μ_cold (고속 영역에서 flash 연화 효과)', font_size=17, fg='#64748B')
+        add_text('  → 파수별 순차: 각 q[i]에서 누적 T 기반 WLF shift 적용', font_size=10, fg='#64748B')
+        add_text('  → μ_hot < μ_cold (고속 영역에서 flash 연화 효과)', font_size=10, fg='#64748B')
 
         def _plot_var_mu(ax, np):
             v = np.logspace(-6, 2, 500)
@@ -16649,18 +17358,18 @@ class PerssonModelGUI_V2:
             ax.semilogx(v, mu_cold, 'b-', linewidth=2.5, label=r'$\mu_{cold}$ (Flash OFF)')
             ax.semilogx(v, mu_hot, 'r-', linewidth=2.5, label=r'$\mu_{hot}$ (Flash ON)')
             ax.fill_between(v, mu_hot, mu_cold, alpha=0.08, color='red')
-            ax.set_xlabel('v (m/s)', fontsize=12)
-            ax.set_ylabel(r'$\mu_{visc}$', fontsize=12)
-            ax.legend(fontsize=10, loc='upper right')
+            ax.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel(r'$\mu_{visc}$', fontsize=self.PLOT_FONTS['label'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='upper right')
             ax.grid(True, alpha=0.3)
-            ax.set_title(r'$\mu_{cold}$ vs $\mu_{hot}$ \u2014 Flash Temperature 효과', fontsize=12, pad=10)
+            ax.set_title(r'$\mu_{cold}$ vs $\mu_{hot}$ \u2014 Flash Temperature 효과', fontsize=self.PLOT_FONTS['title'], pad=10)
             peak_idx = np.argmax(mu_cold)
             ax.annotate('마찰 피크', xy=(v[peak_idx], mu_cold[peak_idx]),
-                        fontsize=11, fontweight='bold', color='#2563EB',
+                        fontsize=self.PLOT_FONTS['title'], fontweight='bold', color='#2563EB',
                         xytext=(v[peak_idx] * 20, mu_cold[peak_idx] * 0.85),
                         arrowprops=dict(arrowstyle='->', color='#2563EB'))
             ax.annotate('Flash 감소', xy=(v[350], (mu_cold[350] + mu_hot[350]) / 2),
-                        fontsize=11, fontweight='bold', color='#DC2626')
+                        fontsize=self.PLOT_FONTS['title'], fontweight='bold', color='#DC2626')
         add_graph(_plot_var_mu)
 
         # ═══════════════════════════════════════════════════════
@@ -16668,6 +17377,38 @@ class PerssonModelGUI_V2:
         # ═══════════════════════════════════════════════════════
         add_section_title('5. 데이터 흐름도', bg_color='#7C3AED')
 
+        # --- 계산 단계별 흐름 요약 테이블 ---
+        add_text('계산 단계별 흐름 요약:', bold=True, fg='#374151', pady=(8, 0))
+
+        flow_frame = tk.Frame(scrollable_frame, bg='white', padx=20, pady=6)
+        flow_frame.pack(fill=tk.X, padx=10)
+        flow_data = [
+            ('\u2460 입력', "DMA(E',E''), PSD(q,C(q))", 'G(q), P(q), S(q)', '거칠기+물성 → 접촉 역학 기본량'),
+            ('\u2461 h\'_rms/\u03b5', 'PSD C(q)', '\u03be(q), \u03b5(q)', '표면 기울기 → 국소 변형률'),
+            ('\u2462 비선형 보정\n(선택)', 'Strain Sweep + \u03b5(q)', "E'_eff, E''_eff", 'Payne 효과 반영한 유효 탄성률'),
+            ('\u2463 \u03bc_visc\n(Cold)', 'G, P, S, Im[E_eff]', '\u03bc_cold(v)', '점탄성 마찰 (Flash OFF)'),
+            ('\u2464 Flash Temp\n(선택)', '\u03bc_cold, \u03ba, \u03c1, C_v', '\u0394T(q,v), \u03bc_hot(v)', 'Per-q 순차 누적 → 온도 보정 마찰'),
+            ('\u2465 \u03bc_adh\n(선택)', '\u03bc_dry 실측 + A/A\u2080', '\u03c4_f0, v\u2080*, c → \u03bc_adh', '점착 마찰 자동 피팅'),
+            ('\u2466 최종 합산', '\u03bc_visc + \u03bc_adh', '\u03bc_total(v)', '전체 건조 마찰 커브'),
+        ]
+        for col_idx, header in enumerate(['단계', '입력', '출력', '설명']):
+            lbl = tk.Label(flow_frame, text=header, bg='#7C3AED', fg='white',
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
+            lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
+        for row_idx, (step, inp, out, desc) in enumerate(flow_data, start=1):
+            bg = '#F5F3FF' if row_idx % 2 == 0 else 'white'
+            for col_idx, val in enumerate([step, inp, out, desc]):
+                weight = 'bold' if col_idx == 0 else 'normal'
+                lbl = tk.Label(flow_frame, text=val, bg=bg, fg='#1E293B',
+                               font=('NanumGothic', 12, weight), padx=10, pady=6, anchor='w',
+                               justify=tk.LEFT, wraplength=350 if col_idx >= 1 else 150)
+                lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
+        flow_frame.columnconfigure(0, weight=1)
+        flow_frame.columnconfigure(1, weight=3)
+        flow_frame.columnconfigure(2, weight=3)
+        flow_frame.columnconfigure(3, weight=3)
+
+        add_separator()
         add_text('DMA + PSD → Tab1(검증) → Tab2(설정) → Tab3(G, P 계산)', bold=True, pady=(8, 0))
         add_text('→ Tab4(h\'_rms, \u03b5 계산) → Tab5(\u03bc_visc 계산)', bold=True, pady=(0, 4))
         add_text('Strain Sweep → f(\u03b5), g(\u03b5) 함수 → 비선형 보정에 반영', bold=True, pady=(0, 4))
@@ -16705,14 +17446,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['기호', '단위', '의미 / 직관적 설명']):
             lbl = tk.Label(adh_param_frame, text=header, bg='#059669', fg='white',
-                           font=('Segoe UI', 12, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (sym, unit, meaning) in enumerate(adh_param_data, start=1):
             bg = '#F0FDF4' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([sym, unit, meaning]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(adh_param_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('Segoe UI', 17, weight), padx=12, pady=6, anchor='w')
+                               font=('NanumGothic', 12, weight), padx=12, pady=6, anchor='w')
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         adh_param_frame.columnconfigure(0, weight=1)
         adh_param_frame.columnconfigure(1, weight=1)
@@ -16763,14 +17504,14 @@ class PerssonModelGUI_V2:
         ]
         for col_idx, header in enumerate(['기호', '단위', '의미']):
             lbl = tk.Label(unit_frame, text=header, bg='#1B2A4A', fg='white',
-                           font=('Segoe UI', 12, 'bold'), padx=12, pady=7, anchor='center')
+                           font=('NanumGothic', 12, 'bold'), padx=12, pady=7, anchor='center')
             lbl.grid(row=0, column=col_idx, sticky='nsew', padx=1, pady=1)
         for row_idx, (sym, unit, meaning) in enumerate(unit_data, start=1):
             bg = '#F1F5F9' if row_idx % 2 == 0 else 'white'
             for col_idx, val in enumerate([sym, unit, meaning]):
                 weight = 'bold' if col_idx == 0 else 'normal'
                 lbl = tk.Label(unit_frame, text=val, bg=bg, fg='#1E293B',
-                               font=('Segoe UI', 17, weight), padx=12, pady=6, anchor='center')
+                               font=('NanumGothic', 12, weight), padx=12, pady=6, anchor='center')
                 lbl.grid(row=row_idx, column=col_idx, sticky='nsew', padx=1, pady=1)
         for col_idx in range(3):
             unit_frame.columnconfigure(col_idx, weight=1)
@@ -16873,6 +17614,7 @@ class PerssonModelGUI_V2:
             from tkinter import filedialog
             filepath = filedialog.asksaveasfilename(
                 defaultextension=".txt",
+                initialfile=self._make_export_filename("debug_log", ext=".txt"),
                 filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
                 title="디버그 로그 저장"
             )
@@ -17431,7 +18173,7 @@ class PerssonModelGUI_V2:
 ════════════════════════════════════════════════════════════════════════════════
 """
 
-        text_widget = tk.Text(title_frame, wrap=tk.WORD, font=('Consolas', 11), height=50, width=90)
+        text_widget = tk.Text(title_frame, wrap=tk.WORD, font=('NanumGothicCoding', 12), height=50, width=90)
         text_widget.insert(tk.END, content)
         text_widget.config(state='disabled')  # Read-only
         text_widget.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
@@ -17444,6 +18186,45 @@ class PerssonModelGUI_V2:
         preset_dir = os.path.join(base_dir, 'preset_data', data_type)
         os.makedirs(preset_dir, exist_ok=True)
         return preset_dir
+
+    def _export_preset_file(self, data_type, combo_var, type_label):
+        """Export selected preset file to user-chosen location as txt."""
+        selected = combo_var.get()
+        if not selected or selected.startswith('('):
+            self._show_status(f"내보낼 {type_label} 프리셋을 선택하세요.", 'warning')
+            return
+
+        preset_dir = self._get_preset_data_dir(data_type)
+        src_path = os.path.join(preset_dir, selected)
+
+        # 일부 프리셋(surface_q1)은 확장자 없이 표시 → .txt 추가 시도
+        if not os.path.exists(src_path):
+            src_path_txt = src_path + '.txt'
+            if os.path.exists(src_path_txt):
+                src_path = src_path_txt
+            else:
+                self._show_status(f"프리셋 파일을 찾을 수 없습니다:\n{selected}", 'warning')
+                return
+
+        # 내보내기 파일명 결정
+        export_name = selected if selected.endswith(('.txt', '.csv')) else selected + '.txt'
+
+        dst_path = filedialog.asksaveasfilename(
+            title=f"{type_label} 프리셋 내보내기",
+            defaultextension=".txt",
+            initialfile=export_name,
+            filetypes=[("Text files", "*.txt"), ("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+
+        if not dst_path:
+            return
+
+        try:
+            import shutil
+            shutil.copy2(src_path, dst_path)
+            self._show_status(f"{type_label} 프리셋 내보내기 완료:\n{os.path.basename(dst_path)}", 'success')
+        except Exception as e:
+            messagebox.showerror("오류", f"내보내기 실패:\n{str(e)}")
 
     def _refresh_preset_psd_list(self):
         """Refresh the preset PSD list in the combobox."""
@@ -18042,20 +18823,14 @@ class PerssonModelGUI_V2:
             preset_dir = self._get_preset_data_dir('fg_curve')
             filepath = os.path.join(preset_dir, selected)
 
-            # 다중 인코딩 시도
-            fg_raw = None
-            for enc in ['utf-8', 'cp949', 'euc-kr', 'latin-1']:
-                try:
-                    fg_raw = np.loadtxt(filepath, comments='#', encoding=enc)
-                    break
-                except UnicodeDecodeError:
-                    continue
-            if fg_raw is None:
-                raise ValueError("파일 인코딩을 인식할 수 없습니다.")
+            # Use load_fg_curve_file for robust parsing (supports Fortran D notation)
+            fg_data = load_fg_curve_file(filepath, strain_is_percent=False)
+            if fg_data is None:
+                raise ValueError("유효한 f,g 데이터를 찾을 수 없습니다.")
 
-            strain = fg_raw[:, 0]
-            f_vals = fg_raw[:, 1]
-            g_vals = fg_raw[:, 2] if fg_raw.shape[1] >= 3 else f_vals.copy()
+            strain = fg_data['strain']
+            f_vals = fg_data['f']
+            g_vals = fg_data['g'] if fg_data['g'] is not None else f_vals.copy()
 
             # Create interpolators
             self.f_interpolator, self.g_interpolator = create_fg_interpolator(
@@ -18068,6 +18843,10 @@ class PerssonModelGUI_V2:
                 'f_avg': f_vals,
                 'g_avg': g_vals
             }
+
+            # Reset previous computation state so plot shows newly loaded data
+            self.piecewise_result = None
+            self.fg_by_T = None
 
             self.fg_file_label.config(text=f"내장: {selected} ({len(strain)}pts)")
             self._update_fg_plot()
@@ -18246,6 +19025,9 @@ class PerssonModelGUI_V2:
                    style='Outline.TButton').pack(side=tk.LEFT)
         ttk.Button(preset_mu_dry_frame, text="추가", command=self._add_preset_mu_dry, width=4).pack(side=tk.LEFT, padx=2)
         ttk.Button(preset_mu_dry_frame, text="삭제", command=self._delete_preset_mu_dry, width=4).pack(side=tk.LEFT, padx=2)
+        ttk.Button(preset_mu_dry_frame, text="내보내기",
+                   command=lambda: self._export_preset_file('mu_dry', self.preset_mu_dry_var, 'μ_dry'),
+                   width=6).pack(side=tk.LEFT, padx=1)
 
         # 프로그램 시작 시 내장 μ_dry 프리셋 목록 로드
         self._refresh_preset_mu_dry_list()
@@ -18456,33 +19238,33 @@ class PerssonModelGUI_V2:
 
         # Top-left: τ_f (shear stress) + A/A0 vs velocity (dual y-axis)
         self.ax_adh_tau = self.fig_mu_adh.add_subplot(221)
-        self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v) + A/A0', fontweight='bold', fontsize=11)
-        self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=11)
-        self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=11)
+        self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v) + A/A0', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=self.PLOT_FONTS['label'])
         self.ax_adh_tau.set_xscale('log')
         self.ax_adh_tau.grid(True, alpha=0.3)
 
         # Top-right: μ_adh vs velocity
         self.ax_adh_mu = self.fig_mu_adh.add_subplot(222)
-        self.ax_adh_mu.set_title('μ_adh(v) 곡선', fontweight='bold', fontsize=11)
-        self.ax_adh_mu.set_xlabel('속도 v (m/s)', fontsize=11)
-        self.ax_adh_mu.set_ylabel('마찰 계수 μ_adh', fontsize=11)
+        self.ax_adh_mu.set_title('μ_adh(v) 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_adh_mu.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_mu.set_ylabel('마찰 계수 μ_adh', fontsize=self.PLOT_FONTS['label'])
         self.ax_adh_mu.set_xscale('log')
         self.ax_adh_mu.grid(True, alpha=0.3)
 
         # Bottom-left: μ_total = μ_visc + μ_adh vs velocity
         self.ax_adh_total = self.fig_mu_adh.add_subplot(223)
-        self.ax_adh_total.set_title('μ_total = μ_visc + μ_adh', fontweight='bold', fontsize=11)
-        self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=11)
-        self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=11)
+        self.ax_adh_total.set_title('μ_total = μ_visc + μ_adh', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=self.PLOT_FONTS['label'])
         self.ax_adh_total.set_xscale('log')
         self.ax_adh_total.grid(True, alpha=0.3)
 
         # Bottom-right: aT comparison (master curve aT vs adhesion aT')
         self.ax_adh_area = self.fig_mu_adh.add_subplot(224)
-        self.ax_adh_area.set_title('이동 인자 aT 비교', fontweight='bold', fontsize=11)
-        self.ax_adh_area.set_xlabel('온도 T (°C)', fontsize=11)
-        self.ax_adh_area.set_ylabel('log₁₀(aT)', fontsize=11)
+        self.ax_adh_area.set_title('이동 인자 aT 비교', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_adh_area.set_xlabel('온도 T (°C)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_area.set_ylabel('log₁₀(aT)', fontsize=self.PLOT_FONTS['label'])
         self.ax_adh_area.grid(True, alpha=0.3)
 
         self.fig_mu_adh.subplots_adjust(left=0.10, right=0.90, top=0.96, bottom=0.08,
@@ -18902,9 +19684,9 @@ class PerssonModelGUI_V2:
             self.ax_adh_tau.plot(v[peak_tau_idx], tau_f[peak_tau_idx] / 1e6, 'r*', markersize=12,
                                 label=f'최대: {tau_f[peak_tau_idx]/1e6:.3f} MPa')
             title_suffix = ' (Flash 보정)' if use_flash else ''
-            self.ax_adh_tau.set_title(f'점착 전단 응력 τ_f(v) + A/A0{title_suffix}', fontweight='bold', fontsize=11)
-            self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=11)
-            self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=11, color='r')
+            self.ax_adh_tau.set_title(f'점착 전단 응력 τ_f(v) + A/A0{title_suffix}', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=self.PLOT_FONTS['label'], color='r')
             self.ax_adh_tau.tick_params(axis='y', labelcolor='r')
 
             # A/A0 on secondary y-axis (same plot)
@@ -18912,7 +19694,7 @@ class PerssonModelGUI_V2:
             line_area = self._ax_adh_tau_twin.semilogx(v, A_ratio, 'b--', linewidth=1.5,
                                                         marker='s', markersize=2, alpha=0.7,
                                                         label='A/A0')
-            self._ax_adh_tau_twin.set_ylabel('A/A0 (실접촉 면적비)', fontsize=10, color='b')
+            self._ax_adh_tau_twin.set_ylabel('A/A0 (실접촉 면적비)', fontsize=self.PLOT_FONTS['label'], color='b')
             self._ax_adh_tau_twin.tick_params(axis='y', labelcolor='b')
             y_max_area = np.max(A_ratio) * 1.3
             if not np.isfinite(y_max_area) or y_max_area <= 0:
@@ -18922,7 +19704,7 @@ class PerssonModelGUI_V2:
             # Combined legend
             lines = line_tau + line_area
             labels = [l.get_label() for l in lines]
-            self.ax_adh_tau.legend(lines, labels, loc='best', fontsize=7)
+            self.ax_adh_tau.legend(lines, labels, loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_adh_tau.grid(True, alpha=0.3)
 
             # ── Plot 2: μ_adh vs velocity ──
@@ -18930,10 +19712,10 @@ class PerssonModelGUI_V2:
             peak_mu_idx = np.argmax(mu_adh)
             self.ax_adh_mu.plot(v[peak_mu_idx], mu_adh[peak_mu_idx], 'r*', markersize=15,
                                 label=f'최대: μ={smart_fmt(mu_adh[peak_mu_idx])} @ v={v[peak_mu_idx]:.4f}')
-            self.ax_adh_mu.set_title('μ_adh(v) 곡선', fontweight='bold', fontsize=11)
-            self.ax_adh_mu.set_xlabel('속도 v (m/s)', fontsize=11)
-            self.ax_adh_mu.set_ylabel('마찰 계수 μ_adh', fontsize=11)
-            self.ax_adh_mu.legend(loc='best', fontsize=8)
+            self.ax_adh_mu.set_title('μ_adh(v) 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_adh_mu.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_adh_mu.set_ylabel('마찰 계수 μ_adh', fontsize=self.PLOT_FONTS['label'])
+            self.ax_adh_mu.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_adh_mu.grid(True, alpha=0.3)
 
             # ── Plot 3: μ_total = μ_visc + μ_adh ──
@@ -18967,7 +19749,7 @@ class PerssonModelGUI_V2:
             else:
                 self.ax_adh_total.semilogx(v, mu_adh, 'g-', linewidth=2, label='μ_adh')
                 self.ax_adh_total.text(0.5, 0.95, 'μ_visc 결과 없음 - μ_adh만 표시',
-                                        ha='center', va='top', fontsize=9, color='#64748B',
+                                        ha='center', va='top', fontsize=self.PLOT_FONTS['title'], color='#64748B',
                                         transform=self.ax_adh_total.transAxes)
 
             # Overlay measured μ_dry data points (if available)
@@ -18977,10 +19759,10 @@ class PerssonModelGUI_V2:
                                         markeredgecolor='darkred', markeredgewidth=1.5,
                                         zorder=20, label=f'실측 μ_dry ({len(v_meas)}점)')
 
-            self.ax_adh_total.set_title('μ_total(cold) = μ_visc + μ_adh', fontweight='bold', fontsize=11)
-            self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=11)
-            self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=11)
-            self.ax_adh_total.legend(loc='best', fontsize=8)
+            self.ax_adh_total.set_title('μ_total(cold) = μ_visc + μ_adh', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=self.PLOT_FONTS['label'])
+            self.ax_adh_total.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_adh_total.grid(True, alpha=0.3)
 
             # ── Plot 4: aT comparison (master curve aT vs adhesion Arrhenius aT') ──
@@ -19046,10 +19828,10 @@ class PerssonModelGUI_V2:
                 except Exception:
                     pass
 
-            self.ax_adh_area.set_title('이동 인자 aT 비교', fontweight='bold', fontsize=11)
-            self.ax_adh_area.set_xlabel('온도 T (°C)', fontsize=11)
-            self.ax_adh_area.set_ylabel('log₁₀(aT)', fontsize=11)
-            self.ax_adh_area.legend(loc='best', fontsize=7)
+            self.ax_adh_area.set_title('이동 인자 aT 비교', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_adh_area.set_xlabel('온도 T (°C)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_adh_area.set_ylabel('log₁₀(aT)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_adh_area.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_adh_area.grid(True, alpha=0.3)
             self.ax_adh_area.axhline(y=0, color='gray', linestyle=':', alpha=0.5)
 
@@ -19262,6 +20044,7 @@ class PerssonModelGUI_V2:
         filepath = filedialog.asksaveasfilename(
             title="실측 μ_dry 데이터 저장",
             defaultextension=".csv",
+            initialfile=self._make_export_filename("measured_mu_dry"),
             filetypes=[("CSV", "*.csv"), ("텍스트", "*.txt")]
         )
         if not filepath:
@@ -19548,23 +20331,48 @@ class PerssonModelGUI_V2:
                         f"{f'  현재 최적: {best_cost:.2e}' if best_cost < np.inf else ''}")
                     self.root.update()
                     try:
-                        res = differential_evolution(
-                            objective, bounds,
-                            seed=i_restart * 7 + 3,
-                            strategy=strategy,
-                            maxiter=2000,
-                            tol=1e-12,
-                            popsize=30,
-                            mutation=(0.5, 1.5),
-                            recombination=0.9,
-                            init='sobol' if i_restart % 2 == 0 else 'latinhypercube',
-                            polish=True,
-                            disp=False)
+                        # Alternate sobol / latinhypercube per trial (not per restart)
+                        # so that n_restarts=1 still uses both init methods.
+                        init_method = 'sobol' if trial_count % 2 == 1 else 'latinhypercube'
+                        try:
+                            res = differential_evolution(
+                                objective, bounds,
+                                seed=trial_count * 7 + 3,
+                                strategy=strategy,
+                                maxiter=2000,
+                                tol=1e-12,
+                                popsize=30,
+                                mutation=(0.5, 1.5),
+                                recombination=0.9,
+                                init=init_method,
+                                polish=True,
+                                disp=False)
+                        except Exception:
+                            # sobol or qmc unavailable in PyInstaller →
+                            # retry with latinhypercube (always available)
+                            res = differential_evolution(
+                                objective, bounds,
+                                seed=trial_count * 7 + 3,
+                                strategy=strategy,
+                                maxiter=2000,
+                                tol=1e-12,
+                                popsize=30,
+                                mutation=(0.5, 1.5),
+                                recombination=0.9,
+                                init='latinhypercube',
+                                polish=True,
+                                disp=False)
                         if res.fun < best_cost:
                             best_cost = res.fun
                             best_result = res
-                    except Exception:
+                    except Exception as e_de:
+                        print(f"[AutoFit] DE trial {trial_count}/{total_trials} "
+                              f"({strategy}) failed: {e_de}")
                         continue
+
+            if best_result is None:
+                print("[AutoFit] WARNING: 모든 DE 시도 실패! Nelder-Mead만으로 진행합니다.")
+                print("[AutoFit] scipy.stats.qmc 또는 scipy._lib 누락 가능성 확인 필요")
 
             self.fit_status_var.set("로컬 최적화 (Nelder-Mead) 실행 중...")
             self.root.update()
@@ -19869,18 +20677,18 @@ class PerssonModelGUI_V2:
             ax.set_xscale('log')
             ax.grid(True, alpha=0.3)
         self.ax_adh_area.grid(True, alpha=0.3)  # aT plot uses linear x-axis
-        self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v) + A/A0', fontweight='bold', fontsize=11)
-        self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=11)
-        self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=11)
-        self.ax_adh_mu.set_title('μ_adh(v) 곡선', fontweight='bold', fontsize=11)
-        self.ax_adh_mu.set_xlabel('속도 v (m/s)', fontsize=11)
-        self.ax_adh_mu.set_ylabel('마찰 계수 μ_adh', fontsize=11)
-        self.ax_adh_total.set_title('μ_total = μ_visc + μ_adh', fontweight='bold', fontsize=11)
-        self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=11)
-        self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=11)
-        self.ax_adh_area.set_title('이동 인자 aT 비교', fontweight='bold', fontsize=11)
-        self.ax_adh_area.set_xlabel('온도 T (°C)', fontsize=11)
-        self.ax_adh_area.set_ylabel('log₁₀(aT)', fontsize=11)
+        self.ax_adh_tau.set_title('점착 전단 응력 τ_f(v) + A/A0', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_adh_tau.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_tau.set_ylabel('τ_f (MPa)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_mu.set_title('μ_adh(v) 곡선', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_adh_mu.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_mu.set_ylabel('마찰 계수 μ_adh', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_total.set_title('μ_total = μ_visc + μ_adh', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_adh_total.set_xlabel('속도 v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_total.set_ylabel('마찰 계수 μ', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_area.set_title('이동 인자 aT 비교', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_adh_area.set_xlabel('온도 T (°C)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_adh_area.set_ylabel('log₁₀(aT)', fontsize=self.PLOT_FONTS['label'])
         self.canvas_mu_adh.draw_idle()
 
         # Clear result text
@@ -20124,38 +20932,38 @@ class PerssonModelGUI_V2:
 
         # Top-left: Cold vs Hot Branch (μ_hys)
         self.ax_ch_hys = self.fig_cold_hot.add_subplot(221)
-        self.ax_ch_hys.set_title('μ_hys: Cold vs Hot Branch', fontweight='bold', fontsize=10)
-        self.ax_ch_hys.set_xlabel('v (m/s)', fontsize=10)
-        self.ax_ch_hys.set_ylabel('μ_hys', fontsize=10)
+        self.ax_ch_hys.set_title('μ_hys: Cold vs Hot Branch', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_ch_hys.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_ch_hys.set_ylabel('μ_hys', fontsize=self.PLOT_FONTS['label'])
         self.ax_ch_hys.set_xscale('log')
         self.ax_ch_hys.grid(True, alpha=0.3)
 
         # Top-right: Cold vs Hot Adhesion (μ_ad with Arrhenius aT)
         self.ax_ch_adh = self.fig_cold_hot.add_subplot(222)
-        self.ax_ch_adh.set_title('μ_ad: Cold vs Hot (Arrhenius aT)', fontweight='bold', fontsize=10)
-        self.ax_ch_adh.set_xlabel('v (m/s)', fontsize=10)
-        self.ax_ch_adh.set_ylabel('μ_ad', fontsize=10)
+        self.ax_ch_adh.set_title('μ_ad: Cold vs Hot (Arrhenius aT)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_ch_adh.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_ch_adh.set_ylabel('μ_ad', fontsize=self.PLOT_FONTS['label'])
         self.ax_ch_adh.set_xscale('log')
         self.ax_ch_adh.grid(True, alpha=0.3)
 
         # Bottom-left: Flash temperature ΔT + A/A0
         self.ax_ch_flash = self.fig_cold_hot.add_subplot(223)
-        self.ax_ch_flash.set_title('ΔT(v) + A/A0', fontweight='bold', fontsize=10)
-        self.ax_ch_flash.set_xlabel('v (m/s)', fontsize=10)
-        self.ax_ch_flash.set_ylabel('ΔT (°C)', fontsize=10)
+        self.ax_ch_flash.set_title('ΔT(v) + A/A0', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_ch_flash.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_ch_flash.set_ylabel('ΔT (°C)', fontsize=self.PLOT_FONTS['label'])
         self.ax_ch_flash.set_xscale('log')
         self.ax_ch_flash.grid(True, alpha=0.3)
 
         # Bottom-right: μ_total Cold vs Hot
         self.ax_ch_total = self.fig_cold_hot.add_subplot(224)
-        self.ax_ch_total.set_title('μ_total: Cold vs Hot', fontweight='bold', fontsize=10)
-        self.ax_ch_total.set_xlabel('v (m/s)', fontsize=10)
-        self.ax_ch_total.set_ylabel('μ_total', fontsize=10)
+        self.ax_ch_total.set_title('μ_total: Cold vs Hot', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        self.ax_ch_total.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        self.ax_ch_total.set_ylabel('μ_total', fontsize=self.PLOT_FONTS['label'])
         self.ax_ch_total.set_xscale('log')
         self.ax_ch_total.grid(True, alpha=0.3)
 
-        self.fig_cold_hot.subplots_adjust(left=0.10, right=0.90, top=0.96, bottom=0.08,
-                                           hspace=0.50, wspace=0.40)
+        self.fig_cold_hot.subplots_adjust(left=0.10, right=0.88, top=0.92, bottom=0.08,
+                                           hspace=0.40, wspace=0.45)
 
         self.canvas_cold_hot = FigureCanvasTkAgg(self.fig_cold_hot, plot_frame)
         self.canvas_cold_hot.draw_idle()
@@ -20223,16 +21031,91 @@ class PerssonModelGUI_V2:
 
         Cold: mu_visc_results['mu'] (cold hys) + mu_adh_results['mu_adh'] (cold adh)
         Hot hys: mu_visc_results['mu_hot']
+
         Hot adh: A_A0_hot × tau_f_hot(T_hot) / p0
                  tau_f_hot recalculated with Arrhenius aT' at T_hot
+
+        When T₀ or p₀ in the Cold & Hot tab differs from what was used
+        for μ_adh/μ_visc, automatically syncs the new values and
+        re-runs μ_adh (which cascades to μ_visc recalculation).
         """
         try:
+            self._log('CALC', 'Cold & Hot Branch calculation started')
             self.ch_calc_button.config(state='disabled')
             self.ch_progress_var.set(0)
             self.status_var.set("Cold & Hot Branch 계산 시작...")
             self.root.update()
 
             from scipy.interpolate import interp1d
+
+            # ── Auto-sync: push Cold & Hot tab's T₀/p₀ to μ_adh tab ──
+            # μ_adh's _calculate_mu_adh() already has cascade logic to
+            # re-run temperature shift + μ_visc when T or p₀ changes.
+            ch_T0_str = self.ch_T0_var.get().strip()
+            ch_p0_str = self.ch_p0_var.get().strip()
+
+            need_recalc = False
+            reason_parts = []
+
+            if ch_T0_str and hasattr(self, 'adh_calc_temp_var'):
+                try:
+                    ch_T0 = float(ch_T0_str)
+                    adh_T = float(self.adh_calc_temp_var.get())
+                    if abs(ch_T0 - adh_T) > 0.01:
+                        need_recalc = True
+                        reason_parts.append(f"온도 {adh_T:.1f}→{ch_T0:.1f}°C")
+                except (ValueError, AttributeError):
+                    pass
+
+            if ch_p0_str and hasattr(self, 'adh_p0_var'):
+                try:
+                    ch_p0 = float(ch_p0_str)
+                    adh_p0 = float(self.adh_p0_var.get())
+                    if abs(ch_p0 - adh_p0) / max(adh_p0, 1e-10) > 0.001:
+                        need_recalc = True
+                        reason_parts.append(f"하중 {adh_p0:.4g}→{ch_p0:.4g} MPa")
+                except (ValueError, AttributeError):
+                    pass
+
+            # Check D (돌기 직경) change → sync to Flash Temperature tab
+            ch_D_str = self.ch_D_macro_var.get().strip()
+            if ch_D_str and hasattr(self, 'flash_d_macro_var'):
+                try:
+                    ch_D = float(ch_D_str)
+                    flash_D = float(self.flash_d_macro_var.get())
+                    if abs(ch_D - flash_D) / max(flash_D, 1e-10) > 0.001:
+                        need_recalc = True
+                        reason_parts.append(f"돌기직경 {flash_D:.2f}→{ch_D:.2f} mm")
+                except (ValueError, AttributeError):
+                    pass
+
+            if need_recalc:
+                reason_str = ", ".join(reason_parts)
+                self.status_var.set(
+                    f"기본조건 변경 감지 ({reason_str}): "
+                    f"μ_adh/μ_visc 재계산 중...")
+                self.root.update()
+
+                # Sync Cold & Hot tab values → μ_adh tab
+                self.adh_calc_temp_var.set(ch_T0_str)
+                self.adh_p0_var.set(ch_p0_str)
+
+                # Sync D → Flash Temperature tab
+                if ch_D_str and hasattr(self, 'flash_d_macro_var'):
+                    self.flash_d_macro_var.set(ch_D_str)
+
+                # Run μ_adh calculation (cascades to μ_visc recalc internally)
+                try:
+                    self._calculate_mu_adh()
+                except Exception as e_adh:
+                    print(f"μ_adh recalculation error: {e_adh}")
+
+                # Also sync adhesion params from μ_adh tab (in case they changed)
+                self._sync_cold_hot_adh_params()
+
+                self.status_var.set("Cold & Hot Branch 계산 계속...")
+                self.ch_progress_var.set(5)
+                self.root.update()
 
             # ── Validate: μ_visc results must exist ──
             if not hasattr(self, 'mu_visc_results') or self.mu_visc_results is None:
@@ -20469,10 +21352,10 @@ class PerssonModelGUI_V2:
             self.ax_ch_hys.plot(v[hot_peak], r['mu_hot_hys'][hot_peak], 'r*',
                                 markersize=12,
                                 label=f'Hot max: {smart_fmt(r["mu_hot_hys"][hot_peak])}')
-            self.ax_ch_hys.set_title('μ_hys: Cold vs Hot Branch', fontweight='bold', fontsize=10)
-            self.ax_ch_hys.set_xlabel('v (m/s)', fontsize=10)
-            self.ax_ch_hys.set_ylabel('μ_hys', fontsize=10)
-            self.ax_ch_hys.legend(loc='best', fontsize=7)
+            self.ax_ch_hys.set_title('μ_hys: Cold vs Hot Branch', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_ch_hys.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ch_hys.set_ylabel('μ_hys', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ch_hys.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_ch_hys.grid(True, alpha=0.3)
 
             # ── Plot 2: μ_ad Cold vs Hot (Arrhenius aT) ──
@@ -20489,10 +21372,10 @@ class PerssonModelGUI_V2:
             self.ax_ch_adh.plot(v[hot_ad_peak], r['mu_hot_ad'][hot_ad_peak],
                                 'r*', markersize=12,
                                 label=f'Hot max: {smart_fmt(r["mu_hot_ad"][hot_ad_peak])}')
-            self.ax_ch_adh.set_title('μ_ad: Cold vs Hot (Arrhenius aT)', fontweight='bold', fontsize=10)
-            self.ax_ch_adh.set_xlabel('v (m/s)', fontsize=10)
-            self.ax_ch_adh.set_ylabel('μ_ad', fontsize=10)
-            self.ax_ch_adh.legend(loc='best', fontsize=7)
+            self.ax_ch_adh.set_title('μ_ad: Cold vs Hot (Arrhenius aT)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_ch_adh.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ch_adh.set_ylabel('μ_ad', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ch_adh.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_ch_adh.grid(True, alpha=0.3)
 
             # ── Plot 3: A/A0 + τ_f (shear stress) dual y-axis ──
@@ -20501,9 +21384,9 @@ class PerssonModelGUI_V2:
             line_ah = self.ax_ch_flash.semilogx(v, r['A_A0_hot'], '-', color='#DC2626',
                                                   linewidth=2, marker='s', markersize=3,
                                                   label='A/A0 (Hot)')
-            self.ax_ch_flash.set_title('A/A0 + τ_f: Cold vs Hot', fontweight='bold', fontsize=10)
-            self.ax_ch_flash.set_xlabel('v (m/s)', fontsize=10)
-            self.ax_ch_flash.set_ylabel('A/A0', fontsize=10, color='b')
+            self.ax_ch_flash.set_title('A/A0 + τ_f: Cold vs Hot', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_ch_flash.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ch_flash.set_ylabel('A/A0', fontsize=self.PLOT_FONTS['label'], color='b')
             self.ax_ch_flash.tick_params(axis='y', labelcolor='b')
 
             # τ_f (shear stress) on twin axis
@@ -20515,12 +21398,12 @@ class PerssonModelGUI_V2:
             line_th = self._ax_ch_flash_twin.semilogx(v, tau_f_hot_MPa, '--', color='#DC2626',
                                                        linewidth=1.5, alpha=0.7,
                                                        label='τ_f Hot (MPa)')
-            self._ax_ch_flash_twin.set_ylabel('τ_f (MPa)', fontsize=10, color='#666666')
+            self._ax_ch_flash_twin.set_ylabel('τ_f (MPa)', fontsize=self.PLOT_FONTS['label'], color='#666666')
             self._ax_ch_flash_twin.tick_params(axis='y', labelcolor='#666666')
 
             lines = line_ac + line_ah + line_tc + line_th
             labels = [l.get_label() for l in lines]
-            self.ax_ch_flash.legend(lines, labels, loc='best', fontsize=7)
+            self.ax_ch_flash.legend(lines, labels, loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_ch_flash.grid(True, alpha=0.3)
 
             # ── Plot 4: μ_total Cold vs Hot ──
@@ -20546,10 +21429,10 @@ class PerssonModelGUI_V2:
             self.ax_ch_total.plot(v[hot_total_peak], r['mu_hot_total'][hot_total_peak],
                                   'r*', markersize=12,
                                   label=f'Hot max: {smart_fmt(r["mu_hot_total"][hot_total_peak])}')
-            self.ax_ch_total.set_title('μ_total: Cold vs Hot (hys+ad)', fontweight='bold', fontsize=10)
-            self.ax_ch_total.set_xlabel('v (m/s)', fontsize=10)
-            self.ax_ch_total.set_ylabel('μ_total', fontsize=10)
-            self.ax_ch_total.legend(loc='best', fontsize=6)
+            self.ax_ch_total.set_title('μ_total: Cold vs Hot (hys+ad)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            self.ax_ch_total.set_xlabel('v (m/s)', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ch_total.set_ylabel('μ_total', fontsize=self.PLOT_FONTS['label'])
+            self.ax_ch_total.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_ch_total.grid(True, alpha=0.3)
 
             self.fig_cold_hot.subplots_adjust(left=0.10, right=0.90, top=0.96, bottom=0.08,
@@ -20696,8 +21579,30 @@ class PerssonModelGUI_V2:
             ("시험 Run", self._test_run_pipeline, 'TButton'),
             ("Friction Map 생성", self._calculate_friction_map, 'Accent.TButton'),
             ("LUT 내보내기 (CSV)", self._export_friction_map_csv, 'TButton'),
+            ("전체 내보내기", self._export_fm_all, 'TButton'),
         ])
         left_panel = layout['content']
+
+        # ── 마찰맵 저장소 버튼 (별도 섹션으로 배치) ──
+        sec_store = self._create_section(left_panel, "마찰맵 저장소")
+        ttk.Label(sec_store, text="생성된 마찰맵을 이름과 함께 저장하여\n"
+                  "실차 매칭, 2D Brush, Track Sim에서 사용합니다.",
+                  font=self.FONTS['small'], foreground='#0369A1').pack(anchor='w')
+        row_store = ttk.Frame(sec_store); row_store.pack(fill=tk.X, pady=4)
+        ttk.Button(row_store, text="마찰맵 저장",
+                   command=self._save_friction_map_to_store,
+                   style='Accent.TButton').pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_store, text="저장소 관리",
+                   command=self._show_friction_map_store_list).pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_store, text="파일 내보내기",
+                   command=self._export_friction_map_store).pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_store, text="파일 가져오기",
+                   command=self._import_friction_map_store).pack(side=tk.LEFT, padx=2)
+
+        # 저장소 현황 표시
+        self._fm_store_count_var = tk.StringVar(value="저장된 마찰맵: 0개")
+        ttk.Label(sec_store, textvariable=self._fm_store_count_var,
+                  font=self.FONTS['small'], foreground='#16A34A').pack(anchor='w', pady=2)
 
         # Internal storage
         self.friction_map_results = None
@@ -20740,7 +21645,7 @@ class PerssonModelGUI_V2:
                   foreground='#0369A1').pack(anchor='w', pady=(6, 0))
         row_p_preset = ttk.Frame(sec1); row_p_preset.pack(fill=tk.X, pady=1)
         ttk.Label(row_p_preset, text="프리셋:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.fm_p0_preset_var = tk.StringVar(value="세분화")
+        self.fm_p0_preset_var = tk.StringVar(value="Simple")
         fm_p0_presets = {"Simple": "0.1, 0.3, 0.5",
                          "세분화": "0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1.2, 1.5"}
         self._fm_p0_presets = fm_p0_presets
@@ -20750,7 +21655,7 @@ class PerssonModelGUI_V2:
                             command=self._apply_fm_p0_preset).pack(side=tk.LEFT, padx=3)
         row_p = ttk.Frame(sec1); row_p.pack(fill=tk.X, pady=1)
         ttk.Label(row_p, text="배열:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.fm_p0_array_var = tk.StringVar(value="0.05, 0.1, 0.2, 0.3, 0.5, 0.8, 1.2, 1.5")
+        self.fm_p0_array_var = tk.StringVar(value="0.1, 0.3, 0.5")
         ttk.Entry(row_p, textvariable=self.fm_p0_array_var, width=36).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_p, text="MPa", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
@@ -20765,7 +21670,7 @@ class PerssonModelGUI_V2:
         self.fm_v_log_end_var = tk.StringVar(value="2")
         ttk.Entry(row_v, textvariable=self.fm_v_log_end_var, width=5).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_v, text="포인트:", font=self.FONTS['body']).pack(side=tk.LEFT, padx=(6, 0))
-        self.fm_v_npts_var = tk.StringVar(value="100")
+        self.fm_v_npts_var = tk.StringVar(value="10")
         ttk.Entry(row_v, textvariable=self.fm_v_npts_var, width=5).pack(side=tk.LEFT, padx=2)
 
         # ── 2) Progress ──
@@ -20822,9 +21727,68 @@ class PerssonModelGUI_V2:
 
         # ── 4) 결과 요약 ──
         sec4 = self._create_section(left_panel, "4) 결과 요약")
-        self.fm_result_text = tk.Text(sec4, height=12, font=('Consolas', 9),
+        self.fm_result_text = tk.Text(sec4, height=12, font=('NanumGothicCoding', 12),
                                        wrap=tk.WORD, state=tk.DISABLED)
         self.fm_result_text.pack(fill=tk.BOTH, expand=True, pady=2)
+
+        # ── 5) 고해상도 내보내기 ──
+        sec5 = self._create_section(left_panel, "5) 고해상도 내보내기")
+
+        ttk.Label(sec5, text="이미지 해상도 600 DPI로 내보내기",
+                  font=self.FONTS['small'], foreground='#64748B').pack(anchor='w')
+
+        # Image format selector
+        row_fmt = ttk.Frame(sec5); row_fmt.pack(fill=tk.X, pady=(4, 2))
+        ttk.Label(row_fmt, text="포맷:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_export_img_fmt_var = tk.StringVar(value="PNG")
+        for fmt in ["PNG", "SVG", "PDF", "TIFF"]:
+            ttk.Radiobutton(row_fmt, text=fmt, variable=self.fm_export_img_fmt_var,
+                            value=fmt).pack(side=tk.LEFT, padx=3)
+
+        # DPI selector
+        row_dpi = ttk.Frame(sec5); row_dpi.pack(fill=tk.X, pady=1)
+        ttk.Label(row_dpi, text="DPI:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_export_dpi_var = tk.StringVar(value="600")
+        for dpi_val in ["300", "600", "1200"]:
+            ttk.Radiobutton(row_dpi, text=dpi_val, variable=self.fm_export_dpi_var,
+                            value=dpi_val).pack(side=tk.LEFT, padx=3)
+
+        # Individual export buttons
+        ttk.Label(sec5, text="── 개별 내보내기 ──", font=self.FONTS['body'],
+                  foreground='#0369A1').pack(anchor='w', pady=(6, 2))
+
+        row_ind = ttk.Frame(sec5); row_ind.pack(fill=tk.X, pady=1)
+        ttk.Button(row_ind, text="3D Map 이미지",
+                   command=self._export_fm_3d_image).pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_ind, text="2D Graph 이미지",
+                   command=self._export_fm_graph_image).pack(side=tk.LEFT, padx=2)
+
+        # Individual 3D subplot export
+        row_ind2 = ttk.Frame(sec5); row_ind2.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ind2, text="개별 3D:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.fm_export_3d_pressure_var = tk.StringVar()
+        self.fm_export_3d_pressure_combo = ttk.Combobox(
+            row_ind2, textvariable=self.fm_export_3d_pressure_var,
+            width=10, state='readonly')
+        self.fm_export_3d_pressure_combo.pack(side=tk.LEFT, padx=2)
+        self.fm_export_3d_branch_var = tk.StringVar(value="cold")
+        ttk.Radiobutton(row_ind2, text="Cold", variable=self.fm_export_3d_branch_var,
+                        value="cold").pack(side=tk.LEFT, padx=2)
+        ttk.Radiobutton(row_ind2, text="Hot", variable=self.fm_export_3d_branch_var,
+                        value="hot").pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_ind2, text="내보내기",
+                   command=self._export_fm_individual_3d).pack(side=tk.LEFT, padx=2)
+
+        # Batch export
+        ttk.Label(sec5, text="── 전체 내보내기 ──", font=self.FONTS['body'],
+                  foreground='#0369A1').pack(anchor='w', pady=(6, 2))
+
+        row_all = ttk.Frame(sec5); row_all.pack(fill=tk.X, pady=1)
+        ttk.Button(row_all, text="전체 이미지 내보내기",
+                   command=self._export_fm_all_images,
+                   style='Accent.TButton').pack(side=tk.LEFT, padx=2)
+        ttk.Button(row_all, text="전체 내보내기 (CSV + 이미지)",
+                   command=self._export_fm_all).pack(side=tk.LEFT, padx=2)
 
     def _create_fm_3d_toolbar(self, parent):
         """Create the data-selection toolbar for the 3D Map tab (at init time)."""
@@ -20833,7 +21797,7 @@ class PerssonModelGUI_V2:
         toolbar.pack(side=tk.TOP, fill=tk.X, padx=2, pady=(2, 0))
         self._fm_3d_toolbar = toolbar
 
-        ttk.Label(toolbar, text="데이터:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(2, 4))
+        ttk.Label(toolbar, text="데이터:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 4))
         self._fm_3d_data_var = tk.StringVar(value="mu_total")
         for label, val in [("mu_total", "mu_total"), ("mu_hys", "mu_visc"),
                            ("mu_adh", "mu_adh"), ("F_total", "F_total"),
@@ -20843,12 +21807,12 @@ class PerssonModelGUI_V2:
                             variable=self._fm_3d_data_var, value=val,
                             command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
 
-        # Row 2: view options (axis direction + View Reset)
+        # Row 2: view options (axis direction, position + View Reset)
         toolbar2 = ttk.Frame(parent)
         toolbar2.pack(side=tk.TOP, fill=tk.X, padx=2, pady=(0, 2))
         self._fm_3d_toolbar2 = toolbar2
 
-        ttk.Label(toolbar2, text="속도축:", font=('', 9, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        ttk.Label(toolbar2, text="속도축:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
         self._fm_3d_v_dir = tk.StringVar(value="asc")
         ttk.Radiobutton(toolbar2, text="오름차순",
                         variable=self._fm_3d_v_dir, value="asc",
@@ -20857,9 +21821,9 @@ class PerssonModelGUI_V2:
                         variable=self._fm_3d_v_dir, value="desc",
                         command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
 
-        ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
+        ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=4)
 
-        ttk.Label(toolbar2, text="온도축:", font=('', 9, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        ttk.Label(toolbar2, text="온도축:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
         self._fm_3d_T_dir = tk.StringVar(value="asc")
         ttk.Radiobutton(toolbar2, text="오름차순",
                         variable=self._fm_3d_T_dir, value="asc",
@@ -20868,14 +21832,34 @@ class PerssonModelGUI_V2:
                         variable=self._fm_3d_T_dir, value="desc",
                         command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
 
+        ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=4)
+
+        ttk.Label(toolbar2, text="속도 위치:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        self._fm_3d_v_pos = tk.StringVar(value="left")
+        ttk.Radiobutton(toolbar2, text="왼쪽",
+                        variable=self._fm_3d_v_pos, value="left",
+                        command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+        ttk.Radiobutton(toolbar2, text="오른쪽",
+                        variable=self._fm_3d_v_pos, value="right",
+                        command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+
+        ttk.Separator(toolbar2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=4)
+
+        ttk.Label(toolbar2, text="온도 위치:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(2, 2))
+        self._fm_3d_T_pos = tk.StringVar(value="right")
+        ttk.Radiobutton(toolbar2, text="왼쪽",
+                        variable=self._fm_3d_T_pos, value="left",
+                        command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+        ttk.Radiobutton(toolbar2, text="오른쪽",
+                        variable=self._fm_3d_T_pos, value="right",
+                        command=self._replot_friction_map_3d).pack(side=tk.LEFT, padx=1)
+
         def _reset_fm_view():
-            v_asc = self._fm_3d_v_dir.get() == "asc"
-            T_asc = self._fm_3d_T_dir.get() == "asc"
-            azim = 225 if (T_asc and v_asc) else 225
-            for ax in getattr(self, '_fm_3d_axes', []):
-                ax.view_init(elev=25, azim=azim)
-            if hasattr(self, '_fm_canvas'):
-                self._fm_canvas.draw_idle()
+            self._fm_3d_v_dir.set("asc")
+            self._fm_3d_T_dir.set("asc")
+            self._fm_3d_v_pos.set("left")
+            self._fm_3d_T_pos.set("right")
+            self._replot_friction_map_3d()
 
         tk.Button(toolbar2, text="View Reset",
                   command=_reset_fm_view, width=10).pack(side=tk.RIGHT, padx=4)
@@ -20889,7 +21873,7 @@ class PerssonModelGUI_V2:
         ctrl1 = ttk.Frame(parent)
         ctrl1.pack(fill=tk.X, padx=4, pady=(4, 0))
 
-        ttk.Label(ctrl1, text="데이터:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Label(ctrl1, text="데이터:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
         self.fm_graph_data_var = tk.StringVar(value="mu_total")
         for label, val in [("A/A0", "A_A0"), ("tau_s", "tau_f"),
                            ("mu_hys", "mu_visc"), ("mu_adh", "mu_adh"), ("mu_total", "mu_total"),
@@ -20913,7 +21897,7 @@ class PerssonModelGUI_V2:
         ctrl2 = ttk.Frame(parent)
         ctrl2.pack(fill=tk.X, padx=4, pady=(2, 0))
 
-        ttk.Label(ctrl2, text="플롯 모드:", font=('', 10, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
+        ttk.Label(ctrl2, text="플롯 모드:", font=('', 12, 'bold')).pack(side=tk.LEFT, padx=(0, 4))
         self.fm_graph_mode_var = tk.StringVar(value="fix_T")
         ttk.Radiobutton(ctrl2, text="T 고정 (p0별 비교)", variable=self.fm_graph_mode_var,
                         value="fix_T", command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
@@ -20923,21 +21907,21 @@ class PerssonModelGUI_V2:
                         value="all", command=self._update_fm_graph).pack(side=tk.LEFT, padx=2)
 
         ttk.Separator(ctrl2, orient=tk.VERTICAL).pack(side=tk.LEFT, fill=tk.Y, padx=6)
-        ttk.Label(ctrl2, text="T:", font=('', 10)).pack(side=tk.LEFT, padx=(0, 2))
+        ttk.Label(ctrl2, text="T:", font=('', 12)).pack(side=tk.LEFT, padx=(0, 2))
         self.fm_graph_T_var = tk.StringVar()
         self.fm_graph_T_combo = ttk.Combobox(ctrl2, textvariable=self.fm_graph_T_var,
                                               width=6, state='readonly')
         self.fm_graph_T_combo.pack(side=tk.LEFT, padx=2)
         self.fm_graph_T_combo.bind('<<ComboboxSelected>>', lambda e: self._update_fm_graph())
-        ttk.Label(ctrl2, text="°C", font=('', 9)).pack(side=tk.LEFT)
+        ttk.Label(ctrl2, text="°C", font=('', 12)).pack(side=tk.LEFT)
 
-        ttk.Label(ctrl2, text="p0:", font=('', 10)).pack(side=tk.LEFT, padx=(8, 2))
+        ttk.Label(ctrl2, text="p0:", font=('', 12)).pack(side=tk.LEFT, padx=(8, 2))
         self.fm_graph_p0_var = tk.StringVar()
         self.fm_graph_p0_combo = ttk.Combobox(ctrl2, textvariable=self.fm_graph_p0_var,
                                                width=6, state='readonly')
         self.fm_graph_p0_combo.pack(side=tk.LEFT, padx=2)
         self.fm_graph_p0_combo.bind('<<ComboboxSelected>>', lambda e: self._update_fm_graph())
-        ttk.Label(ctrl2, text="MPa", font=('', 9)).pack(side=tk.LEFT)
+        ttk.Label(ctrl2, text="MPa", font=('', 12)).pack(side=tk.LEFT)
 
         # ── Figure ──
         plot_frame = ttk.Frame(parent)
@@ -20950,6 +21934,9 @@ class PerssonModelGUI_V2:
         self.canvas_fm_graph = FigureCanvasTkAgg(self.fig_fm_graph, plot_frame)
         self.canvas_fm_graph.draw_idle()
         self.canvas_fm_graph.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Auto-resize figure on widget geometry change
+        self._bind_canvas_auto_resize(self.fig_fm_graph, self.canvas_fm_graph)
 
         toolbar = NavigationToolbar2Tk(self.canvas_fm_graph, plot_frame)
         toolbar.update()
@@ -21110,12 +22097,12 @@ class PerssonModelGUI_V2:
         mode_desc = {'fix_T': f'T={T_arr[T_indices[0]]:.0f}°C 고정',
                      'fix_p0': f'p₀={p0_arr[p0_indices[0]]:.3g} MPa 고정',
                      'all': '전체'}
-        ax.set_xlabel('Velocity v (m/s)', fontsize=11)
-        ax.set_ylabel(y_labels.get(data_key, data_key), fontsize=11)
+        ax.set_xlabel('Velocity v (m/s)', fontsize=self.PLOT_FONTS['label'])
+        ax.set_ylabel(y_labels.get(data_key, data_key), fontsize=self.PLOT_FONTS['label'])
         ax.set_title(f'{y_labels.get(data_key, data_key)}  [{branch.upper()}]  —  {mode_desc.get(mode, "")}',
-                     fontweight='bold', fontsize=12)
+                     fontweight='bold', fontsize=self.PLOT_FONTS['title'])
         ax.grid(True, alpha=0.3)
-        ax.legend(fontsize=8, loc='best')
+        ax.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
         self.canvas_fm_graph.draw_idle()
 
@@ -21251,11 +22238,20 @@ class PerssonModelGUI_V2:
             self.root.update()
             print("[TestRun] Step 8 완료: Cold & Hot Branch")
 
-            self.status_var.set("시험 Run 완료 — Friction Map 생성 가능")
+            # ── Step 9: Friction Map 자동 생성 (항상 실행) ──
+            self.status_var.set("9/9  Friction Map 생성 중...")
+            self.root.update()
+            # 현재 프리셋 적용하여 압력 배열 동기화
+            if hasattr(self, '_apply_fm_p0_preset'):
+                self._apply_fm_p0_preset()
+                self.root.update()
+            self._calculate_friction_map()
+            self.root.update()
+            print("[TestRun] Step 9 완료: Friction Map 생성")
+            self.status_var.set("시험 Run 완료 — Friction Map 생성 완료!")
             self._show_status(
                 "시험 Run 파이프라인 완료!\n\n"
-                "모든 전처리가 완료되었습니다.\n"
-                "'Friction Map 생성' 버튼을 눌러 마찰맵을 생성하세요.", 'success')
+                "모든 전처리 + Friction Map 생성이 완료되었습니다.", 'success')
 
         except Exception as e:
             import traceback
@@ -21268,6 +22264,7 @@ class PerssonModelGUI_V2:
         try:
             import time as _time
             t_start = _time.time()
+            self._log('CALC', 'Friction Map generation started')
 
             # ── Validate prerequisites ──
             if self.psd_model is None:
@@ -21290,7 +22287,10 @@ class PerssonModelGUI_V2:
                 return
 
             self.fm_progress_var.set(0)
-            self.fm_status_label.config(text="Sweep 격자 생성 중...")
+            try:
+                self.fm_status_label.config(text="Sweep 격자 생성 중...")
+            except Exception:
+                pass
             self.root.update()
 
             # ── Parse sweep grids ──
@@ -21346,6 +22346,26 @@ class PerssonModelGUI_V2:
             gamma = float(self.gamma_var.get())
             n_phi = int(self.n_phi_var.get())  # mu_visc 탭과 동일
             use_fg = self.use_fg_correction_var.get()
+
+            # f,g 보간기 유효성 확인
+            if use_fg:
+                if not hasattr(self, 'f_interpolator') or self.f_interpolator is None:
+                    print("[FrictionMap] WARNING: use_fg=True 이지만 f_interpolator가 없습니다. 비선형 보정을 비활성화합니다.")
+                    use_fg = False
+                elif not hasattr(self, 'g_interpolator') or self.g_interpolator is None:
+                    print("[FrictionMap] WARNING: use_fg=True 이지만 g_interpolator가 없습니다. 비선형 보정을 비활성화합니다.")
+                    use_fg = False
+                else:
+                    # 보간기 작동 테스트
+                    try:
+                        _test_f = float(self.f_interpolator(0.01))
+                        _test_g = float(self.g_interpolator(0.01))
+                        if not (np.isfinite(_test_f) and np.isfinite(_test_g)):
+                            print(f"[FrictionMap] WARNING: f/g 보간기 NaN/Inf 반환. 비선형 보정 비활성화.")
+                            use_fg = False
+                    except Exception as e_fg:
+                        print(f"[FrictionMap] WARNING: f/g 보간기 테스트 실패: {e_fg}. 비선형 보정 비활성화.")
+                        use_fg = False
 
             sq_method = getattr(self, 'sq_method_var', None)
             p_exponent = 1 if (sq_method and sq_method.get() == "P1") else 2
@@ -21789,8 +22809,11 @@ class PerssonModelGUI_V2:
                     cell_count += 1
                     progress = int(cell_count / total_cells * 90)
                     self.fm_progress_var.set(progress)
-                    self.fm_status_label.config(
-                        text=f"T={T0:.0f}°C, p0={p0_Pa/1e6:.2f} MPa ({cell_count}/{total_cells})")
+                    try:
+                        self.fm_status_label.config(
+                            text=f"T={T0:.0f}°C, p0={p0_Pa/1e6:.2f} MPa ({cell_count}/{total_cells})")
+                    except Exception:
+                        pass
                     self.root.update()
 
             # ── Store results ──
@@ -21814,7 +22837,10 @@ class PerssonModelGUI_V2:
 
             elapsed = _time.time() - t_start
             self.fm_progress_var.set(95)
-            self.fm_status_label.config(text="플롯 생성 중...")
+            try:
+                self.fm_status_label.config(text="플롯 생성 중...")
+            except Exception:
+                pass
             self.root.update()
 
             # ── Plot ──
@@ -21832,21 +22858,219 @@ class PerssonModelGUI_V2:
                     self.fm_export_T_var.set(f"{T_array[len(T_array)//2]:.0f}")
                 if len(p0_array_MPa) > 0:
                     self.fm_export_p0_var.set(f"{p0_array_MPa[len(p0_array_MPa)//2]:.4g}")
+                # Update individual 3D export pressure combo
+                p0_vals = [f"{p:.4g}" for p in p0_array_MPa]
+                self.fm_export_3d_pressure_combo['values'] = p0_vals
+                if p0_vals:
+                    self.fm_export_3d_pressure_var.set(p0_vals[0])
             except Exception:
                 pass
 
             self.fm_progress_var.set(100)
-            self.fm_status_label.config(text=f"완료 ({elapsed:.1f}s)")
+            try:
+                self.fm_status_label.config(text=f"완료 ({elapsed:.1f}s)")
+            except Exception:
+                pass
+            self._log('CALC', f'Friction Map completed: {n_T}×{n_p}×{n_v}={n_T*n_p*n_v} cells in {elapsed:.1f}s')
             self._show_status(
                 f"Friction Map 생성 완료\n"
                 f"Grid: {n_T}×{n_p}×{n_v} = {n_T*n_p*n_v} cells\n"
                 f"소요 시간: {elapsed:.1f}s", 'success')
+            messagebox.showinfo(
+                "Friction Map 완료",
+                f"Friction Map 생성이 완료되었습니다.\n\n"
+                f"Grid: {n_T} × {n_p} × {n_v} = {n_T*n_p*n_v} cells\n"
+                f"소요 시간: {elapsed:.1f}초")
 
         except Exception as e:
             import traceback
             traceback.print_exc()
-            self.fm_status_label.config(text=f"오류: {str(e)}")
+            try:
+                self.fm_status_label.config(text=f"오류: {str(e)}")
+            except Exception:
+                pass
             self._show_status(f"Friction Map 생성 실패:\n{str(e)}", 'error')
+
+    # ── Friction Map Store (마찰맵 저장소) ──
+
+    def _save_friction_map_to_store(self):
+        """현재 마찰맵을 이름과 함께 저장소에 저장."""
+        import copy
+        import datetime
+
+        if self.friction_map_results is None and self.cold_hot_results is None:
+            messagebox.showwarning("마찰맵 저장", "저장할 마찰맵이 없습니다.\nFriction Map 또는 Cold & Hot Branch를 먼저 계산하세요.")
+            return
+
+        # 이름 입력 다이얼로그
+        from tkinter import simpledialog
+        name = simpledialog.askstring("마찰맵 저장",
+            "마찰맵 이름을 입력하세요 (예: Compound A, SBR-1502 등):",
+            parent=self.root)
+        if not name or not name.strip():
+            return
+        name = name.strip()
+
+        # 중복 이름 체크
+        for entry in self._friction_map_store:
+            if entry['name'] == name:
+                if not messagebox.askyesno("이름 중복",
+                    f"'{name}' 이름의 마찰맵이 이미 있습니다.\n덮어쓰시겠습니까?"):
+                    return
+                self._friction_map_store.remove(entry)
+                break
+
+        # cold_hot_results가 없으면 friction_map_results에서 자동 합성
+        ch_to_save = self.cold_hot_results
+        if ch_to_save is None and self.friction_map_results is not None:
+            ch_to_save = self._synthesize_cold_hot_from_fm(self.friction_map_results)
+            if ch_to_save is not None:
+                print(f"[마찰맵 저장] cold_hot_results 자동 합성 "
+                      f"(T={ch_to_save['T0']:.0f}°C, p₀={ch_to_save['sigma_0']/1e6:.3g} MPa)")
+
+        entry = {
+            'name': name,
+            'friction_map_results': copy.deepcopy(self.friction_map_results),
+            'cold_hot_results': copy.deepcopy(ch_to_save),
+            'timestamp': datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        self._friction_map_store.append(entry)
+        self._update_friction_map_combos()
+        self._update_fm_store_count()
+        self._show_status(f"마찰맵 '{name}' 저장 완료 (총 {len(self._friction_map_store)}개)", 'success')
+
+    def _show_friction_map_store_list(self):
+        """저장된 마찰맵 목록을 팝업으로 표시."""
+        if not self._friction_map_store:
+            messagebox.showinfo("마찰맵 저장소", "저장된 마찰맵이 없습니다.")
+            return
+
+        win = tk.Toplevel(self.root)
+        win.title("마찰맵 저장소 관리")
+        win.geometry("500x400")
+        win.transient(self.root)
+
+        ttk.Label(win, text="저장된 마찰맵 목록", font=('', 12, 'bold')).pack(pady=8)
+
+        listbox = tk.Listbox(win, font=('NanumGothicCoding', 12), height=12)
+        listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=4)
+
+        for entry in self._friction_map_store:
+            fm = entry.get('friction_map_results')
+            ch = entry.get('cold_hot_results')
+            info_parts = [entry['name'], f"[{entry['timestamp']}]"]
+            if fm:
+                info_parts.append(f"FM:{fm['T_array'].shape[0]}T×{fm['p0_array_MPa'].shape[0]}p×{fm['v_array'].shape[0]}v")
+            if ch:
+                info_parts.append(f"C&H:{len(ch['v'])}pts")
+            listbox.insert(tk.END, "  ".join(info_parts))
+
+        btn_frame = ttk.Frame(win)
+        btn_frame.pack(fill=tk.X, padx=10, pady=8)
+
+        def _load_selected():
+            sel = listbox.curselection()
+            if not sel:
+                messagebox.showwarning("선택", "로드할 마찰맵을 선택하세요.", parent=win)
+                return
+            import copy
+            entry = self._friction_map_store[sel[0]]
+            if entry.get('friction_map_results'):
+                self.friction_map_results = copy.deepcopy(entry['friction_map_results'])
+            if entry.get('cold_hot_results'):
+                self.cold_hot_results = copy.deepcopy(entry['cold_hot_results'])
+            self._selected_friction_map_name = entry['name']
+            self._show_status(f"마찰맵 '{entry['name']}' 로드 완료", 'success')
+            win.destroy()
+
+        def _delete_selected():
+            sel = listbox.curselection()
+            if not sel:
+                messagebox.showwarning("선택", "삭제할 마찰맵을 선택하세요.", parent=win)
+                return
+            entry = self._friction_map_store[sel[0]]
+            if messagebox.askyesno("삭제 확인", f"'{entry['name']}' 마찰맵을 삭제하시겠습니까?", parent=win):
+                del self._friction_map_store[sel[0]]
+                listbox.delete(sel[0])
+                self._update_friction_map_combos()
+                self._update_fm_store_count()
+                self._show_status(f"마찰맵 '{entry['name']}' 삭제됨", 'info')
+
+        ttk.Button(btn_frame, text="선택 로드", command=_load_selected,
+                   style='Accent.TButton').pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="선택 삭제", command=_delete_selected).pack(side=tk.LEFT, padx=4)
+        ttk.Button(btn_frame, text="닫기", command=win.destroy).pack(side=tk.RIGHT, padx=4)
+
+    def _export_friction_map_store(self):
+        """저장소의 모든 마찰맵을 파일로 내보내기."""
+        if not self._friction_map_store:
+            messagebox.showwarning("내보내기", "저장된 마찰맵이 없습니다.")
+            return
+        path = filedialog.asksaveasfilename(
+            defaultextension=".npz",
+            filetypes=[("NumPy Archive", "*.npz"), ("All", "*.*")],
+            title="마찰맵 저장소 내보내기")
+        if not path:
+            return
+        try:
+            import pickle
+            with open(path, 'wb') as f:
+                pickle.dump(self._friction_map_store, f)
+            self._show_status(f"마찰맵 저장소 내보내기 완료: {len(self._friction_map_store)}개", 'success')
+        except Exception as e:
+            messagebox.showerror("내보내기 오류", str(e))
+
+    def _import_friction_map_store(self):
+        """파일에서 마찰맵 저장소 가져오기."""
+        path = filedialog.askopenfilename(
+            filetypes=[("NumPy Archive", "*.npz"), ("Pickle", "*.pkl;*.pickle"), ("All", "*.*")],
+            title="마찰맵 저장소 가져오기")
+        if not path:
+            return
+        try:
+            import pickle
+            with open(path, 'rb') as f:
+                loaded = pickle.load(f)
+            if isinstance(loaded, list):
+                self._friction_map_store.extend(loaded)
+                self._update_friction_map_combos()
+                self._update_fm_store_count()
+                self._show_status(f"마찰맵 {len(loaded)}개 가져오기 완료", 'success')
+            else:
+                messagebox.showerror("오류", "올바른 마찰맵 저장소 파일이 아닙니다.")
+        except Exception as e:
+            messagebox.showerror("가져오기 오류", str(e))
+
+    def _update_fm_store_count(self):
+        """마찰맵 저장소 현황 라벨 업데이트."""
+        if hasattr(self, '_fm_store_count_var'):
+            n = len(self._friction_map_store)
+            names = [e['name'] for e in self._friction_map_store]
+            if n == 0:
+                self._fm_store_count_var.set("저장된 마찰맵: 0개")
+            else:
+                self._fm_store_count_var.set(f"저장된 마찰맵: {n}개 ({', '.join(names)})")
+
+    def _update_friction_map_combos(self):
+        """모든 탭의 마찰맵 선택 콤보박스 업데이트."""
+        names = [entry['name'] for entry in self._friction_map_store]
+        # 2D Brush Model 탭
+        if hasattr(self, '_br_friction_map_combo'):
+            self._br_friction_map_combo['values'] = ['(현재 계산 결과)'] + names
+        # Track Simulation 탭
+        if hasattr(self, '_ts_friction_map_combo'):
+            self._ts_friction_map_combo['values'] = ['(현재 계산 결과)'] + names
+        # 실차 매칭 탭
+        if hasattr(self, '_vtm_map_combos'):
+            for combo in self._vtm_map_combos.values():
+                combo['values'] = names
+
+    def _get_friction_map_by_name(self, name):
+        """이름으로 저장된 마찰맵 가져오기. Returns (friction_map_results, cold_hot_results) or (None, None)."""
+        for entry in self._friction_map_store:
+            if entry['name'] == name:
+                return entry.get('friction_map_results'), entry.get('cold_hot_results')
+        return None, None
 
     def _plot_friction_map(self):
         """Plot 3D friction map surfaces for all pressures (Cold & Hot)."""
@@ -21944,19 +23168,23 @@ class PerssonModelGUI_V2:
             n_cols_eff = n_cols
             n_grid_rows = n_rows
 
-        # Figure size: width fills panel, height grows with rows for scrolling
+        # Figure size: width fills panel, height scales with screen resolution
         right_frame.update_idletasks()
         avail_w = right_frame.winfo_width()
+        avail_h = right_frame.winfo_height()
         toolbar_h = 60  # two toolbar rows
         if avail_w < 200:
             avail_w = 900
+        if avail_h < 200:
+            avail_h = 700
         fig_dpi = 100
         fig_w = max(avail_w - 20, 600) / fig_dpi  # -20 for scrollbar
-        row_h = 4.5  # inches per subplot row
+        # Scale row height with available screen space
+        row_h = max(4.5, (avail_h - toolbar_h) / fig_dpi / max(n_grid_rows, 1))
         fig_h = max(row_h * n_grid_rows, 5)
-        fig = Figure(figsize=(fig_w, fig_h), dpi=fig_dpi)
-        fig.subplots_adjust(left=0.04, right=0.97, top=0.96, bottom=0.04,
-                            wspace=0.22, hspace=0.28)
+        fig = Figure(figsize=(fig_w, fig_h), dpi=fig_dpi, facecolor='white')
+        fig.subplots_adjust(left=0.04, right=0.97, top=0.95, bottom=0.04,
+                            wspace=0.22, hspace=0.30)
 
         T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
 
@@ -21975,13 +23203,21 @@ class PerssonModelGUI_V2:
                      'F_adh': r'$F_{adh}$ (MPa)'}
         z_label = z_labels.get(data_type, data_type)
 
-        # Compute azimuth based on axis directions
-        # Default azim=225: T increases left→right, v increases front→back
-        if T_asc and v_asc:
-            azim = 225
-        elif T_asc and not v_asc:
-            azim = 315
-        elif not T_asc and v_asc:
+        # Axis position settings
+        v_left = self._fm_3d_v_pos.get() == "left"
+        T_left = self._fm_3d_T_pos.get() == "left"
+
+        # Compute azimuth based on axis position (which axis on left/right)
+        # In matplotlib 3D: azim controls rotation around z-axis
+        # azim=225: x(T) goes right, y(v) goes left
+        # azim=315: x(T) goes left, y(v) goes right
+        # azim=135: x(T) goes left, y(v) goes left (flipped)
+        # azim=45:  x(T) goes right, y(v) goes right (flipped)
+        if v_left and not T_left:
+            azim = 225  # v on left, T on right (default)
+        elif not v_left and T_left:
+            azim = 315  # v on right, T on left
+        elif T_left and v_left:
             azim = 135
         else:
             azim = 45
@@ -22007,14 +23243,20 @@ class PerssonModelGUI_V2:
                                 cmap=cmap_name, alpha=0.85,
                                 rasterized=True, vmin=z_lo, vmax=z_hi)
             ax.set_zlim(z_lo, z_hi)
-            ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=11, labelpad=6)
-            ax.set_ylabel(r'$\log_{10}(v)$', fontsize=11, labelpad=6)
-            ax.set_zlabel(z_label, fontsize=11, labelpad=6)
+            ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=self.PLOT_FONTS['label'], labelpad=6)
+            ax.set_ylabel(r'$\log_{10}(v)$', fontsize=self.PLOT_FONTS['label'], labelpad=6)
+            ax.set_zlabel(z_label, fontsize=self.PLOT_FONTS['label'], labelpad=6)
+            title_color = '#1565C0' if label == 'Cold' else '#C62828'
             ax.set_title(f'{label}  $p_0$={p0:.3g} MPa\n'
                          f'{z_label}: {Z.min():.4f} ~ {Z.max():.4f}',
-                         fontsize=11, fontweight='bold')
+                         fontsize=self.PLOT_FONTS['title'], fontweight='bold', color=title_color)
             ax.view_init(elev=25, azim=azim)
-            ax.tick_params(labelsize=9)
+            ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
+            # Axis direction: invert if descending
+            if not v_asc:
+                ax.invert_yaxis()
+            if not T_asc:
+                ax.invert_xaxis()
 
         for i_p, p0 in enumerate(p0_arr):
             group_idx = i_p // MAX_COLS
@@ -22036,16 +23278,17 @@ class PerssonModelGUI_V2:
                 _plot_surface(ax_hot, Z_hot, 'inferno', 'Hot', p0, z_min_hot, z_max_hot)
 
         # Scrollable canvas for the matplotlib figure
-        scroll_frame = tk.Frame(right_frame)
+        scroll_frame = tk.Frame(right_frame, bg='white')
         scroll_frame.pack(fill=tk.BOTH, expand=True)
 
         v_scrollbar = ttk.Scrollbar(scroll_frame, orient=tk.VERTICAL)
         v_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        plot_canvas = tk.Canvas(scroll_frame, yscrollcommand=v_scrollbar.set)
+        plot_canvas = tk.Canvas(scroll_frame, yscrollcommand=v_scrollbar.set,
+                                bg='white', highlightthickness=0)
         v_scrollbar.config(command=plot_canvas.yview)
         plot_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        inner_frame = tk.Frame(plot_canvas)
+        inner_frame = tk.Frame(plot_canvas, bg='white')
         canvas = FigureCanvasTkAgg(fig, master=inner_frame)
         canvas.draw()
         canvas_widget = canvas.get_tk_widget()
@@ -22177,6 +23420,7 @@ class PerssonModelGUI_V2:
         filepath = filedialog.asksaveasfilename(
             title="Friction Map LUT 저장",
             defaultextension=".csv",
+            initialfile=self._make_export_filename("friction_map_LUT"),
             filetypes=[("CSV files", "*.csv"), ("All files", "*.*")]
         )
         if not filepath:
@@ -22215,6 +23459,505 @@ class PerssonModelGUI_V2:
         except Exception as e:
             from tkinter import messagebox
             messagebox.showerror("오류", f"CSV 저장 실패:\n{str(e)}")
+
+    def _get_fm_export_settings(self):
+        """Return (dpi, format_ext) from the export UI settings."""
+        dpi = int(self.fm_export_dpi_var.get())
+        fmt = self.fm_export_img_fmt_var.get().lower()
+        return dpi, fmt
+
+    def _export_fm_3d_image(self):
+        """Export the entire 3D Map figure as a high-resolution image."""
+        from tkinter import filedialog
+
+        if not hasattr(self, '_fm_fig') or self._fm_fig is None:
+            self._show_status("3D Map이 없습니다. 먼저 Friction Map을 생성하세요.", 'warning')
+            return
+
+        dpi, fmt = self._get_fm_export_settings()
+        filepath = filedialog.asksaveasfilename(
+            title="3D Map 이미지 저장",
+            defaultextension=f".{fmt}",
+            initialfile=self._make_export_filename("friction_map_3D", ext=f".{fmt}"),
+            filetypes=[(f"{fmt.upper()} files", f"*.{fmt}"), ("All files", "*.*")]
+        )
+        if not filepath:
+            return
+
+        try:
+            self._fm_fig.savefig(filepath, dpi=dpi, bbox_inches='tight',
+                                 facecolor='white', edgecolor='none')
+            self._show_status(f"3D Map 이미지 저장 완료 ({dpi} DPI): {filepath}", 'success')
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("오류", f"3D Map 이미지 저장 실패:\n{str(e)}")
+
+    def _export_fm_graph_image(self):
+        """Export the 2D Graph figure as a high-resolution image."""
+        from tkinter import filedialog
+
+        if not hasattr(self, 'fig_fm_graph') or self.fig_fm_graph is None:
+            self._show_status("2D Graph가 없습니다.", 'warning')
+            return
+
+        dpi, fmt = self._get_fm_export_settings()
+        filepath = filedialog.asksaveasfilename(
+            title="2D Graph 이미지 저장",
+            defaultextension=f".{fmt}",
+            initialfile=self._make_export_filename("friction_map_2D", ext=f".{fmt}"),
+            filetypes=[(f"{fmt.upper()} files", f"*.{fmt}"), ("All files", "*.*")]
+        )
+        if not filepath:
+            return
+
+        try:
+            self.fig_fm_graph.savefig(filepath, dpi=dpi, bbox_inches='tight',
+                                      facecolor='white', edgecolor='none')
+            self._show_status(f"2D Graph 이미지 저장 완료 ({dpi} DPI): {filepath}", 'success')
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("오류", f"2D Graph 이미지 저장 실패:\n{str(e)}")
+
+    def _export_fm_individual_3d(self):
+        """Export a single 3D subplot (specific pressure + branch) as high-res image."""
+        from tkinter import filedialog
+        from matplotlib.figure import Figure
+
+        r = self.friction_map_results
+        if r is None:
+            self._show_status("Friction Map 결과가 없습니다.", 'warning')
+            return
+
+        p0_str = self.fm_export_3d_pressure_var.get()
+        if not p0_str:
+            self._show_status("내보낼 압력(p₀)을 선택하세요.", 'warning')
+            return
+
+        try:
+            p0_sel = float(p0_str)
+        except ValueError:
+            self._show_status("잘못된 압력 값입니다.", 'warning')
+            return
+
+        branch = self.fm_export_3d_branch_var.get()
+        dpi, fmt = self._get_fm_export_settings()
+
+        filepath = filedialog.asksaveasfilename(
+            title=f"3D Map 개별 내보내기 ({branch}, p₀={p0_sel})",
+            defaultextension=f".{fmt}",
+            initialfile=self._make_export_filename(f"friction_map_3D_{branch}_p{p0_sel:.2f}", ext=f".{fmt}"),
+            filetypes=[(f"{fmt.upper()} files", f"*.{fmt}"), ("All files", "*.*")]
+        )
+        if not filepath:
+            return
+
+        try:
+            T_arr = r['T_array']
+            p0_arr = r['p0_array_MPa']
+            v_arr = r['v_array']
+            log_v = np.log10(v_arr)
+            i_p = int(np.argmin(np.abs(p0_arr - p0_sel)))
+            p0 = p0_arr[i_p]
+
+            data_type = self._fm_3d_data_var.get()
+            is_force = data_type.startswith('F_')
+            base_key = data_type.replace('F_', '', 1) if is_force else data_type
+
+            suffix = '_cold' if branch == 'cold' else '_hot'
+            if base_key in ('mu_total', 'total'):
+                lut_key = 'LUT_cold' if branch == 'cold' else 'LUT_hot'
+            elif base_key in ('mu_visc', 'visc'):
+                lut_key = f'LUT_mu_visc{suffix}'
+            elif base_key in ('mu_adh', 'adh'):
+                lut_key = f'LUT_mu_adh{suffix}'
+            else:
+                lut_key = f'LUT_{base_key}{suffix}'
+
+            Z = r.get(lut_key)
+            if Z is None:
+                self._show_status(f"데이터 '{lut_key}'를 찾을 수 없습니다.", 'warning')
+                return
+            Z_slice = Z[:, i_p, :].copy()
+            if data_type == 'tau_f':
+                Z_slice = Z_slice / 1e6
+            elif is_force:
+                Z_slice = Z_slice * p0
+
+            # Create standalone figure
+            fig = Figure(figsize=(8, 6), dpi=dpi, facecolor='white')
+            ax = fig.add_subplot(111, projection='3d')
+
+            T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
+
+            use_fine = len(T_arr) >= 2 and len(v_arr) >= 2
+            if use_fine:
+                from scipy.interpolate import RectBivariateSpline
+                T_fine = np.linspace(T_arr[0], T_arr[-1], 25)
+                log_v_fine = np.linspace(log_v[0], log_v[-1], 40)
+                T_mesh_f, V_mesh_f = np.meshgrid(T_fine, log_v_fine, indexing='ij')
+                try:
+                    sp = RectBivariateSpline(T_arr, log_v, Z_slice)
+                    Z_f = sp(T_fine, log_v_fine)
+                    ax.plot_surface(T_mesh_f, V_mesh_f, Z_f,
+                                    cmap='viridis' if branch == 'cold' else 'inferno',
+                                    alpha=0.85, rstride=1, cstride=1,
+                                    linewidth=0, antialiased=True)
+                except Exception:
+                    ax.plot_surface(T_mesh, V_mesh, Z_slice,
+                                    cmap='viridis' if branch == 'cold' else 'inferno',
+                                    alpha=0.85)
+            else:
+                ax.plot_surface(T_mesh, V_mesh, Z_slice,
+                                cmap='viridis' if branch == 'cold' else 'inferno',
+                                alpha=0.85)
+
+            z_labels = {'mu_total': r'$\mu_{total}$', 'mu_visc': r'$\mu_{hys}$',
+                        'mu_adh': r'$\mu_{adh}$', 'A_A0': 'A/A₀',
+                        'tau_f': r'$\tau_s$ (MPa)',
+                        'F_total': r'$F_{total}$ (MPa)', 'F_visc': r'$F_{hys}$ (MPa)',
+                        'F_adh': r'$F_{adh}$ (MPa)'}
+            z_label = z_labels.get(data_type, data_type)
+
+            ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=self.PLOT_FONTS['title'], labelpad=8)
+            ax.set_ylabel(r'$\log_{10}(v)$', fontsize=self.PLOT_FONTS['title'], labelpad=8)
+            ax.set_zlabel(z_label, fontsize=self.PLOT_FONTS['title'], labelpad=8)
+            title_color = '#1565C0' if branch == 'cold' else '#C62828'
+            ax.set_title(f'{branch.capitalize()}  $p_0$={p0:.3g} MPa\n'
+                         f'{z_label}: {Z_slice.min():.4f} ~ {Z_slice.max():.4f}',
+                         fontsize=self.PLOT_FONTS['legend'], fontweight='bold', color=title_color)
+            ax.view_init(elev=25, azim=225)
+            ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
+
+            v_asc = self._fm_3d_v_dir.get() == "asc"
+            T_asc = self._fm_3d_T_dir.get() == "asc"
+            if not v_asc:
+                ax.invert_yaxis()
+            if not T_asc:
+                ax.invert_xaxis()
+
+            fig.savefig(filepath, dpi=dpi, bbox_inches='tight',
+                        facecolor='white', edgecolor='none')
+            import matplotlib.pyplot as plt
+            plt.close(fig)
+
+            self._show_status(
+                f"개별 3D 이미지 저장 완료 ({dpi} DPI): {filepath}", 'success')
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("오류", f"개별 3D 이미지 저장 실패:\n{str(e)}")
+
+    def _export_fm_all_images(self):
+        """Export all friction map images (3D + 2D) to a folder at high resolution."""
+        from tkinter import filedialog
+        from matplotlib.figure import Figure
+        import os
+
+        r = self.friction_map_results
+        if r is None:
+            self._show_status("Friction Map 결과가 없습니다.", 'warning')
+            return
+
+        folder = filedialog.askdirectory(title="이미지 내보내기 폴더 선택")
+        if not folder:
+            return
+
+        dpi, fmt = self._get_fm_export_settings()
+        saved_files = []
+
+        try:
+            # 1) Export full 3D Map figure
+            if hasattr(self, '_fm_fig') and self._fm_fig is not None:
+                fp = os.path.join(folder, f"friction_map_3D_all.{fmt}")
+                self._fm_fig.savefig(fp, dpi=dpi, bbox_inches='tight',
+                                     facecolor='white', edgecolor='none')
+                saved_files.append(fp)
+
+            # 2) Export full 2D Graph figure
+            if hasattr(self, 'fig_fm_graph') and self.fig_fm_graph is not None:
+                fp = os.path.join(folder, f"friction_map_2D_graph.{fmt}")
+                self.fig_fm_graph.savefig(fp, dpi=dpi, bbox_inches='tight',
+                                          facecolor='white', edgecolor='none')
+                saved_files.append(fp)
+
+            # 3) Export individual 3D subplots per pressure × branch
+            T_arr = r['T_array']
+            p0_arr = r['p0_array_MPa']
+            v_arr = r['v_array']
+            log_v = np.log10(v_arr)
+            has_hot = r.get('use_flash', False)
+
+            data_type = self._fm_3d_data_var.get()
+            is_force = data_type.startswith('F_')
+            base_key = data_type.replace('F_', '', 1) if is_force else data_type
+
+            z_labels = {'mu_total': r'$\mu_{total}$', 'mu_visc': r'$\mu_{hys}$',
+                        'mu_adh': r'$\mu_{adh}$', 'A_A0': 'A/A₀',
+                        'tau_f': r'$\tau_s$ (MPa)',
+                        'F_total': r'$F_{total}$ (MPa)', 'F_visc': r'$F_{hys}$ (MPa)',
+                        'F_adh': r'$F_{adh}$ (MPa)'}
+            z_label = z_labels.get(data_type, data_type)
+
+            T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
+            use_fine = len(T_arr) >= 2 and len(v_arr) >= 2
+            if use_fine:
+                from scipy.interpolate import RectBivariateSpline
+                T_fine = np.linspace(T_arr[0], T_arr[-1], 25)
+                log_v_fine = np.linspace(log_v[0], log_v[-1], 40)
+                T_mesh_f, V_mesh_f = np.meshgrid(T_fine, log_v_fine, indexing='ij')
+
+            v_asc = self._fm_3d_v_dir.get() == "asc"
+            T_asc = self._fm_3d_T_dir.get() == "asc"
+
+            branches = ['cold']
+            if has_hot:
+                branches.append('hot')
+
+            for branch in branches:
+                for i_p, p0 in enumerate(p0_arr):
+                    suffix = '_cold' if branch == 'cold' else '_hot'
+                    if base_key in ('mu_total', 'total'):
+                        lut_key = 'LUT_cold' if branch == 'cold' else 'LUT_hot'
+                    elif base_key in ('mu_visc', 'visc'):
+                        lut_key = f'LUT_mu_visc{suffix}'
+                    elif base_key in ('mu_adh', 'adh'):
+                        lut_key = f'LUT_mu_adh{suffix}'
+                    else:
+                        lut_key = f'LUT_{base_key}{suffix}'
+
+                    Z = r.get(lut_key)
+                    if Z is None:
+                        continue
+                    Z_slice = Z[:, i_p, :].copy()
+                    if data_type == 'tau_f':
+                        Z_slice = Z_slice / 1e6
+                    elif is_force:
+                        Z_slice = Z_slice * p0
+
+                    fig = Figure(figsize=(8, 6), dpi=dpi, facecolor='white')
+                    ax = fig.add_subplot(111, projection='3d')
+
+                    cmap = 'viridis' if branch == 'cold' else 'inferno'
+                    if use_fine:
+                        try:
+                            sp = RectBivariateSpline(T_arr, log_v, Z_slice)
+                            Z_f = sp(T_fine, log_v_fine)
+                            ax.plot_surface(T_mesh_f, V_mesh_f, Z_f,
+                                            cmap=cmap, alpha=0.85, rstride=1, cstride=1,
+                                            linewidth=0, antialiased=True)
+                        except Exception:
+                            ax.plot_surface(T_mesh, V_mesh, Z_slice,
+                                            cmap=cmap, alpha=0.85)
+                    else:
+                        ax.plot_surface(T_mesh, V_mesh, Z_slice,
+                                        cmap=cmap, alpha=0.85)
+
+                    ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=self.PLOT_FONTS['title'], labelpad=8)
+                    ax.set_ylabel(r'$\log_{10}(v)$', fontsize=self.PLOT_FONTS['title'], labelpad=8)
+                    ax.set_zlabel(z_label, fontsize=self.PLOT_FONTS['title'], labelpad=8)
+                    title_color = '#1565C0' if branch == 'cold' else '#C62828'
+                    ax.set_title(f'{branch.capitalize()}  $p_0$={p0:.3g} MPa\n'
+                                 f'{z_label}: {Z_slice.min():.4f} ~ {Z_slice.max():.4f}',
+                                 fontsize=self.PLOT_FONTS['legend'], fontweight='bold', color=title_color)
+                    ax.view_init(elev=25, azim=225)
+                    ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
+                    if not v_asc:
+                        ax.invert_yaxis()
+                    if not T_asc:
+                        ax.invert_xaxis()
+
+                    fname = f"friction_map_3D_{branch}_p0_{p0:.3g}MPa_{data_type}.{fmt}"
+                    fp = os.path.join(folder, fname)
+                    fig.savefig(fp, dpi=dpi, bbox_inches='tight',
+                                facecolor='white', edgecolor='none')
+                    import matplotlib.pyplot as plt
+                    plt.close(fig)
+                    saved_files.append(fp)
+
+            self._show_status(
+                f"전체 이미지 내보내기 완료 ({len(saved_files)}개, {dpi} DPI)\n"
+                f"폴더: {folder}", 'success')
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("오류", f"이미지 내보내기 실패:\n{str(e)}")
+
+    def _export_fm_all(self):
+        """Export everything: CSV data + all high-resolution images."""
+        from tkinter import filedialog
+        import os
+
+        r = self.friction_map_results
+        if r is None:
+            self._show_status("Friction Map 결과가 없습니다.", 'warning')
+            return
+
+        folder = filedialog.askdirectory(title="전체 내보내기 폴더 선택")
+        if not folder:
+            return
+
+        saved = []
+
+        try:
+            # 1) CSV export
+            T_arr = r['T_array']
+            p0_arr = r['p0_array_MPa']
+            v_arr = r['v_array']
+
+            csv_path = os.path.join(folder, "friction_map_LUT.csv")
+            lines = [
+                "# Friction Map 3D LUT",
+                f"# T0_array_C: {','.join(f'{t:.1f}' for t in T_arr)}",
+                f"# p0_array_MPa: {','.join(f'{p:.3f}' for p in p0_arr)}",
+                f"# v_array_m/s: {len(v_arr)} points (logspace {np.log10(v_arr[0]):.1f} to {np.log10(v_arr[-1]):.1f})",
+                "#",
+                "# Format: T0[C],p0[MPa],v[m/s],mu_cold,mu_hot,mu_visc_cold,mu_visc_hot,mu_adh_cold,mu_adh_hot,A_A0_cold,A_A0_hot,tau_f_cold_Pa,tau_f_hot_Pa",
+                "T0_C,p0_MPa,v_m_s,mu_cold,mu_hot,mu_visc_cold,mu_visc_hot,mu_adh_cold,mu_adh_hot,A_A0_cold,A_A0_hot,tau_f_cold_Pa,tau_f_hot_Pa",
+            ]
+
+            has_tau_cold = 'LUT_tau_f_cold' in r
+            has_tau_hot = 'LUT_tau_f_hot' in r
+
+            for i_T, T0 in enumerate(T_arr):
+                for i_p, p0 in enumerate(p0_arr):
+                    for i_v, v in enumerate(v_arr):
+                        tau_c = r['LUT_tau_f_cold'][i_T, i_p, i_v] if has_tau_cold else 0.0
+                        tau_h = r['LUT_tau_f_hot'][i_T, i_p, i_v] if has_tau_hot else 0.0
+                        lines.append(
+                            f"{T0:.1f},{p0:.3f},{v:.6e},"
+                            f"{r['LUT_cold'][i_T,i_p,i_v]:.6f},{r['LUT_hot'][i_T,i_p,i_v]:.6f},"
+                            f"{r['LUT_mu_visc_cold'][i_T,i_p,i_v]:.6f},{r['LUT_mu_visc_hot'][i_T,i_p,i_v]:.6f},"
+                            f"{r['LUT_mu_adh_cold'][i_T,i_p,i_v]:.6f},{r['LUT_mu_adh_hot'][i_T,i_p,i_v]:.6f},"
+                            f"{r['LUT_A_A0_cold'][i_T,i_p,i_v]:.6f},{r['LUT_A_A0_hot'][i_T,i_p,i_v]:.6f},"
+                            f"{tau_c:.6f},{tau_h:.6f}"
+                        )
+
+            with open(csv_path, 'w', encoding='utf-8-sig') as f:
+                f.write('\n'.join(lines))
+            saved.append(csv_path)
+
+            # 2) Export all images
+            self._export_fm_all_images_to_folder(folder, saved)
+
+            self._show_status(
+                f"전체 내보내기 완료 ({len(saved)}개 파일)\n폴더: {folder}", 'success')
+        except Exception as e:
+            from tkinter import messagebox
+            messagebox.showerror("오류", f"전체 내보내기 실패:\n{str(e)}")
+
+    def _export_fm_all_images_to_folder(self, folder, saved_list):
+        """Internal helper: save all images to folder, appending paths to saved_list."""
+        from matplotlib.figure import Figure
+        import os
+
+        r = self.friction_map_results
+        dpi, fmt = self._get_fm_export_settings()
+
+        # Full 3D Map
+        if hasattr(self, '_fm_fig') and self._fm_fig is not None:
+            fp = os.path.join(folder, f"friction_map_3D_all.{fmt}")
+            self._fm_fig.savefig(fp, dpi=dpi, bbox_inches='tight',
+                                 facecolor='white', edgecolor='none')
+            saved_list.append(fp)
+
+        # Full 2D Graph
+        if hasattr(self, 'fig_fm_graph') and self.fig_fm_graph is not None:
+            fp = os.path.join(folder, f"friction_map_2D_graph.{fmt}")
+            self.fig_fm_graph.savefig(fp, dpi=dpi, bbox_inches='tight',
+                                      facecolor='white', edgecolor='none')
+            saved_list.append(fp)
+
+        # Individual 3D subplots
+        T_arr = r['T_array']
+        p0_arr = r['p0_array_MPa']
+        v_arr = r['v_array']
+        log_v = np.log10(v_arr)
+        has_hot = r.get('use_flash', False)
+
+        data_type = self._fm_3d_data_var.get()
+        is_force = data_type.startswith('F_')
+        base_key = data_type.replace('F_', '', 1) if is_force else data_type
+
+        z_labels = {'mu_total': r'$\mu_{total}$', 'mu_visc': r'$\mu_{hys}$',
+                    'mu_adh': r'$\mu_{adh}$', 'A_A0': 'A/A₀',
+                    'tau_f': r'$\tau_s$ (MPa)',
+                    'F_total': r'$F_{total}$ (MPa)', 'F_visc': r'$F_{hys}$ (MPa)',
+                    'F_adh': r'$F_{adh}$ (MPa)'}
+        z_label = z_labels.get(data_type, data_type)
+
+        T_mesh, V_mesh = np.meshgrid(T_arr, log_v, indexing='ij')
+        use_fine = len(T_arr) >= 2 and len(v_arr) >= 2
+        if use_fine:
+            from scipy.interpolate import RectBivariateSpline
+            T_fine = np.linspace(T_arr[0], T_arr[-1], 25)
+            log_v_fine = np.linspace(log_v[0], log_v[-1], 40)
+            T_mesh_f, V_mesh_f = np.meshgrid(T_fine, log_v_fine, indexing='ij')
+
+        v_asc = self._fm_3d_v_dir.get() == "asc"
+        T_asc = self._fm_3d_T_dir.get() == "asc"
+
+        branches = ['cold']
+        if has_hot:
+            branches.append('hot')
+
+        for branch in branches:
+            for i_p, p0 in enumerate(p0_arr):
+                suffix = '_cold' if branch == 'cold' else '_hot'
+                if base_key in ('mu_total', 'total'):
+                    lut_key = 'LUT_cold' if branch == 'cold' else 'LUT_hot'
+                elif base_key in ('mu_visc', 'visc'):
+                    lut_key = f'LUT_mu_visc{suffix}'
+                elif base_key in ('mu_adh', 'adh'):
+                    lut_key = f'LUT_mu_adh{suffix}'
+                else:
+                    lut_key = f'LUT_{base_key}{suffix}'
+
+                Z = r.get(lut_key)
+                if Z is None:
+                    continue
+                Z_slice = Z[:, i_p, :].copy()
+                if data_type == 'tau_f':
+                    Z_slice = Z_slice / 1e6
+                elif is_force:
+                    Z_slice = Z_slice * p0
+
+                fig = Figure(figsize=(8, 6), dpi=dpi, facecolor='white')
+                ax = fig.add_subplot(111, projection='3d')
+
+                cmap = 'viridis' if branch == 'cold' else 'inferno'
+                if use_fine:
+                    try:
+                        sp = RectBivariateSpline(T_arr, log_v, Z_slice)
+                        Z_f = sp(T_fine, log_v_fine)
+                        ax.plot_surface(T_mesh_f, V_mesh_f, Z_f,
+                                        cmap=cmap, alpha=0.85, rstride=1, cstride=1,
+                                        linewidth=0, antialiased=True)
+                    except Exception:
+                        ax.plot_surface(T_mesh, V_mesh, Z_slice,
+                                        cmap=cmap, alpha=0.85)
+                else:
+                    ax.plot_surface(T_mesh, V_mesh, Z_slice,
+                                    cmap=cmap, alpha=0.85)
+
+                ax.set_xlabel(r'$T_0$ ($^\circ$C)', fontsize=self.PLOT_FONTS['title'], labelpad=8)
+                ax.set_ylabel(r'$\log_{10}(v)$', fontsize=self.PLOT_FONTS['title'], labelpad=8)
+                ax.set_zlabel(z_label, fontsize=self.PLOT_FONTS['title'], labelpad=8)
+                title_color = '#1565C0' if branch == 'cold' else '#C62828'
+                ax.set_title(f'{branch.capitalize()}  $p_0$={p0:.3g} MPa\n'
+                             f'{z_label}: {Z_slice.min():.4f} ~ {Z_slice.max():.4f}',
+                             fontsize=self.PLOT_FONTS['legend'], fontweight='bold', color=title_color)
+                ax.view_init(elev=25, azim=225)
+                ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
+                if not v_asc:
+                    ax.invert_yaxis()
+                if not T_asc:
+                    ax.invert_xaxis()
+
+                fname = f"friction_map_3D_{branch}_p0_{p0:.3g}MPa_{data_type}.{fmt}"
+                fp = os.path.join(folder, fname)
+                fig.savefig(fp, dpi=dpi, bbox_inches='tight',
+                            facecolor='white', edgecolor='none')
+                import matplotlib.pyplot as plt
+                plt.close(fig)
+                saved_list.append(fp)
 
     def _send_friction_map_to_ref(self):
         """Send selected (T, p0) friction map slice to mu_visc reference editor."""
@@ -22360,12 +24103,12 @@ class PerssonModelGUI_V2:
 
         row_nx = ttk.Frame(sec1); row_nx.pack(fill=tk.X, pady=1)
         ttk.Label(row_nx, text="Nx (종방향 격자):", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.br_Nx_var = tk.StringVar(value="60")
+        self.br_Nx_var = tk.StringVar(value="64")
         ttk.Entry(row_nx, textvariable=self.br_Nx_var, width=6).pack(side=tk.LEFT, padx=2)
 
         row_ny = ttk.Frame(sec1); row_ny.pack(fill=tk.X, pady=1)
         ttk.Label(row_ny, text="Ny (횡방향 격자):", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.br_Ny_var = tk.StringVar(value="12")
+        self.br_Ny_var = tk.StringVar(value="64")
         ttk.Entry(row_ny, textvariable=self.br_Ny_var, width=6).pack(side=tk.LEFT, padx=2)
 
         row_L = ttk.Frame(sec1); row_L.pack(fill=tk.X, pady=1)
@@ -22373,12 +24116,14 @@ class PerssonModelGUI_V2:
         self.br_L_var = tk.StringVar(value="0.15")
         ttk.Entry(row_L, textvariable=self.br_L_var, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_L, text="m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+        self.br_L_var.trace_add('write', lambda *_: self._on_footprint_change())
 
         row_W = ttk.Frame(sec1); row_W.pack(fill=tk.X, pady=1)
         ttk.Label(row_W, text="풋프린트 폭 W:", font=self.FONTS['body']).pack(side=tk.LEFT)
         self.br_W_var = tk.StringVar(value="0.12")
         ttk.Entry(row_W, textvariable=self.br_W_var, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_W, text="m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+        self.br_W_var.trace_add('write', lambda *_: self._on_footprint_change())
 
         row_Fz = ttk.Frame(sec1); row_Fz.pack(fill=tk.X, pady=1)
         ttk.Label(row_Fz, text="수직 하중 Fz:", font=self.FONTS['body']).pack(side=tk.LEFT)
@@ -22410,6 +24155,41 @@ class PerssonModelGUI_V2:
         ttk.Entry(row_cy, textvariable=self.br_cy_var, width=8).pack(side=tk.LEFT, padx=2)
         ttk.Label(row_cy, text="N·s/m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
+        row_fs = ttk.Frame(sec1); row_fs.pack(fill=tk.X, pady=1)
+        ttk.Label(row_fs, text="마찰 감도 계수:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_friction_scale_var = tk.StringVar(value="0.5")
+        ttk.Entry(row_fs, textvariable=self.br_friction_scale_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_fs, text="(< 1: 슬라이딩↑)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # ── 마찰맵 선택 ──
+        sec_fm = self._create_section(left_panel, "마찰 모델 선택")
+        ttk.Label(sec_fm, text="시뮬레이션에 사용할 마찰맵을 선택하세요.\n"
+                  "저장소에 저장된 마찰맵 또는 현재 계산 결과를 사용합니다.",
+                  font=self.FONTS['small'], foreground='#0369A1').pack(anchor='w')
+        row_fm = ttk.Frame(sec_fm); row_fm.pack(fill=tk.X, pady=2)
+        ttk.Label(row_fm, text="마찰맵:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self._br_friction_map_var = tk.StringVar(value="(현재 계산 결과)")
+        self._br_friction_map_combo = ttk.Combobox(
+            row_fm, textvariable=self._br_friction_map_var, width=24,
+            values=['(현재 계산 결과)'], state='readonly')
+        self._br_friction_map_combo.pack(side=tk.LEFT, padx=2)
+
+        # 마찰맵 조건 선택 (T, p0) — 3D LUT에서 슬라이스할 조건
+        row_fm_cond = ttk.Frame(sec_fm); row_fm_cond.pack(fill=tk.X, pady=1)
+        ttk.Label(row_fm_cond, text="온도 T(°C):", font=self.FONTS['small']).pack(side=tk.LEFT)
+        self._br_fm_T_var = tk.StringVar(value="")
+        ttk.Entry(row_fm_cond, textvariable=self._br_fm_T_var, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Label(row_fm_cond, text="압력 p₀(MPa):", font=self.FONTS['small']).pack(side=tk.LEFT, padx=(6, 0))
+        self._br_fm_p0_var = tk.StringVar(value="")
+        ttk.Entry(row_fm_cond, textvariable=self._br_fm_p0_var, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Label(sec_fm, text="※ 비워두면 마찰맵 중앙값 사용",
+                  font=self.FONTS['small'], foreground='#64748B').pack(anchor='w')
+
+        self._br_fm_status_var = tk.StringVar(value="")
+        ttk.Label(sec_fm, textvariable=self._br_fm_status_var,
+                  font=self.FONTS['small'], foreground='#16A34A').pack(anchor='w')
+
         # ── 2) 주행 조건 ──
         sec2 = self._create_section(left_panel, "2) 주행 조건")
 
@@ -22429,41 +24209,76 @@ class PerssonModelGUI_V2:
 
         row_ptype = ttk.Frame(sec2); row_ptype.pack(fill=tk.X, pady=1)
         ttk.Label(row_ptype, text="압력 분포:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.br_pressure_type_var = tk.StringVar(value="parabolic")
+        self.br_pressure_type_var = tk.StringVar(value="dual_peak")
         ttk.Combobox(row_ptype, textvariable=self.br_pressure_type_var, width=12,
-                     values=['uniform', 'parabolic', 'elliptic'],
+                     values=['dual_peak', 'parabolic', 'uniform', 'elliptic'],
                      state='readonly').pack(side=tk.LEFT, padx=2)
 
-        # ── 3) 스윕 설정 ──
-        sec3 = self._create_section(left_panel, "3) 스윕 설정")
-
-        row_smode = ttk.Frame(sec3); row_smode.pack(fill=tk.X, pady=1)
-        ttk.Label(row_smode, text="해석 모드:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.br_sweep_mode_var = tk.StringVar(value="braking")
-        ttk.Combobox(row_smode, textvariable=self.br_sweep_mode_var, width=14,
-                     values=['braking', 'cornering'],
+        row_asym = ttk.Frame(sec2); row_asym.pack(fill=tk.X, pady=1)
+        ttk.Label(row_asym, text="비대칭 강도:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_asym_preset_var = tk.StringVar(value="보통")
+        self._ASYM_PRESETS = {
+            '강함': (0.55, 0.25),   # dramatic asymmetry
+            '보통': (0.35, 0.40),   # moderate (current default)
+            '약함': (0.15, 0.60),   # nearly symmetric
+        }
+        ttk.Combobox(row_asym, textvariable=self.br_asym_preset_var, width=8,
+                     values=list(self._ASYM_PRESETS.keys()),
                      state='readonly').pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_asym, text="(dual_peak 전용)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
 
-        row_smin = ttk.Frame(sec3); row_smin.pack(fill=tk.X, pady=1)
-        ttk.Label(row_smin, text="슬립 시작:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.br_slip_min_var = tk.StringVar(value="0.005")
-        ttk.Entry(row_smin, textvariable=self.br_slip_min_var, width=8).pack(side=tk.LEFT, padx=2)
+        row_drive = ttk.Frame(sec2); row_drive.pack(fill=tk.X, pady=1)
+        ttk.Label(row_drive, text="주행 모드:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_driving_mode_var = tk.StringVar(value="Braking")
+        for dm in ["Braking", "Handling", "Acceleration"]:
+            ttk.Radiobutton(row_drive, text=dm, variable=self.br_driving_mode_var,
+                            value=dm).pack(side=tk.LEFT, padx=3)
 
-        row_smax = ttk.Frame(sec3); row_smax.pack(fill=tk.X, pady=1)
-        ttk.Label(row_smax, text="슬립 끝:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.br_slip_max_var = tk.StringVar(value="0.30")
-        ttk.Entry(row_smax, textvariable=self.br_slip_max_var, width=8).pack(side=tk.LEFT, padx=2)
+        # ── 3) 시간 프로파일 설정 ──
+        sec3 = self._create_section(left_panel, "3) 시간 프로파일 (SA / SR)")
 
-        row_ns = ttk.Frame(sec3); row_ns.pack(fill=tk.X, pady=1)
-        ttk.Label(row_ns, text="스윕 개수:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.br_n_sweep_var = tk.StringVar(value="25")
-        ttk.Entry(row_ns, textvariable=self.br_n_sweep_var, width=6).pack(side=tk.LEFT, padx=2)
+        row_ttime = ttk.Frame(sec3); row_ttime.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ttime, text="총 시간:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_total_time_var = tk.StringVar(value="6.0")
+        ttk.Entry(row_ttime, textvariable=self.br_total_time_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_ttime, text="s", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
-        sweep_note = ttk.Label(sec3,
-                               text="※ 제동: s = (vc - vR)/vc, 0~0.3\n"
-                                    "   선회: α = slip angle, 0~25°",
-                               font=self.FONTS['small'], foreground='#64748B')
-        sweep_note.pack(anchor=tk.W, pady=(2, 0))
+        row_odt = ttk.Frame(sec3); row_odt.pack(fill=tk.X, pady=1)
+        ttk.Label(row_odt, text="출력 Δt:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_output_dt_var = tk.StringVar(value="0.05")
+        ttk.Entry(row_odt, textvariable=self.br_output_dt_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_odt, text="s", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        # SA profile
+        ttk.Label(sec3, text="── SA (Slip Angle, °) ──", font=self.FONTS['body'],
+                  foreground='#DC2626').pack(anchor='w', pady=(6, 0))
+        row_sa_type = ttk.Frame(sec3); row_sa_type.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sa_type, text="프로파일:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_sa_type_var = tk.StringVar(value="triangular")
+        for sa_t in ["triangular", "sinusoidal", "step", "constant"]:
+            ttk.Radiobutton(row_sa_type, text=sa_t, variable=self.br_sa_type_var,
+                            value=sa_t).pack(side=tk.LEFT, padx=2)
+        row_sa_amp = ttk.Frame(sec3); row_sa_amp.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sa_amp, text="진폭:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_sa_amp_var = tk.StringVar(value="6.0")
+        ttk.Entry(row_sa_amp, textvariable=self.br_sa_amp_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_sa_amp, text="deg", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        # SR profile
+        ttk.Label(sec3, text="── SR (Slip Ratio, %) ──", font=self.FONTS['body'],
+                  foreground='#E65100').pack(anchor='w', pady=(6, 0))
+        row_sr_type = ttk.Frame(sec3); row_sr_type.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sr_type, text="프로파일:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_sr_type_var = tk.StringVar(value="constant")
+        for sr_t in ["constant", "triangular", "sinusoidal", "step"]:
+            ttk.Radiobutton(row_sr_type, text=sr_t, variable=self.br_sr_type_var,
+                            value=sr_t).pack(side=tk.LEFT, padx=2)
+        row_sr_val = ttk.Frame(sec3); row_sr_val.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sr_val, text="값/진폭:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.br_sr_val_var = tk.StringVar(value="-1.0")
+        ttk.Entry(row_sr_val, textvariable=self.br_sr_val_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_sr_val, text="%", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
 
         # ── 4) 시뮬레이션 설정 ──
         sec4 = self._create_section(left_panel, "4) 시뮬레이션 설정")
@@ -22490,17 +24305,14 @@ class PerssonModelGUI_V2:
                              font=self.FONTS['small'], foreground='#DC2626')
         sim_note.pack(anchor=tk.W, pady=(2, 0))
 
-        # ── 5) 실행 & 결과 ──
-        sec5 = self._create_section(left_panel, "5) 실행")
+        # ── 5) 실행 & 재생 ──
+        sec5 = self._create_section(left_panel, "5) 실행 & 재생")
 
         calc_row = ttk.Frame(sec5); calc_row.pack(fill=tk.X, pady=2)
-        self.br_calc_btn = ttk.Button(calc_row, text="제동 해석 (μ-slip)",
-                                       command=self._run_brush_braking, width=18,
+        self.br_calc_btn = ttk.Button(calc_row, text="▶ Transient 시뮬레이션",
+                                       command=self._run_brush_transient_wrapper, width=22,
                                        style='Accent.TButton')
         self.br_calc_btn.pack(side=tk.LEFT, padx=2)
-        self.br_calc_btn2 = ttk.Button(calc_row, text="선회 해석 (μ-α)",
-                                        command=self._run_brush_cornering, width=18)
-        self.br_calc_btn2.pack(side=tk.LEFT, padx=2)
 
         self.br_progress_var = tk.IntVar()
         self.br_progress_bar = ttk.Progressbar(calc_row, variable=self.br_progress_var,
@@ -22515,60 +24327,2622 @@ class PerssonModelGUI_V2:
         ttk.Label(sync_row, textvariable=self.br_sync_status_var,
                   font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT, padx=4)
 
-        # Result text
-        sec6 = self._create_section(left_panel, "6) 결과 요약")
-        self.br_result_text = tk.Text(sec6, height=10, font=self.FONTS['mono_small'], wrap=tk.WORD)
-        self.br_result_text.pack(fill=tk.X)
+        # Playback controls
+        play_row = ttk.Frame(sec5); play_row.pack(fill=tk.X, pady=4)
+        self.br_play_btn = ttk.Button(play_row, text="▶", width=3,
+                                       command=self._brush_play)
+        self.br_play_btn.pack(side=tk.LEFT, padx=1)
+        self.br_pause_btn = ttk.Button(play_row, text="⏸", width=3,
+                                        command=self._brush_pause)
+        self.br_pause_btn.pack(side=tk.LEFT, padx=1)
+        self.br_reset_btn = ttk.Button(play_row, text="⏮", width=3,
+                                        command=self._brush_reset)
+        self.br_reset_btn.pack(side=tk.LEFT, padx=1)
+
+        ttk.Label(play_row, text="프레임:", font=self.FONTS['small']).pack(side=tk.LEFT, padx=(8, 2))
+        self.br_frame_count_var = tk.StringVar(value="480")
+        frame_combo = ttk.Combobox(play_row, textvariable=self.br_frame_count_var, width=5,
+                                    values=['120', '240', '480', '960', '1920'],
+                                    state='readonly')
+        frame_combo.pack(side=tk.LEFT, padx=1)
+
+        # Keep br_play_speed_var for backward compat (now driven by slider)
+        self.br_play_speed_var = tk.StringVar(value="1x")
+
+        self.br_frame_label_var = tk.StringVar(value="t = 0.00 s  (0/0)")
+        ttk.Label(play_row, textvariable=self.br_frame_label_var,
+                  font=self.FONTS['small'], foreground='#0369A1').pack(side=tk.LEFT, padx=6)
+
+        # ── Speed slider (continuous, replaces combobox) ──
+        speed_slider_row = ttk.Frame(sec5); speed_slider_row.pack(fill=tk.X, pady=1)
+        self._br_speed_label_var = tk.StringVar(value="재생 속도: 3.0x")
+        ttk.Label(speed_slider_row, textvariable=self._br_speed_label_var,
+                  font=self.FONTS['small']).pack(side=tk.LEFT, padx=4)
+        self._br_speed_mult = tk.DoubleVar(value=3.0)
+        self._br_speed_slider = ttk.Scale(
+            speed_slider_row, from_=0.25, to=20.0,
+            orient='horizontal', variable=self._br_speed_mult,
+            command=self._on_brush_speed_slider)
+        self._br_speed_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+
+        # Time slider
+        slider_row = ttk.Frame(sec5); slider_row.pack(fill=tk.X, pady=2)
+        self.br_time_slider = ttk.Scale(slider_row, from_=0, to=100,
+                                         orient='horizontal',
+                                         command=self._on_brush_slider_change)
+        self.br_time_slider.pack(fill=tk.X, padx=4)
+
+        # ── Egg shape (K) slider ──
+        egg_row = ttk.Frame(sec5); egg_row.pack(fill=tk.X, pady=1)
+        self._br_egg_label_var = tk.StringVar(value=f"접지면 변형 (K): {self._EGG_K_MAX:.2f}")
+        ttk.Label(egg_row, textvariable=self._br_egg_label_var,
+                  font=self.FONTS['small']).pack(side=tk.LEFT, padx=4)
+        self._br_egg_k_var = tk.DoubleVar(value=self._EGG_K_MAX)
+        self._br_egg_slider = ttk.Scale(
+            egg_row, from_=0.0, to=0.80,
+            orient='horizontal', variable=self._br_egg_k_var,
+            command=self._on_egg_k_slider)
+        self._br_egg_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+
+        # ── Ellipse shape power (superellipse exponent) slider ──
+        ellipse_row = ttk.Frame(sec5); ellipse_row.pack(fill=tk.X, pady=1)
+        self._br_ellipse_power_label_var = tk.StringVar(
+            value=f"타원 형상 (n): {self._ELLIPSE_POWER:.1f}")
+        ttk.Label(ellipse_row, textvariable=self._br_ellipse_power_label_var,
+                  font=self.FONTS['small']).pack(side=tk.LEFT, padx=4)
+        self._br_ellipse_power_var = tk.DoubleVar(value=self._ELLIPSE_POWER)
+        self._br_ellipse_power_slider = ttk.Scale(
+            ellipse_row, from_=1.0, to=6.0,
+            orient='horizontal', variable=self._br_ellipse_power_var,
+            command=self._on_ellipse_power_slider)
+        self._br_ellipse_power_slider.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+        ttk.Label(ellipse_row, text="n<2 뾰족 | n=2 타원 | n>2 사각",
+                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        # Internal playback state
+        self._brush_frames = []
+        self._brush_frame_idx = 0
+        self._brush_playing = False
+        self._brush_play_after_id = None
+        self._br_artists_ready = False
+
+        # ── Fy 가이드 ──
+        guide_frame = self._create_section(left_panel,
+            "Fy (코너링 포스) 조절 가이드")
+        guide_text = (
+            "── 피크 높이 (Fy_peak) 결정 인자 ──\n"
+            "  mu(v)×Fz = 마찰력 상한\n"
+            "  Fz↑ → 피크↑ | Cold&Hot mu커브↑ → 피크↑\n"
+            "  압력분포(uniform/elliptic/dual_peak) 영향\n"
+            "── 포락선 기울기 (Cornering Stiffness) ──\n"
+            "  ky (횡강성)이 주 결정 인자\n"
+            "  ky↑ → 기울기↑ (작은 SA에서 빠른 포화)\n"
+            "  L·W (접지면적)↑ → 노드당 강성↑ → 기울기↑\n"
+            "── 피크 이후 감소 (Post-peak) 결정 인자 ──\n"
+            "  D (돌기직경) → s0=0.2D (메모리길이)\n"
+            "  D↑ → Cold→Hot 전이 빠름 → 감소폭↑\n"
+            "  vc (주행속도)↑ → v_slip↑ → mu_hot 지배\n"
+            "  flash temperature↑ → 마찰계수↓\n"
+            "※ L, W, Fz, kx, ky 변경 후 재실행 필요\n"
+            "※ K, n 슬라이더는 아웃라인만 변경"
+        )
+        ttk.Label(guide_frame, text=guide_text, font=self.FONTS['small'],
+                  foreground='#1565C0', wraplength=380,
+                  justify='left').pack(anchor='w', padx=4, pady=2)
+
+        # ── 6) Steering wheel animation in left panel ──
+        sec6 = self._create_section(left_panel, "6) 조향 핸들 / 타이어")
+        from matplotlib.figure import Figure as _Fig
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg as _FCA
+
+        # Horizontal frame: steering wheel (left) + tire (right)
+        steer_tire_row = ttk.Frame(sec6)
+        steer_tire_row.pack(fill=tk.X, pady=2)
+
+        # Steering wheel (left side)
+        self._steer_fig = _Fig(figsize=(2.2, 2.2), dpi=80, facecolor='#F8FAFC')
+        self._steer_ax = self._steer_fig.add_axes([0.05, 0.05, 0.9, 0.9])
+        self._steer_ax.set_xlim(-1.5, 1.5)
+        self._steer_ax.set_ylim(-1.5, 1.5)
+        self._steer_ax.set_aspect('equal')
+        self._steer_ax.axis('off')
+        self._steer_canvas = _FCA(self._steer_fig, steer_tire_row)
+        self._steer_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        # Draw initial steering wheel
+        self._init_left_steering_wheel()
+
+        # ── 6b) Car + tire animation (racing game top-down view) ──
+        self._tire_fig = _Fig(figsize=(2.4, 3.6), dpi=85, facecolor='#2D2D2D')
+        self._tire_ax = self._tire_fig.add_axes([0.0, 0.0, 1.0, 1.0])
+        self._tire_ax.set_xlim(-3.0, 3.0)
+        self._tire_ax.set_ylim(-4.0, 4.0)
+        self._tire_ax.set_aspect('equal')
+        self._tire_ax.axis('off')
+        self._tire_fig.patch.set_facecolor('#2D2D2D')
+        self._tire_canvas = _FCA(self._tire_fig, steer_tire_row)
+        self._tire_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._init_tire_animation()
 
         export_row = ttk.Frame(sec6); export_row.pack(fill=tk.X, pady=2)
         ttk.Button(export_row, text="CSV 내보내기",
                    command=self._export_brush_csv, width=14).pack(side=tk.LEFT, padx=1)
 
-        # ============== Right Panel: Plots ==============
+        # ============== Right Panel: Notebook (Simulation + Education) ==============
         right_panel = layout['right']
 
-        plot_frame = ttk.LabelFrame(right_panel, text="2D Brush Model 시뮬레이션", padding=5)
+        self.br_right_notebook = ttk.Notebook(right_panel)
+        self.br_right_notebook.pack(fill=tk.BOTH, expand=True)
+
+        # ── Tab 1: Transient Simulation plots ──
+        sim_tab = ttk.Frame(self.br_right_notebook)
+        self.br_right_notebook.add(sim_tab, text='  시뮬레이션  ')
+
+        plot_frame = ttk.Frame(sim_tab)
         plot_frame.pack(fill=tk.BOTH, expand=True)
 
-        self.fig_brush = Figure(figsize=(10, 8), dpi=100)
+        from matplotlib.gridspec import GridSpec
+        self.fig_brush = Figure(figsize=(6, 4), dpi=100)
+        gs = GridSpec(2, 20, figure=self.fig_brush, height_ratios=[1.8, 2.2],
+                      hspace=0.50, wspace=2.5,
+                      left=0.06, right=0.97, top=0.93, bottom=0.07)
 
-        # (1) 컨택 패치 2D 시각화 - top left
-        self.ax_br_patch = self.fig_brush.add_subplot(221)
-        self.ax_br_patch.set_title('Contact Patch (Slip Distance)', fontweight='bold', fontsize=10)
-        self.ax_br_patch.set_xlabel('x (종방향, m)')
-        self.ax_br_patch.set_ylabel('y (횡방향, m)')
-        self.ax_br_patch.set_aspect('equal')
+        # Top row: 4 time-history / characteristic plots
+        _bf_title = self.PLOT_FONTS['title_sm']
+        _bf_label = self.PLOT_FONTS['label_sm']
+        _bf_tick = self.PLOT_FONTS['legend_sm']
 
-        # (2) μ_eff 분포 - top right
-        self.ax_br_mu_map = self.fig_brush.add_subplot(222)
-        self.ax_br_mu_map.set_title('μ_eff Distribution', fontweight='bold', fontsize=10)
-        self.ax_br_mu_map.set_xlabel('x (종방향, m)')
-        self.ax_br_mu_map.set_ylabel('y (횡방향, m)')
-        self.ax_br_mu_map.set_aspect('equal')
+        self.ax_br_input = self.fig_brush.add_subplot(gs[0, :5])
+        self.ax_br_input.set_xlabel('time [s]', fontsize=_bf_label)
+        self.ax_br_input.set_ylabel('slip', fontsize=_bf_label)
+        self.ax_br_input.set_title('SA / SR Input', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_input.tick_params(labelsize=_bf_tick)
+        self.ax_br_input.grid(True, alpha=0.3)
 
-        # (3) μ-slip 커브 - bottom left
-        self.ax_br_mu_slip = self.fig_brush.add_subplot(223)
-        self.ax_br_mu_slip.set_title('μ vs Slip (Braking / Cornering)', fontweight='bold', fontsize=10)
-        self.ax_br_mu_slip.set_xlabel('Slip ratio s  or  Slip angle α (°)')
-        self.ax_br_mu_slip.set_ylabel('μ = F / Fz')
-        self.ax_br_mu_slip.grid(True, alpha=0.3)
+        self.ax_br_force_t = self.fig_brush.add_subplot(gs[0, 5:10])
+        self.ax_br_force_t.set_xlabel('time [s]', fontsize=_bf_label)
+        self.ax_br_force_t.set_ylabel('force [N]', fontsize=_bf_label)
+        self.ax_br_force_t.set_title('Fx / Fy Output', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_force_t.tick_params(labelsize=_bf_tick)
+        self.ax_br_force_t.grid(True, alpha=0.3)
 
-        # (4) Fx, Fy, Mz - bottom right
-        self.ax_br_forces = self.fig_brush.add_subplot(224)
-        self.ax_br_forces.set_title('Fx, Fy, Mz vs Slip', fontweight='bold', fontsize=10)
-        self.ax_br_forces.set_xlabel('Slip ratio s  or  Slip angle α (°)')
-        self.ax_br_forces.set_ylabel('Force (N) / Torque (N·m)')
-        self.ax_br_forces.grid(True, alpha=0.3)
+        self.ax_br_fy_sa = self.fig_brush.add_subplot(gs[0, 10:15])
+        self.ax_br_fy_sa.set_xlabel('SA [deg]', fontsize=_bf_label)
+        self.ax_br_fy_sa.set_ylabel('Fy [N]', fontsize=_bf_label)
+        self.ax_br_fy_sa.set_title('Fy vs Slip Angle', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_fy_sa.tick_params(labelsize=_bf_tick)
+        self.ax_br_fy_sa.grid(True, alpha=0.3)
 
-        self.fig_brush.subplots_adjust(left=0.10, right=0.92, top=0.95, bottom=0.08,
-                                        hspace=0.45, wspace=0.35)
+        self.ax_br_fx_sr = self.fig_brush.add_subplot(gs[0, 15:])
+        self.ax_br_fx_sr.set_xlabel('SR [%]', fontsize=_bf_label)
+        self.ax_br_fx_sr.set_ylabel('Fx [N]', fontsize=_bf_label)
+        self.ax_br_fx_sr.set_title('Fx vs Slip Ratio', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_fx_sr.tick_params(labelsize=_bf_tick)
+        self.ax_br_fx_sr.grid(True, alpha=0.3)
+
+        # Bottom row: 5 contour plots (no set_aspect='equal' for uniform sizing)
+        self.ax_br_stick = self.fig_brush.add_subplot(gs[1, 0:4])
+        self.ax_br_stick.set_title('sliding vs adhesion', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_stick.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_br_stick.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_br_stick.tick_params(labelsize=_bf_tick)
+
+        self.ax_br_speed = self.fig_brush.add_subplot(gs[1, 4:8])
+        self.ax_br_speed.set_title('sliding speed', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_speed.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_br_speed.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_br_speed.tick_params(labelsize=_bf_tick)
+
+        self.ax_br_pressure = self.fig_brush.add_subplot(gs[1, 8:12])
+        self.ax_br_pressure.set_title('contact pressure', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_pressure.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_br_pressure.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_br_pressure.tick_params(labelsize=_bf_tick)
+
+        self.ax_br_temperature = self.fig_brush.add_subplot(gs[1, 12:16])
+        self.ax_br_temperature.set_title('temperature', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_temperature.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_br_temperature.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_br_temperature.tick_params(labelsize=_bf_tick)
+
+        self.ax_br_friction = self.fig_brush.add_subplot(gs[1, 16:20])
+        self.ax_br_friction.set_title('friction force', fontsize=_bf_title, fontweight='bold')
+        self.ax_br_friction.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_br_friction.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_br_friction.tick_params(labelsize=_bf_tick)
 
         self.canvas_brush = FigureCanvasTkAgg(self.fig_brush, plot_frame)
+        _br_canvas_widget = self.canvas_brush.get_tk_widget()
+        _br_canvas_widget.pack(fill=tk.BOTH, expand=True)
         self.canvas_brush.draw_idle()
-        self.canvas_brush.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Save TRUE original axis positions from GridSpec BEFORE any colorbars
+        # are created. This prevents cumulative width shrinkage when the
+        # transient simulation is re-run multiple times.
+        self._br_original_ax_positions = {}
+        for ax_name in ('ax_br_stick', 'ax_br_speed', 'ax_br_pressure',
+                        'ax_br_temperature', 'ax_br_friction',
+                        'ax_br_input', 'ax_br_force_t',
+                        'ax_br_fy_sa', 'ax_br_fx_sr'):
+            ax = getattr(self, ax_name, None)
+            if ax is not None:
+                self._br_original_ax_positions[ax_name] = ax.get_position().frozen()
 
         toolbar = NavigationToolbar2Tk(self.canvas_brush, plot_frame)
         toolbar.update()
+
+        # ── Auto-resize figure to fill widget on every geometry change ──
+        _br_resize_after_id = [None]
+
+        def _on_brush_canvas_resize(event):
+            w, h = event.width, event.height
+            if w > 1 and h > 1:
+                self.fig_brush.set_size_inches(
+                    w / self.fig_brush.dpi, h / self.fig_brush.dpi,
+                    forward=False)
+                self.fig_brush.subplots_adjust(
+                    left=0.06, right=0.97, top=0.93, bottom=0.07,
+                    hspace=0.50, wspace=2.5)
+                # Invalidate blit background after resize
+                self._br_blit_bg = None
+                self._br_use_blit = False
+                # Debounce redraw
+                if _br_resize_after_id[0] is not None:
+                    try:
+                        _br_canvas_widget.after_cancel(_br_resize_after_id[0])
+                    except Exception:
+                        pass
+                _br_resize_after_id[0] = _br_canvas_widget.after(
+                    30, lambda: self.canvas_brush.draw_idle())
+        _br_canvas_widget.bind('<Configure>', _on_brush_canvas_resize, add='+')
+
+        # ── Tab 2: Educational Material ──
+        self._create_brush_education_tab(self.br_right_notebook)
+
+        # ── Force redraw when inner notebook tab is selected ──
+        def _on_br_inner_tab_changed(event):
+            self.root.after(50, lambda: self._redraw_canvas_if_mapped('canvas_brush'))
+        self.br_right_notebook.bind('<<NotebookTabChanged>>', _on_br_inner_tab_changed)
+
+    # ================================================================
+    # ====  PerssonBrush — ODE-based 2D Dynamics Tab  ====
+    # ================================================================
+
+    def _create_persson_brush_tab(self, parent):
+        """Create PerssonBrush tab — mirrors 2D Brush Model but uses ODE dynamics.
+
+        Instead of IF/ELSE stick-slip branching, each tread block is a
+        mass-spring-damper system whose motion is integrated via Newton's
+        2nd law. Stick-Slip transitions emerge naturally from the ODE.
+        """
+        layout = self._create_tab_layout(parent, toolbar_buttons=[
+            ("Transient 시뮬레이션", self._run_pb_transient_wrapper, 'Accent.TButton'),
+        ])
+        left_panel = layout['content']
+
+        # Internal storage
+        self.pb_results = None
+
+        # ── 1) 타이어 / 격자 파라미터 ──
+        sec1 = self._create_section(left_panel, "1) 타이어 / 격자 설정")
+
+        ttk.Label(sec1, text="Persson ODE 동역학 (IF/ELSE 없음)",
+                  font=self.FONTS['small'], foreground='#0369A1').pack(anchor='w', pady=(0, 2))
+
+        row_nx = ttk.Frame(sec1); row_nx.pack(fill=tk.X, pady=1)
+        ttk.Label(row_nx, text="Nx (종방향 격자):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_Nx_var = tk.StringVar(value="40")
+        ttk.Entry(row_nx, textvariable=self.pb_Nx_var, width=6).pack(side=tk.LEFT, padx=2)
+
+        row_ny = ttk.Frame(sec1); row_ny.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ny, text="Ny (횡방향 격자):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_Ny_var = tk.StringVar(value="40")
+        ttk.Entry(row_ny, textvariable=self.pb_Ny_var, width=6).pack(side=tk.LEFT, padx=2)
+
+        row_L = ttk.Frame(sec1); row_L.pack(fill=tk.X, pady=1)
+        ttk.Label(row_L, text="풋프린트 길이 L:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_L_var = tk.StringVar(value="0.15")
+        ttk.Entry(row_L, textvariable=self.pb_L_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_L, text="m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row_W = ttk.Frame(sec1); row_W.pack(fill=tk.X, pady=1)
+        ttk.Label(row_W, text="풋프린트 폭 W:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_W_var = tk.StringVar(value="0.12")
+        ttk.Entry(row_W, textvariable=self.pb_W_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_W, text="m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row_Fz = ttk.Frame(sec1); row_Fz.pack(fill=tk.X, pady=1)
+        ttk.Label(row_Fz, text="수직 하중 Fz:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_Fz_var = tk.StringVar(value="4000")
+        ttk.Entry(row_Fz, textvariable=self.pb_Fz_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_Fz, text="N", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row_kx = ttk.Frame(sec1); row_kx.pack(fill=tk.X, pady=1)
+        ttk.Label(row_kx, text="kx (종방향 강성):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_kx_var = tk.StringVar(value="8e5")
+        ttk.Entry(row_kx, textvariable=self.pb_kx_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_kx, text="N/m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row_ky = ttk.Frame(sec1); row_ky.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ky, text="ky (횡방향 강성):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_ky_var = tk.StringVar(value="6e5")
+        ttk.Entry(row_ky, textvariable=self.pb_ky_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_ky, text="N/m", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        # ── 마찰맵 선택 (공유) ──
+        sec_fm = self._create_section(left_panel, "마찰 모델 선택")
+        ttk.Label(sec_fm, text="2D Brush 탭의 마찰맵 설정을 공유합니다.",
+                  font=self.FONTS['small'], foreground='#0369A1').pack(anchor='w')
+        self._pb_fm_status_var = tk.StringVar(value="")
+        ttk.Label(sec_fm, textvariable=self._pb_fm_status_var,
+                  font=self.FONTS['small'], foreground='#16A34A').pack(anchor='w')
+
+        # ── 2) 주행 조건 ──
+        sec2 = self._create_section(left_panel, "2) 주행 조건")
+
+        row_vc = ttk.Frame(sec2); row_vc.pack(fill=tk.X, pady=1)
+        ttk.Label(row_vc, text="차량 속도 vc:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_vc_var = tk.StringVar(value="16.67")
+        ttk.Entry(row_vc, textvariable=self.pb_vc_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_vc, text="m/s (= 60 km/h)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        row_D = ttk.Frame(sec2); row_D.pack(fill=tk.X, pady=1)
+        ttk.Label(row_D, text="D (돌기 직경):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_D_macro_var = tk.StringVar(value="2.0")
+        ttk.Entry(row_D, textvariable=self.pb_D_macro_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_D, text="mm  (s0 = 0.2D)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        row_ptype = ttk.Frame(sec2); row_ptype.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ptype, text="압력 분포:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_pressure_type_var = tk.StringVar(value="dual_peak")
+        ttk.Combobox(row_ptype, textvariable=self.pb_pressure_type_var, width=12,
+                     values=['dual_peak', 'parabolic', 'uniform', 'elliptic'],
+                     state='readonly').pack(side=tk.LEFT, padx=2)
+
+        row_asym = ttk.Frame(sec2); row_asym.pack(fill=tk.X, pady=1)
+        ttk.Label(row_asym, text="비대칭 강도:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_asym_preset_var = tk.StringVar(value="보통")
+        ttk.Combobox(row_asym, textvariable=self.pb_asym_preset_var, width=8,
+                     values=list(self._ASYM_PRESETS.keys()),
+                     state='readonly').pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_asym, text="(dual_peak 전용)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        row_drive = ttk.Frame(sec2); row_drive.pack(fill=tk.X, pady=1)
+        ttk.Label(row_drive, text="주행 모드:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_driving_mode_var = tk.StringVar(value="Braking")
+        for dm in ["Braking", "Handling", "Acceleration"]:
+            ttk.Radiobutton(row_drive, text=dm, variable=self.pb_driving_mode_var,
+                            value=dm).pack(side=tk.LEFT, padx=3)
+
+        # ── 2b) ODE 동역학 전용 ──
+        sec2b = self._create_section(left_panel, "2b) ODE 동역학 파라미터")
+        ttk.Label(sec2b, text="질량-스프링-댐퍼 동적 응답",
+                  font=self.FONTS['small'], foreground='#7C3AED').pack(anchor='w')
+
+        row_mass = ttk.Frame(sec2b); row_mass.pack(fill=tk.X, pady=1)
+        ttk.Label(row_mass, text="셀 유효 질량 m:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_mass_var = tk.StringVar(value="0.001")
+        ttk.Entry(row_mass, textvariable=self.pb_mass_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_mass, text="kg", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row_zeta = ttk.Frame(sec2b); row_zeta.pack(fill=tk.X, pady=1)
+        ttk.Label(row_zeta, text="감쇠비 (zeta):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_zeta_var = tk.StringVar(value="1.0")
+        ttk.Entry(row_zeta, textvariable=self.pb_zeta_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_zeta, text="(1.0=임계감쇠)", font=self.FONTS['small'],
+                  foreground='#64748B').pack(side=tk.LEFT)
+
+        # ── 3) 시간 프로파일 ──
+        sec3 = self._create_section(left_panel, "3) 시간 프로파일 (SA / SR)")
+
+        row_ttime = ttk.Frame(sec3); row_ttime.pack(fill=tk.X, pady=1)
+        ttk.Label(row_ttime, text="총 시간:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_total_time_var = tk.StringVar(value="6.0")
+        ttk.Entry(row_ttime, textvariable=self.pb_total_time_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_ttime, text="s", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        # SA profile
+        ttk.Label(sec3, text="-- SA (Slip Angle) --", font=self.FONTS['body'],
+                  foreground='#DC2626').pack(anchor='w', pady=(6, 0))
+        row_sa_type = ttk.Frame(sec3); row_sa_type.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sa_type, text="프로파일:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_sa_type_var = tk.StringVar(value="triangular")
+        for sa_t in ["triangular", "sinusoidal", "step", "constant"]:
+            ttk.Radiobutton(row_sa_type, text=sa_t, variable=self.pb_sa_type_var,
+                            value=sa_t).pack(side=tk.LEFT, padx=2)
+        row_sa_amp = ttk.Frame(sec3); row_sa_amp.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sa_amp, text="진폭:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_sa_amp_var = tk.StringVar(value="6.0")
+        ttk.Entry(row_sa_amp, textvariable=self.pb_sa_amp_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_sa_amp, text="deg", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        # SR profile
+        ttk.Label(sec3, text="-- SR (Slip Ratio) --", font=self.FONTS['body'],
+                  foreground='#E65100').pack(anchor='w', pady=(6, 0))
+        row_sr_type = ttk.Frame(sec3); row_sr_type.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sr_type, text="프로파일:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_sr_type_var = tk.StringVar(value="constant")
+        for sr_t in ["constant", "triangular", "sinusoidal", "step"]:
+            ttk.Radiobutton(row_sr_type, text=sr_t, variable=self.pb_sr_type_var,
+                            value=sr_t).pack(side=tk.LEFT, padx=2)
+        row_sr_val = ttk.Frame(sec3); row_sr_val.pack(fill=tk.X, pady=1)
+        ttk.Label(row_sr_val, text="값/진폭:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_sr_val_var = tk.StringVar(value="-1.0")
+        ttk.Entry(row_sr_val, textvariable=self.pb_sr_val_var, width=6).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_sr_val, text="%", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        # ── 4) 시뮬레이션 설정 ──
+        sec4 = self._create_section(left_panel, "4) ODE 적분 설정")
+
+        row_dt = ttk.Frame(sec4); row_dt.pack(fill=tk.X, pady=1)
+        ttk.Label(row_dt, text="dt (ODE):", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_dt_var = tk.StringVar(value="1e-5")
+        ttk.Entry(row_dt, textvariable=self.pb_dt_var, width=8).pack(side=tk.LEFT, padx=2)
+        ttk.Label(row_dt, text="s", font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        row_nstep = ttk.Frame(sec4); row_nstep.pack(fill=tk.X, pady=1)
+        ttk.Label(row_nstep, text="ODE 스텝 수:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.pb_ode_steps_var = tk.StringVar(value="3000")
+        ttk.Entry(row_nstep, textvariable=self.pb_ode_steps_var, width=8).pack(side=tk.LEFT, padx=2)
+
+        sim_note = ttk.Label(sec4,
+                             text="※ Euler 적분 (F=ma, ODE 방식)\n"
+                                  "   IF/ELSE 분기 없이 자연 Stick-Slip 전이\n"
+                                  "   Cold & Hot Branch 결과 필요",
+                             font=self.FONTS['small'], foreground='#7C3AED')
+        sim_note.pack(anchor=tk.W, pady=(2, 0))
+
+        # ── 5) 실행 & 재생 ──
+        sec5 = self._create_section(left_panel, "5) 실행 & 재생")
+
+        calc_row = ttk.Frame(sec5); calc_row.pack(fill=tk.X, pady=2)
+        self.pb_calc_btn = ttk.Button(calc_row, text="Transient 시뮬레이션",
+                                       command=self._run_pb_transient_wrapper, width=22,
+                                       style='Accent.TButton')
+        self.pb_calc_btn.pack(side=tk.LEFT, padx=2)
+
+        self.pb_progress_var = tk.IntVar()
+        self.pb_progress_bar = ttk.Progressbar(calc_row, variable=self.pb_progress_var,
+                                                maximum=100, length=120)
+        self.pb_progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        # Playback controls
+        play_row = ttk.Frame(sec5); play_row.pack(fill=tk.X, pady=4)
+        self.pb_play_btn = ttk.Button(play_row, text="Play", width=5,
+                                       command=self._pb_play)
+        self.pb_play_btn.pack(side=tk.LEFT, padx=1)
+        self.pb_pause_btn = ttk.Button(play_row, text="Stop", width=5,
+                                        command=self._pb_pause)
+        self.pb_pause_btn.pack(side=tk.LEFT, padx=1)
+        self.pb_reset_btn = ttk.Button(play_row, text="Reset", width=5,
+                                        command=self._pb_reset)
+        self.pb_reset_btn.pack(side=tk.LEFT, padx=1)
+
+        ttk.Label(play_row, text="프레임:", font=self.FONTS['small']).pack(side=tk.LEFT, padx=(8, 2))
+        self.pb_frame_count_var = tk.StringVar(value="240")
+        ttk.Combobox(play_row, textvariable=self.pb_frame_count_var, width=5,
+                     values=['60', '120', '240', '480', '960'],
+                     state='readonly').pack(side=tk.LEFT, padx=1)
+
+        self.pb_frame_label_var = tk.StringVar(value="t = 0.00 s  (0/0)")
+        ttk.Label(play_row, textvariable=self.pb_frame_label_var,
+                  font=self.FONTS['small'], foreground='#0369A1').pack(side=tk.LEFT, padx=6)
+
+        # Speed slider
+        speed_row = ttk.Frame(sec5); speed_row.pack(fill=tk.X, pady=1)
+        self._pb_speed_label_var = tk.StringVar(value="재생 속도: 3.0x")
+        ttk.Label(speed_row, textvariable=self._pb_speed_label_var,
+                  font=self.FONTS['small']).pack(side=tk.LEFT, padx=4)
+        self._pb_speed_mult = tk.DoubleVar(value=3.0)
+        ttk.Scale(speed_row, from_=0.25, to=20.0,
+                  orient='horizontal', variable=self._pb_speed_mult,
+                  command=lambda v: self._pb_speed_label_var.set(
+                      f"재생 속도: {self._pb_speed_mult.get():.1f}x")
+                  ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+
+        # Time slider
+        slider_row = ttk.Frame(sec5); slider_row.pack(fill=tk.X, pady=2)
+        self.pb_time_slider = ttk.Scale(slider_row, from_=0, to=100,
+                                         orient='horizontal',
+                                         command=self._on_pb_slider_change)
+        self.pb_time_slider.pack(fill=tk.X, padx=4)
+
+        # Playback state
+        self._pb_frames = []
+        self._pb_frame_idx = 0
+        self._pb_playing = False
+        self._pb_play_after_id = None
+        self._pb_contour_ready = False
+
+        # ── 조향 핸들 / 타이어 ──
+        sec6 = self._create_section(left_panel, "6) 조향 핸들 / 타이어")
+        from matplotlib.figure import Figure as _Fig
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg as _FCA
+
+        steer_tire_row = ttk.Frame(sec6)
+        steer_tire_row.pack(fill=tk.X, pady=2)
+
+        # Steering wheel
+        self._pb_steer_fig = _Fig(figsize=(2.2, 2.2), dpi=80, facecolor='#F8FAFC')
+        self._pb_steer_ax = self._pb_steer_fig.add_axes([0.05, 0.05, 0.9, 0.9])
+        self._pb_steer_ax.set_xlim(-1.5, 1.5)
+        self._pb_steer_ax.set_ylim(-1.5, 1.5)
+        self._pb_steer_ax.set_aspect('equal')
+        self._pb_steer_ax.axis('off')
+        self._pb_steer_canvas = _FCA(self._pb_steer_fig, steer_tire_row)
+        self._pb_steer_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._init_pb_steering_wheel()
+
+        # Tire top-down
+        self._pb_tire_fig = _Fig(figsize=(2.4, 3.6), dpi=85, facecolor='#2D2D2D')
+        self._pb_tire_ax = self._pb_tire_fig.add_axes([0.0, 0.0, 1.0, 1.0])
+        self._pb_tire_ax.set_xlim(-3.0, 3.0)
+        self._pb_tire_ax.set_ylim(-4.0, 4.0)
+        self._pb_tire_ax.set_aspect('equal')
+        self._pb_tire_ax.axis('off')
+        self._pb_tire_fig.patch.set_facecolor('#2D2D2D')
+        self._pb_tire_canvas = _FCA(self._pb_tire_fig, steer_tire_row)
+        self._pb_tire_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        self._init_pb_tire_simple()
+
+        export_row = ttk.Frame(sec6); export_row.pack(fill=tk.X, pady=2)
+        ttk.Button(export_row, text="CSV 내보내기",
+                   command=self._export_pb_csv, width=14).pack(side=tk.LEFT, padx=1)
+
+        # ── 7) Fy 포락선 해석 가이드 ──
+        sec7 = self._create_section(left_panel, "7) Fy 포락선 해석 가이드")
+
+        # --- Zone A: 포락선 기울기 (Cornering Stiffness) ---
+        zone_a_frame = ttk.Frame(sec7)
+        zone_a_frame.pack(fill=tk.X, pady=(2, 4))
+
+        zone_a_header = ttk.Label(zone_a_frame,
+                                   text="Zone A  포락선 기울기 (Cornering Stiffness)",
+                                   font=self.FONTS['body'], foreground='#1565C0')
+        zone_a_header.pack(anchor='w')
+
+        zone_a_text = tk.Text(zone_a_frame, wrap=tk.WORD, height=7, bd=1,
+                              relief='solid', padx=6, pady=4,
+                              font=self.FONTS['small'],
+                              bg='#E3F2FD', fg='#0D47A1')
+        zone_a_text.insert('1.0',
+            "SA가 0에서 증가할 때 Fy가 올라가는 초기 기울기\n"
+            "(= dFy/dSA)를 결정하는 인자:\n\n"
+            "  • ky (횡방향 강성) ↑ → 기울기 ↑\n"
+            "  • L × W (접촉 면적) ↑ → 기울기 ↑\n"
+            "  • Fz (수직하중) ↑ → 접촉 면적 ↑ → 기울기 ↑\n\n"
+            "기울기가 클수록 빠르게 포화(피크)에 도달합니다."
+        )
+        zone_a_text.config(state='disabled')
+        zone_a_text.pack(fill=tk.X, padx=2)
+
+        # --- Zone B: 피크 높이 (Fy Peak) ---
+        zone_b_frame = ttk.Frame(sec7)
+        zone_b_frame.pack(fill=tk.X, pady=(2, 4))
+
+        zone_b_header = ttk.Label(zone_b_frame,
+                                   text="Zone B  피크 높이 (Fy Peak)",
+                                   font=self.FONTS['body'], foreground='#C62828')
+        zone_b_header.pack(anchor='w')
+
+        zone_b_text = tk.Text(zone_b_frame, wrap=tk.WORD, height=7, bd=1,
+                              relief='solid', padx=6, pady=4,
+                              font=self.FONTS['small'],
+                              bg='#FFEBEE', fg='#B71C1C')
+        zone_b_text.insert('1.0',
+            "Fy가 최대가 되는 피크의 높낮이를 결정하는 인자:\n\n"
+            "  • mu(v) × Fz = 마찰력 상한 (가장 직접적)\n"
+            "  • Fz (수직하중) ↑ → 피크 ↑\n"
+            "  • Cold & Hot mu(v) 커브 (점탄성 마찰 특성)\n"
+            "  • 압력 분포 (uniform / parabolic / dual_peak)\n\n"
+            "mu ↑ 또는 Fz ↑ → 피크 높이 ↑"
+        )
+        zone_b_text.config(state='disabled')
+        zone_b_text.pack(fill=tk.X, padx=2)
+
+        # --- Zone C: 피크 이후 감소 (Post-peak decay) ---
+        zone_c_frame = ttk.Frame(sec7)
+        zone_c_frame.pack(fill=tk.X, pady=(2, 4))
+
+        zone_c_header = ttk.Label(zone_c_frame,
+                                   text="Zone C  피크 이후 감소 (Post-peak)",
+                                   font=self.FONTS['body'], foreground='#4A148C')
+        zone_c_header.pack(anchor='w')
+
+        zone_c_text = tk.Text(zone_c_frame, wrap=tk.WORD, height=8, bd=1,
+                              relief='solid', padx=6, pady=4,
+                              font=self.FONTS['small'],
+                              bg='#F3E5F5', fg='#311B92')
+        zone_c_text.insert('1.0',
+            "피크를 지나서 Fy가 줄어드는 정도를 좌우하는 인자:\n\n"
+            "  • D (macro asperity 직경) ↑ → 감소폭 ↑\n"
+            "    (s0 = 0.2D, 슬립 천이 거리)\n"
+            "  • vc (주행 속도) ↑ → 감소폭 ↑\n"
+            "  • Cold → Hot 마찰 전이 (flash temperature ↑)\n"
+            "    v_slip ↑ → mu_hot 지배 → Fy ↓\n\n"
+            "D ↑ 또는 vc ↑ → 피크 이후 감소가 더 커집니다."
+        )
+        zone_c_text.config(state='disabled')
+        zone_c_text.pack(fill=tk.X, padx=2)
+
+        # ============== Right Panel: Notebook (Simulation + Education) ==============
+        right_panel = layout['right']
+
+        self.pb_right_notebook = ttk.Notebook(right_panel)
+        self.pb_right_notebook.pack(fill=tk.BOTH, expand=True)
+
+        # ── Tab 1: Simulation plots (same layout as 2D Brush) ──
+        sim_tab = ttk.Frame(self.pb_right_notebook)
+        self.pb_right_notebook.add(sim_tab, text='  시뮬레이션  ')
+
+        plot_frame = ttk.Frame(sim_tab)
+        plot_frame.pack(fill=tk.BOTH, expand=True)
+
+        from matplotlib.gridspec import GridSpec
+        self.fig_pb = Figure(figsize=(6, 4), dpi=100)
+        gs = GridSpec(2, 20, figure=self.fig_pb, height_ratios=[1.6, 2.4],
+                      hspace=0.42, wspace=2.0,
+                      left=0.04, right=0.98, top=0.95, bottom=0.05)
+
+        _bf_title = self.PLOT_FONTS['title_sm']
+        _bf_label = self.PLOT_FONTS['label_sm']
+        _bf_tick = self.PLOT_FONTS['legend_sm']
+
+        # Top row: 4 time-history / characteristic plots
+        self.ax_pb_input = self.fig_pb.add_subplot(gs[0, :5])
+        self.ax_pb_input.set_xlabel('time [s]', fontsize=_bf_label)
+        self.ax_pb_input.set_ylabel('slip', fontsize=_bf_label)
+        self.ax_pb_input.set_title('SA / SR Input', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_input.tick_params(labelsize=_bf_tick)
+        self.ax_pb_input.grid(True, alpha=0.3)
+
+        self.ax_pb_force_t = self.fig_pb.add_subplot(gs[0, 5:10])
+        self.ax_pb_force_t.set_xlabel('time [s]', fontsize=_bf_label)
+        self.ax_pb_force_t.set_ylabel('force [N]', fontsize=_bf_label)
+        self.ax_pb_force_t.set_title('Fx / Fy Output', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_force_t.tick_params(labelsize=_bf_tick)
+        self.ax_pb_force_t.grid(True, alpha=0.3)
+
+        self.ax_pb_fy_sa = self.fig_pb.add_subplot(gs[0, 10:15])
+        self.ax_pb_fy_sa.set_xlabel('SA [deg]', fontsize=_bf_label)
+        self.ax_pb_fy_sa.set_ylabel('Fy [N]', fontsize=_bf_label)
+        self.ax_pb_fy_sa.set_title('Fy vs Slip Angle', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_fy_sa.tick_params(labelsize=_bf_tick)
+        self.ax_pb_fy_sa.grid(True, alpha=0.3)
+
+        self.ax_pb_fx_sr = self.fig_pb.add_subplot(gs[0, 15:])
+        self.ax_pb_fx_sr.set_xlabel('SR [%]', fontsize=_bf_label)
+        self.ax_pb_fx_sr.set_ylabel('Fx [N]', fontsize=_bf_label)
+        self.ax_pb_fx_sr.set_title('Fx vs Slip Ratio', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_fx_sr.tick_params(labelsize=_bf_tick)
+        self.ax_pb_fx_sr.grid(True, alpha=0.3)
+
+        # Bottom row: 5 contour plots
+        self.ax_pb_stick = self.fig_pb.add_subplot(gs[1, 0:4])
+        self.ax_pb_stick.set_title('Adhesion vs Sliding', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_stick.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_pb_stick.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_pb_stick.tick_params(labelsize=_bf_tick)
+
+        self.ax_pb_speed = self.fig_pb.add_subplot(gs[1, 4:8])
+        self.ax_pb_speed.set_title('Slip Velocity [m/s]', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_speed.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_pb_speed.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_pb_speed.tick_params(labelsize=_bf_tick)
+
+        self.ax_pb_pressure = self.fig_pb.add_subplot(gs[1, 8:12])
+        self.ax_pb_pressure.set_title('contact pressure', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_pressure.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_pb_pressure.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_pb_pressure.tick_params(labelsize=_bf_tick)
+
+        self.ax_pb_temperature = self.fig_pb.add_subplot(gs[1, 12:16])
+        self.ax_pb_temperature.set_title('temperature [°C]', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_temperature.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_pb_temperature.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_pb_temperature.tick_params(labelsize=_bf_tick)
+
+        self.ax_pb_friction = self.fig_pb.add_subplot(gs[1, 16:20])
+        self.ax_pb_friction.set_title('friction force', fontsize=_bf_title, fontweight='bold')
+        self.ax_pb_friction.set_xlabel('length [mm]', fontsize=_bf_label)
+        self.ax_pb_friction.set_ylabel('width [mm]', fontsize=_bf_label)
+        self.ax_pb_friction.tick_params(labelsize=_bf_tick)
+
+        self.canvas_pb = FigureCanvasTkAgg(self.fig_pb, plot_frame)
+        _pb_canvas_widget = self.canvas_pb.get_tk_widget()
+        _pb_canvas_widget.pack(fill=tk.BOTH, expand=True)
+        self.canvas_pb.draw_idle()
+
+        # Save original axis positions from GridSpec BEFORE any colorbars
+        self._pb_original_ax_positions = {}
+        for ax_name in ('ax_pb_stick', 'ax_pb_speed', 'ax_pb_pressure',
+                        'ax_pb_temperature', 'ax_pb_friction',
+                        'ax_pb_input', 'ax_pb_force_t',
+                        'ax_pb_fy_sa', 'ax_pb_fx_sr'):
+            ax = getattr(self, ax_name, None)
+            if ax is not None:
+                self._pb_original_ax_positions[ax_name] = ax.get_position().frozen()
+
+        toolbar = NavigationToolbar2Tk(self.canvas_pb, plot_frame)
+        toolbar.update()
+
+        # ── Auto-resize figure to fill widget on every geometry change ──
+        _pb_resize_after_id = [None]
+
+        def _on_pb_canvas_resize(event):
+            w, h = event.width, event.height
+            if w > 1 and h > 1:
+                self.fig_pb.set_size_inches(
+                    w / self.fig_pb.dpi, h / self.fig_pb.dpi,
+                    forward=False)
+                self.fig_pb.subplots_adjust(
+                    left=0.04, right=0.98, top=0.95, bottom=0.05,
+                    hspace=0.42, wspace=2.0)
+                # Debounce redraw
+                if _pb_resize_after_id[0] is not None:
+                    try:
+                        _pb_canvas_widget.after_cancel(_pb_resize_after_id[0])
+                    except Exception:
+                        pass
+                _pb_resize_after_id[0] = _pb_canvas_widget.after(
+                    30, lambda: self.canvas_pb.draw_idle())
+        self.canvas_pb.get_tk_widget().bind('<Configure>', _on_pb_canvas_resize, add='+')
+
+        # ── Tab 2: Educational Material (ODE explanation) ──
+        self._create_pb_education_tab(self.pb_right_notebook)
+
+        # ── Tab 3: Contour Color Guide ──
+        self._create_pb_contour_guide_tab(self.pb_right_notebook)
+
+        # ── Force redraw when inner notebook tab is selected ──
+        def _on_pb_inner_tab_changed(event):
+            self.root.after(50, lambda: self._redraw_canvas_if_mapped('canvas_pb'))
+        self.pb_right_notebook.bind('<<NotebookTabChanged>>', _on_pb_inner_tab_changed)
+
+    # ── PerssonBrush: Steering wheel (simplified) ──
+
+    def _init_pb_steering_wheel(self):
+        """Draw steering wheel for PerssonBrush tab."""
+        ax = self._pb_steer_ax
+        ax.clear()
+        ax.set_xlim(-1.5, 1.5); ax.set_ylim(-1.5, 1.5)
+        ax.set_aspect('equal'); ax.axis('off')
+        ax.set_facecolor('#F8FAFC')
+        theta = np.linspace(0, 2 * np.pi, 100)
+        ax.plot(np.cos(theta), np.sin(theta), '-', color='#333', lw=6, zorder=2)
+        ax.plot(0.3 * np.cos(theta), 0.3 * np.sin(theta), '-', color='#555', lw=2, zorder=2)
+        ax.plot(0, 0, 'o', color='#333', markersize=7, zorder=3)
+        self._pb_spoke_lines = []
+        for base_angle in [np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]:
+            sp, = ax.plot([0, 0.85 * np.cos(base_angle)],
+                          [0, 0.85 * np.sin(base_angle)],
+                          '-', color='#333', lw=3.5, zorder=2)
+            self._pb_spoke_lines.append(sp)
+        self._pb_steer_arc, = ax.plot([], [], '-', color='#FF6600', lw=3, alpha=0.8, zorder=5)
+        self._pb_steer_sa_label = ax.text(0, -1.35, 'SA=0.0', fontsize=self.PLOT_FONTS['title'],
+                                           ha='center', va='top', fontweight='bold', zorder=6)
+        self._pb_steer_canvas.draw_idle()
+
+    def _update_pb_steering(self, sa_deg):
+        """Update PerssonBrush steering wheel angle."""
+        rot = np.radians(-sa_deg * 3)
+        for i, base_angle in enumerate([np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]):
+            a = base_angle + rot
+            self._pb_spoke_lines[i].set_data([0, 0.85 * np.cos(a)],
+                                              [0, 0.85 * np.sin(a)])
+        if abs(sa_deg) > 0.1:
+            arc_t = np.linspace(np.pi / 2, np.pi / 2 + rot, 30)
+            self._pb_steer_arc.set_data(1.15 * np.cos(arc_t), 1.15 * np.sin(arc_t))
+        else:
+            self._pb_steer_arc.set_data([], [])
+        self._pb_steer_sa_label.set_text(f'SA={sa_deg:.1f}')
+        self._pb_steer_canvas.draw_idle()
+
+    # ── PerssonBrush: Tire top-down (simplified) ──
+
+    def _init_pb_tire_simple(self):
+        """Simple tire top-down view for PerssonBrush."""
+        from matplotlib.patches import Rectangle, FancyBboxPatch
+        ax = self._pb_tire_ax
+        ax.clear()
+        ax.set_xlim(-3, 3); ax.set_ylim(-4, 4)
+        ax.set_aspect('equal'); ax.axis('off')
+        ax.set_facecolor('#3A3A3A')
+        # Road
+        ax.add_patch(Rectangle((-3, -4), 6, 8, facecolor='#4A4A4A', zorder=0))
+        ax.plot([-2.5, -2.5], [-4, 4], '-', color='#FFF', lw=2, zorder=1)
+        ax.plot([2.5, 2.5], [-4, 4], '-', color='#FFF', lw=2, zorder=1)
+        # Car body
+        car = FancyBboxPatch((-0.8, -1.6), 1.6, 3.2,
+                              boxstyle="round,pad=0.1",
+                              facecolor='#1565C0', edgecolor='#0D47A1',
+                              linewidth=2, zorder=5)
+        ax.add_patch(car)
+        self._pb_car_body = car
+        # Four tires
+        self._pb_tire_patches = []
+        tire_pos = [(-1.0, 1.1), (1.0, 1.1), (-1.0, -1.1), (1.0, -1.1)]
+        for tx, ty in tire_pos:
+            tire = Rectangle((tx - 0.15, ty - 0.35), 0.3, 0.7,
+                              facecolor='#222', edgecolor='#444', lw=1, zorder=6)
+            ax.add_patch(tire)
+            self._pb_tire_patches.append(tire)
+        # Force arrow
+        self._pb_force_arrow, = ax.plot([], [], '->', color='#FF4444',
+                                         lw=2.5, markersize=8, zorder=10)
+        self._pb_tire_sa_text = ax.text(0, 3.5, '', fontsize=self.PLOT_FONTS['legend_sm'], ha='center',
+                                         color='#FFD54F', fontweight='bold', zorder=10)
+        self._pb_tire_canvas.draw_idle()
+
+    def _update_pb_tire(self, sa_deg, Fy, Fz):
+        """Update PerssonBrush tire animation."""
+        from matplotlib.transforms import Affine2D
+        # Rotate front tires with SA
+        sa_rad = np.radians(sa_deg)
+        for i, tire in enumerate(self._pb_tire_patches[:2]):  # front only
+            tx, ty = [(-1.0, 1.1), (1.0, 1.1)][i]
+            t = Affine2D().rotate_around(tx, ty, sa_rad) + self._pb_tire_ax.transData
+            tire.set_transform(t)
+        # Force arrow
+        fy_scale = min(abs(Fy) / max(Fz, 1) * 4.0, 3.0)
+        if abs(Fy) > 10:
+            direction = 1.0 if Fy > 0 else -1.0
+            self._pb_force_arrow.set_data([0, fy_scale * direction], [0, 0])
+        else:
+            self._pb_force_arrow.set_data([], [])
+        self._pb_tire_sa_text.set_text(f'SA={sa_deg:.1f}  Fy={Fy:.0f}N')
+        self._pb_tire_canvas.draw_idle()
+
+    # ── PerssonBrush: CSV export ──
+
+    def _export_pb_csv(self):
+        """Export PerssonBrush results to CSV."""
+        if not self._pb_frames:
+            self._show_status("시뮬레이션 결과가 없습니다.", 'warning')
+            return
+        from tkinter import filedialog
+        path = filedialog.asksaveasfilename(
+            defaultextension='.csv', filetypes=[('CSV', '*.csv')],
+            title="PerssonBrush 결과 내보내기")
+        if not path:
+            return
+        import csv
+        with open(path, 'w', newline='') as f:
+            w = csv.writer(f)
+            w.writerow(['t', 'SA_deg', 'SR_pct', 'Fx_N', 'Fy_N'])
+            for fr in self._pb_frames:
+                w.writerow([f"{fr['t']:.4f}", f"{fr['SA']:.2f}",
+                            f"{fr['SR']:.2f}", f"{fr['Fx']:.2f}", f"{fr['Fy']:.2f}"])
+        self._show_status(f"CSV 내보내기 완료: {path}", 'success')
+
+    # ── PerssonBrush: Contour Color Guide tab ──
+
+    def _create_pb_contour_guide_tab(self, notebook):
+        """Create a detailed contour color guide tab for the Persson Brush model.
+
+        Explains what each contour plot shows and what colour transitions mean,
+        designed for readability on 4K monitors.
+        """
+        guide_tab = ttk.Frame(notebook)
+        notebook.add(guide_tab, text='  컨투어 색상 가이드  ')
+
+        canvas_frame = tk.Frame(guide_tab, bg='white')
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
+
+        guide_canvas = tk.Canvas(canvas_frame, bg='white', highlightthickness=0)
+        scrollbar_y = ttk.Scrollbar(canvas_frame, orient='vertical',
+                                     command=guide_canvas.yview)
+        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        guide_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        guide_canvas.configure(yscrollcommand=scrollbar_y.set)
+
+        inner = tk.Frame(guide_canvas, bg='white')
+        inner_id = guide_canvas.create_window((0, 0), window=inner, anchor='nw')
+        inner.bind('<Configure>',
+                   lambda e: guide_canvas.configure(scrollregion=guide_canvas.bbox('all')))
+        guide_canvas.bind('<Configure>',
+                          lambda e: guide_canvas.itemconfig(inner_id, width=e.width))
+
+        # Cross-platform mousewheel
+        def _on_mw(event):
+            if event.delta:
+                guide_canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+            elif event.num == 4:
+                guide_canvas.yview_scroll(-3, 'units')
+            elif event.num == 5:
+                guide_canvas.yview_scroll(3, 'units')
+        guide_canvas.bind('<Enter>', lambda e: (
+            guide_canvas.bind_all('<MouseWheel>', _on_mw),
+            guide_canvas.bind_all('<Button-4>', _on_mw),
+            guide_canvas.bind_all('<Button-5>', _on_mw)))
+        guide_canvas.bind('<Leave>', lambda e: (
+            guide_canvas.unbind_all('<MouseWheel>'),
+            guide_canvas.unbind_all('<Button-4>'),
+            guide_canvas.unbind_all('<Button-5>')))
+
+        # 1920x1080 기준 10pt 통일
+        _title_fs = 10
+        _subtitle_fs = 10
+        _body_fs = 10
+        _detail_fs = 10
+        pad_x = 30
+
+        def add_main_title(text):
+            tk.Label(inner, text=text, font=('NanumGothic', _title_fs, 'bold'),
+                     fg='#0F172A', bg='white', anchor='w',
+                     justify=tk.LEFT).pack(fill=tk.X, padx=pad_x, pady=(24, 8))
+
+        def add_subtitle(text, fg='#1E40AF'):
+            tk.Label(inner, text=text, font=('NanumGothic', _subtitle_fs, 'bold'),
+                     fg=fg, bg='white', anchor='w',
+                     justify=tk.LEFT).pack(fill=tk.X, padx=pad_x, pady=(18, 4))
+
+        def add_body(text, fg='#334155'):
+            tk.Label(inner, text=text, font=('NanumGothic', _body_fs),
+                     fg=fg, bg='white', anchor='w', justify=tk.LEFT,
+                     wraplength=1200).pack(fill=tk.X, padx=pad_x, pady=2)
+
+        def add_color_row(color_hex, label_text, desc_text):
+            """Add a single color swatch + label + description row."""
+            row = tk.Frame(inner, bg='white')
+            row.pack(fill=tk.X, padx=pad_x + 10, pady=3)
+            # Color swatch
+            swatch = tk.Frame(row, bg=color_hex, width=28, height=28,
+                              highlightbackground='#94A3B8', highlightthickness=1)
+            swatch.pack(side=tk.LEFT, padx=(0, 10))
+            swatch.pack_propagate(False)
+            # Label + description
+            tk.Label(row, text=label_text, font=('NanumGothic', _detail_fs, 'bold'),
+                     fg='#1E293B', bg='white', anchor='w').pack(side=tk.LEFT, padx=(0, 8))
+            tk.Label(row, text=desc_text, font=('NanumGothic', _detail_fs),
+                     fg='#475569', bg='white', anchor='w',
+                     wraplength=900).pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+        def add_gradient_bar(colors, labels, desc_text):
+            """Add a horizontal gradient bar with min/max labels."""
+            bar_frame = tk.Frame(inner, bg='white')
+            bar_frame.pack(fill=tk.X, padx=pad_x + 10, pady=(4, 2))
+            # Gradient bar using multiple thin color strips
+            grad_container = tk.Frame(bar_frame, bg='#94A3B8', highlightthickness=1,
+                                       highlightbackground='#94A3B8')
+            grad_container.pack(side=tk.LEFT, padx=(0, 12))
+            for c in colors:
+                strip = tk.Frame(grad_container, bg=c, width=16, height=24)
+                strip.pack(side=tk.LEFT)
+                strip.pack_propagate(False)
+            # Labels
+            label_frame = tk.Frame(bar_frame, bg='white')
+            label_frame.pack(side=tk.LEFT)
+            for i, lbl in enumerate(labels):
+                tk.Label(label_frame, text=lbl, font=('NanumGothic', _detail_fs),
+                         fg='#64748B', bg='white').pack(side=tk.LEFT, padx=4)
+            tk.Label(inner, text=desc_text, font=('NanumGothic', _detail_fs),
+                     fg='#475569', bg='white', anchor='w', justify=tk.LEFT,
+                     wraplength=1100).pack(fill=tk.X, padx=pad_x + 10, pady=(0, 6))
+
+        def add_section_box(text, bg_c='#EFF6FF', fg_c='#1E40AF', border_c='#3B82F6'):
+            """Highlighted info box."""
+            box = tk.Frame(inner, bg=border_c, padx=2, pady=2)
+            box.pack(fill=tk.X, padx=pad_x, pady=8)
+            tk.Label(box, text=text, font=('NanumGothic', _body_fs),
+                     fg=fg_c, bg=bg_c, anchor='w', justify=tk.LEFT,
+                     wraplength=1100, padx=16, pady=12).pack(fill=tk.X)
+
+        def add_separator():
+            tk.Frame(inner, bg='#E2E8F0', height=2).pack(fill=tk.X,
+                     padx=pad_x, pady=12)
+
+        # ══════════════════════════════════════════════════════════════
+        # CONTENT
+        # ══════════════════════════════════════════════════════════════
+
+        add_main_title("컨투어 플롯 색상 가이드  —  Persson ODE Brush 모델")
+        add_body("아래 5개의 컨투어 플롯은 타이어 접지면(footprint) 내 각 트레드 블록의 물리적 상태를 "
+                 "실시간으로 시각화합니다. 각 플롯의 색상 변화가 의미하는 바를 상세히 설명합니다.")
+
+        add_separator()
+
+        # ── 1. Adhesion vs Sliding ──
+        add_subtitle("① Adhesion vs Sliding  (부착 vs 미끄럼)", fg='#1565C0')
+        add_body("각 트레드 블록이 노면에 부착(Stick) 상태인지, 미끄러짐(Slip) 상태인지를 "
+                 "2색으로 표시합니다. ODE 모델에서는 슬립 속도 |v_slip|이 임계값을 초과하면 "
+                 "미끄럼으로 분류합니다.")
+        add_color_row('#2196F3', '파란색 (Adhesion, Stick)',
+                      '트레드 블록이 노면에 부착된 상태. 스프링력 < μ×Fz이므로 블록이 '
+                      '노면과 함께 이동합니다. 접지면 전방(Leading edge)에서 주로 나타납니다.')
+        add_color_row('#F44336', '빨간색 (Sliding, Slip)',
+                      '트레드 블록이 노면 위에서 미끄러지는 상태. 스프링력 > μ×Fz이므로 '
+                      '마찰력이 포화되어 블록이 슬립합니다. 접지면 후방(Trailing edge)에서 '
+                      '주로 발생하며, 슬립 각도(SA)가 커질수록 빨간 영역이 확대됩니다.')
+        add_section_box(
+            "해석 포인트:\n"
+            "• 파란색 → 빨간색 경계가 접지면 전방에서 후방으로 이동하면: "
+            "SA 또는 SR이 증가하여 더 많은 블록이 슬립 영역에 진입\n"
+            "• 전체가 빨간색이면: 모든 블록이 미끄러짐 → 포화(saturation) 상태, "
+            "피크 마찰력을 초과한 상태\n"
+            "• 화살표(quiver): 각 블록의 변형 방향과 크기를 표시 "
+            "(흰색 화살표가 클수록 변형이 큼)",
+            bg_c='#E3F2FD', fg_c='#0D47A1', border_c='#1976D2')
+
+        add_separator()
+
+        # ── 2. Slip Velocity ──
+        add_subtitle("② Slip Velocity [m/s]  (슬립 속도)", fg='#C62828')
+        add_body("각 트레드 블록의 노면 대비 상대 미끄럼 속도 |v_slip|을 연속 색상으로 표시합니다. "
+                 "슬립 속도는 Flash Temperature(순간 접촉 온도)와 마찰 계수 μ(v)를 결정하는 "
+                 "핵심 변수입니다.")
+        # jet colormap: blue -> cyan -> green -> yellow -> red
+        jet_colors = ['#00008B', '#0000FF', '#00BFFF', '#00FF00',
+                      '#FFFF00', '#FF8C00', '#FF0000', '#8B0000']
+        add_gradient_bar(jet_colors,
+                         ['최솟값 (≈0)', '→', '→', '→', '→', '→', '→', '최댓값'],
+                         "")
+        add_color_row('#0000FF', '파란색 (낮은 슬립 속도, ≈ 0 m/s)',
+                      '블록이 거의 미끄러지지 않음 → Stick 상태에 가까움. '
+                      'Cold branch 마찰 μ_cold(v)가 지배적이며, 접촉 온도 상승이 미미합니다.')
+        add_color_row('#00FF00', '초록색 (중간 슬립 속도)',
+                      '블록이 적당히 미끄러짐. Cold → Hot 마찰 전이(blending)가 시작되며, '
+                      'w = exp(-s_slip/s₀)에 의해 μ_hot의 비중이 증가합니다.')
+        add_color_row('#FFFF00', '노란색 (높은 슬립 속도)',
+                      '상당한 미끄럼 → Flash Temperature가 크게 상승하여 μ_hot이 지배적. '
+                      '마찰력이 피크에서 감소하기 시작합니다.')
+        add_color_row('#FF0000', '빨간색 (매우 높은 슬립 속도)',
+                      '블록이 격렬히 미끄러짐 → 고무 표면 온도가 급격히 상승. '
+                      'μ_hot(v) 곡선의 감소 구간에 진입하여 마찰력이 현저히 떨어집니다.')
+        add_section_box(
+            "해석 포인트:\n"
+            "• 접지면 후방(trailing edge)에서 빨간색이 나타나면: "
+            "블록 체류시간이 길어 누적 슬립 거리(s_slip)가 커진 것\n"
+            "• 전체적으로 파란색이면: 저슬립 조건 (낮은 SA/SR) → 선형 영역\n"
+            "• Persson 모델에서 v_slip은 μ(v) 곡선을 통해 마찰계수를 직접 결정합니다",
+            bg_c='#FFF3E0', fg_c='#BF360C', border_c='#FF6D00')
+
+        add_separator()
+
+        # ── 3. Contact Pressure ──
+        add_subtitle("③ Contact Pressure [bar]  (접촉 압력)", fg='#2E7D32')
+        add_body("각 트레드 블록에 작용하는 수직 접촉 압력 분포를 표시합니다. "
+                 "압력 분포 유형(균일, 포물선, 타원)에 따라 패턴이 달라집니다.")
+        add_gradient_bar(jet_colors,
+                         ['최소 압력', '→', '→', '→', '→', '→', '→', '최대 압력'],
+                         "")
+        add_color_row('#0000FF', '파란색 (낮은 압력)',
+                      '접지면 가장자리(edge)에 해당. 압력이 낮아 마찰 포화점(μ×p)이 낮으므로 '
+                      '슬립이 먼저 시작되는 영역입니다.')
+        add_color_row('#00FF00', '초록색 (중간 압력)',
+                      '접지면 중간 영역. 적당한 접촉 압력이 작용합니다.')
+        add_color_row('#FF0000', '빨간색 (높은 압력)',
+                      '접지면 중심부. 포물선/타원 분포에서 가장 높은 압력 → '
+                      '마찰 포화점이 높아 Stick 상태를 더 오래 유지합니다.')
+        add_section_box(
+            "해석 포인트:\n"
+            "• 균일 분포: 전체가 동일 색상 (초록~노란색)\n"
+            "• 포물선 분포: 중심이 빨간색, 가장자리가 파란색 → 자연스러운 타이어 압력\n"
+            "• 압력이 높은 곳은 슬립 진입이 늦어지고, 낮은 곳은 빨리 슬립 → "
+            "현실적인 Stick-Slip 경계 형성\n"
+            "• 수직 하중(Fz) ↑ → 전체 압력 ↑ → 피크 마찰력 ↑",
+            bg_c='#E8F5E9', fg_c='#1B5E20', border_c='#43A047')
+
+        add_separator()
+
+        # ── 4. Temperature ──
+        add_subtitle("④ Temperature [°C]  (접촉 온도)", fg='#E65100')
+        add_body("Flash Temperature 모델에 의한 순간 접촉 온도를 표시합니다. "
+                 "슬립 속도와 접촉 압력에 비례하여 온도가 상승하며, "
+                 "이는 Cold → Hot 마찰 전이를 결정합니다.")
+        add_gradient_bar(jet_colors,
+                         ['최저 온도', '→', '→', '→', '→', '→', '→', '최고 온도'],
+                         "")
+        add_color_row('#0000FF', '파란색 (낮은 온도, ≈ 주변 온도)',
+                      '슬립이 거의 없어 마찰열 발생이 미미한 영역. '
+                      'Cold branch 마찰 μ_cold가 그대로 적용됩니다.')
+        add_color_row('#00FF00', '초록색 (약간 상승)',
+                      '마찰열로 인한 온도 상승 시작. 고무의 viscoelastic 특성이 '
+                      '변하기 시작하며, μ가 서서히 감소합니다.')
+        add_color_row('#FFFF00', '노란색 (상당히 상승)',
+                      '접촉면 온도가 상당히 높아짐. Cold → Hot 전이 구간으로, '
+                      'w = exp(-s/s₀)의 blending factor가 0.5 이하로 떨어집니다.')
+        add_color_row('#FF0000', '빨간색 (고온)',
+                      '고무 표면이 매우 뜨거움 → μ_hot(v)가 완전히 지배. '
+                      '마찰계수가 현저히 감소하여 타이어 그립이 저하됩니다. '
+                      '실제 주행에서는 타이어 스모크(smoke)가 발생하는 조건입니다.')
+        add_section_box(
+            "해석 포인트:\n"
+            "• 온도 분포는 슬립 속도 분포와 유사한 패턴을 보임 "
+            "(높은 슬립 → 높은 온도)\n"
+            "• 접지면 후방의 고온 영역이 넓어지면: 타이어 그립 한계에 근접\n"
+            "• D_macro(돌기 직경) ↑ → s₀ ↑ → Cold→Hot 전이가 느려짐 → "
+            "동일 조건에서 온도 영향이 줄어듦\n"
+            "• 온도가 높을수록 고무가 유연해져 접촉 면적은 증가하지만, "
+            "탄성 에너지 손실(히스테리시스)은 감소 → μ_visc ↓",
+            bg_c='#FFF3E0', fg_c='#E65100', border_c='#FB8C00')
+
+        add_separator()
+
+        # ── 5. Friction Force ──
+        add_subtitle("⑤ Friction Force [N/node]  (마찰력)", fg='#6A1B9A')
+        add_body("각 트레드 블록이 노면에 전달하는 마찰력(수평력)의 크기를 표시합니다. "
+                 "이 값은 스프링력 + 댐퍼력의 합력이며, 접지면 전체를 합산하면 "
+                 "타이어의 총 Fx, Fy가 됩니다.")
+        add_gradient_bar(jet_colors,
+                         ['최소 마찰력', '→', '→', '→', '→', '→', '→', '최대 마찰력'],
+                         "")
+        add_color_row('#0000FF', '파란색 (낮은 마찰력)',
+                      'Stick 영역의 전방 블록들 → 아직 큰 변형이 없어 '
+                      '스프링력이 작음. 또는 접촉 압력이 낮은 가장자리 영역.')
+        add_color_row('#00FF00', '초록색 (중간 마찰력)',
+                      '적당한 변형 + 적당한 접촉 압력 → 중간 수준의 마찰력 기여.')
+        add_color_row('#FFFF00', '노란색 (높은 마찰력)',
+                      'Stick-Slip 경계 근처에서 최대 마찰력 발생. '
+                      '스프링력이 μ×p에 근접하여 최대 효율로 힘을 전달합니다.')
+        add_color_row('#FF0000', '빨간색 (최대 마찰력)',
+                      '마찰력이 최대인 블록들. 접촉 압력이 높고 '
+                      'μ×p 한도까지 힘을 전달하는 영역입니다.')
+        add_section_box(
+            "해석 포인트:\n"
+            "• 마찰력 분포의 합 = 타이어 총 횡력(Fy) 또는 종력(Fx)\n"
+            "• 높은 마찰력(빨간색)이 넓게 분포할수록: 타이어가 그립 한계를 "
+            "효율적으로 활용\n"
+            "• Slip 영역(adhesion 빨간색)에서는 마찰력 = μ_kinetic × p → "
+            "Hot branch에 의해 제한됨\n"
+            "• Fy, Fx 텍스트 박스: 접지면 전체의 합산 횡력과 종력을 실시간 표시",
+            bg_c='#F3E5F5', fg_c='#4A148C', border_c='#8E24AA')
+
+        add_separator()
+
+        # ── Summary ──
+        add_main_title("종합 해석 가이드")
+        add_body("5개 컨투어를 함께 관찰하면, 타이어 접지면에서 일어나는 물리 현상을 "
+                 "입체적으로 이해할 수 있습니다:")
+
+        summary_items = [
+            ("SA 증가 시 변화 과정",
+             "① Stick(파란) → Slip(빨간) 영역 확대\n"
+             "② 슬립 속도 상승 (파란→노란→빨간)\n"
+             "③ 접촉 온도 상승 (Cold → Hot 전이)\n"
+             "④ 마찰력 분포 변화 → Fy 증가 후 피크 → 감소",
+             '#E3F2FD', '#0D47A1', '#1565C0'),
+            ("SR 증가 시 변화 과정",
+             "① Slip 영역이 접지면 후방에서 전방으로 확대\n"
+             "② 종방향 슬립 속도 증가\n"
+             "③ 마찰열 → μ_hot 전이 → 마찰력 감소\n"
+             "④ 종력 Fx 증가 후 피크 → 감소 (Lock-up)",
+             '#FFEBEE', '#B71C1C', '#D32F2F'),
+            ("Combined Slip (SA + SR)",
+             "① 종방향 + 횡방향 슬립 벡터 합성\n"
+             "② 마찰원(Friction Circle/Ellipse)에 의해 Fx, Fy 커플링\n"
+             "③ 높은 SR → Fy 감소 (종방향이 마찰 예산 소비)\n"
+             "④ 화살표(quiver)가 대각선 방향으로 변형",
+             '#F3E5F5', '#4A148C', '#7B1FA2'),
+        ]
+        for title, desc, bg_c, fg_c, border_c in summary_items:
+            add_subtitle(f"  ▸ {title}", fg=border_c)
+            add_section_box(desc, bg_c=bg_c, fg_c=fg_c, border_c=border_c)
+
+        # Final spacer
+        tk.Frame(inner, bg='white', height=40).pack(fill=tk.X)
+
+    # ── PerssonBrush: Education tab ──
+
+    def _create_pb_education_tab(self, notebook):
+        """Create educational tab explaining ODE vs classical brush."""
+        edu_tab = ttk.Frame(notebook)
+        notebook.add(edu_tab, text='  ODE 교육 자료  ')
+        canvas_frame = tk.Frame(edu_tab, bg='white')
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
+        edu_canvas = tk.Canvas(canvas_frame, bg='white', highlightthickness=0)
+        scrollbar_y = ttk.Scrollbar(canvas_frame, orient='vertical', command=edu_canvas.yview)
+        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        edu_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        edu_canvas.configure(yscrollcommand=scrollbar_y.set)
+        inner = tk.Frame(edu_canvas, bg='white')
+        inner_id = edu_canvas.create_window((0, 0), window=inner, anchor='nw')
+        inner.bind('<Configure>', lambda e: edu_canvas.configure(scrollregion=edu_canvas.bbox('all')))
+        edu_canvas.bind('<Configure>', lambda e: edu_canvas.itemconfig(inner_id, width=e.width))
+
+        pad_x = 20
+        def add_title(text, fg='#1E293B'):
+            tk.Label(inner, text=text, font=('NanumGothic', 12, 'bold'),
+                     fg=fg, bg='white', anchor='w', justify=tk.LEFT).pack(fill=tk.X, padx=pad_x, pady=(18, 4))
+        def add_text(text, fg='#334155', bold=False):
+            w = 'bold' if bold else 'normal'
+            tk.Label(inner, text=text, font=('NanumGothic', 12, w),
+                     fg=fg, bg='white', anchor='w', justify=tk.LEFT,
+                     wraplength=900).pack(fill=tk.X, padx=pad_x, pady=1)
+        def add_code(text, title=None):
+            if title:
+                tk.Label(inner, text=title, font=('NanumGothicCoding', 12, 'bold'),
+                         fg='#059669', bg='#F0FDF4', anchor='w').pack(fill=tk.X, padx=pad_x + 4, pady=(8, 0))
+            code_frame = tk.Frame(inner, bg='#1E293B', padx=2, pady=2)
+            code_frame.pack(fill=tk.X, padx=pad_x, pady=(2, 8))
+            ct = tk.Text(code_frame, font=('NanumGothicCoding', 12),
+                         fg='#E2E8F0', bg='#1E293B', wrap=tk.NONE,
+                         relief=tk.FLAT, padx=12, pady=8, height=text.count('\n') + 1)
+            ct.insert('1.0', text)
+            ct.config(state=tk.DISABLED)
+            ct.pack(fill=tk.X)
+        def add_box(text, bg_c='#EFF6FF', fg_c='#1E40AF', border_c='#3B82F6'):
+            box = tk.Frame(inner, bg=border_c, padx=2, pady=2)
+            box.pack(fill=tk.X, padx=pad_x, pady=6)
+            tk.Label(box, text=text, font=('NanumGothic', 12),
+                     fg=fg_c, bg=bg_c, anchor='w', justify=tk.LEFT,
+                     wraplength=860, padx=12, pady=8).pack(fill=tk.X)
+
+        add_title("Persson ODE 동역학 모델 vs 고전 Brush 모델")
+        add_text("이 탭은 고전적 IF/ELSE 분기 없이, Newton의 제2법칙(F=ma)을 "
+                 "시간 적분하여 Stick-Slip 전이를 자연스럽게 구현합니다.")
+
+        add_code(
+            "# 고전 Brush 모델 (IF/ELSE 분기)\n"
+            "if F_spring > mu * Fz:   # Slip\n"
+            "    F = mu * Fz * direction\n"
+            "else:                     # Stick\n"
+            "    F = F_spring\n"
+            "\n"
+            "# Persson ODE 모델 (연속 동역학)\n"
+            "F_spring = k * (x_rim - x_block)\n"
+            "F_fric   = -mu_eff * Fz * (v_block / |v_block|)\n"
+            "a_block  = (F_spring + F_fric) / m\n"
+            "v_block += a_block * dt\n"
+            "x_block += v_block * dt",
+            title="고전 vs Persson: 핵심 차이"
+        )
+
+        add_box(
+            "핵심: ODE 모델에서는 IF/ELSE가 없습니다!\n\n"
+            "- v_slip ~ 0 (Stick): 마찰력이 스프링력을 상쇄 -> a ~ 0 -> 블록 정지\n"
+            "- v_slip > 0 (Slip): 스프링력 > 마찰력 -> a > 0 -> 블록 가속\n\n"
+            "전이는 힘의 균형에서 자연스럽게 발생합니다.",
+            bg_c='#FFF7ED', fg_c='#9A3412', border_c='#F97316'
+        )
+
+        add_title("파라미터 튜닝 전략", fg='#059669')
+        add_text("kx, ky 높이기: 낮은 SA에서도 Slip 진입 -> 컴파운드 영향 확대", bold=True)
+        add_text("m (질량) 낮추기: 더 빠른 동적 응답 -> 정상 상태 빠르게 도달", bold=True)
+        add_text("zeta (감쇠비): 1.0 = 임계감쇠 (진동 없음), < 1.0 = 과소감쇠 (진동 발생)", bold=True)
+
+        add_code(
+            "# 감쇠 계수 계산\n"
+            "c_x = 2 * zeta * sqrt(m * kx)   # 임계감쇠 기반\n"
+            "c_y = 2 * zeta * sqrt(m * ky)\n"
+            "\n"
+            "# Cold-Hot 블렌딩 (Persson 마찰열)\n"
+            "w = exp(-s_slip / s0)             # s0 = 0.2 * D_macro\n"
+            "mu_kinetic = w * mu_cold + (1-w) * mu_hot\n"
+            "\n"
+            "# Persson 연속 동역학 (No true stick)\n"
+            "mu_eff = w * mu_cold(v) + (1-w) * mu_hot(v)\n"
+            "\n"
+            "# 마찰력: μ(v) × Fz, 슬립 방향 반대\n"
+            "F_spring = k*(x_rim - x_block) + c*(v_rim - v_block)\n"
+            "dir = v_block/|v_block| if |v|>v_micro\n"
+            "      else F_spring/|F_spring|  # 방향 폴백\n"
+            "F_fric = -mu_eff * Fz * dir\n"
+            "# 근평형 보정: |F_fric| ≤ |F_spring| (v≈0)\n"
+            "\n"
+            "# 출력 힘 = 스프링 + 댐퍼 (완전 점탄성)\n"
+            "F_out = k*(x_rim-x_block) + c*(v_rim-v_block)\n"
+            "\n"
+            "# Footprint 체류시간 리셋\n"
+            "if age > L/vc: reset(x_block, v_block, s_slip)",
+            title="핵심 수식"
+        )
+
+    # ── PerssonBrush: Core ODE Transient Simulation ──
+
+    def _run_pb_transient_wrapper(self):
+        """Run PerssonBrush ODE transient simulation."""
+        import time as _time
+        try:
+            self.pb_calc_btn.config(state='disabled')
+            self.pb_progress_var.set(0)
+            self.status_var.set("PerssonBrush Transient 시뮬레이션 중...")
+            self.root.update()
+
+            self._log('CALC', '═══ PerssonBrush Transient 시뮬레이션 시작 ═══')
+            t0 = _time.perf_counter()
+
+            self._run_pb_transient()
+
+            elapsed = _time.perf_counter() - t0
+            self.pb_progress_var.set(100)
+            self.status_var.set("PerssonBrush Transient 완료")
+            self.pb_calc_btn.config(state='normal')
+            n = len(self._pb_frames)
+            self._show_status(f"PerssonBrush 완료: {n} 프레임 생성", 'success')
+            self._log('CALC', f'시뮬레이션 완료: {n} 프레임, 소요시간 {elapsed:.2f}s')
+            self._log('CALC', f'프레임당 평균 계산시간: {elapsed/max(n,1)*1000:.1f}ms')
+
+            self.pb_time_slider.config(to=max(n - 1, 1))
+            self.pb_time_slider.set(0)
+            self._pb_frame_idx = 0
+            self._pb_show_frame(0)
+
+        except ValueError as e:
+            self.pb_calc_btn.config(state='normal')
+            self._log('ERROR', f'PerssonBrush 입력값 오류: {str(e)}')
+            self._show_status(f"입력값 오류: {str(e)}", 'warning')
+        except Exception as e:
+            self.pb_calc_btn.config(state='normal')
+            import traceback; traceback.print_exc()
+            self._log('ERROR', f'PerssonBrush 오류: {e}')
+            self._show_status(f"PerssonBrush 오류: {e}", 'warning')
+
+    def _run_pb_transient(self):
+        """Core ODE-based transient simulation with SA(t)/SR(t) profiles."""
+        from scipy.interpolate import interp1d
+        from scipy.ndimage import binary_dilation
+
+        self._pb_contour_ready = False  # reset for new simulation
+
+        if self._get_active_cold_hot_results() is None:
+            raise ValueError("Cold & Hot Branch 결과 필요")
+
+        # Read parameters
+        Nx = int(self.pb_Nx_var.get())
+        Ny = int(self.pb_Ny_var.get())
+        L = float(self.pb_L_var.get())
+        W = float(self.pb_W_var.get())
+        Fz = float(self.pb_Fz_var.get())
+        kx = float(self.pb_kx_var.get())
+        ky = float(self.pb_ky_var.get())
+        vc = float(self.pb_vc_var.get())
+        D_mm = float(self.pb_D_macro_var.get())
+        s0 = 0.2 * D_mm * 1e-3
+        m_total = float(self.pb_mass_var.get())
+        zeta = float(self.pb_zeta_var.get())
+        dt_ode = float(self.pb_dt_var.get())
+        n_ode_steps = int(self.pb_ode_steps_var.get())
+        ptype = self.pb_pressure_type_var.get()
+        driving_mode = self.pb_driving_mode_var.get()
+
+        T_total = float(self.pb_total_time_var.get())
+        frame_count = int(self.pb_frame_count_var.get())
+        dt_out = T_total / max(frame_count, 1)
+        sa_type = self.pb_sa_type_var.get()
+        sa_amp = float(self.pb_sa_amp_var.get())
+        sr_type = self.pb_sr_type_var.get()
+        sr_val = float(self.pb_sr_val_var.get())
+
+        # Log all parameters
+        self._log('CALC', f'── 파라미터 ──')
+        self._log('CALC', f'격자: Nx={Nx}, Ny={Ny}, L={L}m, W={W}m')
+        self._log('CALC', f'하중: Fz={Fz}N, 강성: kx={kx:.0f}, ky={ky:.0f} N/m')
+        self._log('CALC', f'속도: vc={vc}m/s, 돌기 D={D_mm}mm, s0={s0*1e3:.3f}mm')
+        self._log('CALC', f'ODE: m={m_total}kg, zeta={zeta}, dt={dt_ode}s, warmup={n_ode_steps}steps')
+        self._log('CALC', f'압력분포: {ptype}, 주행모드: {driving_mode}')
+        self._log('CALC', f'시간: T={T_total}s, 프레임수={frame_count}, dt_out={dt_out:.4f}s')
+        self._log('CALC', f'SA: {sa_type}, 진폭={sa_amp}deg | SR: {sr_type}, 값={sr_val}%')
+
+        # Build LUT
+        lut_cold, lut_hot, _, _ = self._build_brush_lut()
+
+        # Build grid
+        x_arr = np.linspace(-L / 2, L / 2, Nx)
+        y_arr = np.linspace(-W / 2, W / 2, Ny)
+        dx = L / max(Nx - 1, 1)
+        dy = W / max(Ny - 1, 1)
+        dA = dx * dy
+        xx_g, yy_g = np.meshgrid(x_arr, y_arr, indexing='ij')
+
+        # Contact mask
+        se_n = self._ELLIPSE_POWER
+        se_r = np.abs(2 * xx_g / L)**se_n + np.abs(2 * yy_g / W)**se_n
+        ellipse_mask = se_r <= 1.0
+
+        # ── Dynamic pressure builder (SA/SR-dependent, like 2D Brush) ──
+        # Pre-compute base pressure shape
+        if ptype == 'uniform':
+            _pb_p_base = np.ones((Nx, Ny))
+        elif ptype == 'elliptic':
+            _pb_p_base = np.sqrt(np.clip(1 - se_r ** (2.0 / se_n), 0, None))
+        elif ptype == 'dual_peak':
+            _lon_env = np.clip(1 - np.abs(2 * xx_g / L)**se_n, 0, None)
+            _y_norm = 2 * yy_g / W
+            _pk_pos, _pk_w = 0.55, 0.45
+            _pb_p_base = (np.exp(-((_y_norm - _pk_pos) / _pk_w)**2) +
+                          np.exp(-((_y_norm + _pk_pos) / _pk_w)**2)) * _lon_env
+            _pb_p_base *= ellipse_mask
+        else:  # parabolic
+            _pb_p_base = (np.clip(1 - np.abs(2 * xx_g / L)**se_n, 0, None) *
+                          np.clip(1 - np.abs(2 * yy_g / W)**se_n, 0, None))
+
+        _pb_is_dual = (ptype == 'dual_peak')
+        if _pb_is_dual:
+            _lon_env_dp = np.clip(1 - np.abs(2 * xx_g / L)**se_n, 0, None)
+            _y_n_dp = 2 * yy_g / W
+            _peak_hi = np.exp(-((_y_n_dp - 0.55) / 0.45)**2) * _lon_env_dp
+            _peak_lo = np.exp(-((_y_n_dp + 0.55) / 0.45)**2) * _lon_env_dp
+
+        _asym_preset = self._ASYM_PRESETS.get(
+            self.pb_asym_preset_var.get(), (0.35, 0.40))
+        _ASYM_C, _ASYM_F = _asym_preset
+
+        def _pb_dynamic_pressure(sa_deg_loc, sr_pct_loc):
+            """Build pressure that shifts laterally with SA, longitudinally with SR."""
+            sa_factor = -np.clip(sa_deg_loc / 6.0, -1, 1)
+            if _pb_is_dual:
+                hi_s = max(1.0 + _ASYM_C * sa_factor, _ASYM_F)
+                lo_s = max(1.0 - _ASYM_C * sa_factor, _ASYM_F)
+                p = hi_s * _peak_hi + lo_s * _peak_lo
+            else:
+                p = _pb_p_base.copy()
+                lat_w = 1.0 + 0.8 * sa_factor * (2 * yy_g / W)
+                p *= np.clip(lat_w, 0.05, None)
+            # Longitudinal shift from SR
+            sr_factor = np.clip(sr_pct_loc / 5.0, -1, 1)
+            lon_w = 1.0 + 0.5 * sr_factor * (2 * xx_g / L)
+            p *= np.clip(lon_w, 0.1, None)
+            p *= ellipse_mask
+            total = np.sum(p) * dA
+            if total > 0:
+                p *= Fz / total
+            return p
+
+        # Time arrays
+        t_out = np.arange(0, T_total + dt_out * 0.5, dt_out)
+        n_frames = len(t_out)
+        SA_profile = self._generate_time_profile(sa_type, sa_amp, t_out)
+        SR_profile = self._generate_time_profile(sr_type, sr_val, t_out)
+
+        # Initial pressure for warmup (frame 0 SA/SR)
+        p_map = _pb_dynamic_pressure(SA_profile[0], SR_profile[0])
+        Fz_ij = p_map * dA
+
+        # Per-node stiffness
+        n_active = max(np.sum(ellipse_mask), 1)
+        _area_scale = (L * W) / (0.15 * 0.12)
+        kx_node = (kx * _area_scale) / n_active
+        ky_node = (ky * _area_scale) / n_active
+        m_node = m_total / n_active
+        cx_node = 2.0 * zeta * np.sqrt(m_node * kx_node)
+        cy_node = 2.0 * zeta * np.sqrt(m_node * ky_node)
+
+        # Contact time
+        t_contact = np.clip((xx_g + L / 2.0) / max(vc, 0.01), 0, None)
+
+        # Temperature from Cold&Hot
+        chr_ = self._get_active_cold_hot_results()
+        T0_base = chr_.get('T0', 25.0)
+        _dT_arr = chr_.get('delta_T', np.zeros(len(chr_['v'])))
+        dT_interp = interp1d(chr_['v'], _dT_arr, kind='linear',
+                             bounds_error=False, fill_value=(_dT_arr[0], _dT_arr[-1]))
+
+        eps = 1e-15
+        # Persson continuous dynamics: no Karnopp stick/slip.
+        # The Persson μ(v) curve from the LUT already encodes the full
+        # velocity-dependent friction behavior including the low-speed regime.
+        # No artificial static friction threshold or velocity deadband is used.
+        v_micro = 1e-6  # numerical threshold for direction fallback only [m/s]
+        self._log('CALC', f'LUT 빌드 완료 (Persson 연속 동역학 모드)')
+        self._log('CALC', f'노드별: kx_node={kx_node:.1f}, ky_node={ky_node:.1f}, m_node={m_node:.6f}kg')
+        self._log('CALC', f'감쇠: cx_node={cx_node:.3f}, cy_node={cy_node:.3f}')
+        self._log('CALC', f'활성 노드 수: {int(n_active)}/{Nx*Ny}')
+
+        frames = []
+        Fx_hist = np.zeros(n_frames)
+        Fy_hist = np.zeros(n_frames)
+
+        # ── Continuous transient ODE (state carries between frames) ──
+        # Initialize block state ONCE
+        x_block = np.zeros((Nx, Ny))
+        y_block = np.zeros((Nx, Ny))
+        vx_block = np.zeros((Nx, Ny))
+        vy_block = np.zeros((Nx, Ny))
+        s_slip = np.zeros((Nx, Ny))
+        cmask = ellipse_mask
+        mask_fill = binary_dilation(cmask, iterations=2)
+
+        # Footprint residence: max time a block stays in contact patch
+        t_residence_max = L / max(vc, 0.01)  # [s]
+        age = t_contact.copy()  # initialize age from spatial position
+
+        # Seed rim position using contact time for initial spatial distribution
+        sa_0 = SA_profile[0]
+        sr_0 = SR_profile[0]
+        vx_rim_vel_0 = vc * (sr_0 / 100.0)
+        vy_rim_vel_0 = vc * np.sin(np.radians(sa_0))
+        x_rim = vx_rim_vel_0 * t_contact
+        y_rim = vy_rim_vel_0 * t_contact
+
+        # Warmup: run n_ode_steps to reach initial steady state
+        # Persson continuous dynamics — no binary stick/slip partition.
+        # μ(v) from the Persson LUT is the sole determinant of friction.
+        for step in range(n_ode_steps):
+            v_slip_mag = np.sqrt(vx_block**2 + vy_block**2)
+            s_slip += v_slip_mag * dt_ode
+            w = np.exp(-s_slip / max(s0, 1e-10))
+            # Persson μ(v): query LUT at actual slip velocity (no artificial clipping).
+            # The Persson theory already provides a continuous μ(v) that naturally
+            # decreases toward zero at low speeds via molecular binding/stretching.
+            mu_cold_v = lut_cold(v_slip_mag)
+            mu_hot_v = lut_hot(v_slip_mag)
+            mu_eff = w * mu_cold_v + (1.0 - w) * mu_hot_v
+
+            # Spring + damper force
+            Fx_spring = kx_node * (x_rim - x_block) + cx_node * (vx_rim_vel_0 - vx_block)
+            Fy_spring = ky_node * (y_rim - y_block) + cy_node * (vy_rim_vel_0 - vy_block)
+            F_spring_mag = np.sqrt(Fx_spring**2 + Fy_spring**2)
+
+            # Friction force: μ(v) × Fz opposing slip direction.
+            # Direction: use velocity when moving, spring force at near-zero
+            # velocity (friction opposes tendency of motion, not a static threshold).
+            F_fric_limit = mu_eff * Fz_ij
+            dir_x = np.where(v_slip_mag > v_micro,
+                             vx_block / (v_slip_mag + eps),
+                             Fx_spring / (F_spring_mag + eps))
+            dir_y = np.where(v_slip_mag > v_micro,
+                             vy_block / (v_slip_mag + eps),
+                             Fy_spring / (F_spring_mag + eps))
+            Fx_fric = -F_fric_limit * dir_x
+            Fy_fric = -F_fric_limit * dir_y
+
+            # At near-zero velocity, cap friction magnitude at spring magnitude
+            # to prevent numerical overshoot (friction cannot exceed driving force
+            # at quasi-equilibrium). This is NOT a stick condition — the block
+            # still has micro-slip governed by Persson μ(v).
+            fric_mag = np.sqrt(Fx_fric**2 + Fy_fric**2)
+            cap = np.where((v_slip_mag < v_micro) & (fric_mag > F_spring_mag),
+                           F_spring_mag / (fric_mag + eps), 1.0)
+            Fx_fric *= cap
+            Fy_fric *= cap
+
+            ax_b = (Fx_spring + Fx_fric) / m_node
+            ay_b = (Fy_spring + Fy_fric) / m_node
+            vx_new = vx_block + ax_b * dt_ode
+            vy_new = vy_block + ay_b * dt_ode
+            # Anti-reversal projection: friction dissipates kinetic energy
+            # but cannot reverse the direction of motion.
+            vx_block = np.where((vx_block != 0) & (np.sign(vx_new) != np.sign(vx_block)),
+                                0.0, vx_new)
+            vy_block = np.where((vy_block != 0) & (np.sign(vy_new) != np.sign(vy_block)),
+                                0.0, vy_new)
+            x_block += vx_block * dt_ode
+            y_block += vy_block * dt_ode
+            x_rim += vx_rim_vel_0 * dt_ode
+            y_rim += vy_rim_vel_0 * dt_ode
+
+            # Footprint exit: reset blocks that exceeded residence time
+            age += dt_ode
+            exited = age > t_residence_max
+            if np.any(exited):
+                x_block[exited] = x_rim[exited]
+                y_block[exited] = y_rim[exited]
+                vx_block[exited] = 0.0
+                vy_block[exited] = 0.0
+                s_slip[exited] = 0.0
+                age[exited] = 0.0
+
+        self._log('CALC', f'Warmup 완료: {n_ode_steps} ODE steps')
+        v_slip_warmup = np.sqrt(vx_block**2 + vy_block**2)
+        n_sliding_warmup = np.sum((v_slip_warmup > v_micro) & cmask)
+        self._log('CALC', f'Warmup 후 상태: sliding={int(n_sliding_warmup)}/{int(n_active)} 노드, '
+                  f'max v_slip={np.max(v_slip_warmup*cmask):.4f} m/s')
+
+        # Steps between output frames
+        steps_per_frame = max(int(dt_out / dt_ode), 1)
+        self._log('CALC', f'프레임당 ODE 스텝: {steps_per_frame}')
+
+        for fi in range(n_frames):
+            t_frame = t_out[fi]
+            sa_deg = SA_profile[fi]
+            sr_pct = SR_profile[fi]
+            outline_verts = self._egg_outline(sa_deg, L / 2, W / 2)
+
+            # ── Dynamic pressure: update per frame with current SA/SR ──
+            p_map = _pb_dynamic_pressure(sa_deg, sr_pct)
+            Fz_ij = p_map * dA
+
+            # Integrate ODE sub-steps from previous frame to this frame
+            # Use piecewise-linear SA/SR: interpolate at frame boundaries,
+            # hold constant within sub-steps for speed
+            n_sub = steps_per_frame if fi > 0 else 0  # frame 0 already done by warmup
+            if n_sub > 0:
+                # Linear interp: SA/SR at start and end of this interval
+                sa_start = SA_profile[fi - 1]
+                sa_end = SA_profile[fi]
+                sr_start = SR_profile[fi - 1]
+                sr_end = SR_profile[fi]
+                for step in range(n_sub):
+                    # Linear blend within interval
+                    alpha_t = (step + 1) / n_sub
+                    sa_sub = sa_start + alpha_t * (sa_end - sa_start)
+                    sr_sub = sr_start + alpha_t * (sr_end - sr_start)
+                    vx_rim_vel = vc * (sr_sub / 100.0)
+                    vy_rim_vel = vc * np.sin(np.radians(sa_sub))
+
+                    v_slip_mag = np.sqrt(vx_block**2 + vy_block**2)
+                    s_slip += v_slip_mag * dt_ode
+                    w = np.exp(-s_slip / max(s0, 1e-10))
+                    # Persson μ(v): query LUT at actual slip velocity
+                    mu_cold_v = lut_cold(v_slip_mag)
+                    mu_hot_v = lut_hot(v_slip_mag)
+                    mu_eff = w * mu_cold_v + (1.0 - w) * mu_hot_v
+
+                    # Spring + damper force
+                    Fx_spring = kx_node * (x_rim - x_block) + cx_node * (vx_rim_vel - vx_block)
+                    Fy_spring = ky_node * (y_rim - y_block) + cy_node * (vy_rim_vel - vy_block)
+                    F_spring_mag = np.sqrt(Fx_spring**2 + Fy_spring**2)
+
+                    # Friction: μ(v) × Fz opposing slip direction
+                    F_fric_limit = mu_eff * Fz_ij
+                    dir_x = np.where(v_slip_mag > v_micro,
+                                     vx_block / (v_slip_mag + eps),
+                                     Fx_spring / (F_spring_mag + eps))
+                    dir_y = np.where(v_slip_mag > v_micro,
+                                     vy_block / (v_slip_mag + eps),
+                                     Fy_spring / (F_spring_mag + eps))
+                    Fx_fric = -F_fric_limit * dir_x
+                    Fy_fric = -F_fric_limit * dir_y
+
+                    # Cap friction at spring magnitude near equilibrium
+                    fric_mag = np.sqrt(Fx_fric**2 + Fy_fric**2)
+                    cap = np.where((v_slip_mag < v_micro) & (fric_mag > F_spring_mag),
+                                   F_spring_mag / (fric_mag + eps), 1.0)
+                    Fx_fric *= cap
+                    Fy_fric *= cap
+
+                    ax_b = (Fx_spring + Fx_fric) / m_node
+                    ay_b = (Fy_spring + Fy_fric) / m_node
+                    vx_new = vx_block + ax_b * dt_ode
+                    vy_new = vy_block + ay_b * dt_ode
+                    # Anti-reversal: friction cannot reverse motion direction
+                    vx_block = np.where((vx_block != 0) & (np.sign(vx_new) != np.sign(vx_block)),
+                                        0.0, vx_new)
+                    vy_block = np.where((vy_block != 0) & (np.sign(vy_new) != np.sign(vy_block)),
+                                        0.0, vy_new)
+                    x_block += vx_block * dt_ode
+                    y_block += vy_block * dt_ode
+                    x_rim += vx_rim_vel * dt_ode
+                    y_rim += vy_rim_vel * dt_ode
+
+                    # Footprint exit: reset blocks that exceeded residence time
+                    age += dt_ode
+                    exited = age > t_residence_max
+                    if np.any(exited):
+                        x_block[exited] = x_rim[exited]
+                        y_block[exited] = y_rim[exited]
+                        vx_block[exited] = 0.0
+                        vy_block[exited] = 0.0
+                        s_slip[exited] = 0.0
+                        age[exited] = 0.0
+
+            # Snapshot current state
+            v_slip_final = np.sqrt(vx_block**2 + vy_block**2) * cmask
+            # Rim velocity at this frame for damper force
+            vx_rim_now = vc * (sr_pct / 100.0)
+            vy_rim_now = vc * np.sin(np.radians(sa_deg))
+            # Spring + Damper force (complete viscoelastic coupling)
+            Fx_sp = (kx_node * (x_rim - x_block)
+                     + cx_node * (vx_rim_now - vx_block)) * cmask
+            Fy_sp = (ky_node * (y_rim - y_block)
+                     + cy_node * (vy_rim_now - vy_block)) * cmask
+            mu_eff_final = mu_eff * cmask
+
+            # Persson: all nodes have micro-slip; visualize as sliding
+            # intensity gradient rather than binary stick/slip partition.
+            # Use v_micro threshold only for numerical noise filtering.
+            is_sliding = (v_slip_final > v_micro) & cmask
+
+            Fx_total = -np.sum(Fx_sp)
+            Fy_total = np.sum(Fy_sp)
+            Fx_hist[fi] = Fx_total
+            Fy_hist[fi] = Fy_total
+
+            # Temperature estimate
+            dT_local = dT_interp(np.clip(v_slip_final.ravel(), 0, None)).reshape(Nx, Ny)
+            T_contact = T0_base + dT_local * cmask
+
+            F_node_mag = np.sqrt(Fx_sp**2 + Fy_sp**2)
+
+            # Block deformation (rim - block): shows tread stretch direction
+            def_x = ((x_rim - x_block) * cmask).copy()
+            def_y = ((y_rim - y_block) * cmask).copy()
+
+            frames.append({
+                't': t_frame, 'SA': sa_deg, 'SR': sr_pct,
+                'Fx': Fx_total, 'Fy': Fy_total,
+                'is_sliding': is_sliding.copy(),
+                'v_slip_mag': v_slip_final.copy(),
+                'v_trans_x': (vx_block * cmask).copy(),
+                'v_trans_y': (vy_block * cmask).copy(),
+                'def_x': def_x, 'def_y': def_y,
+                'p_map': p_map.copy(),
+                'T_contact': T_contact.copy(),
+                'mu_eff': mu_eff_final.copy(),
+                'F_friction': F_node_mag.copy(),
+                '_contact_mask': cmask,
+                '_outline_verts': outline_verts,
+                '_mask_fill': mask_fill,
+            })
+
+            self.pb_progress_var.set(int(100 * (fi + 1) / n_frames))
+            if fi % 5 == 0:
+                self.root.update()
+
+        self._pb_frames = frames
+        self._pb_t_out = t_out
+        self._pb_SA = SA_profile
+        self._pb_SR = SR_profile
+        self._pb_Fx_hist = Fx_hist
+        self._pb_Fy_hist = Fy_hist
+        self._pb_x_mm = x_arr * 1000
+        self._pb_y_mm = y_arr * 1000
+
+        # Log simulation results summary
+        self._log('CALC', f'── 시뮬레이션 결과 요약 ──')
+        self._log('CALC', f'Fx 범위: [{np.min(Fx_hist):.1f}, {np.max(Fx_hist):.1f}] N')
+        self._log('CALC', f'Fy 범위: [{np.min(Fy_hist):.1f}, {np.max(Fy_hist):.1f}] N')
+        self._log('CALC', f'SA 범위: [{np.min(SA_profile):.2f}, {np.max(SA_profile):.2f}] deg')
+        self._log('CALC', f'SR 범위: [{np.min(SR_profile):.2f}, {np.max(SR_profile):.2f}] %')
+        # Check for anomalies
+        if np.any(np.isnan(Fx_hist)) or np.any(np.isnan(Fy_hist)):
+            self._log('ERROR', 'NaN detected in force output!')
+        if np.max(np.abs(Fx_hist)) < 1e-3 and np.max(np.abs(Fy_hist)) < 1e-3:
+            self._log('ERROR', 'Force output is near-zero — check parameters')
+        # Sliding ratio per frame
+        slide_ratios = []
+        for fr in frames:
+            n_sl = np.sum(fr['is_sliding'])
+            slide_ratios.append(n_sl / max(n_active, 1) * 100)
+        self._log('CALC', f'Sliding 비율 범위: [{min(slide_ratios):.1f}%, {max(slide_ratios):.1f}%]')
+        self._log('CALC', f'평균 Sliding 비율: {np.mean(slide_ratios):.1f}%')
+
+        # Compute global ranges for consistent color scales
+        self._pb_global_ranges = self._pb_compute_global_ranges(frames)
+        gr = self._pb_global_ranges
+        self._log('CALC', f'컬러 범위 - speed: {gr["speed"]}, pressure: {gr["pressure"]}')
+        self._log('CALC', f'컬러 범위 - temp: {gr["temperature"]}, friction: {gr["friction"]}')
+
+        # Initialize persistent contour artists
+        self._pb_init_contour_artists()
+
+        # Draw time histories
+        self._pb_draw_time_histories()
+
+    def _pb_compute_global_ranges(self, frames):
+        """Compute min/max ranges across all frames for consistent color scales."""
+        speed_max = 1e-6
+        pressure_max = 1e-6
+        temp_lo = 999.0
+        temp_hi = -999.0
+        mu_lo = 999.0
+        mu_hi = -999.0
+        fric_max = 1e-6
+        for f in frames:
+            mask = f.get('_mask_fill', f.get('_contact_mask'))
+            v = f['v_slip_mag'][mask]
+            if len(v) > 0:
+                speed_max = max(speed_max, np.max(v))
+            p = f['p_map'][mask]
+            if len(p) > 0:
+                pressure_max = max(pressure_max, np.max(p) * 1e-5)
+            tc = f['T_contact'][mask]
+            if len(tc) > 0:
+                temp_lo = min(temp_lo, np.min(tc))
+                temp_hi = max(temp_hi, np.max(tc))
+            mu = f['mu_eff'][mask]
+            if len(mu) > 0:
+                mu_lo = min(mu_lo, np.min(mu))
+                mu_hi = max(mu_hi, np.max(mu))
+            ff = f['F_friction'][mask]
+            if len(ff) > 0:
+                fric_max = max(fric_max, np.max(ff))
+        return {
+            'speed': (0, speed_max),
+            'pressure': (0, pressure_max),
+            'temperature': (temp_lo, temp_hi),
+            'mu_eff': (mu_lo, mu_hi),
+            'friction': (0, fric_max),
+        }
+
+    def _pb_init_contour_artists(self):
+        """Prepare axes with pcolormesh artists for fast set_array() updates."""
+        from matplotlib.patches import Patch
+        from matplotlib.colors import ListedColormap, BoundaryNorm, Normalize
+        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+        import matplotlib.cm as mcm
+        x_mm = self._pb_x_mm
+        y_mm = self._pb_y_mm
+        gr = self._pb_global_ranges
+
+        # Remove old PB colorbars to prevent duplicates
+        if hasattr(self, '_pb_cbar_axes') and self._pb_cbar_axes:
+            for cax in self._pb_cbar_axes.values():
+                try:
+                    cax.remove()
+                except Exception:
+                    pass
+        self._pb_cbar_axes = {}
+
+        # Build mesh edges (N+1 for N centers) — required for shading='flat'
+        dx = x_mm[1] - x_mm[0] if len(x_mm) > 1 else 1.0
+        dy = y_mm[1] - y_mm[0] if len(y_mm) > 1 else 1.0
+        x_edges = np.concatenate([x_mm - dx / 2, [x_mm[-1] + dx / 2]])
+        y_edges = np.concatenate([y_mm - dy / 2, [y_mm[-1] + dy / 2]])
+        self._pb_x_edges = x_edges
+        self._pb_y_edges = y_edges
+
+        f0 = self._pb_frames[0]
+        mask_fill = f0.get('_mask_fill', f0.get('_contact_mask'))
+        nan_base = np.where(mask_fill, 0.0, np.nan)
+        _fs = 9
+
+        # ── All 5 plots use pcolormesh for fast set_array() animation ──
+        self._pb_pm_artists = {}
+
+        # (1) sliding vs adhesion — 2-color discrete
+        ax1 = self.ax_pb_stick
+        ax1.clear()
+        cmap_sa = ListedColormap(['#2196F3', '#F44336'])
+        norm_sa = BoundaryNorm([0, 0.5, 1.0], cmap_sa.N)
+        self._pb_pm_stick = ax1.pcolormesh(
+            x_edges, y_edges, nan_base.T, cmap=cmap_sa, norm=norm_sa,
+            shading='flat', zorder=1)
+        ax1.set_title('Adhesion vs Sliding', fontsize=_fs, fontweight='bold')
+        ax1.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label_sm'])
+        ax1.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label_sm'])
+        legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Adhesion (부착, Stick)'),
+                          Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Sliding (미끄럼, Slip)')]
+        ax1.legend(handles=legend_patches, loc='upper right', fontsize=self.PLOT_FONTS['label_sm'],
+                   framealpha=0.9, edgecolor='#999')
+        # Contact patch outline (drawn once)
+        Z_mask = np.where(mask_fill, 1.0, 0.0)
+        ax1.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.2)
+
+        # Quiver overlay: shows tread block deformation s(t) direction
+        # Subsample grid for clarity (every _q_step-th node)
+        _q_step = max(len(x_mm) // 12, 1)
+        _qx = x_mm[::_q_step]
+        _qy = y_mm[::_q_step]
+        _qxx, _qyy = np.meshgrid(_qx, _qy, indexing='ij')
+        _zero_q = np.zeros_like(_qxx)
+        # scale=None lets matplotlib auto-scale; we manually normalise in set_UVC
+        self._pb_quiver = ax1.quiver(
+            _qxx, _qyy, _zero_q, _zero_q,
+            color='white', angles='xy', scale_units='xy', scale=1.0,
+            width=0.004, headwidth=3.5, headlength=4,
+            edgecolor='k', linewidth=0.3,
+            zorder=5, alpha=0.85)
+        self._pb_quiver_step = _q_step
+        # Target arrow length: fraction of patch diagonal
+        self._pb_quiver_target_len = 0.12 * np.sqrt(
+            (x_mm[-1] - x_mm[0])**2 + (y_mm[-1] - y_mm[0])**2)
+
+        # (2) slip speed — pcolormesh
+        sp_lo, sp_hi = gr['speed']
+        if sp_hi - sp_lo < 1e-6:
+            sp_hi = sp_lo + 1.0
+        ax2 = self.ax_pb_speed
+        ax2.clear()
+        norm_sp = Normalize(vmin=sp_lo, vmax=sp_hi)
+        pm_sp = ax2.pcolormesh(x_edges, y_edges, nan_base.T, cmap='jet',
+                               norm=norm_sp, shading='flat', zorder=1)
+        ax2.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.0)
+        ax2.set_title('Slip Velocity [m/s]', fontsize=_fs, fontweight='bold')
+        ax2.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label_sm'])
+        ax2.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label_sm'])
+        ax2.tick_params(labelsize=6)
+        cax2 = inset_axes(ax2, width="40%", height="5%", loc='lower right', borderpad=1.2)
+        self.fig_pb.colorbar(pm_sp, cax=cax2, orientation='horizontal')
+        cax2.tick_params(labelsize=5, length=2, pad=1)
+        self._pb_cbar_axes['speed'] = cax2
+        self._pb_pm_artists['speed'] = pm_sp
+
+        # (3) contact pressure — pcolormesh
+        pr_lo, pr_hi = gr['pressure']
+        if pr_hi - pr_lo < 1e-6:
+            pr_hi = pr_lo + 1.0
+        ax3 = self.ax_pb_pressure
+        ax3.clear()
+        norm_pr = Normalize(vmin=pr_lo, vmax=pr_hi)
+        pm_pr = ax3.pcolormesh(x_edges, y_edges, nan_base.T, cmap='jet',
+                               norm=norm_pr, shading='flat', zorder=1)
+        ax3.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.0)
+        ax3.set_title('contact pressure [bar]', fontsize=_fs, fontweight='bold')
+        ax3.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label_sm'])
+        ax3.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label_sm'])
+        ax3.tick_params(labelsize=6)
+        cax3 = inset_axes(ax3, width="40%", height="5%", loc='lower right', borderpad=1.2)
+        self.fig_pb.colorbar(pm_pr, cax=cax3, orientation='horizontal')
+        cax3.tick_params(labelsize=5, length=2, pad=1)
+        self._pb_cbar_axes['pressure'] = cax3
+        self._pb_pm_artists['pressure'] = pm_pr
+
+        # (4) temperature — pcolormesh
+        t_lo, t_hi = gr['temperature']
+        if abs(t_hi - t_lo) < 0.1:
+            t_lo -= 1.0
+            t_hi += 1.0
+        ax4 = self.ax_pb_temperature
+        ax4.clear()
+        norm_t = Normalize(vmin=t_lo, vmax=t_hi)
+        pm_t = ax4.pcolormesh(x_edges, y_edges, nan_base.T, cmap='jet',
+                              norm=norm_t, shading='flat', zorder=1)
+        ax4.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.0)
+        ax4.set_title('temperature [\u00b0C]', fontsize=_fs, fontweight='bold')
+        ax4.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label_sm'])
+        ax4.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label_sm'])
+        ax4.tick_params(labelsize=6)
+        cax4 = inset_axes(ax4, width="40%", height="5%", loc='lower right', borderpad=1.2)
+        self.fig_pb.colorbar(pm_t, cax=cax4, orientation='horizontal')
+        cax4.tick_params(labelsize=5, length=2, pad=1)
+        self._pb_cbar_axes['temperature'] = cax4
+        self._pb_pm_artists['temperature'] = pm_t
+
+        # (5) friction force — pcolormesh
+        fr_lo, fr_hi = gr['friction']
+        if fr_hi - fr_lo < 1e-6:
+            fr_hi = fr_lo + 1.0
+        ax5 = self.ax_pb_friction
+        ax5.clear()
+        norm_f = Normalize(vmin=fr_lo, vmax=fr_hi)
+        pm_f = ax5.pcolormesh(x_edges, y_edges, nan_base.T, cmap='jet',
+                              norm=norm_f, shading='flat', zorder=1)
+        ax5.contour(x_mm, y_mm, Z_mask.T, levels=[0.5], colors='k', linewidths=1.0)
+        ax5.set_title('friction force', fontsize=_fs, fontweight='bold')
+        ax5.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label_sm'])
+        ax5.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label_sm'])
+        ax5.tick_params(labelsize=6)
+        cax5 = inset_axes(ax5, width="40%", height="5%", loc='lower right', borderpad=1.2)
+        self.fig_pb.colorbar(pm_f, cax=cax5, orientation='horizontal')
+        cax5.tick_params(labelsize=5, length=2, pad=1)
+        self._pb_cbar_axes['friction'] = cax5
+        self._pb_pm_artists['friction'] = pm_f
+
+        # Force annotations (will be updated per frame)
+        self._pb_fy_text = ax5.text(0.02, 0.98, '', transform=ax5.transAxes,
+            fontsize=self.PLOT_FONTS['label_sm'], fontweight='bold', color='blue', va='top', ha='left',
+            bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='blue', alpha=0.8))
+        self._pb_fx_text = ax5.text(0.98, 0.98, '', transform=ax5.transAxes,
+            fontsize=self.PLOT_FONTS['label_sm'], fontweight='bold', color='red', va='top', ha='right',
+            bbox=dict(boxstyle='round,pad=0.2', fc='white', ec='red', alpha=0.8))
+
+        self._pb_contour_ready = True
+        self.canvas_pb.draw_idle()
+
+    def _pb_draw_time_histories(self):
+        """Draw the time-history plots for PerssonBrush."""
+        t = self._pb_t_out
+        ax_in = self.ax_pb_input
+        ax_in.clear()
+        ax_in.plot(t, self._pb_SA, 'r-', lw=1.5, label='SA [deg]')
+        ax_in.plot(t, self._pb_SR, color='#E68A00', lw=1.5, label='SR [%]')
+        ax_in.set_title('SA / SR Input', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
+        ax_in.set_xlabel('time [s]', fontsize=self.PLOT_FONTS['legend']); ax_in.set_ylabel('slip', fontsize=self.PLOT_FONTS['legend'])
+        ax_in.tick_params(labelsize=self.PLOT_FONTS['legend_sm']); ax_in.legend(fontsize=self.PLOT_FONTS['label_sm'])
+        ax_in.grid(True, alpha=0.3); ax_in.set_xlim(t[0], t[-1])
+        self._pb_cursor_in = ax_in.axvline(x=0, color='k', lw=1.2, alpha=0.7)
+
+        ax_f = self.ax_pb_force_t
+        ax_f.clear()
+        ax_f.plot(t, self._pb_Fy_hist, 'r-', lw=1.5, label='Fy')
+        ax_f.plot(t, self._pb_Fx_hist, color='#E68A00', lw=1.5, label='Fx')
+        ax_f.set_title('Fx / Fy Output', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
+        ax_f.set_xlabel('time [s]', fontsize=self.PLOT_FONTS['legend']); ax_f.set_ylabel('force [N]', fontsize=self.PLOT_FONTS['legend'])
+        ax_f.tick_params(labelsize=self.PLOT_FONTS['legend_sm']); ax_f.legend(fontsize=self.PLOT_FONTS['label_sm'])
+        ax_f.grid(True, alpha=0.3); ax_f.set_xlim(t[0], t[-1])
+        self._pb_cursor_ft = ax_f.axvline(x=0, color='k', lw=1.2, alpha=0.7)
+
+        ax_fy = self.ax_pb_fy_sa
+        ax_fy.clear()
+        ax_fy.plot(self._pb_SA, self._pb_Fy_hist, 'b-', lw=1.2, alpha=0.6,
+                   label='Fy (transient)')
+
+        # ── Envelope: connect outermost Fy at each SA bin ──
+        sa_arr = np.array(self._pb_SA)
+        fy_arr = np.array(self._pb_Fy_hist)
+        # Bin SA values and take max |Fy| per bin (positive and negative sides)
+        sa_min, sa_max = np.min(sa_arr), np.max(sa_arr)
+        if sa_max - sa_min > 0.01:
+            n_bins = min(80, max(20, len(sa_arr) // 5))
+            bin_edges = np.linspace(sa_min, sa_max, n_bins + 1)
+            bin_centers = 0.5 * (bin_edges[:-1] + bin_edges[1:])
+            env_fy = np.full(n_bins, np.nan)
+            for bi in range(n_bins):
+                mask_bin = (sa_arr >= bin_edges[bi]) & (sa_arr < bin_edges[bi + 1])
+                if bi == n_bins - 1:  # include right edge for last bin
+                    mask_bin |= (sa_arr == bin_edges[bi + 1])
+                if np.any(mask_bin):
+                    fy_in_bin = fy_arr[mask_bin]
+                    # Take the value with largest absolute magnitude
+                    idx_max = np.argmax(np.abs(fy_in_bin))
+                    env_fy[bi] = fy_in_bin[idx_max]
+
+            valid = ~np.isnan(env_fy)
+            if np.sum(valid) > 2:
+                env_sa = bin_centers[valid]
+                env_f = env_fy[valid]
+                ax_fy.plot(env_sa, env_f, 'r-', lw=2.0, alpha=0.9,
+                           label='Envelope', zorder=5)
+
+                # ── Zone markers on the envelope ──
+                abs_env = np.abs(env_f)
+                i_peak = np.argmax(abs_env)
+                sa_peak = env_sa[i_peak]
+                fy_peak = env_f[i_peak]
+
+                y_lo = ax_fy.get_ylim()[0]
+                y_hi = ax_fy.get_ylim()[1]
+
+                # (A) Zone A: linear region (0 ~ peak SA) — shaded blue
+                ax_fy.axvspan(env_sa[0], sa_peak, alpha=0.07,
+                              color='#1565C0', zorder=1)
+                ax_fy.text((env_sa[0] + sa_peak) * 0.5,
+                           y_hi - (y_hi - y_lo) * 0.04,
+                           'A', fontsize=self.PLOT_FONTS['legend_sm'], fontweight='bold',
+                           color='#1565C0', ha='center', va='top',
+                           zorder=10)
+
+                # (B) Zone B: peak marker
+                ax_fy.plot(sa_peak, fy_peak, 'r*', ms=14, zorder=10)
+                ax_fy.annotate(
+                    f'B  Peak {fy_peak:.0f} N',
+                    xy=(sa_peak, fy_peak),
+                    xytext=(sa_peak + (sa_max - sa_min) * 0.06,
+                            fy_peak + np.sign(fy_peak) * abs(fy_peak) * 0.10),
+                    fontsize=self.PLOT_FONTS['legend'], fontweight='bold', color='#C62828',
+                    arrowprops=dict(arrowstyle='->', color='#C62828', lw=1.5),
+                    zorder=10)
+
+                # (C) Zone C: post-peak region — shaded purple
+                if i_peak < len(env_sa) - 2:
+                    ax_fy.axvspan(sa_peak, env_sa[-1], alpha=0.07,
+                                  color='#4A148C', zorder=1)
+                    ax_fy.text((sa_peak + env_sa[-1]) * 0.5,
+                               y_hi - (y_hi - y_lo) * 0.04,
+                               'C', fontsize=self.PLOT_FONTS['legend_sm'], fontweight='bold',
+                               color='#4A148C', ha='center', va='top',
+                               zorder=10)
+
+        ax_fy.set_title('Fy vs Slip Angle', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
+        ax_fy.set_xlabel('SA [deg]', fontsize=self.PLOT_FONTS['legend']); ax_fy.set_ylabel('Fy [N]', fontsize=self.PLOT_FONTS['legend'])
+        ax_fy.tick_params(labelsize=self.PLOT_FONTS['legend_sm']); ax_fy.grid(True, alpha=0.3)
+        ax_fy.legend(fontsize=6, loc='best')
+        self._pb_cursor_fy = ax_fy.axvline(x=0, color='k', lw=1.2, alpha=0.7)
+
+        ax_fx = self.ax_pb_fx_sr
+        ax_fx.clear()
+        ax_fx.plot(self._pb_SR, self._pb_Fx_hist, color='#E68A00', lw=1.2, alpha=0.6)
+        ax_fx.set_title('Fx vs Slip Ratio', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
+        ax_fx.set_xlabel('SR [%]', fontsize=self.PLOT_FONTS['legend']); ax_fx.set_ylabel('Fx [N]', fontsize=self.PLOT_FONTS['legend'])
+        ax_fx.tick_params(labelsize=self.PLOT_FONTS['legend_sm']); ax_fx.grid(True, alpha=0.3)
+        self._pb_cursor_fx = ax_fx.axvline(x=0, color='k', lw=1.2, alpha=0.7)
+
+        self.canvas_pb.draw_idle()
+
+    # ── PerssonBrush: Frame display ──
+
+    def _pb_show_frame(self, idx):
+        """Display a single PerssonBrush frame using fast set_array() updates."""
+        if not self._pb_frames or idx >= len(self._pb_frames):
+            return
+
+        # Initialize artists on first call if needed
+        if not getattr(self, '_pb_contour_ready', False):
+            self._pb_global_ranges = self._pb_compute_global_ranges(self._pb_frames)
+            self._pb_init_contour_artists()
+
+        f = self._pb_frames[idx]
+        mask_fill = f.get('_mask_fill', f.get('_contact_mask'))
+
+        self.pb_frame_label_var.set(
+            f"t = {f['t']:.2f} s  ({idx + 1}/{len(self._pb_frames)})  "
+            f"SA={f['SA']:.1f}  SR={f['SR']:.1f}%")
+
+        # Update cursors
+        if hasattr(self, '_pb_cursor_in'):
+            self._pb_cursor_in.set_xdata([f['t'], f['t']])
+        if hasattr(self, '_pb_cursor_ft'):
+            self._pb_cursor_ft.set_xdata([f['t'], f['t']])
+        if hasattr(self, '_pb_cursor_fy'):
+            self._pb_cursor_fy.set_xdata([f['SA'], f['SA']])
+        if hasattr(self, '_pb_cursor_fx'):
+            self._pb_cursor_fx.set_xdata([f['SR'], f['SR']])
+
+        # (1) sliding vs adhesion — fast set_array
+        is_sl = np.where(mask_fill, f['is_sliding'].astype(float), np.nan)
+        self._pb_pm_stick.set_array(is_sl.T.ravel())
+
+        # Update quiver: show tread block deformation s(t)
+        if hasattr(self, '_pb_quiver') and 'def_x' in f:
+            qs = self._pb_quiver_step
+            dx_q = f['def_x'][::qs, ::qs] * 1000  # m → mm
+            dy_q = f['def_y'][::qs, ::qs] * 1000
+            mag = np.sqrt(dx_q**2 + dy_q**2)
+            max_mag = np.max(mag)
+            if max_mag > 1e-6:
+                # Scale arrows so longest ≈ target_len (fraction of patch)
+                scale = self._pb_quiver_target_len / max_mag
+                self._pb_quiver.set_UVC(dx_q.T * scale, dy_q.T * scale)
+            else:
+                self._pb_quiver.set_UVC(dx_q.T * 0, dy_q.T * 0)
+
+        # (2-5) All pcolormesh plots — fast set_array
+        data_map = {
+            'speed': np.where(mask_fill, f['v_slip_mag'], np.nan),
+            'pressure': np.where(mask_fill, f['p_map'] * 1e-5, np.nan),
+            'temperature': np.where(mask_fill, f['T_contact'], np.nan),
+            'friction': np.where(mask_fill, f['F_friction'], np.nan),
+        }
+
+        for key, pm in self._pb_pm_artists.items():
+            Z = data_map[key]
+            pm.set_array(Z.T.ravel())
+
+        # Update force annotations on friction plot
+        fy_val = f.get('Fy', 0.0)
+        fx_val = f.get('Fx', 0.0)
+        if hasattr(self, '_pb_fy_text'):
+            self._pb_fy_text.set_text(f'fy = {fy_val:+.1f} N')
+        if hasattr(self, '_pb_fx_text'):
+            self._pb_fx_text.set_text(f'fx = {fx_val:+.1f} N')
+
+        # Steering and tire
+        self._update_pb_steering(f['SA'])
+        Fz = float(self.pb_Fz_var.get()) if self.pb_Fz_var.get() else 4000.0
+        self._update_pb_tire(f['SA'], f['Fy'], Fz)
+
+        # Fast blit-style draw
+        self.canvas_pb.draw_idle()
+        self.canvas_pb.flush_events()
+
+    # ── PerssonBrush: Playback controls ──
+
+    def _on_pb_slider_change(self, value):
+        if not self._pb_frames:
+            return
+        idx = int(float(value))
+        idx = max(0, min(idx, len(self._pb_frames) - 1))
+        self._pb_frame_idx = idx
+        self._pb_show_frame(idx)
+
+    def _pb_play(self):
+        if not self._pb_frames:
+            return
+        self._pb_playing = True
+        self._pb_frame_accum = 0.0
+        self._log('PLAYBACK', f'재생 시작: 프레임 {self._pb_frame_idx}/{len(self._pb_frames)}, '
+                  f'속도={self._pb_speed_mult.get():.1f}x')
+        self._pb_animate()
+
+    def _pb_pause(self):
+        was_playing = self._pb_playing
+        self._pb_playing = False
+        if self._pb_play_after_id is not None:
+            self.root.after_cancel(self._pb_play_after_id)
+            self._pb_play_after_id = None
+        if was_playing:
+            self._log('PLAYBACK', f'재생 정지: 프레임 {self._pb_frame_idx}')
+
+    def _pb_reset(self):
+        self._pb_pause()
+        self._pb_frame_idx = 0
+        self.pb_time_slider.set(0)
+        if self._pb_frames:
+            self._pb_show_frame(0)
+            self._log('PLAYBACK', '프레임 초기화 (Reset)')
+
+    def _pb_animate(self):
+        """Advance frames — time-based for smooth ~120Hz playback.
+
+        Uses perf_counter to maintain constant real-time playback speed
+        regardless of render time. Target: ~8ms per frame (≈120 Hz).
+        """
+        if not self._pb_playing or not self._pb_frames:
+            return
+        import time as _time
+        t_start = _time.perf_counter()
+        n = len(self._pb_frames)
+        speed = max(self._pb_speed_mult.get(), 0.25)
+
+        # Fractional frame advancement for sub-1x speeds
+        if not hasattr(self, '_pb_frame_accum'):
+            self._pb_frame_accum = 0.0
+        self._pb_frame_accum += speed
+        step = int(self._pb_frame_accum)
+        if step < 1:
+            # Not enough accumulated — schedule next tick without drawing
+            self._pb_play_after_id = self.root.after(8, self._pb_animate)
+            return
+        self._pb_frame_accum -= step
+
+        self._pb_frame_idx = (self._pb_frame_idx + step) % n
+        self._pb_show_frame(self._pb_frame_idx)
+
+        # Update slider less frequently to reduce overhead
+        if self._pb_frame_idx % 8 == 0:
+            self.pb_time_slider.set(self._pb_frame_idx)
+
+        render_ms = (_time.perf_counter() - t_start) * 1000
+        # Target ~8ms interval (120Hz); subtract render time
+        delay = max(1, int(8 - render_ms))
+        self._pb_play_after_id = self.root.after(delay, self._pb_animate)
+
+    def _create_brush_education_tab(self, notebook):
+        """Create educational material tab explaining the 2D Brush Model theory and pseudocode."""
+        edu_tab = ttk.Frame(notebook)
+        notebook.add(edu_tab, text='  교육 자료 (Theory & Code)  ')
+
+        # Scrollable canvas
+        canvas_frame = tk.Frame(edu_tab, bg='white')
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
+
+        edu_canvas = tk.Canvas(canvas_frame, bg='white', highlightthickness=0)
+        scrollbar_y = ttk.Scrollbar(canvas_frame, orient='vertical', command=edu_canvas.yview)
+        scrollbar_y.pack(side=tk.RIGHT, fill=tk.Y)
+        edu_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        edu_canvas.configure(yscrollcommand=scrollbar_y.set)
+
+        inner = tk.Frame(edu_canvas, bg='white')
+        inner_id = edu_canvas.create_window((0, 0), window=inner, anchor='nw')
+
+        def _on_edu_configure(event):
+            edu_canvas.configure(scrollregion=edu_canvas.bbox('all'))
+        inner.bind('<Configure>', _on_edu_configure)
+
+        def _on_edu_canvas_configure(event):
+            edu_canvas.itemconfig(inner_id, width=event.width)
+        edu_canvas.bind('<Configure>', _on_edu_canvas_configure)
+
+        # Mouse wheel scrolling (cross-platform)
+        def _on_mousewheel(event):
+            edu_canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+
+        def _on_mousewheel_up(event):
+            edu_canvas.yview_scroll(-3, 'units')
+
+        def _on_mousewheel_down(event):
+            edu_canvas.yview_scroll(3, 'units')
+
+        def _bind_mousewheel(event):
+            edu_canvas.bind_all('<MouseWheel>', _on_mousewheel)
+            edu_canvas.bind_all('<Button-4>', _on_mousewheel_up)
+            edu_canvas.bind_all('<Button-5>', _on_mousewheel_down)
+
+        def _unbind_mousewheel(event):
+            edu_canvas.unbind_all('<MouseWheel>')
+            edu_canvas.unbind_all('<Button-4>')
+            edu_canvas.unbind_all('<Button-5>')
+
+        edu_canvas.bind('<Enter>', _bind_mousewheel)
+        edu_canvas.bind('<Leave>', _unbind_mousewheel)
+
+        # ── Helper functions for styled text blocks ──
+        pad_x = 20
+
+        def add_title(text, fg='#1E293B'):
+            lbl = tk.Label(inner, text=text, font=('NanumGothic', 12, 'bold'),
+                           fg=fg, bg='white', anchor='w', justify=tk.LEFT)
+            lbl.pack(fill=tk.X, padx=pad_x, pady=(18, 4))
+
+        def add_subtitle(text, fg='#0369A1'):
+            lbl = tk.Label(inner, text=text, font=('NanumGothic', 12, 'bold'),
+                           fg=fg, bg='white', anchor='w', justify=tk.LEFT)
+            lbl.pack(fill=tk.X, padx=pad_x, pady=(14, 2))
+
+        def add_text(text, fg='#334155', bold=False, font_size=10):
+            weight = 'bold' if bold else 'normal'
+            lbl = tk.Label(inner, text=text,
+                           font=('NanumGothic', font_size, weight),
+                           fg=fg, bg='white', anchor='w', justify=tk.LEFT,
+                           wraplength=900)
+            lbl.pack(fill=tk.X, padx=pad_x, pady=1)
+
+        def add_bullet(text, indent=1, fg='#334155'):
+            prefix = '    ' * indent + '• '
+            lbl = tk.Label(inner, text=prefix + text,
+                           font=('NanumGothic', 12), fg=fg, bg='white',
+                           anchor='w', justify=tk.LEFT, wraplength=860)
+            lbl.pack(fill=tk.X, padx=pad_x, pady=0)
+
+        def add_code(text, title=None):
+            if title:
+                t_lbl = tk.Label(inner, text=title,
+                                 font=('NanumGothicCoding', 12, 'bold'),
+                                 fg='#059669', bg='#F0FDF4', anchor='w')
+                t_lbl.pack(fill=tk.X, padx=pad_x + 4, pady=(8, 0))
+            code_frame = tk.Frame(inner, bg='#1E293B', padx=2, pady=2)
+            code_frame.pack(fill=tk.X, padx=pad_x, pady=(2, 8))
+            code_text = tk.Text(code_frame, font=('NanumGothicCoding', 12),
+                                fg='#E2E8F0', bg='#1E293B',
+                                wrap=tk.NONE, relief=tk.FLAT,
+                                padx=12, pady=8, height=text.count('\n') + 1)
+            code_text.insert('1.0', text)
+            code_text.config(state=tk.DISABLED)
+            code_text.pack(fill=tk.X)
+
+        def add_separator():
+            sep = ttk.Separator(inner, orient='horizontal')
+            sep.pack(fill=tk.X, padx=pad_x, pady=10)
+
+        def add_highlight_box(text, bg_color='#EFF6FF', fg_color='#1E40AF',
+                              border_color='#3B82F6'):
+            box = tk.Frame(inner, bg=border_color, padx=2, pady=2)
+            box.pack(fill=tk.X, padx=pad_x, pady=6)
+            inner_box = tk.Label(box, text=text,
+                                  font=('NanumGothic', 12),
+                                  fg=fg_color, bg=bg_color,
+                                  anchor='w', justify=tk.LEFT,
+                                  wraplength=860, padx=12, pady=8)
+            inner_box.pack(fill=tk.X)
+
+        # =====================================================================
+        # 교육 자료 본문
+        # =====================================================================
+
+        add_title("2D Brush Model — Persson 마찰 이론과 타이어 동역학의 결합")
+        add_text("이 교육 자료는 Persson의 고무 마찰 이론(Cold/Hot 마찰 맵)과 "
+                 "브러시 모델의 뉴턴 동역학(F = ma)을 결합하여, "
+                 "타이어의 제동력과 코너링 포스가 어떻게 발생하는지 "
+                 "단계별로 설명합니다.", font_size=10)
+
+        add_separator()
+
+        # ── 공통 설정 ──
+        add_subtitle("📝 공통 설정 — 2D 브러시 모델의 구조", fg='#0369A1')
+
+        add_text("시뮬레이션 전, 타이어 접지면(Footprint)을 2D 격자로 분할하고 "
+                 "각 셀(고무 블록)에 초기값을 부여합니다.", font_size=10)
+
+        add_text("입력 데이터:", bold=True, font_size=10)
+        add_bullet("접지압 분포 P(x, y) — 주행 모드(Braking/Handling/Acceleration)에 따라 비대칭")
+        add_bullet("μ_cold(v), μ_hot(v) — Persson 이론으로 사전 계산된 마찰 맵 (LUT)")
+        add_bullet("특성 슬립 거리 s₀ = 0.2 × D_macro — Cold → Hot 전환을 제어하는 거시적 돌기 크기")
+
+        add_text("각 셀이 추적하는 물리량:", bold=True, font_size=10)
+        add_bullet("변위 (u_x, u_y) — 스프링이 늘어난 길이")
+        add_bullet("속도 (v_x, v_y) — 블록의 슬립 속도")
+        add_bullet("누적 슬립 거리 (s_dist) — 열 발생 추적 → Cold/Hot 전환 제어")
+
+        add_code(
+            "class TreadBlock:\n"
+            "    def __init__(self, x, y, pressure, mass, k, c):\n"
+            "        self.x, self.y = x, y          # 풋프린트 내 좌표\n"
+            "        self.pressure = pressure        # 접지압 P(x,y)\n"
+            "        self.F_N = pressure * dx * dy   # 수직 하중 [N]\n"
+            "\n"
+            "        self.m = mass                   # 블록 질량 [kg]\n"
+            "        self.k = k                      # 스프링 강성 [N/m]\n"
+            "        self.c = c                      # 댐퍼 계수  [N·s/m]\n"
+            "\n"
+            "        self.u_x, self.u_y = 0.0, 0.0  # 변위 (스프링 변형)\n"
+            "        self.v_x, self.v_y = 0.0, 0.0  # 슬립 속도\n"
+            "        self.slip_distance = 0.0        # 누적 미끄러짐 거리",
+            title="▶ TreadBlock 클래스 — 각 고무 블록의 상태"
+        )
+
+        add_highlight_box(
+            "💡 핵심 아이디어:  각 고무 블록은 독립된 질량-스프링-댐퍼 시스템입니다.\n"
+            "카커스(Carcass)에 스프링으로 연결되어 있고, 노면과는 마찰력으로 상호작용합니다.\n"
+            "마찰계수는 고정값이 아니라, 슬립 속도와 누적 슬립 거리에 따라 동적으로 변합니다."
+        )
+
+        add_separator()
+
+        # ── 제동 시뮬레이션 ──
+        add_subtitle("🛑 1. 제동 시뮬레이션 (Braking / Longitudinal Slip)", fg='#DC2626')
+
+        add_text("물리적 상황:", bold=True, font_size=10, fg='#1E293B')
+        add_text("직진 중 브레이크를 밟습니다. 조향각 θ = 0이므로 횡방향 슬립은 없습니다.")
+        add_bullet("차량 속도: v_c  (차체가 앞으로 나가는 속도)")
+        add_bullet("바퀴 회전 속도: v_R  (브레이크로 인해 v_c보다 느려짐)")
+        add_bullet("슬립 비율: s = (v_c − v_R) / v_c")
+        add_bullet("림 슬립 속도: v_rim = v_c − v_R  (종방향으로만 작용)")
+
+        add_code(
+            "def simulate_braking(blocks, v_c, v_R, dt, steps):\n"
+            "    v_rim_x = v_c - v_R   # 림과 노면 사이의 슬립 속도\n"
+            "    s_0 = 0.2 * D_macro   # Cold→Hot 전환 특성 거리 [m]\n"
+            "\n"
+            "    for t in range(steps):\n"
+            "        total_Fx = 0.0\n"
+            "\n"
+            "        for block in blocks:\n"
+            "            # ① 현재 슬립 속도에서의 마찰계수 조회\n"
+            "            v_mag = abs(block.v_x)\n"
+            "            mu_cold = lookup_mu_cold(v_mag)   # Persson Cold LUT\n"
+            "            mu_hot  = lookup_mu_hot(v_mag)    # Persson Hot  LUT\n"
+            "\n"
+            "            # ② 슬립 거리 기반 Cold→Hot 블렌딩 (메모리 효과)\n"
+            "            weight = exp(-block.slip_distance / s_0)\n"
+            "            mu_eff = mu_cold * weight + mu_hot * (1 - weight)\n"
+            "\n"
+            "            # ③ 마찰력 = μ × F_N, 미끄러짐 반대 방향\n"
+            "            F_fric_x = -mu_eff * block.F_N * sign(block.v_x)\n"
+            "\n"
+            "            # ④ 스프링 복원력 + 감쇠력 (카커스 연결)\n"
+            "            F_spring_x = -block.k * block.u_x\n"
+            "            F_damper_x = -block.c * block.v_x\n"
+            "\n"
+            "            # ⑤ 뉴턴 제2법칙  F = ma\n"
+            "            a_x = (F_spring_x + F_damper_x + F_fric_x) / block.m\n"
+            "\n"
+            "            # ⑥ Explicit Euler 적분\n"
+            "            block.v_x += a_x * dt\n"
+            "            block.u_x += block.v_x * dt\n"
+            "\n"
+            "            # ⑦ 누적 슬립 거리 갱신 (온도 추적)\n"
+            "            block.slip_distance += abs(block.v_x) * dt\n"
+            "\n"
+            "            total_Fx += F_fric_x   # 전체 제동력 합산",
+            title="▶ 제동(Braking) 시뮬레이션 의사코드"
+        )
+
+        add_highlight_box(
+            "🔍 관찰 포인트 — Stick-Slip 전이:\n\n"
+            "• 풋프린트 앞쪽 (Leading Edge): 방금 노면에 닿아 slip_distance ≈ 0\n"
+            "  → weight ≈ 1 → μ ≈ μ_cold (높은 그립) → Stick 영역\n\n"
+            "• 풋프린트 뒤쪽 (Trailing Edge): 오래 미끄러져 slip_distance ↑\n"
+            "  → weight → 0 → μ ≈ μ_hot (낮은 그립) → Slip 영역\n\n"
+            "이 Stick→Slip 전이가 바로 타이어 마찰의 비선형 특성을 만듭니다.",
+            bg_color='#FFF7ED', fg_color='#9A3412', border_color='#F97316'
+        )
+
+        add_separator()
+
+        # ── 코너링 시뮬레이션 ──
+        add_subtitle("🔄 2. 코너링 시뮬레이션 (Cornering / Lateral Slip)", fg='#2563EB')
+
+        add_text("물리적 상황:", bold=True, font_size=10, fg='#1E293B')
+        add_text("브레이크 없이 일정 속도로 달리며 핸들을 슬립각 α만큼 꺾은 상태입니다.")
+        add_bullet("종방향 슬립: v_x = v_c·cos(α) − v_R ≈ 0 (자유 굴림)")
+        add_bullet("횡방향 슬립: v_y = v_c·sin(α)  (코너링의 핵심)")
+        add_bullet("Self-Aligning Torque (M_z): 횡력의 비대칭 분포가 만드는 복원 모멘트")
+
+        add_code(
+            "def simulate_cornering(blocks, v_c, alpha_deg, dt, steps):\n"
+            "    alpha = radians(alpha_deg)\n"
+            "    v_R = v_c                      # 자유 굴림 가정\n"
+            "    v_rim_x = v_c * cos(alpha) - v_R   # ≈ 0\n"
+            "    v_rim_y = v_c * sin(alpha)          # 횡방향 슬립\n"
+            "    s_0 = 0.2 * D_macro\n"
+            "\n"
+            "    for t in range(steps):\n"
+            "        total_Fy, total_Mz = 0.0, 0.0\n"
+            "\n"
+            "        for block in blocks:\n"
+            "            # ① 2D 벡터 슬립 속도\n"
+            "            v_mag = sqrt(block.v_x**2 + block.v_y**2)\n"
+            "\n"
+            "            # ② Cold-Hot 블렌딩 (제동과 동일한 원리)\n"
+            "            mu_cold = lookup_mu_cold(v_mag)\n"
+            "            mu_hot  = lookup_mu_hot(v_mag)\n"
+            "            weight  = exp(-block.slip_distance / s_0)\n"
+            "            mu_eff  = mu_cold * weight + mu_hot * (1 - weight)\n"
+            "\n"
+            "            # ③ Friction Circle — 마찰력을 속도 방향으로 분배\n"
+            "            F_max = mu_eff * block.F_N\n"
+            "            F_fric_x = -F_max * (block.v_x / v_mag)\n"
+            "            F_fric_y = -F_max * (block.v_y / v_mag)\n"
+            "\n"
+            "            # ④ 2D 스프링 + 댐퍼\n"
+            "            F_spring_x = -block.k * block.u_x\n"
+            "            F_spring_y = -block.k * block.u_y\n"
+            "            F_damper_x = -block.c * block.v_x\n"
+            "            F_damper_y = -block.c * block.v_y\n"
+            "\n"
+            "            # ⑤ F = ma (x, y 각각)\n"
+            "            a_x = (F_spring_x + F_damper_x + F_fric_x) / block.m\n"
+            "            a_y = (F_spring_y + F_damper_y + F_fric_y) / block.m\n"
+            "\n"
+            "            # ⑥ Euler 적분\n"
+            "            block.v_x += a_x * dt;  block.u_x += block.v_x * dt\n"
+            "            block.v_y += a_y * dt;  block.u_y += block.v_y * dt\n"
+            "            block.slip_distance += v_mag * dt\n"
+            "\n"
+            "            total_Fy += F_fric_y\n"
+            "\n"
+            "            # ⑦ Self-Aligning Torque  Mz = Σ(r × F)\n"
+            "            total_Mz += F_fric_y * block.x - F_fric_x * block.y",
+            title="▶ 코너링(Cornering) 시뮬레이션 의사코드"
+        )
+
+        add_highlight_box(
+            "🔍 Self-Aligning Torque(M_z)의 발생 원리:\n\n"
+            "• 풋프린트 앞쪽 (Cold 영역): μ_cold가 높아 강한 횡력 F_y 발생\n"
+            "• 풋프린트 뒤쪽 (Hot 영역): μ_hot이 낮아 약한 횡력 F_y 발생\n\n"
+            "→ 횡력의 합력 작용점이 풋프린트 중심보다 앞쪽에 위치\n"
+            "→ 이 편심이 핸들을 원래 위치로 되돌리려는 복원 토크(M_z)를 만듦\n\n"
+            "이것이 운전자가 핸들에서 느끼는 '노면 감각(Road Feel)'의 물리적 근원입니다.",
+            bg_color='#EFF6FF', fg_color='#1E40AF', border_color='#3B82F6'
+        )
+
+        add_separator()
+
+        # ── Cold-Hot 블렌딩 상세 설명 ──
+        add_subtitle("🌡️ 3. Cold → Hot 전환 메커니즘", fg='#059669')
+
+        add_text("Persson의 마찰 이론에서 마찰계수는 고정값이 아닙니다. "
+                 "슬립이 누적되면 접촉면의 온도가 상승하여 고무의 점탄성 응답이 바뀝니다.", font_size=10)
+
+        add_code(
+            "# Cold-Hot 블렌딩 공식\n"
+            "#\n"
+            "#   μ_eff(v, s) = μ_cold(v) · e^(-s/s₀) + μ_hot(v) · (1 - e^(-s/s₀))\n"
+            "#\n"
+            "# 여기서:\n"
+            "#   v     = 순간 슬립 속도 (각 노드별로 다름)\n"
+            "#   s     = 누적 슬립 거리 (시간에 따라 증가)\n"
+            "#   s₀    = 0.2 × D_macro (특성 거리, 보통 0.2~0.5 mm)\n"
+            "#\n"
+            "# 물리적 의미:\n"
+            "#   s ≈ 0  →  e^(-s/s₀) ≈ 1  →  μ ≈ μ_cold  (차가운 고무, 높은 그립)\n"
+            "#   s >> s₀ →  e^(-s/s₀) → 0  →  μ ≈ μ_hot   (뜨거운 고무, 낮은 그립)\n"
+            "#\n"
+            "# μ_cold(v)와 μ_hot(v)는 Persson의 접촉역학 이론에서 계산:\n"
+            "#   - Cold: 기준 온도 T₀에서의 점탄성 스펙트럼 → μ_visc + μ_adhesion\n"
+            "#   - Hot:  플래시 온도 T_hot에서 WLF shift 적용 → 감소된 μ",
+            title="▶ 핵심 수식 — Cold-Hot 블렌딩"
+        )
+
+        add_separator()
+
+        # ── 시각화 가이드 ──
+        add_subtitle("📊 4. 시뮬레이션 결과 해석 가이드", fg='#7C3AED')
+
+        add_text("이 탭의 시뮬레이션 결과에서 관찰할 수 있는 현상들:", bold=True, font_size=10)
+
+        add_highlight_box(
+            "① 하중 컨투어 (Load Contour)\n"
+            "   Braking: 하중이 전방으로 이동 (무게 이동)\n"
+            "   Handling: 하중이 바깥쪽으로 이동 (횡방향 하중 전이)\n"
+            "   Acceleration: 하중이 후방으로 이동 (구동 시 무게 이동)",
+            bg_color='#FEFCE8', fg_color='#854D0E', border_color='#EAB308'
+        )
+
+        add_highlight_box(
+            "② 속도 컨투어 (Velocity Contour)\n"
+            "   각 블록의 순간 슬립 속도 |v_slip| 분포를 보여줍니다.\n"
+            "   Stick 영역(낮은 속도)과 Slip 영역(높은 속도)의 경계를 확인하세요.",
+            bg_color='#F0F9FF', fg_color='#075985', border_color='#0EA5E9'
+        )
+
+        add_highlight_box(
+            "③ 온도 컨투어 (Temperature Contour)\n"
+            "   Cold & Hot Branch의 ΔT(v) 데이터를 보간하여 추정한 접촉 온도입니다.\n"
+            "   T_contact = T₀ + ΔT(v_slip)\n"
+            "   슬립 속도가 큰 영역에서 온도가 높아지는 것을 확인할 수 있습니다.",
+            bg_color='#FFF1F2', fg_color='#9F1239', border_color='#FB7185'
+        )
+
+        add_highlight_box(
+            "④ Force Envelope (Flat-Track 스타일)\n"
+            "   슬립 값을 ±양방향으로 미러링하여 전체 힘의 포락선을 표시합니다.\n"
+            "   제동: Fx가 0을 중심으로 양(가속)/음(감속) 대칭 곡선\n"
+            "   선회: Fy가 0을 중심으로 좌/우 대칭 코너링 포스 곡선\n"
+            "   이 형태가 실제 Flat-Track 시험기에서 측정되는 타이어 특성 곡선입니다.",
+            bg_color='#F5F3FF', fg_color='#5B21B6', border_color='#8B5CF6'
+        )
+
+        add_separator()
+
+        # ── 정리 ──
+        add_subtitle("📌 5. 요약 — 이 모델이 보여주는 것", fg='#1E293B')
+
+        add_text("Persson 이론 + 브러시 모델의 결합이 설명하는 현상들:", bold=True, font_size=10)
+        add_bullet("타이어 마찰의 속도 의존성 — μ(v) 곡선의 비선형 형태")
+        add_bullet("Stick-Slip 전이 — 접지면 내부의 영역별 그립 차이")
+        add_bullet("Flash Temperature 효과 — 슬립이 누적되면 마찰이 감소하는 열적 피드백")
+        add_bullet("Self-Aligning Torque — 횡력 분포의 비대칭이 만드는 복원 모멘트")
+        add_bullet("하중 전이의 영향 — Braking/Cornering/Acceleration에서 달라지는 힘의 분포")
+
+        add_text("")  # spacing
+        add_highlight_box(
+            "📚 참고 문헌:\n"
+            "• B.N.J. Persson, \"Theory of rubber friction and contact mechanics\", "
+            "J. Chem. Phys. 115, 3840 (2001)\n"
+            "• B.N.J. Persson, \"Rubber friction: role of the flash temperature\", "
+            "J. Phys.: Condens. Matter 18, 7789 (2006)\n"
+            "• H. Pacejka, \"Tire and Vehicle Dynamics\", 3rd ed., Butterworth-Heinemann (2012)\n"
+            "• K.A. Grosch, \"The relation between the friction and visco-elastic properties of rubber\", "
+            "Proc. R. Soc. A 274, 21 (1963)",
+            bg_color='#F8FAFC', fg_color='#475569', border_color='#94A3B8'
+        )
+
+        add_text("")  # bottom padding
 
     # ── 2D Brush: LUT Sync ──
 
@@ -22590,18 +26964,152 @@ class PerssonModelGUI_V2:
 
     # ── 2D Brush: Core simulation engine ──
 
-    def _build_brush_lut(self):
+    def _synthesize_cold_hot_from_fm(self, fm, T_C=None, p0_MPa=None):
+        """friction_map_results의 3D LUT에서 cold_hot_results 형식을 합성.
+
+        T_C, p0_MPa를 지정하지 않으면 LUT 중앙값 사용.
+        Returns dict compatible with cold_hot_results or None.
+        """
+        if fm is None:
+            return None
+        try:
+            T_arr = fm['T_array']
+            p0_arr = fm['p0_array_MPa']
+            v_arr = fm['v_array']
+
+            # Select slice indices
+            if T_C is not None:
+                iT = int(np.argmin(np.abs(T_arr - T_C)))
+            else:
+                iT = len(T_arr) // 2
+            if p0_MPa is not None:
+                ip = int(np.argmin(np.abs(p0_arr - p0_MPa)))
+            else:
+                ip = 0
+
+            T0 = float(T_arr[iT])
+            p0 = float(p0_arr[ip])
+
+            def _slice(key, fallback=None):
+                arr = fm.get(key)
+                if arr is not None:
+                    return arr[iT, ip, :].copy()
+                return fallback if fallback is not None else np.zeros(len(v_arr))
+
+            LUT_hot = fm.get('LUT_hot')
+            has_hot = LUT_hot is not None and np.any(LUT_hot != 0)
+
+            # delta_T 추정: Hot branch의 mu 감소로부터 flash temperature 역산
+            mu_cold_total = _slice('LUT_cold')
+            mu_hot_total = _slice('LUT_hot') if has_hot else mu_cold_total.copy()
+            # mu 차이를 온도 상승으로 변환 (경험적: delta_mu * 100 ≈ delta_T)
+            if has_hot:
+                mu_diff = np.clip(mu_cold_total - mu_hot_total, 0, None)
+                # 최대 온도 상승을 mu 감소 비율로 추정
+                max_dT = 200.0  # 최대 flash temperature
+                mu_ratio = mu_diff / max(np.max(mu_cold_total), 1e-10)
+                delta_T_est = max_dT * mu_ratio
+            else:
+                delta_T_est = np.zeros(len(v_arr))
+
+            result = {
+                'v': v_arr.copy(),
+                'T0': T0,
+                'sigma_0': p0 * 1e6,
+                'D': 0.001,
+                's0': 0.0002,
+                'mu_cold_hys': _slice('LUT_mu_visc_cold'),
+                'mu_cold_ad': _slice('LUT_mu_adh_cold'),
+                'mu_cold_total': mu_cold_total,
+                'A_A0_cold': _slice('LUT_A_A0_cold', np.ones(len(v_arr))),
+                'mu_hot_hys': _slice('LUT_mu_visc_hot') if has_hot else _slice('LUT_mu_visc_cold'),
+                'mu_hot_ad': _slice('LUT_mu_adh_hot') if has_hot else _slice('LUT_mu_adh_cold'),
+                'mu_hot_total': mu_hot_total,
+                'A_A0_hot': _slice('LUT_A_A0_hot', np.ones(len(v_arr))) if has_hot else _slice('LUT_A_A0_cold', np.ones(len(v_arr))),
+                'tau_f_cold': _slice('LUT_tau_f_cold'),
+                'tau_f_hot': _slice('LUT_tau_f_hot') if has_hot else _slice('LUT_tau_f_cold'),
+                'delta_T': delta_T_est,
+                '_synthesized': True,
+                '_from_fm_T_C': T0,
+                '_from_fm_p0_MPa': p0,
+            }
+            return result
+        except (KeyError, IndexError, TypeError) as e:
+            print(f"[_synthesize_cold_hot_from_fm] Error: {e}")
+            return None
+
+    def _get_active_cold_hot_results(self):
+        """선택된 마찰맵의 cold_hot_results를 반환. 없으면 현재 계산 결과 사용.
+        cold_hot_results가 없으면 friction_map_results에서 합성.
+        """
+        selected = getattr(self, '_br_friction_map_var', None)
+        if selected and selected.get() != '(현재 계산 결과)':
+            name = selected.get()
+            fm, ch = self._get_friction_map_by_name(name)
+            if ch is not None:
+                if hasattr(self, '_br_fm_status_var'):
+                    self._br_fm_status_var.set(f"마찰맵 '{name}' 사용 중")
+                return ch
+            # cold_hot_results가 None이지만 friction_map_results가 있으면 합성
+            if fm is not None:
+                # Brush 탭의 T/p0 설정값 확인
+                T_sel = None
+                p0_sel = None
+                try:
+                    t_str = getattr(self, '_br_fm_T_var', None)
+                    if t_str and t_str.get().strip():
+                        T_sel = float(t_str.get())
+                except (ValueError, AttributeError):
+                    pass
+                try:
+                    p_str = getattr(self, '_br_fm_p0_var', None)
+                    if p_str and p_str.get().strip():
+                        p0_sel = float(p_str.get())
+                except (ValueError, AttributeError):
+                    pass
+                ch = self._synthesize_cold_hot_from_fm(fm, T_C=T_sel, p0_MPa=p0_sel)
+                if ch is not None:
+                    if hasattr(self, '_br_fm_status_var'):
+                        self._br_fm_status_var.set(
+                            f"마찰맵 '{name}' (T={ch['T0']:.0f}°C, p₀={ch['sigma_0']/1e6:.3g} MPa)")
+                    return ch
+        return self.cold_hot_results
+
+    def _get_active_friction_map_results(self):
+        """선택된 마찰맵의 friction_map_results(3D LUT)를 반환.
+
+        Returns the full 3D friction map results dict, or None if unavailable.
+        Checks both 2D Brush tab and Track Simulation tab selections.
+        """
+        # Check 2D Brush tab selection
+        for var_name in ('_br_friction_map_var', '_ts_friction_map_var'):
+            selected = getattr(self, var_name, None)
+            if selected and selected.get() != '(현재 계산 결과)':
+                name = selected.get()
+                fm, _ch = self._get_friction_map_by_name(name)
+                if fm is not None:
+                    return fm
+        return getattr(self, 'friction_map_results', None)
+
+    def _build_brush_lut(self, override_ch=None, override_fm=None):
         """Build spline LUTs from Cold & Hot branch results.
 
-        Returns (lut_cold, lut_hot) - callable interpolators mu(v).
+        Args:
+            override_ch: explicit cold_hot_results dict (bypasses _get_active_cold_hot_results)
+            override_fm: explicit friction_map_results dict (bypasses _get_active_friction_map_results)
+
+        Returns (lut_cold, lut_hot, lut_cold_3d, lut_hot_3d).
+          - lut_cold/lut_hot: 1D callable interpolators mu(v) (fallback).
+          - lut_cold_3d/lut_hot_3d: 3D RegularGridInterpolator(T, p_Pa, v)
+            or None if no 3D friction map is available.
         """
-        from scipy.interpolate import interp1d
-        r = self.cold_hot_results
+        from scipy.interpolate import interp1d, RegularGridInterpolator
+        r = override_ch if override_ch is not None else self._get_active_cold_hot_results()
         v = r['v']
         mu_cold = r['mu_cold_total']
         mu_hot = r['mu_hot_total']
 
-        # Log-scale interpolation for better accuracy across decades
+        # 1D Log-scale interpolation (fallback)
         log_v = np.log10(np.clip(v, 1e-12, None))
         lut_cold = interp1d(log_v, mu_cold, kind='cubic',
                             bounds_error=False, fill_value=(mu_cold[0], mu_cold[-1]))
@@ -22614,10 +27122,76 @@ class PerssonModelGUI_V2:
         def mu_hot_fn(v_query):
             return lut_hot(np.log10(np.clip(np.abs(v_query) + 1e-15, 1e-12, None)))
 
-        return mu_cold_fn, mu_hot_fn
+        # 3D interpolators from friction map if available
+        fm = override_fm if override_fm is not None else self._get_active_friction_map_results()
+        lut_cold_3d = None
+        lut_hot_3d = None
+        if fm is not None:
+            try:
+                T_arr = fm['T_array']
+                p0_arr_Pa = fm['p0_array_Pa']
+                v_arr = fm['v_array']
+                LUT_cold_3d = fm['LUT_cold']
+                LUT_hot_3d = fm.get('LUT_hot')
+                if LUT_cold_3d is not None and LUT_cold_3d.ndim == 3:
+                    lut_cold_3d = RegularGridInterpolator(
+                        (T_arr, p0_arr_Pa, v_arr), LUT_cold_3d,
+                        method='linear', bounds_error=False, fill_value=None)
+                if LUT_hot_3d is not None and LUT_hot_3d.ndim == 3 and np.any(LUT_hot_3d != 0):
+                    lut_hot_3d = RegularGridInterpolator(
+                        (T_arr, p0_arr_Pa, v_arr), LUT_hot_3d,
+                        method='linear', bounds_error=False, fill_value=None)
+                else:
+                    lut_hot_3d = lut_cold_3d  # no hot data → use cold
+            except (KeyError, ValueError, TypeError) as e:
+                print(f"[_build_brush_lut] 3D LUT 구축 실패, 1D fallback 사용: {e}")
+                lut_cold_3d = None
+                lut_hot_3d = None
 
-    def _build_pressure_map(self, Nx, Ny, L, W, Fz, ptype='parabolic'):
+        return mu_cold_fn, mu_hot_fn, lut_cold_3d, lut_hot_3d
+
+    @staticmethod
+    def _lookup_friction_3d(lut_3d, lut_1d, T_arr, p_Pa_arr, v_arr, shape):
+        """3D friction map lookup with 1D fallback.
+
+        Args:
+            lut_3d: RegularGridInterpolator(T, p_Pa, v) or None
+            lut_1d: 1D fallback callable mu(v)
+            T_arr: temperature array (flattened or matching shape)
+            p_Pa_arr: pressure array in Pa (flattened or matching shape)
+            v_arr: velocity array (flattened or matching shape)
+            shape: output shape (e.g. (Nx, Ny))
+
+        Returns:
+            mu values with given shape
+        """
+        if lut_3d is not None:
+            try:
+                T_flat = np.asarray(T_arr).ravel()
+                p_flat = np.asarray(p_Pa_arr).ravel()
+                v_flat = np.asarray(v_arr).ravel()
+                points = np.column_stack([T_flat, p_flat, v_flat])
+                mu_vals = lut_3d(points).reshape(shape)
+                # NaN guard: fill_value=None uses nearest, but just in case
+                bad = ~np.isfinite(mu_vals)
+                if np.any(bad):
+                    mu_fallback = lut_1d(v_arr)
+                    if hasattr(mu_fallback, 'reshape'):
+                        mu_fallback = mu_fallback.reshape(shape)
+                    mu_vals[bad] = mu_fallback[bad] if hasattr(mu_fallback, '__getitem__') else mu_fallback
+                return mu_vals
+            except Exception:
+                pass
+        return lut_1d(v_arr).reshape(shape) if hasattr(lut_1d(v_arr), 'reshape') else np.full(shape, lut_1d(v_arr))
+
+    def _build_pressure_map(self, Nx, Ny, L, W, Fz, ptype='parabolic',
+                            driving_mode='Braking'):
         """Build 2D pressure distribution over the contact patch.
+
+        driving_mode controls asymmetric weighting:
+          - Braking:      front-loaded (weight transfer to leading edge)
+          - Handling:      laterally shifted (cornering load transfer)
+          - Acceleration:  rear-loaded (weight transfer to trailing edge)
 
         Returns:
             p_map: (Nx, Ny) array of local pressure (Pa)
@@ -22633,23 +27207,78 @@ class PerssonModelGUI_V2:
 
         xx, yy = np.meshgrid(x_arr, y_arr, indexing='ij')  # (Nx, Ny)
 
+        # Superellipse boundary: |2x/L|^n + |2y/W|^n <= 1
+        se_n = self._ELLIPSE_POWER
+        se_r = np.abs(2 * xx / L) ** se_n + np.abs(2 * yy / W) ** se_n
+
         if ptype == 'uniform':
             p_map = np.ones((Nx, Ny))
         elif ptype == 'elliptic':
-            # Elliptic (Hertzian-like): p = p0 * sqrt(1 - (2x/L)^2 - (2y/W)^2)
-            r2 = (2 * xx / L) ** 2 + (2 * yy / W) ** 2
-            p_map = np.sqrt(np.clip(1 - r2, 0, None))
-        else:  # parabolic (default)
-            # Parabolic: p = p0 * (1 - (2x/L)^2) * (1 - (2y/W)^2)
-            p_map = np.clip(1 - (2 * xx / L) ** 2, 0, None) * \
-                    np.clip(1 - (2 * yy / W) ** 2, 0, None)
+            p_map = np.sqrt(np.clip(1 - se_r ** (2.0 / se_n), 0, None))
+        elif ptype == 'dual_peak':
+            # Dual-peak distribution: two humps at high/low width sides
+            lon_env = np.clip(1 - np.abs(2 * xx / L) ** se_n, 0, None)
+            y_norm = 2 * yy / W
+            peak_pos = 0.55
+            peak_width = 0.45
+            peak_high = np.exp(-((y_norm - peak_pos) / peak_width) ** 2)
+            peak_low = np.exp(-((y_norm + peak_pos) / peak_width) ** 2)
+            p_map = (peak_high + peak_low) * lon_env
+            p_map *= (se_r <= 1.0)
+        else:  # parabolic
+            p_map = np.clip(1 - np.abs(2 * xx / L) ** se_n, 0, None) * \
+                    np.clip(1 - np.abs(2 * yy / W) ** se_n, 0, None)
+
+        # Apply asymmetric weighting based on driving mode
+        # Rolling direction: right-to-left (-x). Leading edge at -x, trailing at +x.
+        if driving_mode == 'Braking':
+            # Front-loaded: pressure peaks toward leading edge (-x direction)
+            weight = 1.0 - 0.5 * (2 * xx / L)
+        elif driving_mode == 'Acceleration':
+            # Rear-loaded: pressure peaks toward trailing edge (+x direction)
+            weight = 1.0 + 0.5 * (2 * xx / L)
+        else:  # Handling
+            # Laterally shifted: pressure peaks toward outside (+y direction)
+            weight = 1.0 + 0.4 * (2 * yy / W)
+
+        p_map *= np.clip(weight, 0.1, None)
 
         # Normalise so total force = Fz
         total_raw = np.sum(p_map) * dA
         if total_raw > 0:
-            p_map *= Fz / total_raw  # now Pa * m^2 / m^2 → N/m^2
+            p_map *= Fz / total_raw
 
         return p_map, x_arr, y_arr, dx, dy
+
+    # ── Single source of truth for contact-patch egg shape ──
+    _EGG_K_MAX = 0.28   # max asymmetry at SA = 6°
+    _EGG_SA_REF = 6.0    # reference SA for full deformation
+    _EGG_NPTS = 120       # outline resolution
+    _ELLIPSE_POWER = 2.5  # superellipse exponent (2=ellipse, <2=diamond, >2=rectangle)
+
+    @classmethod
+    def _egg_outline(cls, sa_deg, half_L, half_W):
+        """Compute egg-shaped contact patch outline vertices.
+
+        Single source of truth — used by both _deformed_mask (data mask)
+        and outline drawing (contour display).
+
+        Returns (N, 2) array of (x, y) vertices.
+        """
+        sf = -np.clip(sa_deg / cls._EGG_SA_REF, -1, 1)
+        k = sf * cls._EGG_K_MAX
+        n = cls._ELLIPSE_POWER
+        theta = np.linspace(0, 2 * np.pi, cls._EGG_NPTS)
+        cos_t = np.cos(theta)
+        sin_t = np.sin(theta)
+        # Superellipse: |cos|^(2/n) * sign(cos), |sin|^(2/n) * sign(sin)
+        exp = 2.0 / n
+        cos_se = np.sign(cos_t) * np.abs(cos_t) ** exp
+        sin_se = np.sign(sin_t) * np.abs(sin_t) ** exp
+        x_d = half_L * cos_se * (1.0 + k * sin_se)
+        y_d = half_W * sin_se
+        x_d -= np.mean(x_d)
+        return np.column_stack([x_d, y_d])
 
     def _run_brush_simulation(self, mode='braking'):
         """Run the 2D brush model ODE integration.
@@ -22660,8 +27289,9 @@ class PerssonModelGUI_V2:
         Returns dict with sweep results.
         """
         # ── Validate data ──
-        if self.cold_hot_results is None:
-            raise ValueError("Cold & Hot Branch 결과가 필요합니다. 먼저 계산하세요.")
+        active_ch = self._get_active_cold_hot_results()
+        if active_ch is None:
+            raise ValueError("Cold & Hot Branch 결과가 필요합니다. 먼저 계산하거나 저장된 마찰맵을 선택하세요.")
 
         # ── Read parameters ──
         Nx = int(self.br_Nx_var.get())
@@ -22680,16 +27310,21 @@ class PerssonModelGUI_V2:
         max_steps = int(self.br_max_steps_var.get())
         ss_tol = float(self.br_ss_tol_var.get())
         ptype = self.br_pressure_type_var.get()
+        driving_mode = self.br_driving_mode_var.get()
         slip_min = float(self.br_slip_min_var.get())
         slip_max = float(self.br_slip_max_var.get())
         n_sweep = int(self.br_n_sweep_var.get())
 
         # ── Build LUT ──
-        lut_cold, lut_hot = self._build_brush_lut()
+        lut_cold, lut_hot, lut_cold_3d, lut_hot_3d = self._build_brush_lut()
+
+        # Base temperature for 3D LUT lookup
+        _ch_r = self._get_active_cold_hot_results()
+        T0_base_sim = _ch_r.get('T0', 25.0) if _ch_r else 25.0
 
         # ── Build pressure map & grid ──
         p_map, x_arr, y_arr, dx, dy = self._build_pressure_map(
-            Nx, Ny, L, W, Fz, ptype)
+            Nx, Ny, L, W, Fz, ptype, driving_mode)
         dA = dx * dy
 
         # Element normal force
@@ -22715,6 +27350,9 @@ class PerssonModelGUI_V2:
         last_mu_eff = None
         mid_slip_dist = None
         mid_mu_eff = None
+        mid_v_slip_x = None
+        mid_v_slip_y = None
+        mid_v_slip_mag = None
 
         for si, sweep_val in enumerate(sweep_vals):
             # ── Determine rim velocity components ──
@@ -22785,8 +27423,17 @@ class PerssonModelGUI_V2:
                 s_dist += v_slip_mag * dt
 
                 # ── Friction force (history-dependent blending) ──
-                mu_cold_vals = lut_cold(v_slip_mag)
-                mu_hot_vals = lut_hot(v_slip_mag)
+                # 3D LUT: per-cell (T, p, v) lookup if available
+                if lut_cold_3d is not None:
+                    T_cells = np.full_like(v_slip_mag, T0_base_sim)
+                    p_cells = p_map  # local pressure per cell [Pa]
+                    mu_cold_vals = self._lookup_friction_3d(
+                        lut_cold_3d, lut_cold, T_cells, p_cells, v_slip_mag, v_slip_mag.shape)
+                    mu_hot_vals = self._lookup_friction_3d(
+                        lut_hot_3d, lut_hot, T_cells, p_cells, v_slip_mag, v_slip_mag.shape)
+                else:
+                    mu_cold_vals = lut_cold(v_slip_mag)
+                    mu_hot_vals = lut_hot(v_slip_mag)
 
                 # Blending: mu_eff = mu_cold * exp(-s/s0) + mu_hot * (1 - exp(-s/s0))
                 blend = np.exp(-s_dist / max(s0, 1e-10))
@@ -22849,6 +27496,9 @@ class PerssonModelGUI_V2:
             if si == n_sweep // 2:
                 mid_slip_dist = s_dist.copy()
                 mid_mu_eff = mu_eff.copy()
+                mid_v_slip_x = v_slip_x.copy()
+                mid_v_slip_y = v_slip_y.copy()
+                mid_v_slip_mag = v_slip_mag.copy()
             if si == n_sweep - 1:
                 last_slip_dist = s_dist.copy()
                 last_mu_eff = mu_eff.copy()
@@ -22866,6 +27516,7 @@ class PerssonModelGUI_V2:
 
         result = {
             'mode': mode,
+            'driving_mode': driving_mode,
             'sweep': sweep_display,
             'Fx': Fx_arr,
             'Fy': Fy_arr,
@@ -22879,6 +27530,9 @@ class PerssonModelGUI_V2:
             'last_mu_eff': last_mu_eff,
             'mid_slip_dist': mid_slip_dist,
             'mid_mu_eff': mid_mu_eff,
+            'mid_v_slip_x': mid_v_slip_x,
+            'mid_v_slip_y': mid_v_slip_y,
+            'mid_v_slip_mag': mid_v_slip_mag,
             'p_map': p_map,
             'vc': vc,
             's0': s0,
@@ -22939,156 +27593,1976 @@ class PerssonModelGUI_V2:
             import traceback
             traceback.print_exc()
 
-    # ── 2D Brush: Plot update ──
+    # ── 2D Brush: Time profile generation ──
 
-    def _update_brush_plots(self):
-        """Update all 4 subplots for the 2D Brush Model results."""
-        if self.brush_results is None:
-            return
+    def _generate_time_profile(self, profile_type, amplitude, t_arr):
+        """Generate SA or SR profile over time.
 
+        profile_type: 'triangular', 'sinusoidal', 'step', 'constant'
+        amplitude: peak value
+        t_arr: time array
+        Returns: profile array same length as t_arr.
+        """
+        T = t_arr[-1]  # total time
+        if profile_type == 'triangular':
+            # 0 → +amp @ T/4 → 0 @ T/2 → -amp @ 3T/4 → 0 @ T
+            phase = (t_arr % T) / T
+            prof = np.where(phase < 0.25, amplitude * (phase / 0.25),
+                   np.where(phase < 0.75, amplitude * (1 - 2 * (phase - 0.25) / 0.5),
+                            amplitude * (-1 + (phase - 0.75) / 0.25)))
+        elif profile_type == 'sinusoidal':
+            prof = amplitude * np.sin(2 * np.pi * t_arr / T)
+        elif profile_type == 'step':
+            prof = np.where(t_arr < T / 3, 0.0,
+                   np.where(t_arr < 2 * T / 3, amplitude, 0.0))
+        else:  # constant
+            prof = np.full_like(t_arr, amplitude)
+        return prof
+
+    # ── 2D Brush: Transient simulation ──
+
+    def _run_brush_transient_wrapper(self):
+        """Run full transient simulation with SA(t)/SR(t) profiles."""
         try:
-            r = self.brush_results
-            mode = r['mode']
-            sweep = r['sweep']
-            x_arr = r['x_arr']
-            y_arr = r['y_arr']
+            self.br_calc_btn.config(state='disabled')
+            self.br_progress_var.set(0)
+            self.status_var.set("2D Brush Transient 시뮬레이션 중...")
+            self.root.update()
 
-            # Remove old colorbars if they exist
-            for attr in ('_cb_br_patch', '_cb_br_mu_map'):
-                if hasattr(self, attr) and getattr(self, attr) is not None:
-                    try:
-                        getattr(self, attr).remove()
-                    except Exception:
-                        pass
-                    setattr(self, attr, None)
-            # Remove old twin axis for Mz
-            if hasattr(self, '_ax_br_mz_twin') and self._ax_br_mz_twin is not None:
+            import time as _time
+            _t_start = _time.perf_counter()
+            self._log('CALC', '2D Brush Transient simulation started')
+            self._log('CALC', f'  Nx={self.br_Nx_var.get()}, Ny={self.br_Ny_var.get()}, '
+                       f'L={self.br_L_var.get()}m, W={self.br_W_var.get()}m, '
+                       f'Fz={self.br_Fz_var.get()}N')
+            self._log('CALC', f'  kx={self.br_kx_var.get()}, ky={self.br_ky_var.get()}, '
+                       f'vc={self.br_vc_var.get()}m/s')
+            self._log('CALC', f'  T_total={self.br_total_time_var.get()}s, '
+                       f'frames={self.br_frame_count_var.get()}, '
+                       f'SA_type={self.br_sa_type_var.get()}, SA_amp={self.br_sa_amp_var.get()}, '
+                       f'SR_type={self.br_sr_type_var.get()}, SR_val={self.br_sr_val_var.get()}')
+
+            self._br_cbs_created = False
+            self._br_artists_ready = False
+            self._run_brush_transient()
+
+            _elapsed = _time.perf_counter() - _t_start
+            self.br_progress_var.set(100)
+            self.status_var.set("2D Brush Transient 완료")
+            self.br_calc_btn.config(state='normal')
+            n = len(self._brush_frames)
+            self._log('CALC', f'2D Brush Transient completed: {n} frames in {_elapsed:.2f}s')
+            self._log('CALC', f'  Fy range: {min(f["Fy"] for f in self._brush_frames):.1f} ~ '
+                       f'{max(f["Fy"] for f in self._brush_frames):.1f} N')
+            self._log('CALC', f'  Fx range: {min(f["Fx"] for f in self._brush_frames):.1f} ~ '
+                       f'{max(f["Fx"] for f in self._brush_frames):.1f} N')
+            if hasattr(self, '_br_global_ranges'):
+                for k, (lo, hi) in self._br_global_ranges.items():
+                    self._log('CALC', f'  {k} range: {lo:.4g} ~ {hi:.4g}')
+            self._show_status(f"Transient 완료: {n} 프레임 생성", 'success')
+
+            # Update slider range and show first frame
+            self.br_time_slider.config(to=max(n - 1, 1))
+            self.br_time_slider.set(0)
+            self._brush_frame_idx = 0
+            self._brush_show_frame(0)
+
+            # Ensure footprint axes/outline match current L/W entry values
+            self._on_footprint_change()
+
+            # ── Sync track simulation if it has been run ──
+            if getattr(self, '_track_sim_data', None) is not None:
                 try:
-                    self._ax_br_mz_twin.remove()
+                    d = self._track_sim_data
+                    brush_data = self._compute_track_brush_data(
+                        d['sa_deg'], d['v_final'], d['Fz'])
+                    self._track_sim_data['brush_data'] = brush_data
+                    self._init_track_contour_artists()
+                    self._update_track_frame(getattr(self, '_track_frame_idx', 0))
                 except Exception:
-                    pass
-                self._ax_br_mz_twin = None
+                    pass  # track sim not fully initialized yet
 
-            slip_label = ""
-            if mode == 'braking':
-                slip_label = f"s={sweep[len(sweep)//2]:.3f}"
-            else:
-                slip_label = f"α={sweep[len(sweep)//2]:.1f}°"
-
-            # ── (1) Contact patch: cumulative slip distance (coloured) ──
-            self.ax_br_patch.clear()
-            if r['mid_slip_dist'] is not None:
-                s_dist_show = r['mid_slip_dist']
-                im1 = self.ax_br_patch.pcolormesh(
-                    x_arr, y_arr, s_dist_show.T,
-                    shading='auto', cmap='YlOrRd')
-                self._cb_br_patch = self.fig_brush.colorbar(
-                    im1, ax=self.ax_br_patch, shrink=0.8, pad=0.02)
-                self._cb_br_patch.set_label('Slip distance (m)', fontsize=8)
-                self.ax_br_patch.set_title(
-                    f'Contact Patch - Slip Dist ({slip_label})',
-                    fontweight='bold', fontsize=10)
-            else:
-                self.ax_br_patch.set_title('Contact Patch (No data)', fontsize=10)
-            self.ax_br_patch.set_xlabel('x (m)')
-            self.ax_br_patch.set_ylabel('y (m)')
-            self.ax_br_patch.set_aspect('equal')
-
-            # ── (2) μ_eff distribution at mid-sweep ──
-            self.ax_br_mu_map.clear()
-            if r['mid_mu_eff'] is not None:
-                mu_show = r['mid_mu_eff']
-                im2 = self.ax_br_mu_map.pcolormesh(
-                    x_arr, y_arr, mu_show.T,
-                    shading='auto', cmap='viridis')
-                self._cb_br_mu_map = self.fig_brush.colorbar(
-                    im2, ax=self.ax_br_mu_map, shrink=0.8, pad=0.02)
-                self._cb_br_mu_map.set_label('μ_eff', fontsize=8)
-                self.ax_br_mu_map.set_title(
-                    f'μ_eff Distribution ({slip_label})',
-                    fontweight='bold', fontsize=10)
-            else:
-                self.ax_br_mu_map.set_title('μ_eff (No data)', fontsize=10)
-            self.ax_br_mu_map.set_xlabel('x (m)')
-            self.ax_br_mu_map.set_ylabel('y (m)')
-            self.ax_br_mu_map.set_aspect('equal')
-
-            # ── (3) μ-slip or μ-slip angle curve ──
-            self.ax_br_mu_slip.clear()
-            if mode == 'braking':
-                self.ax_br_mu_slip.plot(sweep, r['mu_x'], 'b-o', linewidth=2,
-                                         markersize=4, label='μ_x (제동력)')
-                if np.any(r['mu_y'] > 1e-6):
-                    self.ax_br_mu_slip.plot(sweep, r['mu_y'], 'r--', linewidth=1.5,
-                                             label='μ_y (횡력)')
-                self.ax_br_mu_slip.set_xlabel('Slip ratio s')
-                self.ax_br_mu_slip.set_title('μ vs Slip Ratio (Braking)',
-                                              fontweight='bold', fontsize=10)
-            else:
-                self.ax_br_mu_slip.plot(sweep, r['mu_y'], 'r-o', linewidth=2,
-                                         markersize=4, label='μ_y (코너링 포스)')
-                if np.any(r['mu_x'] > 1e-6):
-                    self.ax_br_mu_slip.plot(sweep, r['mu_x'], 'b--', linewidth=1.5,
-                                             label='μ_x (종방향)')
-                self.ax_br_mu_slip.set_xlabel('Slip angle α (°)')
-                self.ax_br_mu_slip.set_title('μ vs Slip Angle (Cornering)',
-                                              fontweight='bold', fontsize=10)
-            self.ax_br_mu_slip.set_ylabel('μ = |F| / Fz')
-            self.ax_br_mu_slip.legend(fontsize=8)
-            self.ax_br_mu_slip.grid(True, alpha=0.3)
-
-            # Peak marker
-            if mode == 'braking':
-                mu_main = r['mu_x']
-            else:
-                mu_main = r['mu_y']
-
-            if len(mu_main) > 0 and np.max(mu_main) > 0:
-                idx_peak = np.argmax(mu_main)
-                self.ax_br_mu_slip.annotate(
-                    f'Peak: μ={mu_main[idx_peak]:.3f}\n@ {sweep[idx_peak]:.3f}',
-                    xy=(sweep[idx_peak], mu_main[idx_peak]),
-                    xytext=(sweep[idx_peak] + (sweep[-1] - sweep[0]) * 0.1,
-                            mu_main[idx_peak] * 0.9),
-                    fontsize=8, color='#DC2626',
-                    arrowprops=dict(arrowstyle='->', color='#DC2626', lw=1.2))
-
-            # ── (4) Forces Fx, Fy, Mz ──
-            self.ax_br_forces.clear()
-            ax_f = self.ax_br_forces
-            ax_f.plot(sweep, r['Fx'], 'b-', linewidth=2, label='Fx (종방향)')
-            ax_f.plot(sweep, r['Fy'], 'r-', linewidth=2, label='Fy (횡방향)')
-            ax_f.set_ylabel('Force (N)', color='black')
-            ax_f.legend(loc='upper left', fontsize=8)
-            ax_f.grid(True, alpha=0.3)
-
-            # Twin axis for Mz
-            self._ax_br_mz_twin = ax_f.twinx()
-            self._ax_br_mz_twin.plot(sweep, r['Mz'], 'g--', linewidth=1.5, label='Mz (토크)')
-            self._ax_br_mz_twin.set_ylabel('Mz (N·m)', color='green')
-            self._ax_br_mz_twin.tick_params(axis='y', labelcolor='green')
-            self._ax_br_mz_twin.legend(loc='upper right', fontsize=8)
-
-            if mode == 'braking':
-                ax_f.set_xlabel('Slip ratio s')
-                ax_f.set_title('Fx, Fy, Mz vs Slip Ratio', fontweight='bold', fontsize=10)
-            else:
-                ax_f.set_xlabel('Slip angle α (°)')
-                ax_f.set_title('Fx, Fy, Mz vs Slip Angle', fontweight='bold', fontsize=10)
-
-            self.fig_brush.tight_layout(pad=1.5)
-            self.canvas_brush.draw_idle()
-
+        except ValueError as e:
+            self.br_calc_btn.config(state='normal')
+            self._log('ERROR', f'2D Brush Transient ValueError: {str(e)}')
+            self._show_status(f"입력값 오류: {str(e)}", 'warning')
         except Exception as e:
-            print(f"[2D Brush] Plot update error: {e}")
+            self.br_calc_btn.config(state='normal')
+            self._log('ERROR', f'2D Brush Transient Exception: {str(e)}')
+            messagebox.showerror("오류", f"Transient 시뮬레이션 실패:\n{str(e)}")
             import traceback
             traceback.print_exc()
+
+    def _run_brush_transient(self):
+        """Core transient simulation with time-varying SA(t) and SR(t)."""
+        if self._get_active_cold_hot_results() is None:
+            raise ValueError("Cold & Hot Branch 결과가 필요합니다. 먼저 계산하거나 저장된 마찰맵을 선택하세요.")
+
+        # Read parameters
+        Nx = int(self.br_Nx_var.get())
+        Ny = int(self.br_Ny_var.get())
+        L = float(self.br_L_var.get())
+        W = float(self.br_W_var.get())
+        Fz = float(self.br_Fz_var.get())
+        kx = float(self.br_kx_var.get())
+        ky = float(self.br_ky_var.get())
+        cx = float(self.br_cx_var.get())
+        cy = float(self.br_cy_var.get())
+        vc = float(self.br_vc_var.get())
+        D_mm = float(self.br_D_macro_var.get())
+        s0 = 0.2 * D_mm * 1e-3
+        friction_scale = float(self.br_friction_scale_var.get())
+        dt = float(self.br_dt_var.get())
+        max_steps = int(self.br_max_steps_var.get())
+        ss_tol = float(self.br_ss_tol_var.get())
+        ptype = self.br_pressure_type_var.get()
+        driving_mode = self.br_driving_mode_var.get()
+
+        T_total = float(self.br_total_time_var.get())
+        frame_count = int(self.br_frame_count_var.get())
+        dt_out = T_total / max(frame_count, 1)
+        sa_type = self.br_sa_type_var.get()
+        sa_amp = float(self.br_sa_amp_var.get())
+        sr_type = self.br_sr_type_var.get()
+        sr_val = float(self.br_sr_val_var.get())
+
+        # Build LUT
+        lut_cold, lut_hot, lut_cold_3d, lut_hot_3d = self._build_brush_lut()
+
+        # Build BASE pressure map (symmetric, no driving mode bias)
+        p_map_base, x_arr, y_arr, dx, dy = self._build_pressure_map(
+            Nx, Ny, L, W, Fz, ptype, 'Braking')  # base only for shape
+        # Rebuild symmetric base without driving mode weighting
+        xx_g, yy_g = np.meshgrid(x_arr, y_arr, indexing='ij')
+        dA = dx * dy
+
+        # Superellipse contact mask (base — used when SA=0)
+        _se_n = self._ELLIPSE_POWER
+        se_r = np.abs(2 * xx_g / L)**_se_n + np.abs(2 * yy_g / W)**_se_n
+        ellipse_mask = se_r <= 1.0
+
+        # ── Helper: deformed contact mask (rounded triangle) ──
+        # At nonzero SA the patch deforms from ellipse toward isosceles
+        # rounded triangle.  The SAME geometry is used for both the data
+        # computation mask and the outline drawn on the plots.
+        from matplotlib.path import Path as _MplPath
+
+        def _deformed_mask(sa_deg_local):
+            """Return (mask, outline_verts) for the given SA.
+
+            Delegates to _egg_outline (single source of truth) so that
+            the data mask and the display outline always match exactly.
+            """
+            verts = self._egg_outline(sa_deg_local, L / 2, W / 2)
+            path = _MplPath(verts)
+            pts = np.column_stack([xx_g.ravel(), yy_g.ravel()])
+            mask = path.contains_points(pts).reshape(xx_g.shape)
+            return mask, verts
+
+        # Build base pressure distribution (static, no SA/SR effect)
+        # Use superellipse power _se_n consistently with contact mask boundary
+        if ptype == 'uniform':
+            p_base = np.ones((Nx, Ny))
+        elif ptype == 'elliptic':
+            p_base = np.sqrt(np.clip(1 - se_r, 0, None))
+        elif ptype == 'dual_peak':
+            lon_env = np.clip(1 - np.abs(2 * xx_g / L)**_se_n, 0, None)
+            y_norm = 2 * yy_g / W
+            peak_pos = 0.55
+            peak_width = 0.45
+            p_base = (np.exp(-((y_norm + peak_pos) / peak_width)**2) +
+                      np.exp(-((y_norm - peak_pos) / peak_width)**2)) * lon_env
+            p_base *= ellipse_mask
+        else:  # parabolic
+            p_base = np.clip(1 - np.abs(2 * xx_g / L)**_se_n, 0, None) * \
+                     np.clip(1 - np.abs(2 * yy_g / W)**_se_n, 0, None)
+
+        # Pre-compute dual-peak components for dynamic SA-dependent asymmetry
+        _is_dual_peak = (ptype == 'dual_peak')
+        if _is_dual_peak:
+            lon_env_dp = np.clip(1 - np.abs(2 * xx_g / L)**_se_n, 0, None)
+            y_norm_dp = 2 * yy_g / W
+            pk_pos = 0.55
+            pk_w = 0.45
+            _peak_high = np.exp(-((y_norm_dp - pk_pos) / pk_w)**2) * lon_env_dp
+            _peak_low = np.exp(-((y_norm_dp + pk_pos) / pk_w)**2) * lon_env_dp
+
+        def _build_dynamic_pressure(sa_deg, sr_pct, contact_mask=None):
+            """Build pressure map that shifts with SA and SR direction.
+
+            For dual_peak: SA makes one peak grow and the other shrink.
+            SA > 0 (right turn): lateral load transfer to -y (아래)
+            SA < 0 (left turn): lateral load transfer to +y (위)
+
+            contact_mask: per-frame deformed mask (uses ellipse_mask if None).
+            """
+            if contact_mask is None:
+                contact_mask = ellipse_mask
+            sa_factor = -np.clip(sa_deg / 6.0, -1, 1)
+            sa_abs = abs(sa_factor)
+
+            if _is_dual_peak:
+                # Dual-peak with SA-dependent asymmetry (width direction):
+                # SA > 0 (right turn): load transfers to -y (low width side, 아래)
+                # SA < 0 (left turn): load transfers to +y (high width side, 위)
+                # Both peaks ALWAYS exist — dominant peak grows, weaker peak
+                # shrinks smoothly but never disappears (floor = 0.15).
+                _asym_preset = self._ASYM_PRESETS.get(
+                    self.br_asym_preset_var.get(), (0.35, 0.40))
+                _ASYM_COEFF, _ASYM_FLOOR = _asym_preset
+                high_scale = max(1.0 + _ASYM_COEFF * sa_factor, _ASYM_FLOOR)
+                low_scale  = max(1.0 - _ASYM_COEFF * sa_factor, _ASYM_FLOOR)
+                p = high_scale * _peak_high + low_scale * _peak_low
+            else:
+                p = p_base.copy()
+                # Stronger lateral weight transfer for visible cornering effect
+                # sa_factor flips sign with SA: right turn loads -y, left turn loads +y
+                lat_weight = 1.0 + 0.8 * sa_factor * (2 * yy_g / W)
+                p *= np.clip(lat_weight, 0.05, None)
+
+            # Longitudinal shift from SR (braking/accel load transfer)
+            # Rolling right-to-left: braking loads leading edge (-x)
+            sr_factor = np.clip(sr_pct / 5.0, -1, 1)
+            lon_weight = 1.0 + 0.5 * sr_factor * (2 * xx_g / L)
+            p *= np.clip(lon_weight, 0.1, None)
+            p *= contact_mask
+            total = np.sum(p) * dA
+            if total > 0:
+                p *= Fz / total
+            return p
+
+        # Time arrays
+        t_out = np.arange(0, T_total + dt_out * 0.5, dt_out)
+        n_frames = len(t_out)
+        SA_profile = self._generate_time_profile(sa_type, sa_amp, t_out)
+        SR_profile = self._generate_time_profile(sr_type, sr_val, t_out)
+
+        # Temperature interpolator from Cold&Hot
+        from scipy.interpolate import interp1d
+        chr_ = self.cold_hot_results
+        T0_base = chr_.get('T0', 25.0)
+        _dT_arr = chr_.get('delta_T', np.zeros(len(chr_['v'])))
+        dT_interp = interp1d(chr_['v'], _dT_arr, kind='linear',
+                             bounds_error=False,
+                             fill_value=(_dT_arr[0], _dT_arr[-1]))
+
+        # ── Quasi-steady brush model ──
+        # Rolling direction: right-to-left (-x direction).
+        # Leading edge (x = -L/2) enters with zero deformation.
+        # Trailing edge (x = +L/2) has maximum contact time = L/vc.
+        # Deformation builds linearly in stick zone.
+        # When spring force exceeds friction capacity → transition to slip.
+
+        t_contact_1d = np.clip((x_arr + L / 2.0) / max(vc, 0.01), 0, None)
+        t_contact = t_contact_1d[:, np.newaxis] * np.ones((1, Ny))
+
+        # Distribute stiffness across nodes, scaled by contact area.
+        # kx, ky are calibrated for default footprint (L=0.15, W=0.12).
+        # When L or W changes, total stiffness scales with contact area
+        # (more rubber in contact = stiffer patch).
+        _L_ref, _W_ref = 0.15, 0.12  # default footprint dimensions [m]
+        _area_scale = (L * W) / (_L_ref * _W_ref)
+        n_in_ellipse = max(np.sum(ellipse_mask), 1)
+        kx_node = (kx * _area_scale) / n_in_ellipse  # [N/m] per node
+        ky_node = (ky * _area_scale) / n_in_ellipse
+
+        # Store frames
+        from scipy.ndimage import binary_dilation
+        frames = []
+        Fx_hist = np.zeros(n_frames)
+        Fy_hist = np.zeros(n_frames)
+
+        for fi in range(n_frames):
+            sa_deg = SA_profile[fi]
+            sr_pct = SR_profile[fi]
+            alpha_rad = np.radians(sa_deg)
+            sr_frac = sr_pct / 100.0
+
+            # Per-frame deformed contact mask (rounded triangle at nonzero SA)
+            cmask, outline_verts = _deformed_mask(sa_deg)
+
+            # Dynamic pressure map based on current SA/SR
+            p_map = _build_dynamic_pressure(sa_deg, sr_pct, contact_mask=cmask)
+            Fz_ij = p_map * dA  # normal force per node [N]
+
+            # Rim velocity relative to road (slip velocity if no deformation)
+            v_rim_x = vc * sr_frac          # longitudinal slip
+            v_rim_y = vc * np.sin(alpha_rad)  # lateral slip
+            v_rim_mag = np.sqrt(v_rim_x**2 + v_rim_y**2) + 1e-15
+
+            # Stick deformation: grows linearly with contact time
+            ux_stick = v_rim_x * t_contact  # [m] deformation in x
+            uy_stick = v_rim_y * t_contact  # [m] deformation in y
+
+            # Spring force per node if all nodes stick
+            Fspring_x = kx_node * ux_stick  # [N] per node
+            Fspring_y = ky_node * uy_stick   # [N] per node
+            F_spring_mag = np.sqrt(Fspring_x**2 + Fspring_y**2)
+
+            # Sliding distance (for Cold→Hot blend): contact distance
+            s_dist_local = v_rim_mag * t_contact
+
+            # Cold→Hot friction blend varies spatially
+            # Leading edge: s_dist≈0 → mu≈mu_cold (cold rubber)
+            # Trailing edge: s_dist large → mu≈mu_hot (heated rubber)
+            blend = np.exp(-s_dist_local / max(s0, 1e-10))
+
+            # 3D LUT: per-cell (T, p, v) lookup if available
+            v_cells = np.full_like(t_contact, v_rim_mag)
+            if lut_cold_3d is not None:
+                T_cells = np.full_like(t_contact, T0_base)
+                p_cells = p_map  # local pressure per cell [Pa]
+                mu_cold_vals = self._lookup_friction_3d(
+                    lut_cold_3d, lut_cold, T_cells, p_cells, v_cells, t_contact.shape)
+                mu_hot_vals = self._lookup_friction_3d(
+                    lut_hot_3d, lut_hot, T_cells, p_cells, v_cells, t_contact.shape)
+            else:
+                mu_cold_vals = lut_cold(v_cells)
+                mu_hot_vals = lut_hot(v_cells)
+            mu_eff = mu_cold_vals * blend + mu_hot_vals * (1.0 - blend)
+
+            # Friction capacity per node (scaled by friction sensitivity)
+            F_fric_max = mu_eff * Fz_ij * friction_scale  # [N]
+
+            # Stick/slip classification per node:
+            # "Is spring force < friction limit?" → Stick
+            # "Spring force exceeds limit?" → Slip
+            is_sliding = (F_spring_mag > F_fric_max) & cmask
+
+            # Actual force per node:
+            # Stick: force = spring force (rubber held by friction)
+            # Slip: force capped at friction capacity, in deformation direction
+            deform_mag = np.sqrt(ux_stick**2 + uy_stick**2) + 1e-15
+            deform_dir_x = ux_stick / deform_mag
+            deform_dir_y = uy_stick / deform_mag
+
+            Fnode_x = np.where(is_sliding,
+                               F_fric_max * deform_dir_x,
+                               Fspring_x)
+            Fnode_y = np.where(is_sliding,
+                               F_fric_max * deform_dir_y,
+                               Fspring_y)
+            Fnode_x *= cmask
+            Fnode_y *= cmask
+
+            # Local slip velocity (spatial variation!):
+            # Translational slip from rim velocity:
+            #   Stick zone: v_slip = 0; Slip zone: excess above friction capacity
+            _safe_Fsp = np.where(F_spring_mag > 1e-15, F_spring_mag, 1.0)
+            scale = np.where(F_spring_mag > 1e-15,
+                             np.clip(F_fric_max / _safe_Fsp, 0, 1), 1.0)
+            v_slip_trans = v_rim_mag * (1.0 - scale)
+            v_slip_trans = np.where(is_sliding, v_slip_trans, 0.0)
+            v_slip_trans *= cmask
+
+            # Translational slip velocity components
+            v_dir_x = v_rim_x / v_rim_mag
+            v_dir_y = v_rim_y / v_rim_mag
+            v_trans_x = v_slip_trans * v_dir_x
+            v_trans_y = v_slip_trans * v_dir_y
+
+            # Spin (yaw) component: omega_spin * r creates rotational slip
+            # For cornering, spin ≈ vc * sin(alpha) / L creates realistic
+            # spatial variation across the patch (0~5 m/s range).
+            omega_spin = vc * np.sin(alpha_rad) / max(L, 0.01)
+            v_spin_x = -omega_spin * yy_g  # tangential velocity from spin
+            v_spin_y = omega_spin * xx_g
+            # Spin slip only in sliding zone
+            v_spin_x = np.where(is_sliding, v_spin_x, 0.0) * cmask
+            v_spin_y = np.where(is_sliding, v_spin_y, 0.0) * cmask
+
+            # Total local slip velocity = translational + spin
+            v_slip_x = v_trans_x + v_spin_x
+            v_slip_y = v_trans_y + v_spin_y
+            v_slip_local = np.sqrt(v_slip_x**2 + v_slip_y**2)
+            v_slip_local *= cmask
+
+            # Temperature from local frictional energy dissipation
+            # Per-node flash temperature from the Cold&Hot model, evaluated at
+            # each node's local slip speed. This captures:
+            #   - Longitudinal variation: v_slip grows toward trailing edge
+            #   - Lateral variation: v_slip differs across width because
+            #     F_fric_max depends on p_map which shifts with SA
+            # Pressure modulation: higher local pressure → more heat flux
+            # Contact time modulation: longer contact → more accumulated heat
+            dT_local = dT_interp(np.clip(v_slip_local.ravel(), 0, None)).reshape(Nx, Ny)
+            # Pressure effect: local pressure relative to mean contact pressure
+            p_mean_contact = np.mean(p_map[cmask]) if np.any(cmask) else 1.0
+            p_ratio = p_map / max(p_mean_contact, 1e-10)
+            # Contact time effect: heat accumulates over contact duration
+            t_max = np.max(t_contact) if np.max(t_contact) > 0 else 1.0
+            t_ratio = np.sqrt(t_contact / t_max)  # sqrt for flash temperature law
+            T_contact = T0_base + dT_local * p_ratio * t_ratio
+            T_contact = T_contact * cmask + T0_base * (~cmask)
+
+            # Available friction coefficient at each node (from Cold/Hot LUT)
+            # This is the mu_eff that the friction map generates — the actual
+            # friction coefficient of the rubber at the local slip speed.
+            mu_available = mu_eff.copy() * cmask
+
+            # Friction force per node: actual shear force magnitude at each cell
+            # Stick zones: spring force; Slip zones: friction capacity = mu * Fz
+            F_node_mag = np.sqrt(Fnode_x**2 + Fnode_y**2)
+            F_node_mag *= cmask
+
+            # Total forces: Fy follows SA sign (SA<0 left turn → Fy<0)
+            Fx_total = -np.sum(Fnode_x)
+            Fy_total = np.sum(Fnode_y)
+            Fx_hist[fi] = Fx_total
+            Fy_hist[fi] = Fy_total
+
+            frames.append({
+                't': t_out[fi],
+                'SA': sa_deg,
+                'SR': sr_pct,
+                'Fx': Fx_total,
+                'Fy': Fy_total,
+                'is_sliding': is_sliding.copy(),
+                'v_slip_x': v_slip_x.copy(),
+                'v_slip_y': v_slip_y.copy(),
+                'v_trans_x': v_trans_x.copy(),
+                'v_trans_y': v_trans_y.copy(),
+                'v_slip_mag': v_slip_local.copy(),
+                'p_map': p_map.copy(),
+                'T_contact': T_contact.copy(),
+                'mu_eff': mu_available.copy(),
+                'F_friction': F_node_mag.copy(),
+                '_contact_mask': cmask,         # per-frame deformed mask
+                '_outline_verts': outline_verts, # outline vertices (mm)
+                '_mask_fill': binary_dilation(cmask, iterations=2),  # pre-computed
+            })
+
+            # Progress
+            self.br_progress_var.set(int(100 * (fi + 1) / n_frames))
+            if fi % 5 == 0:
+                self.root.update()
+
+        # Store results
+        self._brush_frames = frames
+        self._brush_t_out = t_out
+        self._brush_SA = SA_profile
+        self._brush_SR = SR_profile
+        self._brush_Fx_hist = Fx_hist
+        self._brush_Fy_hist = Fy_hist
+        self._brush_x_mm = x_arr * 1000  # convert to mm
+        self._brush_y_mm = y_arr * 1000
+        self._brush_L_mm = L * 1000
+        self._brush_W_mm = W * 1000
+        self._brush_ellipse_mask = ellipse_mask
+
+        # Expanded mask for visualization: dilate by 1 cell so pcolormesh
+        # fills the outline without white gaps at the boundary.
+        from scipy.ndimage import binary_dilation
+        self._brush_fill_mask = binary_dilation(ellipse_mask, iterations=2)
+
+        # Compute global min/max for fixed colorbars across all frames
+        # Use each frame's own deformed mask for accurate ranges.
+        all_speed = np.concatenate([f['v_slip_mag'][f['_contact_mask']] for f in frames])
+        all_pres = np.concatenate([f['p_map'][f['_contact_mask']] * 1e-5 for f in frames])
+        all_temp = np.concatenate([f['T_contact'][f['_contact_mask']] for f in frames])
+        all_fric_force = np.concatenate([f['F_friction'][f['_contact_mask']] for f in frames])
+        # Temperature: use percentile-based range to avoid stick zone dominating
+        t_lo_raw = np.min(all_temp)
+        t_hi_raw = np.max(all_temp)
+        t_p02 = np.percentile(all_temp, 2)
+        t_p98 = np.percentile(all_temp, 98)
+        # Ensure meaningful range even when most nodes are at base temperature
+        t_range = max(t_hi_raw - t_lo_raw, 1.0)
+        t_lo_vis = t_lo_raw
+        t_hi_vis = max(t_hi_raw, t_lo_raw + t_range)
+        # If range is very skewed (>80% at base), compress the low end
+        if t_p98 > t_p02 + 0.5:
+            t_lo_vis = t_p02
+            t_hi_vis = t_p98 + (t_hi_raw - t_p98) * 0.5
+        # Friction force: use percentile-based range for better contrast
+        f_p02 = np.percentile(all_fric_force, 2)
+        f_p98 = np.percentile(all_fric_force, 98)
+        f_lo_vis = max(f_p02, 0)
+        f_hi_vis = max(f_p98, 0.001)
+        self._br_global_ranges = {
+            'speed': (max(np.min(all_speed), 0), max(np.max(all_speed), 0.1)),
+            'pressure': (max(np.min(all_pres), 0), max(np.max(all_pres), 0.01)),
+            'temperature': (t_lo_vis, t_hi_vis),
+            'friction': (f_lo_vis, f_hi_vis),
+        }
+
+        # Draw the static time-history plots
+        self._brush_draw_time_histories()
+
+    def _brush_draw_time_histories(self):
+        """Draw the top four plots (SA/SR input, Fx/Fy output, Fy vs SA, Fx vs SR)."""
+        t = self._brush_t_out
+
+        # (1) SA / SR input
+        ax_in = self.ax_br_input
+        ax_in.clear()
+        ax_in.plot(t, self._brush_SA, 'r-', linewidth=1.5, label='SA [deg]')
+        ax_in.plot(t, self._brush_SR, color='#E68A00', linewidth=1.5, label='SR [%]')
+        ax_in.set_title('SA / SR Input', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
+        ax_in.set_xlabel('time [s]', fontsize=self.PLOT_FONTS['legend'])
+        ax_in.set_ylabel('slip', fontsize=self.PLOT_FONTS['legend'])
+        ax_in.tick_params(labelsize=self.PLOT_FONTS['legend_sm'])
+        ax_in.legend(loc='upper right', fontsize=self.PLOT_FONTS['label_sm'], framealpha=0.9,
+                     bbox_to_anchor=(0.98, 0.98), borderaxespad=0)
+        ax_in.grid(True, alpha=0.3)
+        ax_in.set_xlim(t[0], t[-1])
+        self._br_cursor_in = ax_in.axvline(x=0, color='k', linewidth=1.2, alpha=0.7)
+        self._br_marker_sa, = ax_in.plot(0, self._brush_SA[0], 'ro',
+                                          markersize=6, zorder=5)
+        self._br_marker_sr, = ax_in.plot(0, self._brush_SR[0], 'o',
+                                          color='#E68A00', markersize=6, zorder=5)
+
+        # (2) Fx / Fy output
+        ax_f = self.ax_br_force_t
+        ax_f.clear()
+        ax_f.plot(t, self._brush_Fy_hist, 'r-', linewidth=1.5, label='Fy')
+        ax_f.plot(t, self._brush_Fx_hist, color='#E68A00', linewidth=1.5, label='Fx')
+        ax_f.set_title('Fx / Fy Output', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
+        ax_f.set_xlabel('time [s]', fontsize=self.PLOT_FONTS['legend'])
+        ax_f.set_ylabel('force [N]', fontsize=self.PLOT_FONTS['legend'])
+        ax_f.tick_params(labelsize=self.PLOT_FONTS['legend_sm'])
+        ax_f.legend(loc='upper right', fontsize=self.PLOT_FONTS['label_sm'], framealpha=0.9,
+                    bbox_to_anchor=(0.98, 0.98), borderaxespad=0)
+        ax_f.grid(True, alpha=0.3)
+        ax_f.set_xlim(t[0], t[-1])
+        self._br_cursor_ft = ax_f.axvline(x=0, color='k', linewidth=1.2, alpha=0.7)
+        self._br_marker_fy, = ax_f.plot(0, self._brush_Fy_hist[0], 'ro',
+                                         markersize=6, zorder=5)
+        self._br_marker_fx, = ax_f.plot(0, self._brush_Fx_hist[0], 'o',
+                                         color='#E68A00', markersize=6, zorder=5)
+
+        # (3) Fy vs Slip Angle (SA) — smoothed to reduce grid-discretization noise
+        ax_fy = self.ax_br_fy_sa
+        ax_fy.clear()
+        _Fy_plot = self._brush_Fy_hist
+        _SA_plot = self._brush_SA
+        if len(_Fy_plot) >= 15:
+            from scipy.signal import savgol_filter
+            _wlen = min(15, len(_Fy_plot) // 2 * 2 - 1)
+            if _wlen >= 5:
+                _Fy_smooth = savgol_filter(_Fy_plot, _wlen, 3)
+            else:
+                _Fy_smooth = _Fy_plot
+        else:
+            _Fy_smooth = _Fy_plot
+        ax_fy.plot(_SA_plot, _Fy_smooth, 'b-', linewidth=1.5, label='Fy [N]')
+        ax_fy.plot(_SA_plot, _Fy_plot, 'b-', linewidth=0.4, alpha=0.25)
+        ax_fy.set_xlabel('SA [deg]', fontsize=self.PLOT_FONTS['legend'])
+        ax_fy.set_ylabel('Fy [N]', fontsize=self.PLOT_FONTS['legend'])
+        ax_fy.tick_params(labelsize=self.PLOT_FONTS['legend_sm'])
+        ax_fy.set_title('Fy vs Slip Angle', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
+        ax_fy.legend(loc='upper left', fontsize=self.PLOT_FONTS['label_sm'], framealpha=0.9)
+        ax_fy.grid(True, alpha=0.3)
+        self._br_cursor_fy_sa = ax_fy.axvline(x=self._brush_SA[0], color='k',
+                                                linewidth=1.2, alpha=0.7)
+        self._br_marker_fy_sa, = ax_fy.plot(self._brush_SA[0], self._brush_Fy_hist[0],
+                                              'ro', markersize=8, zorder=5)
+
+        # (4) Fx vs Slip Ratio (SR) — smoothed to reduce grid-discretization noise
+        ax_fx = self.ax_br_fx_sr
+        ax_fx.clear()
+        _Fx_plot = self._brush_Fx_hist
+        _SR_plot = self._brush_SR
+        if len(_Fx_plot) >= 15:
+            from scipy.signal import savgol_filter
+            _wlen = min(15, len(_Fx_plot) // 2 * 2 - 1)
+            if _wlen >= 5:
+                _Fx_smooth = savgol_filter(_Fx_plot, _wlen, 3)
+            else:
+                _Fx_smooth = _Fx_plot
+        else:
+            _Fx_smooth = _Fx_plot
+        ax_fx.plot(_SR_plot, _Fx_smooth, color='#E68A00', linewidth=1.5, label='Fx [N]')
+        ax_fx.plot(_SR_plot, _Fx_plot, color='#E68A00', linewidth=0.4, alpha=0.25)
+        ax_fx.set_xlabel('SR [%]', fontsize=self.PLOT_FONTS['legend'])
+        ax_fx.set_ylabel('Fx [N]', fontsize=self.PLOT_FONTS['legend'])
+        ax_fx.tick_params(labelsize=self.PLOT_FONTS['legend_sm'])
+        ax_fx.set_title('Fx vs Slip Ratio', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
+        ax_fx.legend(loc='upper left', fontsize=self.PLOT_FONTS['label_sm'], framealpha=0.9)
+        ax_fx.grid(True, alpha=0.3)
+        self._br_cursor_fx_sr = ax_fx.axvline(x=self._brush_SR[0], color='k',
+                                                linewidth=1.2, alpha=0.7)
+        self._br_marker_fx_sr, = ax_fx.plot(self._brush_SR[0], self._brush_Fx_hist[0],
+                                              'o', color='#E68A00', markersize=8, zorder=5)
+
+        self.canvas_brush.draw_idle()
+
+    # ── 2D Brush: Left-panel steering wheel ──
+
+    def _init_left_steering_wheel(self):
+        """Draw steering wheel in the left-panel dedicated figure.
+        Uses full draw_idle() instead of blit — small canvas, no perf issue."""
+        from matplotlib.patches import Polygon as MplPoly
+        ax = self._steer_ax
+        ax.clear()
+        ax.set_xlim(-1.5, 1.5)
+        ax.set_ylim(-1.5, 1.5)
+        ax.set_aspect('equal')
+        ax.axis('off')
+        ax.set_facecolor('#F8FAFC')
+
+        # Outer ring (thick)
+        theta = np.linspace(0, 2 * np.pi, 100)
+        self._steer_outer, = ax.plot(np.cos(theta), np.sin(theta),
+                                      '-', color='#333333', lw=6, zorder=2)
+        # Inner hub ring
+        self._steer_inner, = ax.plot(0.3 * np.cos(theta), 0.3 * np.sin(theta),
+                                      '-', color='#555', lw=2, zorder=2)
+        # Center dot (logo area)
+        self._steer_center, = ax.plot(0, 0, 'o', color='#333',
+                                       markersize=7, zorder=3)
+        # 3 spokes
+        self._steer_spoke_lines = []
+        for base_angle in [np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]:
+            sp, = ax.plot([0, 0.85 * np.cos(base_angle)],
+                          [0, 0.85 * np.sin(base_angle)],
+                          '-', color='#333333', lw=3.5, zorder=2)
+            self._steer_spoke_lines.append(sp)
+
+        # ── Hands on wheel (10 o'clock and 2 o'clock) ──
+        # Simple rounded-ish hand shapes gripping the wheel rim
+        self._steer_hands = []
+        for hand_angle_deg in [140, 40]:  # 10-o'clock, 2-o'clock
+            ha_rad = np.radians(hand_angle_deg)
+            # Hand center on rim
+            hcx = np.cos(ha_rad)
+            hcy = np.sin(ha_rad)
+            # Hand is an oval aligned with the rim tangent
+            tang = ha_rad + np.pi / 2  # tangent direction
+            hw, hh = 0.18, 0.12  # hand half-width, half-height
+            t_h = np.linspace(0, 2 * np.pi, 16)
+            hx = hw * np.cos(t_h)
+            hy = hh * np.sin(t_h)
+            # Rotate to tangent
+            cos_t = np.cos(tang)
+            sin_t = np.sin(tang)
+            rx = hx * cos_t - hy * sin_t + hcx
+            ry = hx * sin_t + hy * cos_t + hcy
+            hand_verts = np.column_stack([rx, ry])
+            hand_patch = MplPoly(hand_verts, closed=True,
+                                  facecolor='#FFD4A0', edgecolor='#CC8844',
+                                  linewidth=1.2, zorder=4)
+            ax.add_patch(hand_patch)
+            self._steer_hands.append(hand_patch)
+            # Fingers (3 small bumps on outer side)
+            for fi in range(-1, 2):
+                fang = ha_rad + fi * 0.12
+                fcx = 1.12 * np.cos(fang)
+                fcy = 1.12 * np.sin(fang)
+                finger, = ax.plot(fcx, fcy, 'o', color='#FFD4A0',
+                                   markersize=3.5, markeredgecolor='#CC8844',
+                                   markeredgewidth=0.6, zorder=4)
+                self._steer_hands.append(finger)
+
+        # Steering angle visual arc
+        self._steer_arc, = ax.plot([], [], '-', color='#FF6600', lw=3,
+                                    alpha=0.8, zorder=5)
+        # SA label
+        self._steer_sa_label = ax.text(0, -1.35, 'SA=0.0°',
+                                        fontsize=self.PLOT_FONTS['title'], ha='center', va='top',
+                                        fontweight='bold', zorder=6)
+        # L/R indicators
+        self._steer_left_label = ax.text(-1.35, 0, 'L', fontsize=self.PLOT_FONTS['title'], ha='center',
+                                          va='center', fontweight='bold',
+                                          color='#BBBBBB', zorder=6)
+        self._steer_right_label = ax.text(1.35, 0, 'R', fontsize=self.PLOT_FONTS['title'], ha='center',
+                                           va='center', fontweight='bold',
+                                           color='#BBBBBB', zorder=6)
+        # Store base angles for hand positions
+        self._steer_hand_base_angles = [np.radians(140), np.radians(40)]
+
+        # ── Blit setup for smooth playback ──
+        # Collect all dynamic artists that change with SA
+        self._steer_dynamic_artists = [
+            self._steer_outer, self._steer_inner, self._steer_center,
+            *self._steer_spoke_lines,
+            self._steer_arc, self._steer_sa_label,
+            self._steer_left_label, self._steer_right_label,
+        ]
+        for h in self._steer_hands:
+            self._steer_dynamic_artists.append(h)
+        # Set animated flag on dynamic artists
+        for art in self._steer_dynamic_artists:
+            art.set_animated(True)
+        # Hide dynamic artists before capturing clean background
+        for art in self._steer_dynamic_artists:
+            art.set_visible(False)
+        self._steer_canvas.draw()
+        self._steer_blit_bg = self._steer_canvas.copy_from_bbox(
+            self._steer_fig.bbox)
+        # Restore visibility and draw dynamic artists on top
+        for art in self._steer_dynamic_artists:
+            art.set_visible(True)
+            art.axes.draw_artist(art)
+        self._steer_canvas.blit(self._steer_fig.bbox)
+        # Resize handler to recapture blit background
+        self._steer_canvas.mpl_connect('resize_event',
+                                        lambda e: self._recapture_steer_blit_bg())
+
+    def _recapture_steer_blit_bg(self):
+        """Recapture steering wheel blit background after resize."""
+        if not hasattr(self, '_steer_dynamic_artists'):
+            return
+        for art in self._steer_dynamic_artists:
+            art.set_visible(False)
+        self._steer_canvas.draw()
+        self._steer_blit_bg = self._steer_canvas.copy_from_bbox(
+            self._steer_fig.bbox)
+        for art in self._steer_dynamic_artists:
+            art.set_visible(True)
+            try:
+                art.axes.draw_artist(art)
+            except Exception:
+                pass
+        self._steer_canvas.blit(self._steer_fig.bbox)
+
+    def _update_left_steering_wheel(self, sa_deg):
+        """Update the left-panel steering wheel rotation.
+
+        SA > 0 → right turn → wheel rotates clockwise → R highlighted
+        SA < 0 → left turn → wheel rotates counter-clockwise → L highlighted
+        (SAE convention: positive slip angle = right turn)
+        Uses full draw_idle() — no blit for reliability on small canvas.
+        """
+        steer_rad = -np.radians(sa_deg)
+        cos_s = np.cos(steer_rad)
+        sin_s = np.sin(steer_rad)
+
+        # Rotate spokes
+        for i, base_angle in enumerate([np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]):
+            a = base_angle + steer_rad
+            self._steer_spoke_lines[i].set_data([0, 0.85 * np.cos(a)],
+                                                 [0, 0.85 * np.sin(a)])
+
+        # Rotate outer/inner rings
+        theta = np.linspace(0, 2 * np.pi, 100)
+        self._steer_outer.set_data(np.cos(theta), np.sin(theta))
+        self._steer_inner.set_data(0.3 * np.cos(theta), 0.3 * np.sin(theta))
+
+        # Rotate hands on the wheel
+        if hasattr(self, '_steer_hands') and hasattr(self, '_steer_hand_base_angles'):
+            hand_idx = 0
+            for hi, base_ha in enumerate(self._steer_hand_base_angles):
+                ha_rad = base_ha + steer_rad
+                hcx = np.cos(ha_rad)
+                hcy = np.sin(ha_rad)
+                tang = ha_rad + np.pi / 2
+                hw, hh = 0.18, 0.12
+                t_h = np.linspace(0, 2 * np.pi, 16)
+                hx = hw * np.cos(t_h)
+                hy = hh * np.sin(t_h)
+                cos_t = np.cos(tang)
+                sin_t = np.sin(tang)
+                rx = hx * cos_t - hy * sin_t + hcx
+                ry = hx * sin_t + hy * cos_t + hcy
+                self._steer_hands[hand_idx].set_xy(
+                    np.column_stack([rx, ry]))
+                hand_idx += 1
+                # 3 finger dots per hand
+                for fi in range(-1, 2):
+                    fang = ha_rad + fi * 0.12
+                    self._steer_hands[hand_idx].set_data(
+                        [1.12 * np.cos(fang)], [1.12 * np.sin(fang)])
+                    hand_idx += 1
+
+        self._steer_sa_label.set_text(f'SA={sa_deg:+.1f}°')
+
+        # Steering arc
+        if abs(sa_deg) > 0.2:
+            arc_r = 0.55
+            a_start = np.pi / 2
+            a_end = np.pi / 2 + steer_rad
+            t_arc = np.linspace(a_start, a_end, 30)
+            arc_color = '#F44336' if sa_deg > 0 else '#2196F3'
+            self._steer_arc.set_data(arc_r * np.cos(t_arc),
+                                      arc_r * np.sin(t_arc))
+            self._steer_arc.set_color(arc_color)
+            self._steer_arc.set_visible(True)
+        else:
+            self._steer_arc.set_visible(False)
+
+        # L/R highlight
+        if sa_deg > 0.5:
+            self._steer_right_label.set_color('#F44336')
+            self._steer_right_label.set_fontsize(14)
+            self._steer_left_label.set_color('#CCCCCC')
+            self._steer_left_label.set_fontsize(14)
+        elif sa_deg < -0.5:
+            self._steer_left_label.set_color('#2196F3')
+            self._steer_left_label.set_fontsize(14)
+            self._steer_right_label.set_color('#CCCCCC')
+            self._steer_right_label.set_fontsize(14)
+        else:
+            self._steer_left_label.set_color('#BBBBBB')
+            self._steer_left_label.set_fontsize(14)
+            self._steer_right_label.set_color('#BBBBBB')
+            self._steer_right_label.set_fontsize(14)
+
+        # ── Fast blit render if available, else fallback to draw_idle ──
+        if self._steer_blit_bg is not None:
+            self._steer_canvas.restore_region(self._steer_blit_bg)
+            for art in self._steer_dynamic_artists:
+                try:
+                    art.axes.draw_artist(art)
+                except Exception:
+                    pass
+            self._steer_canvas.blit(self._steer_fig.bbox)
+        else:
+            self._steer_canvas.draw_idle()
+
+    # ── 2D Brush: Tire animation (top-down rolling tire with lateral force) ──
+
+    def _init_tire_animation(self):
+        """Racing game top-down view: car body + 4 tires + treadmill road."""
+        ax = self._tire_ax
+        ax.clear()
+        ax.set_xlim(-3.0, 3.0)
+        ax.set_ylim(-4.0, 4.0)
+        ax.set_aspect('equal')
+        ax.axis('off')
+        ax.set_facecolor('#3A3A3A')
+
+        from matplotlib.patches import FancyBboxPatch, Rectangle, Polygon as MplPoly
+
+        # ── Asphalt road surface ──
+        road = Rectangle((-3.0, -4.0), 6.0, 8.0, facecolor='#4A4A4A',
+                          edgecolor='none', zorder=0)
+        ax.add_patch(road)
+
+        # Road edge lines (white solid)
+        ax.plot([-2.5, -2.5], [-4, 4], '-', color='#FFFFFF', lw=2.0, zorder=1)
+        ax.plot([2.5, 2.5], [-4, 4], '-', color='#FFFFFF', lw=2.0, zorder=1)
+
+        # Center yellow dashed line (scrolling)
+        self._road_dashes = []
+        dash_spacing = 1.2
+        for i in range(12):
+            y0 = -6.0 + i * dash_spacing
+            line, = ax.plot([0, 0], [y0, y0 + 0.6], '-', color='#FFD54F',
+                            lw=2.5, alpha=0.85, zorder=1)
+            self._road_dashes.append(line)
+
+        # White lane boundary dashes (left and right lanes)
+        self._road_side_dashes_L = []
+        self._road_side_dashes_R = []
+        for i in range(12):
+            y0 = -6.0 + i * dash_spacing
+            ld, = ax.plot([-1.25, -1.25], [y0, y0 + 0.4], '-',
+                          color='#AAAAAA', lw=1.2, alpha=0.5, zorder=1)
+            rd, = ax.plot([1.25, 1.25], [y0, y0 + 0.4], '-',
+                          color='#AAAAAA', lw=1.2, alpha=0.5, zorder=1)
+            self._road_side_dashes_L.append(ld)
+            self._road_side_dashes_R.append(rd)
+        self._road_phase = 0.0
+
+        # ── Car body (Polygon for proper rotation) — compact size ──
+        car_w = 1.6   # full width (smaller)
+        car_h = 3.2   # full length (smaller)
+        hw, hh = car_w / 2, car_h / 2
+        # Rounded-ish car shape: front tapers, rear is wider
+        self._car_body_base = np.array([
+            (-hw, -hh + 0.2), (-hw, hh - 0.5),
+            (-hw + 0.2, hh - 0.15), (-hw * 0.6, hh),  # front-left taper
+            (hw * 0.6, hh), (hw - 0.2, hh - 0.15),     # front-right taper
+            (hw, hh - 0.5), (hw, -hh + 0.2),
+            (hw - 0.15, -hh), (-hw + 0.15, -hh),        # rear
+        ])
+        self._car_body = MplPoly(self._car_body_base, closed=True,
+                                  facecolor='#1565C0', edgecolor='#0D47A1',
+                                  linewidth=2.0, zorder=5, alpha=0.92)
+        ax.add_patch(self._car_body)
+
+        # Windshield (front trapezoid)
+        self._ws_base = np.array([
+            (-0.50, 0.55), (0.50, 0.55), (0.38, 1.1), (-0.38, 1.1)])
+        self._car_windshield = MplPoly(self._ws_base, closed=True,
+                                        facecolor='#90CAF9', edgecolor='#0D47A1',
+                                        linewidth=1, zorder=6, alpha=0.8)
+        ax.add_patch(self._car_windshield)
+
+        # Rear window
+        self._rw_base = np.array([
+            (-0.45, -0.55), (0.45, -0.55), (0.35, -1.05), (-0.35, -1.05)])
+        self._car_rearwindow = MplPoly(self._rw_base, closed=True,
+                                        facecolor='#90CAF9', edgecolor='#0D47A1',
+                                        linewidth=1, zorder=6, alpha=0.7)
+        ax.add_patch(self._car_rearwindow)
+
+        # Headlights + tail lights as polygons (rotatable)
+        self._hl_base = []
+        self._hl_patches = []
+        for hx in [-0.55, 0.55]:
+            verts = np.array([(hx - 0.1, hh - 0.15), (hx + 0.1, hh - 0.15),
+                              (hx + 0.1, hh - 0.02), (hx - 0.1, hh - 0.02)])
+            p = MplPoly(verts, closed=True, facecolor='#FFE082',
+                        edgecolor='#FFC107', linewidth=0.6, zorder=6)
+            ax.add_patch(p)
+            self._hl_base.append(verts)
+            self._hl_patches.append(p)
+        self._tl_base = []
+        self._tl_patches = []
+        for tx in [-0.55, 0.55]:
+            verts = np.array([(tx - 0.1, -hh), (tx + 0.1, -hh),
+                              (tx + 0.1, -hh + 0.1), (tx - 0.1, -hh + 0.1)])
+            p = MplPoly(verts, closed=True, facecolor='#EF5350',
+                        edgecolor='#C62828', linewidth=0.6, zorder=6)
+            ax.add_patch(p)
+            self._tl_base.append(verts)
+            self._tl_patches.append(p)
+
+        self._car_w = car_w
+        self._car_h = car_h
+
+        # ── 4 Tires (Polygon rectangles at corners) ──
+        tw = 0.28  # tire width
+        th = 0.60  # tire height
+        self._tire_w = tw
+        self._tire_h = th
+        wb = 1.2   # half-wheelbase
+        tk_x = hw + tw * 0.3  # tire x offset (just outside body)
+        tire_positions = [
+            (-tk_x, wb), (tk_x, wb),   # FL, FR
+            (-tk_x, -wb), (tk_x, -wb),  # RL, RR
+        ]
+        self._tire_patches = []
+        self._tire_positions = tire_positions
+        self._tire_base_verts = []
+        self._tire_tread_lines = []
+        for (tx, ty) in tire_positions:
+            verts = np.array([
+                (tx - tw / 2, ty - th / 2), (tx + tw / 2, ty - th / 2),
+                (tx + tw / 2, ty + th / 2), (tx - tw / 2, ty + th / 2)])
+            tp = MplPoly(verts, closed=True, facecolor='#1A1A1A',
+                         edgecolor='#555555', linewidth=1.0, zorder=8)
+            ax.add_patch(tp)
+            self._tire_patches.append(tp)
+            self._tire_base_verts.append(verts.copy())
+            treads = []
+            for j in range(3):
+                yoff = ty - th / 2 + 0.10 + j * (th - 0.20) / 2
+                ln, = ax.plot([tx - tw / 2 + 0.03, tx + tw / 2 - 0.03],
+                              [yoff, yoff], '-', color='#3A3A3A', lw=0.7, zorder=9)
+                treads.append(ln)
+            self._tire_tread_lines.append(treads)
+
+        self._tire_tread_phase = 0.0
+
+        # ── Lateral force arrow (line + triangle head) ──
+        from matplotlib.patches import FancyArrowPatch
+        self._tire_Fy_line, = ax.plot([], [], '-', color='#FF4444', lw=3.5, zorder=15)
+        self._tire_Fy_head, = ax.plot([], [], marker='>', color='#FF4444',
+                                       markersize=12, linestyle='', zorder=15)
+        self._tire_Fy_line.set_visible(False)
+        self._tire_Fy_head.set_visible(False)
+        self._tire_Fy_label = ax.text(0, 0, '', fontsize=self.PLOT_FONTS['title'], ha='center',
+                                       va='bottom', fontweight='bold',
+                                       color='#FF6644',
+                                       bbox=dict(boxstyle='round,pad=0.12',
+                                                 facecolor='black', alpha=0.7),
+                                       zorder=16)
+        self._tire_Fy_label.set_visible(False)
+
+        # Longitudinal force arrow (line + triangle head)
+        self._tire_Fx_line, = ax.plot([], [], '-', color='#44FF44', lw=3.0, zorder=15)
+        self._tire_Fx_head, = ax.plot([], [], marker='^', color='#44FF44',
+                                       markersize=11, linestyle='', zorder=15)
+        self._tire_Fx_line.set_visible(False)
+        self._tire_Fx_head.set_visible(False)
+        self._tire_Fx_label = ax.text(0, 0, '', fontsize=self.PLOT_FONTS['title'], ha='left',
+                                       va='center', fontweight='bold',
+                                       color='#44FF44',
+                                       bbox=dict(boxstyle='round,pad=0.10',
+                                                 facecolor='black', alpha=0.7),
+                                       zorder=16)
+        self._tire_Fx_label.set_visible(False)
+
+        # SA arc indicator
+        self._tire_sa_arc, = ax.plot([], [], '-', color='#FFD54F', lw=1.5,
+                                      alpha=0.8, zorder=12)
+        self._tire_sa_label = ax.text(0, 0, '', fontsize=self.PLOT_FONTS['title'], ha='center',
+                                       va='center', color='#FFD54F',
+                                       fontweight='bold', zorder=12)
+
+        # HUD text
+        self._tire_speed_label = ax.text(
+            -2.85, 3.7, '', fontsize=self.PLOT_FONTS['title'], ha='left', va='top',
+            color='#AAFFAA', fontweight='bold',
+            fontfamily='monospace', zorder=20)
+
+        ax.text(0, 3.8, 'Racing View', fontsize=self.PLOT_FONTS['title'], ha='center', va='top',
+                fontweight='bold', color='#EEEEEE', zorder=20)
+
+        self._tire_rotation_deg = 0.0
+
+        # Collect dynamic artists
+        self._tire_dynamic = [
+            self._car_body, self._car_windshield, self._car_rearwindow,
+        ]
+        self._tire_dynamic.extend(self._hl_patches)
+        self._tire_dynamic.extend(self._tl_patches)
+        self._tire_dynamic.extend([
+            self._tire_Fy_line, self._tire_Fy_head, self._tire_Fy_label,
+            self._tire_Fx_line, self._tire_Fx_head, self._tire_Fx_label,
+            self._tire_sa_arc, self._tire_sa_label,
+            self._tire_speed_label,
+        ])
+        self._tire_dynamic.extend(self._tire_patches)
+        for treads in self._tire_tread_lines:
+            self._tire_dynamic.extend(treads)
+        self._tire_dynamic.extend(self._road_dashes)
+        self._tire_dynamic.extend(self._road_side_dashes_L)
+        self._tire_dynamic.extend(self._road_side_dashes_R)
+
+        # Blit setup for smooth playback
+        for art in self._tire_dynamic:
+            art.set_animated(True)
+        # Hide dynamic artists before capturing clean background
+        for art in self._tire_dynamic:
+            art.set_visible(False)
+        self._tire_canvas.draw()
+        self._tire_blit_bg = self._tire_canvas.copy_from_bbox(
+            self._tire_fig.bbox)
+        # Restore visibility and draw dynamic artists on top
+        for art in self._tire_dynamic:
+            art.set_visible(True)
+            try:
+                art.axes.draw_artist(art)
+            except Exception:
+                pass
+        self._tire_canvas.blit(self._tire_fig.bbox)
+        # Resize handler to recapture blit background
+        self._tire_canvas.mpl_connect('resize_event',
+                                       lambda e: self._recapture_tire_blit_bg())
+
+    def _recapture_tire_blit_bg(self):
+        """Recapture tire animation blit background after resize."""
+        if not hasattr(self, '_tire_dynamic'):
+            return
+        for art in self._tire_dynamic:
+            art.set_visible(False)
+        self._tire_canvas.draw()
+        self._tire_blit_bg = self._tire_canvas.copy_from_bbox(
+            self._tire_fig.bbox)
+        for art in self._tire_dynamic:
+            art.set_visible(True)
+            try:
+                art.axes.draw_artist(art)
+            except Exception:
+                pass
+        self._tire_canvas.blit(self._tire_fig.bbox)
+
+    def _update_tire_animation(self, sa_deg, Fy, Fz, Fx=0.0, vc=16.67):
+        """Racing game: car + 4 tires, treadmill road, front-wheel steering."""
+        tw = self._tire_w
+        th = self._tire_h
+        car_h = self._car_h
+
+        # ── 1) Treadmill road scroll (speed proportional to vc) ──
+        road_speed = np.clip(vc / 16.67, 0.05, 5.0) * 0.22
+        self._road_phase += road_speed
+        dash_spacing = 1.2
+        total_span = dash_spacing * 12
+        # Center yellow dashes
+        for i, line in enumerate(self._road_dashes):
+            y0 = -6.0 + i * dash_spacing - (self._road_phase % dash_spacing)
+            if y0 < -6.0:
+                y0 += total_span
+            line.set_data([0, 0], [y0, y0 + 0.6])
+        # Lane boundary dashes
+        for i in range(len(self._road_side_dashes_L)):
+            y0 = -6.0 + i * dash_spacing - (self._road_phase % dash_spacing)
+            if y0 < -6.0:
+                y0 += total_span
+            self._road_side_dashes_L[i].set_data([-1.25, -1.25], [y0, y0 + 0.4])
+            self._road_side_dashes_R[i].set_data([1.25, 1.25], [y0, y0 + 0.4])
+
+        # ── 2) Car yaw from front-wheel steering (bicycle model) ──
+        # Front wheels steer → car body follows with delay
+        steer_angle = -sa_deg  # steering input
+        target_yaw = steer_angle * 0.8  # car yaw is fraction of steer
+        alpha_smooth = 0.18
+        self._tire_rotation_deg += alpha_smooth * (target_yaw - self._tire_rotation_deg)
+        yaw_rad = np.radians(self._tire_rotation_deg)
+        cos_r = np.cos(yaw_rad)
+        sin_r = np.sin(yaw_rad)
+
+        def _rot(pts):
+            """Rotate Nx2 array of points around origin."""
+            R = np.array([[cos_r, -sin_r], [sin_r, cos_r]])
+            return pts @ R.T
+
+        def _rot1(x, y):
+            return x * cos_r - y * sin_r, x * sin_r + y * cos_r
+
+        # Lateral drift (from cornering force, not steering directly)
+        fy_norm = np.clip(Fy / max(Fz, 1.0), -1, 1) if Fz > 0 else 0
+        lat_shift = fy_norm * 0.5
+        cx, cy = lat_shift, 0.0
+
+        # ── 3) Rotate all car body polygons ──
+        body_rot = _rot(self._car_body_base) + [cx, cy]
+        self._car_body.set_xy(body_rot)
+        self._car_windshield.set_xy(_rot(self._ws_base) + [cx, cy])
+        self._car_rearwindow.set_xy(_rot(self._rw_base) + [cx, cy])
+        for base, patch in zip(self._hl_base, self._hl_patches):
+            patch.set_xy(_rot(base) + [cx, cy])
+        for base, patch in zip(self._tl_base, self._tl_patches):
+            patch.set_xy(_rot(base) + [cx, cy])
+
+        # ── 4) Tires: front steer, rear fixed to body ──
+        front_steer_extra = np.radians(-sa_deg * 0.6)
+        self._tire_tread_phase += np.clip(vc / 16.67, 0.05, 5.0) * 0.18
+        tread_spacing_t = (th - 0.20) / 2
+
+        for ti, (tx0, ty0) in enumerate(self._tire_positions):
+            is_front = ti < 2
+            # Tire center in car-rotated frame
+            rx, ry = _rot1(tx0, ty0)
+            tcx, tcy = rx + cx, ry + cy
+
+            # For front tires, add extra steer rotation to the tire polygon
+            if is_front:
+                t_rad = yaw_rad + front_steer_extra
+            else:
+                t_rad = yaw_rad
+            cos_t = np.cos(t_rad)
+            sin_t = np.sin(t_rad)
+
+            # Tire rectangle vertices (local to tire center)
+            local_v = self._tire_base_verts[ti] - [tx0, ty0]
+            R_t = np.array([[cos_t, -sin_t], [sin_t, cos_t]])
+            rotated_v = local_v @ R_t.T + [tcx, tcy]
+            self._tire_patches[ti].set_xy(rotated_v)
+
+            # Tread marks
+            phase_off = (self._tire_tread_phase * tread_spacing_t) % tread_spacing_t
+            for j, ln in enumerate(self._tire_tread_lines[ti]):
+                yoff = -th / 2 + 0.10 + j * tread_spacing_t + phase_off
+                if yoff > th / 2 - 0.06:
+                    yoff -= (th - 0.20) + tread_spacing_t
+                # Tread line endpoints in local tire frame, then rotate
+                p1 = np.array([-tw / 2 + 0.03, yoff])
+                p2 = np.array([tw / 2 - 0.03, yoff])
+                rp1 = R_t @ p1 + [tcx, tcy]
+                rp2 = R_t @ p2 + [tcx, tcy]
+                ln.set_data([rp1[0], rp2[0]], [rp1[1], rp2[1]])
+
+        # ── 5) SA arc at front of car ──
+        if abs(sa_deg) > 0.3:
+            front_y = car_h / 2 + 0.2
+            arc_cx_r, arc_cy_r = _rot1(0, front_y)
+            ac_x, ac_y = arc_cx_r + cx, arc_cy_r + cy
+            arc_r = 1.2
+            a_start = np.pi / 2
+            a_end = np.pi / 2 - yaw_rad
+            t_arc = np.linspace(a_start, a_end, 20)
+            self._tire_sa_arc.set_data(arc_r * np.cos(t_arc) + ac_x,
+                                        arc_r * np.sin(t_arc) + ac_y)
+            self._tire_sa_arc.set_visible(True)
+            mid_a = (a_start + a_end) / 2
+            self._tire_sa_label.set_position(
+                ((arc_r + 0.2) * np.cos(mid_a) + ac_x,
+                 (arc_r + 0.2) * np.sin(mid_a) + ac_y))
+            self._tire_sa_label.set_text(f'{sa_deg:+.1f}°')
+            self._tire_sa_label.set_visible(True)
+        else:
+            self._tire_sa_arc.set_visible(False)
+            self._tire_sa_label.set_visible(False)
+
+        # ── 6) Lateral force arrow (line + marker) ──
+        if abs(Fy) > 10 and Fz > 0:
+            mu_y = Fy / max(Fz, 1.0)
+            arrow_len = np.clip(abs(mu_y) * 1.8, 0.25, 1.8)
+            px, py = _rot1(np.sign(Fy) * arrow_len, 0)
+            self._tire_Fy_line.set_data([cx, cx + px], [cy, cy + py])
+            self._tire_Fy_line.set_visible(True)
+            # Arrow head marker rotation
+            head_marker = '>' if Fy > 0 else '<'
+            self._tire_Fy_head.set_marker(head_marker)
+            self._tire_Fy_head.set_data([cx + px], [cy + py])
+            self._tire_Fy_head.set_visible(True)
+            self._tire_Fy_label.set_position(
+                (cx + px * 1.15, cy + py * 1.15 + 0.2))
+            self._tire_Fy_label.set_text(f'Fy {Fy:+.0f}N')
+            self._tire_Fy_label.set_visible(True)
+        else:
+            self._tire_Fy_line.set_visible(False)
+            self._tire_Fy_head.set_visible(False)
+            self._tire_Fy_label.set_visible(False)
+
+        # ── 7) Longitudinal force arrow (line + marker) ──
+        if abs(Fx) > 10 and Fz > 0:
+            mu_x = Fx / max(Fz, 1.0)
+            fx_len = np.clip(abs(mu_x) * 1.5, 0.25, 1.5)
+            fwd_x, fwd_y = _rot1(0, np.sign(Fx) * fx_len)
+            boff = car_h / 2 + 0.15
+            bx, by = _rot1(0, boff * np.sign(Fx))
+            sx, sy = cx + bx, cy + by
+            ex, ey = sx + fwd_x, sy + fwd_y
+            self._tire_Fx_line.set_data([sx, ex], [sy, ey])
+            self._tire_Fx_line.set_visible(True)
+            head_mk = '^' if Fx > 0 else 'v'
+            self._tire_Fx_head.set_marker(head_mk)
+            self._tire_Fx_head.set_data([ex], [ey])
+            self._tire_Fx_head.set_visible(True)
+            self._tire_Fx_label.set_position((ex + 0.15, ey))
+            self._tire_Fx_label.set_text(f'Fx {Fx:+.0f}N')
+            self._tire_Fx_label.set_visible(True)
+        else:
+            self._tire_Fx_line.set_visible(False)
+            self._tire_Fx_head.set_visible(False)
+            self._tire_Fx_label.set_visible(False)
+
+        # ── 7) HUD ──
+        self._tire_speed_label.set_text(
+            f'SA {sa_deg:+5.1f}°\nFy {Fy:+6.0f}N\nFx {Fx:+6.0f}N')
+
+        # Fast blit render if available, else fallback to draw_idle
+        if self._tire_blit_bg is not None:
+            self._tire_canvas.restore_region(self._tire_blit_bg)
+            for art in self._tire_dynamic:
+                try:
+                    art.axes.draw_artist(art)
+                except Exception:
+                    pass
+            self._tire_canvas.blit(self._tire_fig.bbox)
+        else:
+            self._tire_canvas.draw_idle()
+
+    # ── 2D Brush: Persistent artist initialization ──
+
+    def _brush_init_artists(self):
+        """Create persistent pcolormesh / quiver artists for fast frame updates.
+
+        Called once after simulation, before first frame display.
+        Subsequent frames only update data arrays — no ax.clear().
+
+        Colorbar axes are created once on the first run, then reused via cax=
+        on subsequent runs to prevent cumulative width shrinkage.
+        """
+        from matplotlib.patches import Ellipse as MplEllipse, Patch, FancyArrowPatch
+        from matplotlib.colors import ListedColormap, BoundaryNorm
+        import matplotlib.cm as mcm
+        from matplotlib.ticker import FuncFormatter
+        import matplotlib.patheffects as PathEffects
+
+        # Inset colorbars: always recreate (they don't steal axis space)
+        # Remove old inset colorbar axes to prevent duplicates
+        if hasattr(self, '_br_cbar_axes') and self._br_cbar_axes:
+            for cax in self._br_cbar_axes.values():
+                try:
+                    cax.remove()
+                except Exception:
+                    pass
+        _reuse_cax = False  # always fresh inset colorbars
+        self._br_cbar_axes = None
+
+        # Restore original axis positions from GridSpec
+        if hasattr(self, '_br_original_ax_positions'):
+            for ax_name, pos in self._br_original_ax_positions.items():
+                ax = getattr(self, ax_name, None)
+                if ax is not None:
+                    ax.set_position(pos)
+
+        x_mm = self._brush_x_mm
+        y_mm = self._brush_y_mm
+        L_mm = self._brush_L_mm
+        W_mm = self._brush_W_mm
+        mask = self._brush_ellipse_mask
+        mask_fill = getattr(self, '_brush_fill_mask', mask)  # expanded for gap-free fill
+        gr = self._br_global_ranges
+
+        # ── Common helpers ──
+        _cb_kw = dict(fraction=0.046, pad=0.04)
+
+        # Axis extent: additive margin so footprint size changes are visible
+        # (multiplicative margin makes contour fill same proportion regardless of size)
+        _AX_MARGIN_MM = 30.0  # fixed margin in mm around footprint
+        _AX_X_HALF = L_mm / 2 + _AX_MARGIN_MM
+        _AX_Y_HALF = W_mm / 2 + _AX_MARGIN_MM
+
+        def _setup_ax(ax, title, has_colorbar_space=False):
+            ax.set_title(title, fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+            ax.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['title'])
+            ax.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['title'])
+            # Use footprint-proportional axis limits to prevent white gaps
+            ax.set_xlim(-_AX_X_HALF, _AX_X_HALF)
+            ax.set_ylim(-_AX_Y_HALF, _AX_Y_HALF)
+            ax.tick_params(labelsize=self.PLOT_FONTS['legend_sm'])
+
+        def _add_contact_outline(ax):
+            """Add a contact patch outline that can be updated per-frame.
+
+            Returns a Polygon patch whose vertices will be updated in
+            _brush_show_frame() based on current SA to show asymmetric shape.
+            Uses _egg_outline (single source of truth) for correct initial shape.
+            """
+            from matplotlib.patches import Polygon as MplPolygon
+            # Use egg_outline for correct superellipse shape from the start
+            init_sa = self._brush_frames[0]['SA'] if self._brush_frames else 0
+            verts = self._egg_outline(init_sa, L_mm / 2, W_mm / 2)
+            poly = MplPolygon(verts, closed=True, fill=False,
+                              edgecolor='white', linewidth=2.5, zorder=5,
+                              path_effects=[
+                                  PathEffects.withStroke(linewidth=4.0,
+                                                         foreground='black')])
+            ax.add_patch(poly)
+            return poly
+
+        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+
+        def _make_cb(mappable, ax, cax_key, **extra_kw):
+            """Create INSET colorbar inside the plot axes (horizontal, bottom).
+            Reuses existing cax if available from a previous run."""
+            if _reuse_cax and cax_key in self._br_cbar_axes:
+                cax = self._br_cbar_axes[cax_key]
+                cax.clear()
+                cb = self.fig_brush.colorbar(mappable, cax=cax, **extra_kw)
+            else:
+                cax = inset_axes(ax, width="40%", height="3.5%",
+                                  loc='lower right', borderpad=1.5)
+                cb = self.fig_brush.colorbar(mappable, cax=cax,
+                                              orientation='horizontal',
+                                              **extra_kw)
+            cb.ax.tick_params(labelsize=self.PLOT_FONTS['legend_sm'], length=2, pad=1)
+            return cb
+
+        # Build mesh edges for pcolormesh (needs N+1 edges for N centers)
+        dx = x_mm[1] - x_mm[0] if len(x_mm) > 1 else 1.0
+        dy = y_mm[1] - y_mm[0] if len(y_mm) > 1 else 1.0
+        x_edges = np.concatenate([x_mm - dx / 2, [x_mm[-1] + dx / 2]])
+        y_edges = np.concatenate([y_mm - dy / 2, [y_mm[-1] + dy / 2]])
+
+        # NaN-masked base for outside-ellipse (transparent)
+        # Use expanded mask_fill so pcolormesh cells cover the full ellipse outline
+        nan_base = np.where(mask_fill, 0.0, np.nan)
+
+        # ── (1) sliding vs adhesion — pcolormesh with 2-color map ──
+        ax1 = self.ax_br_stick
+        ax1.clear()
+        ax1.set_facecolor('#E8E8E8')  # light gray background for contrast
+        cmap_sa = ListedColormap(['#2196F3', '#F44336'])
+        bounds_sa = [0, 0.5, 1.0]
+        norm_sa = BoundaryNorm(bounds_sa, cmap_sa.N)
+        init_data = np.where(mask_fill, 0.0, np.nan)
+        self._br_pm_stick = ax1.pcolormesh(
+            x_edges, y_edges, init_data.T, cmap=cmap_sa, norm=norm_sa,
+            shading='flat', zorder=1)
+        self._br_outline_patches = []  # collect all 5 outline patches
+        _outline1 = _add_contact_outline(ax1)
+        self._br_outline_patches.append(_outline1)
+        self._br_pm_stick.set_clip_path(_outline1)
+        # Direction arrow: friction force direction (opposite to translational slip)
+        # Use line+marker instead of annotate for reliable blit rendering
+        self._br_stick_arrow_line, = ax1.plot([], [], '-', color='white',
+                                               lw=3, zorder=6)
+        self._br_stick_arrow_head, = ax1.plot([], [], marker=(3, 0, 0),
+                                               color='white', markersize=14,
+                                               linestyle='', zorder=6)
+        self._br_stick_arrow_label = ax1.text(
+            0, W_mm * 0.42, '', fontsize=self.PLOT_FONTS['title'], ha='center',
+            va='bottom', color='white', fontweight='bold',
+            zorder=7)
+        self._br_stick_arrow_label.set_visible(False)
+        # Rolling direction arrow (green, longitudinal, permanent)
+        # Tire rolls in -x direction (left). Arrow placed at bottom of patch.
+        _roll_arrow_y = -W_mm * 0.55
+        ax1.annotate('', xy=(-L_mm * 0.35, _roll_arrow_y),
+                     xytext=(L_mm * 0.35, _roll_arrow_y),
+                     arrowprops=dict(arrowstyle='->', color='#00C853', lw=2.5,
+                                     mutation_scale=16),
+                     zorder=7)
+        ax1.text(0, _roll_arrow_y - W_mm * 0.08, '\u2190 Rolling Dir.',
+                 fontsize=self.PLOT_FONTS['title'], ha='center', va='top', color='#00C853',
+                 fontweight='bold', zorder=7)
+        # Legend
+        legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Stick (부착)'),
+                          Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Slip (미끄럼)')]
+        ax1.legend(handles=legend_patches, loc='upper right', fontsize=self.PLOT_FONTS['label'],
+                   framealpha=0.9, edgecolor='#999',
+                   bbox_to_anchor=(0.98, 0.98), borderaxespad=0,
+                   handlelength=2.5, handletextpad=0.8, columnspacing=1.5)
+        _setup_ax(ax1, 'sliding vs adhesion')
+        # No dummy colorbar needed — inset colorbars don't steal axis space
+
+        # ── Shared discrete level count for consistent region labeling ──
+        n_levels = 8
+
+        # ── (2) sliding speed — quiver arrows ONLY (no color fill) ──
+        ax2 = self.ax_br_speed
+        ax2.clear()
+        ax2.set_facecolor('#FFFFFF')
+        _outline2 = _add_contact_outline(ax2)
+        self._br_outline_patches.append(_outline2)
+        # Quiver grid
+        step_x = max(1, len(x_mm) // 18)
+        step_y = max(1, len(y_mm) // 9)
+        self._br_speed_step = (step_x, step_y)
+        xx_q, yy_q = np.meshgrid(x_mm[::step_x], y_mm[::step_y], indexing='ij')
+        mask_q = mask[::step_x, ::step_y]
+        self._br_speed_mask_q = mask_q
+        self._br_speed_xx_q = xx_q
+        self._br_speed_yy_q = yy_q
+        sp_lo, sp_hi = gr['speed']
+        # Discrete levels for speed (matching friction level count)
+        sp_boundaries = np.linspace(sp_lo, max(sp_hi, 0.01), n_levels + 1)
+        sp_cmap = plt.colormaps['jet'].resampled(n_levels)
+        sp_norm = BoundaryNorm(sp_boundaries, sp_cmap.N)
+        # Flatten for masked quiver
+        u_init = np.zeros_like(xx_q)
+        v_init = np.zeros_like(xx_q)
+        mag_init = np.zeros_like(xx_q)
+        self._br_quiver_speed = ax2.quiver(
+            xx_q[mask_q], yy_q[mask_q], u_init[mask_q], v_init[mask_q],
+            mag_init[mask_q],
+            cmap=sp_cmap, clim=(sp_lo, max(sp_hi, 0.01)), norm=sp_norm,
+            scale=max(sp_hi * 8.0, 0.1), headwidth=4, headlength=5, headaxislength=4,
+            linewidth=0.6, alpha=0.9, zorder=3)
+        self._cb_br_speed = _make_cb(self._br_quiver_speed, ax2, 'speed')
+        self._cb_br_speed.set_label('m/s', fontsize=self.PLOT_FONTS['legend'])
+        sp_centers = 0.5 * (sp_boundaries[:-1] + sp_boundaries[1:])
+        self._cb_br_speed.set_ticks(sp_centers[::2])
+        self._cb_br_speed.set_ticklabels([f'{v:.1f}' for v in sp_centers[::2]])
+        _setup_ax(ax2, 'sliding speed')
+
+        # ── (3) contact pressure — pcolormesh with discrete levels ──
+        ax3 = self.ax_br_pressure
+        ax3.clear()
+        ax3.set_facecolor('#E8E8E8')  # light gray background for contrast
+        pr_lo, pr_hi = gr['pressure']
+        pr_boundaries = np.linspace(pr_lo, pr_hi, n_levels + 1)
+        pr_cmap = plt.colormaps['jet'].resampled(n_levels)
+        pr_norm = BoundaryNorm(pr_boundaries, pr_cmap.N)
+        self._br_pm_pres = ax3.pcolormesh(
+            x_edges, y_edges, np.where(mask_fill, 0.0, np.nan).T,
+            cmap=pr_cmap, norm=pr_norm, shading='flat', zorder=1)
+        _outline3 = _add_contact_outline(ax3)
+        self._br_outline_patches.append(_outline3)
+        self._br_pm_pres.set_clip_path(_outline3)
+        self._cb_br_pres = _make_cb(self._br_pm_pres, ax3, 'pressure')
+        self._cb_br_pres.set_label('bar', fontsize=self.PLOT_FONTS['legend'])
+        pr_centers = 0.5 * (pr_boundaries[:-1] + pr_boundaries[1:])
+        self._cb_br_pres.set_ticks(pr_centers[::2])
+        self._cb_br_pres.set_ticklabels([f'{v:.1f}' for v in pr_centers[::2]])
+        _setup_ax(ax3, 'contact pressure [bar]')
+
+        # ── (4) temperature — pcolormesh with discrete levels ──
+        ax4 = self.ax_br_temperature
+        ax4.clear()
+        ax4.set_facecolor('#E8E8E8')  # light gray background for contrast
+        t_lo, t_hi = gr['temperature']
+        t_boundaries = np.linspace(t_lo, t_hi, n_levels + 1)
+        t_cmap = plt.colormaps['jet'].resampled(n_levels)
+        t_norm = BoundaryNorm(t_boundaries, t_cmap.N)
+        self._br_pm_temp = ax4.pcolormesh(
+            x_edges, y_edges, np.where(mask_fill, 25.0, np.nan).T,
+            cmap=t_cmap, norm=t_norm, shading='flat', zorder=1)
+        _outline4 = _add_contact_outline(ax4)
+        self._br_outline_patches.append(_outline4)
+        self._br_pm_temp.set_clip_path(_outline4)
+        self._cb_br_temp = _make_cb(self._br_pm_temp, ax4, 'temperature')
+        self._cb_br_temp.set_label('\u00b0C', fontsize=self.PLOT_FONTS['legend'])
+        t_centers = 0.5 * (t_boundaries[:-1] + t_boundaries[1:])
+        self._cb_br_temp.set_ticks(t_centers[::2])
+        self._cb_br_temp.set_ticklabels([f'{v:.1f}' for v in t_centers[::2]])
+        _setup_ax(ax4, 'temperature [\u00b0C]')
+
+        # ── (5) friction force — pcolormesh with indexed discrete levels ──
+        ax5 = self.ax_br_friction
+        ax5.clear()
+        ax5.set_facecolor('#E8E8E8')  # light gray background for contrast
+        f_lo, f_hi = gr['friction']
+        fric_boundaries = np.linspace(f_lo, f_hi, n_levels + 1)
+        fric_cmap = plt.colormaps['jet'].resampled(n_levels)
+        fric_norm = BoundaryNorm(fric_boundaries, fric_cmap.N)
+        self._br_pm_fric = ax5.pcolormesh(
+            x_edges, y_edges, np.where(mask_fill, 0.0, np.nan).T,
+            cmap=fric_cmap, norm=fric_norm, shading='flat', zorder=1)
+        _outline5 = _add_contact_outline(ax5)
+        self._br_outline_patches.append(_outline5)
+        self._br_pm_fric.set_clip_path(_outline5)
+        self._cb_br_fric = _make_cb(self._br_pm_fric, ax5, 'friction')
+        self._cb_br_fric.set_label('N/node', fontsize=self.PLOT_FONTS['legend'])
+        fric_centers = 0.5 * (fric_boundaries[:-1] + fric_boundaries[1:])
+        self._cb_br_fric.set_ticks(fric_centers[::2])
+        self._cb_br_fric.set_ticklabels([f'{v:.0e}' for v in fric_centers[::2]])
+        _setup_ax(ax5, 'friction force')
+
+        # ── Real-time Fy / Fx text labels on friction force plot ──
+        self._br_fric_fy_text = ax5.text(
+            0.02, 0.98, '', transform=ax5.transAxes,
+            fontsize=self.PLOT_FONTS['label'], fontweight='bold', color='#1565C0',
+            va='top', ha='left', zorder=10,
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
+                      edgecolor='#1565C0', alpha=0.85))
+        self._br_fric_fx_text = ax5.text(
+            0.02, 0.88, '', transform=ax5.transAxes,
+            fontsize=self.PLOT_FONTS['label'], fontweight='bold', color='#C62828',
+            va='top', ha='left', zorder=10,
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='white',
+                      edgecolor='#C62828', alpha=0.85))
+
+        # ── Save colorbar axes for reuse on subsequent runs ──
+        if not _reuse_cax:
+            self._br_cbar_axes = {
+                'speed': self._cb_br_speed.ax,
+                'pressure': self._cb_br_pres.ax,
+                'temperature': self._cb_br_temp.ax,
+                'friction': self._cb_br_fric.ax,
+            }
+            self._br_cbar_ax_positions = {
+                key: cax.get_position().frozen()
+                for key, cax in self._br_cbar_axes.items()
+            }
+            # Save main axes positions AFTER colorbar creation (final layout)
+            self._br_final_ax_positions = {}
+            for ax_name in ('ax_br_stick', 'ax_br_speed', 'ax_br_pressure',
+                            'ax_br_temperature', 'ax_br_friction'):
+                ax = getattr(self, ax_name, None)
+                if ax is not None:
+                    self._br_final_ax_positions[ax_name] = ax.get_position().frozen()
+
+        self._br_artists_ready = True
+
+        # ── Blit setup: list dynamic artists, then cache CLEAN background ──
+        self._br_dynamic_artists = [
+            self._br_pm_stick, self._br_pm_pres, self._br_pm_temp,
+            self._br_pm_fric, self._br_quiver_speed,
+            self._br_stick_arrow_line, self._br_stick_arrow_head,
+            self._br_stick_arrow_label,
+            self._br_fric_fy_text, self._br_fric_fx_text,
+        ]
+        # Outlines
+        self._br_dynamic_artists.extend(self._br_outline_patches)
+        # Time-history cursors and markers
+        for attr in ('_br_cursor_in', '_br_cursor_ft',
+                     '_br_marker_sa', '_br_marker_sr',
+                     '_br_marker_fy', '_br_marker_fx',
+                     '_br_cursor_fy_sa', '_br_cursor_fx_sr',
+                     '_br_marker_fy_sa', '_br_marker_fx_sr'):
+            a = getattr(self, attr, None)
+            if a is not None:
+                self._br_dynamic_artists.append(a)
+
+        # Hide all dynamic artists → draw clean background → cache → restore
+        _vis_states = []
+        for a in self._br_dynamic_artists:
+            _vis_states.append(a.get_visible())
+            a.set_visible(False)
+        self.canvas_brush.draw()
+        self._br_blit_bg = self.canvas_brush.copy_from_bbox(
+            self.fig_brush.bbox)
+        for a, vis in zip(self._br_dynamic_artists, _vis_states):
+            a.set_visible(vis)
+        self._br_use_blit = True
+
+    # ── 2D Brush: Frame display ──
+
+    def _brush_show_frame(self, idx):
+        """Display a single frame — fast update using set_array / set_UVC."""
+        if not self._brush_frames or idx >= len(self._brush_frames):
+            return
+
+        # Initialize persistent artists on first call
+        if not getattr(self, '_br_artists_ready', False):
+            self._brush_init_artists()
+
+        f = self._brush_frames[idx]
+        # Use per-frame deformed mask (falls back to ellipse for old data)
+        mask = f.get('_contact_mask', self._brush_ellipse_mask)
+        # Use pre-computed dilated mask (fast path) or compute on demand
+        mask_fill = f.get('_mask_fill', None)
+        if mask_fill is None:
+            _cached_key = id(mask)
+            if getattr(self, '_br_mask_fill_cache_key', None) != _cached_key:
+                from scipy.ndimage import binary_dilation
+                self._br_mask_fill_cached = binary_dilation(mask, iterations=2)
+                self._br_mask_fill_cache_key = _cached_key
+            mask_fill = self._br_mask_fill_cached
+
+        # Update frame label
+        t_val = f['t']
+        self.br_frame_label_var.set(
+            f"t = {t_val:.2f} s  ({idx + 1}/{len(self._brush_frames)})  "
+            f"SA={f['SA']:.1f}°  SR={f['SR']:.1f}%")
+
+        # Update cursors and position markers on time-history plots
+        if hasattr(self, '_br_cursor_in'):
+            self._br_cursor_in.set_xdata([t_val, t_val])
+        if hasattr(self, '_br_cursor_ft'):
+            self._br_cursor_ft.set_xdata([t_val, t_val])
+        if hasattr(self, '_br_marker_sa'):
+            self._br_marker_sa.set_data([t_val], [f['SA']])
+        if hasattr(self, '_br_marker_sr'):
+            self._br_marker_sr.set_data([t_val], [f['SR']])
+        if hasattr(self, '_br_marker_fy'):
+            self._br_marker_fy.set_data([t_val], [f['Fy']])
+        if hasattr(self, '_br_marker_fx'):
+            self._br_marker_fx.set_data([t_val], [f['Fx']])
+
+        # ── (1) sliding vs adhesion — update pcolormesh ──
+        is_sl = f['is_sliding'].astype(float)
+        is_sl = np.where(mask_fill, is_sl, np.nan)
+        self._br_pm_stick.set_array(is_sl.T.ravel())
+        # Update direction arrow (friction force = opposite of translational slip)
+        v_tx = f.get('v_trans_x', None)
+        v_ty = f.get('v_trans_y', None)
+        L_mm = self._brush_L_mm
+        W_mm = self._brush_W_mm
+        if v_tx is not None and v_ty is not None:
+            # Use translational slip only (no spin) for cleaner arrow direction
+            sliding_mask = f['is_sliding'] & mask
+            if np.any(sliding_mask):
+                mean_vx = np.mean(v_tx[sliding_mask])
+                mean_vy = np.mean(v_ty[sliding_mask])
+            else:
+                mean_vx = np.mean(v_tx[mask]) if np.any(mask) else 0
+                mean_vy = np.mean(v_ty[mask]) if np.any(mask) else 0
+            arrow_mag = np.sqrt(mean_vx**2 + mean_vy**2)
+            if arrow_mag > 1e-10:
+                arrow_scale = L_mm * 0.3
+                # Arrow points opposite to slip = friction force direction
+                dx_a = -arrow_scale * mean_vx / arrow_mag
+                dy_a = -arrow_scale * mean_vy / arrow_mag
+                self._br_stick_arrow_line.set_data([0, dx_a], [0, dy_a])
+                self._br_stick_arrow_line.set_visible(True)
+                # Rotate marker to point in arrow direction
+                angle_deg = np.degrees(np.arctan2(dy_a, dx_a))
+                self._br_stick_arrow_head.set_marker(
+                    (3, 0, angle_deg - 90))
+                self._br_stick_arrow_head.set_data([dx_a], [dy_a])
+                self._br_stick_arrow_head.set_visible(True)
+            else:
+                self._br_stick_arrow_line.set_visible(False)
+                self._br_stick_arrow_head.set_visible(False)
+        else:
+            self._br_stick_arrow_line.set_visible(False)
+            self._br_stick_arrow_head.set_visible(False)
+
+        # ── (2) sliding speed — update quiver arrows (straight, no spin curvature) ──
+        step_x, step_y = self._br_speed_step
+        mask_q = self._br_speed_mask_q
+        # Use translational-only velocity for arrow direction (no spin → all straight)
+        # Negate arrows: display friction force direction (opposite to slip velocity)
+        u_trans = -f['v_trans_x'][::step_x, ::step_y]
+        v_trans = -f['v_trans_y'][::step_x, ::step_y]
+        # Magnitude from total slip speed (including spin) for color
+        mag_q = f['v_slip_mag'][::step_x, ::step_y]
+        # Scale translational direction by local magnitude for arrow length
+        trans_mag = np.sqrt(u_trans**2 + v_trans**2) + 1e-15
+        u_q = u_trans / trans_mag * mag_q
+        v_q = v_trans / trans_mag * mag_q
+        u_f = u_q[mask_q]
+        v_f = v_q[mask_q]
+        mag_f = mag_q[mask_q]
+        sp_hi = self._br_global_ranges['speed'][1]
+        self._br_quiver_speed.set_UVC(u_f, v_f, mag_f)
+        self._br_quiver_speed.scale = max(sp_hi * 8.0, 0.1)
+
+        # ── (3) contact pressure — update pcolormesh ──
+        p_bar = np.where(mask_fill, f['p_map'] * 1e-5, np.nan)
+        self._br_pm_pres.set_array(p_bar.T.ravel())
+
+        # ── (4) temperature — update pcolormesh (°C) ──
+        T_C = np.where(mask_fill, f['T_contact'], np.nan)
+        self._br_pm_temp.set_array(T_C.T.ravel())
+
+        # ── (5) friction force — update pcolormesh ──
+        f_fric = np.where(mask_fill, f['F_friction'], np.nan)
+        self._br_pm_fric.set_array(f_fric.T.ravel())
+
+        # ── Update real-time Fy / Fx text on friction force plot ──
+        if hasattr(self, '_br_fric_fy_text'):
+            _fy_val = f.get('Fy', 0.0)
+            _fx_val = f.get('Fx', 0.0)
+            self._br_fric_fy_text.set_text(f'Fy = {_fy_val:+.1f} N')
+            self._br_fric_fx_text.set_text(f'Fx = {_fx_val:+.1f} N')
+
+        # ── Update contact patch outline based on SA ──
+        # Uses pre-computed outline vertices (same geometry as data mask).
+        # Direction convention (matches data):
+        # SA > 0 (right turn): wider at -y (loaded side), narrower at +y
+        # SA < 0 (left turn): wider at +y (loaded side), narrower at -y
+        if hasattr(self, '_br_outline_patches') and self._br_outline_patches:
+            outline_verts_m = f.get('_outline_verts', None)
+            if outline_verts_m is not None:
+                # Convert from meters to mm for display
+                new_verts = outline_verts_m * 1000.0
+            else:
+                # Fallback: use shared _egg_outline (single source of truth)
+                new_verts = self._egg_outline(f['SA'], L_mm / 2, W_mm / 2)
+            for poly in self._br_outline_patches:
+                poly.set_xy(new_verts)
+
+        # ── Steering wheel & tire animation update (left panel) ──
+        _is_playing = getattr(self, '_brush_playing', False)
+        # Steering wheel: update every frame (blit makes this fast enough)
+        self._update_left_steering_wheel(f['SA'])
+        # Tire racing view: every 2nd frame for smooth treadmill feel
+        if hasattr(self, '_tire_ax') and (not _is_playing or idx % 2 == 0):
+            Fz = float(self.br_Fz_var.get()) if self.br_Fz_var.get() else 4000.0
+            _vc = float(self.br_vc_var.get()) if self.br_vc_var.get() else 16.67
+            self._update_tire_animation(f['SA'], f['Fy'], Fz, Fx=f.get('Fx', 0.0), vc=_vc)
+
+        # ── Update Fy vs SA and Fx vs SR plots ──
+        if hasattr(self, '_br_cursor_fy_sa'):
+            self._br_cursor_fy_sa.set_xdata([f['SA'], f['SA']])
+        if hasattr(self, '_br_cursor_fx_sr'):
+            self._br_cursor_fx_sr.set_xdata([f['SR'], f['SR']])
+        if hasattr(self, '_br_marker_fy_sa'):
+            self._br_marker_fy_sa.set_data([f['SA']], [f['Fy']])
+        if hasattr(self, '_br_marker_fx_sr'):
+            self._br_marker_fx_sr.set_data([f['SR']], [f['Fx']])
+
+        # ── Fast render: blit if available, else full redraw ──
+        if getattr(self, '_br_use_blit', False) and self._br_blit_bg is not None:
+            canvas = self.canvas_brush
+            canvas.restore_region(self._br_blit_bg)
+            for artist in self._br_dynamic_artists:
+                try:
+                    artist.axes.draw_artist(artist)
+                except Exception:
+                    pass
+            canvas.blit(self.fig_brush.bbox)
+            # flush_events only every 4th frame to reduce overhead
+            if idx % 4 == 0:
+                canvas.flush_events()
+        else:
+            self.canvas_brush.draw_idle()
+
+    # ── 2D Brush: Playback controls ──
+
+    def _on_brush_slider_change(self, value):
+        """Handle slider change."""
+        if not self._brush_frames:
+            return
+        idx = int(float(value))
+        idx = max(0, min(idx, len(self._brush_frames) - 1))
+        self._brush_frame_idx = idx
+        self._brush_show_frame(idx)
+
+    def _brush_play(self):
+        """Start playback."""
+        if not self._brush_frames:
+            return
+        self._brush_playing = True
+        self._br_frame_accum = 0.0
+        self._br_last_anim_time = None  # reset time-based pacer
+        self._log('PLAYBACK', f'Brush playback started at frame {self._brush_frame_idx}/{len(self._brush_frames)}')
+        # Re-capture blit background if invalidated (e.g., after resize)
+        if not getattr(self, '_br_use_blit', False) and getattr(self, '_br_artists_ready', False):
+            try:
+                _vis_states = []
+                for a in self._br_dynamic_artists:
+                    _vis_states.append(a.get_visible())
+                    a.set_visible(False)
+                self.canvas_brush.draw()
+                self._br_blit_bg = self.canvas_brush.copy_from_bbox(
+                    self.fig_brush.bbox)
+                for a, vis in zip(self._br_dynamic_artists, _vis_states):
+                    a.set_visible(vis)
+                self._br_use_blit = True
+            except Exception:
+                self._br_use_blit = False
+        self._brush_animate()
+
+    def _brush_pause(self):
+        """Pause playback."""
+        self._brush_playing = False
+        if self._brush_play_after_id is not None:
+            self.root.after_cancel(self._brush_play_after_id)
+            self._brush_play_after_id = None
+        self._log('PLAYBACK', f'Brush playback paused at frame {self._brush_frame_idx}')
+
+    def _brush_reset(self):
+        """Reset to first frame."""
+        self._brush_pause()
+        self._brush_frame_idx = 0
+        self.br_time_slider.set(0)
+        if self._brush_frames:
+            self._brush_show_frame(0)
+
+    def _on_brush_speed_slider(self, value=None):
+        """Update speed label when slider moves."""
+        mult = self._br_speed_mult.get()
+        self._br_speed_label_var.set(f"재생 속도: {mult:.1f}x")
+
+    def _refresh_outline_and_blit_bg(self):
+        """Update outlines + re-clip pcolormesh + recapture blit background."""
+        if not self._brush_frames or not hasattr(self, '_br_outline_patches'):
+            return
+        f = self._brush_frames[self._brush_frame_idx]
+        L_mm = self._brush_L_mm
+        W_mm = self._brush_W_mm
+        new_verts = self._egg_outline(f['SA'], L_mm / 2, W_mm / 2)
+        for poly in self._br_outline_patches:
+            poly.set_xy(new_verts)
+        # Re-clip pcolormesh to updated outline
+        for pm, poly in zip(
+                [self._br_pm_stick, self._br_pm_pres,
+                 self._br_pm_temp, self._br_pm_fric],
+                [self._br_outline_patches[0]] + self._br_outline_patches[2:]):
+            try:
+                pm.set_clip_path(poly)
+            except Exception:
+                pass
+        # Recapture clean blit background (hide dynamic → draw → cache → show)
+        if getattr(self, '_br_use_blit', False):
+            _vis = []
+            for a in self._br_dynamic_artists:
+                _vis.append(a.get_visible())
+                a.set_visible(False)
+            self.canvas_brush.draw()
+            self._br_blit_bg = self.canvas_brush.copy_from_bbox(
+                self.fig_brush.bbox)
+            for a, v in zip(self._br_dynamic_artists, _vis):
+                a.set_visible(v)
+        else:
+            self.canvas_brush.draw()
+
+    def _on_footprint_change(self):
+        """Live-update contour axes when footprint L/W is changed in UI."""
+        if not getattr(self, '_br_artists_ready', False):
+            return
+        try:
+            L_new = float(self.br_L_var.get()) * 1000  # m → mm
+            W_new = float(self.br_W_var.get()) * 1000
+        except (ValueError, AttributeError):
+            return
+        if L_new <= 0 or W_new <= 0:
+            return
+
+        # Update stored footprint dimensions so outline and axes stay in sync
+        self._brush_L_mm = L_new
+        self._brush_W_mm = W_new
+
+        margin_mm = 30.0  # fixed additive margin (same as _brush_init_artists)
+        xh = L_new / 2 + margin_mm
+        yh = W_new / 2 + margin_mm
+        for ax_name in ('ax_br_stick', 'ax_br_speed', 'ax_br_pressure',
+                        'ax_br_temperature', 'ax_br_friction'):
+            ax = getattr(self, ax_name, None)
+            if ax is not None:
+                ax.set_xlim(-xh, xh)
+                ax.set_ylim(-yh, yh)
+
+        # Update outline polygons to preview new footprint shape
+        if hasattr(self, '_br_outline_patches') and self._brush_frames:
+            f = self._brush_frames[self._brush_frame_idx]
+            new_verts = self._egg_outline(f['SA'], L_new / 2, W_new / 2)
+            for poly in self._br_outline_patches:
+                poly.set_xy(new_verts)
+
+        if getattr(self, '_br_use_blit', False):
+            _vis = []
+            for a in self._br_dynamic_artists:
+                _vis.append(a.get_visible())
+                a.set_visible(False)
+            self.canvas_brush.draw()
+            self._br_blit_bg = self.canvas_brush.copy_from_bbox(
+                self.fig_brush.bbox)
+            for a, v in zip(self._br_dynamic_artists, _vis):
+                a.set_visible(v)
+            # Redraw current frame
+            if self._brush_frames:
+                self._brush_show_frame(self._brush_frame_idx)
+        else:
+            self.canvas_brush.draw_idle()
+
+    def _on_egg_k_slider(self, value=None):
+        """Update egg shape constant from slider (live preview on current frame)."""
+        k = self._br_egg_k_var.get()
+        type(self)._EGG_K_MAX = k
+        self._br_egg_label_var.set(f"접지면 변형 (K): {k:.2f}")
+        self._refresh_outline_and_blit_bg()
+
+    def _on_ellipse_power_slider(self, value=None):
+        """Update superellipse exponent from slider (live preview)."""
+        n = self._br_ellipse_power_var.get()
+        type(self)._ELLIPSE_POWER = n
+        self._br_ellipse_power_label_var.set(f"타원 형상 (n): {n:.1f}")
+        self._refresh_outline_and_blit_bg()
+
+    def _brush_animate(self):
+        """Advance frames — time-based for smooth ~120Hz playback.
+
+        All frame data is pre-computed; this only updates visual artists.
+        Uses 8ms timer (~120Hz) with time-based frame advancement and
+        interpolation to ensure smooth, consistent playback regardless
+        of system timer resolution.
+        """
+        if not self._brush_playing or not self._brush_frames:
+            return
+
+        import time as _time
+        now = _time.perf_counter()
+        n = len(self._brush_frames)
+
+        mult = getattr(self, '_br_speed_mult', None)
+        speed = mult.get() if mult is not None else 1.0
+
+        # Time-based frame advancement: compute how many frames to skip
+        # based on elapsed wall-clock time since last render.
+        last_t = getattr(self, '_br_last_anim_time', None)
+        if last_t is None:
+            # First tick — just show current frame and record time
+            self._br_last_anim_time = now
+            self._brush_show_frame(self._brush_frame_idx)
+            self._brush_play_after_id = self.root.after(8, self._brush_animate)
+            return
+
+        dt_wall = now - last_t
+        # Target: 1 frame per dt_out seconds (simulation time step)
+        dt_out = getattr(self, '_brush_t_out', None)
+        if dt_out is not None and len(dt_out) > 1:
+            dt_sim = dt_out[1] - dt_out[0]
+        else:
+            dt_sim = 1.0 / 60.0  # fallback 60fps
+
+        # How many simulation frames should have passed
+        frames_due = dt_wall * speed / max(dt_sim, 1e-6)
+        acc = getattr(self, '_br_frame_accum', 0.0) + frames_due
+        frame_skip = int(acc)
+        self._br_frame_accum = acc - frame_skip
+
+        if frame_skip < 1:
+            # Not enough time elapsed — schedule next tick at ~120Hz
+            self._brush_play_after_id = self.root.after(8, self._brush_animate)
+            return
+
+        self._br_last_anim_time = now
+        self._brush_frame_idx += frame_skip
+        if self._brush_frame_idx >= n:
+            self._brush_frame_idx = 0  # loop
+
+        # Update time slider infrequently to reduce widget overhead
+        if self._brush_frame_idx % 4 == 0:
+            self.br_time_slider.set(self._brush_frame_idx)
+
+        self._brush_show_frame(self._brush_frame_idx)
+
+        # Compute time until next frame at ~120Hz target
+        render_time = _time.perf_counter() - now
+        target_interval_ms = 8  # ~120Hz
+        next_delay = max(1, target_interval_ms - int(render_time * 1000))
+        self._brush_play_after_id = self.root.after(next_delay, self._brush_animate)
+
+    # ── 2D Brush: Plot update (legacy, for backward compat) ──
+
+    def _update_brush_plots(self):
+        """Redirect to frame display if transient data available."""
+        if self._brush_frames:
+            self._brush_show_frame(self._brush_frame_idx)
+        elif self.brush_results is not None:
+            pass  # Legacy results no longer displayed in new layout
 
     # ── 2D Brush: Result text ──
 
     def _update_brush_result_text(self):
         """Update result summary text for 2D Brush model."""
         if self.brush_results is None:
+            return
+        if not hasattr(self, 'br_result_text'):
             return
 
         r = self.brush_results
@@ -23152,6 +29626,7 @@ class PerssonModelGUI_V2:
 
         filepath = filedialog.asksaveasfilename(
             defaultextension='.csv',
+            initialfile=self._make_export_filename("brush_model_2D"),
             filetypes=[('CSV files', '*.csv')],
             title='2D Brush Model 결과 내보내기')
         if not filepath:
@@ -23185,6 +29660,2073 @@ class PerssonModelGUI_V2:
 
 
     # ================================================================
+
+    # ================================================================
+
+    # ================================================================
+    # ====  Track Simulation (영암 서킷 랩타임 시뮬레이션) Tab  ====
+    # ================================================================
+
+    def _create_track_simulation_tab(self, parent):
+        """Track Simulation tab — Yeongam F1 circuit.
+
+        2x2 grid layout (matching attachment 4):
+          Left-top: Track map | Right-top: Steering wheel + Car view
+          Left-bottom: 5 footprint contour plots | Right-bottom: Fy vs SA + Fy vs Distance
+        Contour plots match 2D Brush Model tab exactly (colormaps, colorbars, outlines, legends).
+        """
+        import numpy as np
+        from matplotlib.figure import Figure as _Fig
+        from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg as _FCA
+        from matplotlib.backends.backend_tkagg import NavigationToolbar2Tk
+        from matplotlib.gridspec import GridSpec
+
+        # ── State ──
+        self._track_sim_data = None
+        self._track_playing = False
+        self._track_frame_idx = 0
+        self._track_play_after_id = None
+        self._ts_tire_rotation_deg = 0.0
+        self._ts_road_phase = 0.0
+        self._ts_tire_tread_phase = 0.0
+        self._ts_frame_accum = 0.0
+        self._ts_map_blit_bg = None
+        self._ts_contour_blit_bg = None
+        self._ts_use_blit = False
+
+        # ===================== 2-column layout: controls | visualization =====================
+        D = self.DIMS
+        C = self.COLORS
+
+        main = ttk.Frame(parent)
+        main.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
+
+        # ── Left (fixed width, scrollable controls) ──
+        left = ttk.Frame(main, width=D['panel_width'])
+        left.pack(side=tk.LEFT, fill=tk.Y, padx=(0, 4))
+        left.pack_propagate(False)
+        self._add_logo_to_panel(left)
+        self._create_panel_toolbar(left, buttons=[
+            ("랩 시뮬레이션 실행", self._run_track_simulation, 'Accent.TButton'),
+        ])
+        scroll_canvas = tk.Canvas(left, highlightthickness=0, bg=C['bg'])
+        scrollbar = ttk.Scrollbar(left, orient='vertical',
+                                  command=scroll_canvas.yview)
+        left_panel = ttk.Frame(scroll_canvas)
+        left_panel.bind('<Configure>',
+                        lambda e: scroll_canvas.configure(
+                            scrollregion=scroll_canvas.bbox('all')))
+        _cw_id = scroll_canvas.create_window(
+            (0, 0), window=left_panel, anchor='nw',
+            width=D['panel_width'] - 18)
+        scroll_canvas.configure(yscrollcommand=scrollbar.set)
+        scroll_canvas.bind('<Configure>',
+                           lambda e, _c=scroll_canvas, _id=_cw_id:
+                               _c.itemconfigure(_id, width=e.width))
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        scroll_canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        def _on_mw(event):
+            if event.delta:
+                scroll_canvas.yview_scroll(int(-1 * (event.delta / 120)), 'units')
+            elif event.num == 4:
+                scroll_canvas.yview_scroll(-1, 'units')
+            elif event.num == 5:
+                scroll_canvas.yview_scroll(1, 'units')
+        scroll_canvas.bind('<Enter>',
+                           lambda e: (scroll_canvas.bind_all('<MouseWheel>', _on_mw),
+                                      scroll_canvas.bind_all('<Button-4>', _on_mw),
+                                      scroll_canvas.bind_all('<Button-5>', _on_mw)))
+        scroll_canvas.bind('<Leave>',
+                           lambda e: (scroll_canvas.unbind_all('<MouseWheel>'),
+                                      scroll_canvas.unbind_all('<Button-4>'),
+                                      scroll_canvas.unbind_all('<Button-5>')))
+
+        # ── Right: 2×2 grid visualization area (attachment 4 layout) ──
+        # Layout:  Left col (~55%)         | Right col (~45%)
+        #          Track map (top ~55%)     | Steering+Car (top ~25%)
+        #                                   | Fy vs Slip Angle (mid ~40%)
+        #          Footprint contours (45%) | Fy vs Distance (bot ~35%)
+        viz = ttk.Frame(main)
+        viz.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        # Use PanedWindow for vertical split (top / bottom)
+        viz_vpane = ttk.PanedWindow(viz, orient=tk.VERTICAL)
+        viz_vpane.pack(fill=tk.BOTH, expand=True)
+        self._ts_viz_vpane = viz_vpane  # keep ref for deferred sash update
+
+        # ── Top row: Track map (left) | Steering+Car (right) ──
+        top_row = ttk.Frame(viz_vpane)
+        viz_vpane.add(top_row, weight=55)
+
+        top_hpane = ttk.PanedWindow(top_row, orient=tk.HORIZONTAL)
+        top_hpane.pack(fill=tk.BOTH, expand=True)
+        self._ts_top_hpane = top_hpane
+
+        # Top-Left: Track Map
+        map_frame = ttk.Frame(top_hpane)
+        top_hpane.add(map_frame, weight=55)
+
+        self.fig_track = _Fig(figsize=(4.5, 4.2), dpi=100, facecolor='#1A1A2E')
+        self.ax_track = self.fig_track.add_axes([0.01, 0.01, 0.98, 0.94])
+        self.ax_track.set_aspect('equal')
+        self.ax_track.axis('off')
+        self.fig_track.patch.set_facecolor('#1A1A2E')
+        self.ax_track.set_facecolor('#1A1A2E')
+        self.canvas_track = _FCA(self.fig_track, map_frame)
+        self.canvas_track.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Top-Right: Steering wheel + Car view (vertical stack)
+        steer_car_frame = ttk.Frame(top_hpane)
+        top_hpane.add(steer_car_frame, weight=45)
+
+        steer_inner = ttk.Frame(steer_car_frame)
+        steer_inner.pack(fill=tk.BOTH, expand=True)
+
+        self._ts_steer_fig = _Fig(figsize=(2.2, 2.2), dpi=80, facecolor='#F8FAFC')
+        self._ts_steer_ax = self._ts_steer_fig.add_axes([0.05, 0.05, 0.9, 0.9])
+        self._ts_steer_ax.set_xlim(-1.5, 1.5)
+        self._ts_steer_ax.set_ylim(-1.5, 1.5)
+        self._ts_steer_ax.set_aspect('equal')
+        self._ts_steer_ax.axis('off')
+        self._ts_steer_canvas = _FCA(self._ts_steer_fig, steer_inner)
+        self._ts_steer_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2)
+
+        self._ts_tire_fig = _Fig(figsize=(1.8, 2.4), dpi=80, facecolor='#2D2D2D')
+        self._ts_tire_ax = self._ts_tire_fig.add_axes([0.0, 0.0, 1.0, 1.0])
+        self._ts_tire_ax.set_xlim(-3.0, 3.0)
+        self._ts_tire_ax.set_ylim(-4.0, 4.0)
+        self._ts_tire_ax.set_aspect('equal')
+        self._ts_tire_ax.axis('off')
+        self._ts_tire_fig.patch.set_facecolor('#2D2D2D')
+        self._ts_tire_canvas = _FCA(self._ts_tire_fig, steer_inner)
+        self._ts_tire_canvas.get_tk_widget().pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=2)
+
+        self._ts_hud_var = tk.StringVar(value="SA: 0.0°  |  Fy: 0 N")
+        ttk.Label(steer_car_frame, textvariable=self._ts_hud_var,
+                  font=('NanumGothicCoding', 12), foreground='#0369A1').pack(pady=1)
+
+        # ── Bottom row: Footprint contours (left) | Fy graphs (right) ──
+        bot_row = ttk.Frame(viz_vpane)
+        viz_vpane.add(bot_row, weight=45)
+
+        bot_hpane = ttk.PanedWindow(bot_row, orient=tk.HORIZONTAL)
+        bot_hpane.pack(fill=tk.BOTH, expand=True)
+        self._ts_bot_hpane = bot_hpane
+
+        # Bottom-Left: 5 footprint contour plots (single figure, 1 row × 5 cols)
+        contour_frame = ttk.Frame(bot_hpane)
+        bot_hpane.add(contour_frame, weight=55)
+
+        self._ts_contour_fig = _Fig(figsize=(10, 3.2), dpi=100)
+        gs_contour = GridSpec(1, 5, figure=self._ts_contour_fig,
+                              wspace=0.50,
+                              left=0.04, right=0.98, top=0.86, bottom=0.18)
+
+        self._ts_ax_stick = self._ts_contour_fig.add_subplot(gs_contour[0, 0])
+        self._ts_ax_speed = self._ts_contour_fig.add_subplot(gs_contour[0, 1])
+        self._ts_ax_press = self._ts_contour_fig.add_subplot(gs_contour[0, 2])
+        self._ts_ax_temp = self._ts_contour_fig.add_subplot(gs_contour[0, 3])
+        self._ts_ax_fric = self._ts_contour_fig.add_subplot(gs_contour[0, 4])
+
+        for ax, title in [(self._ts_ax_stick, 'Adhesion / Sliding'),
+                           (self._ts_ax_speed, 'Sliding Speed'),
+                           (self._ts_ax_press, 'Contact Pressure [bar]'),
+                           (self._ts_ax_temp, 'Temperature [\u00b0C]'),
+                           (self._ts_ax_fric, 'Friction Force [N/node]')]:
+            ax.set_title(title, fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+            ax.set_xlabel('x [m]', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('y [m]', fontsize=self.PLOT_FONTS['label'])
+            ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
+
+        self._ts_contour_canvas = _FCA(self._ts_contour_fig, contour_frame)
+        self._ts_contour_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Bottom-Right: Fy vs Slip Angle (top) + Fy vs Distance (bottom)
+        fy_frame = ttk.Frame(bot_hpane)
+        bot_hpane.add(fy_frame, weight=45)
+
+        self._ts_fy_fig = _Fig(figsize=(4.5, 3.2), dpi=100)
+        gs_fy = GridSpec(2, 1, figure=self._ts_fy_fig,
+                         hspace=0.50,
+                         left=0.15, right=0.95, top=0.92, bottom=0.12)
+
+        self._ts_ax_fy_sa = self._ts_fy_fig.add_subplot(gs_fy[0, 0])
+        self._ts_ax_fy_sa.set_title('Fy vs Slip Angle', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+        self._ts_ax_fy_sa.set_xlabel('SA [deg]', fontsize=self.PLOT_FONTS['label'])
+        self._ts_ax_fy_sa.set_ylabel('Fy [N]', fontsize=self.PLOT_FONTS['label'])
+        self._ts_ax_fy_sa.grid(True, alpha=0.3)
+
+        self._ts_ax_fy_dist = self._ts_fy_fig.add_subplot(gs_fy[1, 0])
+        self._ts_ax_fy_dist.set_title('Fy vs Distance', fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+        self._ts_ax_fy_dist.set_xlabel('Distance [m]', fontsize=self.PLOT_FONTS['label'])
+        self._ts_ax_fy_dist.set_ylabel('Fy [N]', fontsize=self.PLOT_FONTS['label'])
+        self._ts_ax_fy_dist.grid(True, alpha=0.3)
+
+        self._ts_fy_canvas = _FCA(self._ts_fy_fig, fy_frame)
+        self._ts_fy_canvas.get_tk_widget().pack(fill=tk.BOTH, expand=True)
+
+        # Auto-resize all track-sim figures on widget geometry changes
+        for _fig, _cv in [(self.fig_track, self.canvas_track),
+                          (self._ts_steer_fig, self._ts_steer_canvas),
+                          (self._ts_tire_fig, self._ts_tire_canvas),
+                          (self._ts_contour_fig, self._ts_contour_canvas),
+                          (self._ts_fy_fig, self._ts_fy_canvas)]:
+            _cv.draw_idle()
+            self._bind_canvas_auto_resize(_fig, _cv)
+
+        # ── Deferred layout: force sash positions & figure sizes on first map ──
+        self._ts_layout_initialized = False
+
+        def _ts_force_layout(event=None):
+            """Force PanedWindow sash positions and redraw all figures."""
+            if self._ts_layout_initialized:
+                return
+            viz.update_idletasks()
+            vh = viz_vpane.winfo_height()
+            vw = viz_vpane.winfo_width()
+            if vh < 10 or vw < 10:
+                # Not mapped yet, retry
+                viz.after(100, _ts_force_layout)
+                return
+            self._ts_layout_initialized = True
+            # Set vertical sash: 55% top, 45% bottom
+            try:
+                viz_vpane.sashpos(0, int(vh * 0.55))
+            except Exception:
+                pass
+            # Set horizontal sashes
+            tw = top_hpane.winfo_width()
+            bw = bot_hpane.winfo_width()
+            if tw > 10:
+                try:
+                    top_hpane.sashpos(0, int(tw * 0.55))
+                except Exception:
+                    pass
+            if bw > 10:
+                try:
+                    bot_hpane.sashpos(0, int(bw * 0.55))
+                except Exception:
+                    pass
+            # Redraw all Track Sim figures after geometry settles
+            viz.after(50, _ts_redraw_all_figures)
+
+        def _ts_redraw_all_figures():
+            for cv in (self.canvas_track,
+                       self._ts_steer_canvas, self._ts_tire_canvas,
+                       self._ts_contour_canvas, self._ts_fy_canvas):
+                try:
+                    w = cv.get_tk_widget()
+                    ww, wh = w.winfo_width(), w.winfo_height()
+                    if ww > 1 and wh > 1:
+                        cv.figure.set_size_inches(
+                            ww / cv.figure.dpi, wh / cv.figure.dpi,
+                            forward=False)
+                    cv.draw_idle()
+                except Exception:
+                    pass
+
+        # Trigger on first <Map> of the viz frame (tab becomes visible)
+        viz.bind('<Map>', _ts_force_layout, add='+')
+
+        # ===================== Left Panel Controls =====================
+        sec1 = self._create_section(left_panel, "1) 트랙 정보 – 영암 F1 서킷")
+        ttk.Label(sec1, text=(
+            "Korean International Circuit (영암)\n"
+            "총 길이: 5.615 km  |  18 코너\n"
+            "최장 직선: 1.2 km (T2→T3)\n"
+            "최고속도 구간: ~320 km/h"),
+            font=self.FONTS['small'], foreground='#1565C0',
+            justify='left').pack(anchor='w', padx=4, pady=2)
+
+        sec2 = self._create_section(left_panel, "2) 차량 파라미터")
+        for label, var_name, default, unit in [
+            ("차량 질량 m:", 'ts_mass_var', "2000", "kg"),
+            ("최대 엔진 출력:", 'ts_power_var', "750", "hp"),
+            ("Cd·A (공기저항):", 'ts_cda_var', "1.2", "m²"),
+            ("다운포스 Cl·A:", 'ts_cla_var', "3.5", "m²"),
+            ("브레이크 감속:", 'ts_brake_g_var', "5.0", "g"),
+        ]:
+            row = ttk.Frame(sec2); row.pack(fill=tk.X, pady=1)
+            ttk.Label(row, text=label, font=self.FONTS['body']).pack(side=tk.LEFT)
+            var = tk.StringVar(value=default)
+            setattr(self, var_name, var)
+            ttk.Entry(row, textvariable=var, width=8).pack(side=tk.LEFT, padx=2)
+            if unit:
+                ttk.Label(row, text=unit, font=self.FONTS['small'],
+                          foreground='#64748B').pack(side=tk.LEFT)
+
+
+        # ── 2D Brush Model sync info ──
+        sec_brush = self._create_section(left_panel, "2-1) 2D Brush 모델 연동")
+        self.ts_brush_info_var = tk.StringVar(
+            value="※ 2D Brush 탭의 Nx, Ny, 풋프린트,\n"
+                  "   마찰감도 계수 등을 자동 동기화합니다.")
+        ttk.Label(sec_brush, textvariable=self.ts_brush_info_var,
+                  font=self.FONTS['small'], foreground='#1565C0',
+                  justify='left').pack(anchor='w', padx=4, pady=2)
+        ttk.Button(sec_brush, text="Brush 설정 동기화 확인",
+                   command=self._show_track_brush_sync_info, width=22).pack(anchor='w', padx=4, pady=2)
+
+        # ── 마찰맵 선택 ──
+        sec_fm_ts = self._create_section(left_panel, "2-2) 마찰 모델 선택")
+        ttk.Label(sec_fm_ts, text="시뮬레이션에 사용할 마찰맵 선택:",
+                  font=self.FONTS['small'], foreground='#0369A1').pack(anchor='w')
+        row_fm_ts = ttk.Frame(sec_fm_ts); row_fm_ts.pack(fill=tk.X, pady=2)
+        ttk.Label(row_fm_ts, text="마찰맵:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self._ts_friction_map_var = tk.StringVar(value="(현재 계산 결과)")
+        self._ts_friction_map_combo = ttk.Combobox(
+            row_fm_ts, textvariable=self._ts_friction_map_var, width=24,
+            values=['(현재 계산 결과)'], state='readonly')
+        self._ts_friction_map_combo.pack(side=tk.LEFT, padx=2)
+
+        # 마찰맵 조건 선택 (T, p0)
+        row_fm_ts_cond = ttk.Frame(sec_fm_ts); row_fm_ts_cond.pack(fill=tk.X, pady=1)
+        ttk.Label(row_fm_ts_cond, text="온도 T(°C):", font=self.FONTS['small']).pack(side=tk.LEFT)
+        self._ts_fm_T_var = tk.StringVar(value="")
+        ttk.Entry(row_fm_ts_cond, textvariable=self._ts_fm_T_var, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Label(row_fm_ts_cond, text="압력 p₀(MPa):", font=self.FONTS['small']).pack(side=tk.LEFT, padx=(6, 0))
+        self._ts_fm_p0_var = tk.StringVar(value="")
+        ttk.Entry(row_fm_ts_cond, textvariable=self._ts_fm_p0_var, width=6).pack(side=tk.LEFT, padx=1)
+        ttk.Label(sec_fm_ts, text="※ 비워두면 마찰맵 중앙값 사용",
+                  font=self.FONTS['small'], foreground='#64748B').pack(anchor='w')
+
+        self._ts_fm_status_var = tk.StringVar(value="")
+        ttk.Label(sec_fm_ts, textvariable=self._ts_fm_status_var,
+                  font=self.FONTS['small'], foreground='#16A34A').pack(anchor='w')
+
+        sec3 = self._create_section(left_panel, "3) 실행 & 재생")
+        calc_row = ttk.Frame(sec3); calc_row.pack(fill=tk.X, pady=2)
+        self.ts_run_btn = ttk.Button(calc_row, text="▶ 랩 시뮬레이션 실행",
+                                      command=self._run_track_simulation, width=22,
+                                      style='Accent.TButton')
+        self.ts_run_btn.pack(side=tk.LEFT, padx=2)
+        self.ts_progress_var = tk.IntVar()
+        self.ts_progress_bar = ttk.Progressbar(calc_row, variable=self.ts_progress_var,
+                                                maximum=100, length=120)
+        self.ts_progress_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=2)
+
+        play_row = ttk.Frame(sec3); play_row.pack(fill=tk.X, pady=4)
+        for text, cmd in [("▶", self._track_play), ("⏸", self._track_pause),
+                          ("⏮", self._track_reset)]:
+            ttk.Button(play_row, text=text, width=3, command=cmd).pack(side=tk.LEFT, padx=1)
+
+        self.ts_frame_label_var = tk.StringVar(value="t = 0.00 s  |  0 km/h")
+        ttk.Label(play_row, textvariable=self.ts_frame_label_var,
+                  font=self.FONTS['small'], foreground='#0369A1').pack(side=tk.LEFT, padx=6)
+
+        speed_row = ttk.Frame(sec3); speed_row.pack(fill=tk.X, pady=1)
+        self._ts_speed_label_var = tk.StringVar(value="재생 속도: 2.0x")
+        ttk.Label(speed_row, textvariable=self._ts_speed_label_var,
+                  font=self.FONTS['small']).pack(side=tk.LEFT, padx=4)
+        self._ts_speed_mult = tk.DoubleVar(value=2.0)
+        ttk.Scale(speed_row, from_=0.5, to=10.0, orient='horizontal',
+                  variable=self._ts_speed_mult,
+                  command=self._on_track_speed_slider
+                  ).pack(side=tk.LEFT, fill=tk.X, expand=True, padx=4)
+
+        slider_row = ttk.Frame(sec3); slider_row.pack(fill=tk.X, pady=2)
+        self.ts_time_slider = ttk.Scale(slider_row, from_=0, to=100,
+                                         orient='horizontal',
+                                         command=self._on_track_slider_change)
+        self.ts_time_slider.pack(fill=tk.X, padx=4)
+
+        sec4 = self._create_section(left_panel, "4) 랩타임 결과")
+        self.ts_result_text = tk.Text(sec4, height=12, font=('NanumGothicCoding', 12),
+                                       bg='#F8FAFC', relief='flat', wrap='word',
+                                       state='disabled')
+        self.ts_result_text.pack(fill=tk.X, padx=4, pady=2)
+
+        # Initialize steering wheel and tire
+        self._init_track_steering_wheel()
+        self._init_track_tire_animation()
+
+        # Draw initial empty track
+        self._draw_yeongam_track_static()
+
+    # ── Yeongam circuit track geometry (accurate) ──
+    def _get_yeongam_track_points(self):
+        """Generate Korean International Circuit (Yeongam) coordinates.
+
+        Carefully traced from the official track map. 18 turns, 5.615 km.
+        Clockwise direction from Start/Finish.
+        """
+        import numpy as np
+        from scipy.interpolate import CubicSpline
+
+        ctrl = np.array([
+            [550, 115], [590, 112], [630, 105], [670, 92], [710, 75],
+            [740, 60], [762, 48], [782, 42],
+            [802, 42], [818, 55],
+            [830, 78], [832, 105], [825, 132], [810, 155],
+            [785, 185], [750, 225], [710, 270], [665, 320],
+            [620, 370], [575, 415], [530, 455], [490, 485],
+            [450, 502], [415, 510], [390, 518], [378, 535],
+            [392, 545], [420, 548], [460, 548], [510, 546], [560, 543], [610, 540],
+            [650, 540], [675, 545], [688, 555],
+            [685, 572], [678, 585],
+            [680, 605], [688, 628],
+            [695, 650], [690, 668], [678, 678],
+            [655, 680], [625, 676], [585, 670], [545, 665], [505, 660],
+            [472, 658], [448, 660],
+            [420, 665], [388, 672], [358, 678],
+            [330, 682], [305, 682], [282, 675],
+            [262, 662], [248, 645], [238, 625],
+            [232, 605], [230, 582],
+            [238, 558], [255, 535], [275, 518],
+            [290, 502], [288, 485],
+            [272, 468], [248, 452], [215, 438], [175, 420], [132, 402], [95, 388],
+            [62, 375], [48, 362], [48, 345],
+            [60, 328], [80, 312], [102, 298],
+            [125, 288], [142, 275], [152, 260],
+            [162, 245], [172, 228],
+            [180, 212], [185, 195],
+            [198, 180], [218, 168],
+            [242, 158], [262, 148],
+            [280, 135], [295, 120],
+            [305, 108], [312, 98],
+            [320, 95], [332, 98],
+            [345, 106], [362, 115],
+            [382, 120], [400, 124],
+            [418, 125], [438, 122],
+            [458, 120], [478, 118],
+            [498, 117], [520, 116],
+        ], dtype=float)
+
+        # Close the loop
+        ctrl = np.vstack([ctrl, ctrl[0]])
+        ctrl_x, ctrl_y = ctrl[:, 0], ctrl[:, 1]
+        n_ctrl = len(ctrl_x)
+        t_ctrl = np.linspace(0, 1, n_ctrl)
+        n_points = 2000
+
+        cs_x = CubicSpline(t_ctrl, ctrl_x, bc_type='periodic')
+        cs_y = CubicSpline(t_ctrl, ctrl_y, bc_type='periodic')
+        t_fine = np.linspace(0, 1, n_points, endpoint=False)
+        track_x = cs_x(t_fine)
+        track_y = cs_y(t_fine)
+
+        dx = np.diff(track_x); dy = np.diff(track_y)
+        ds = np.sqrt(dx**2 + dy**2)
+        cumul_dist = np.concatenate([[0], np.cumsum(ds)])
+
+        scale = 5615.0 / cumul_dist[-1]
+        track_x *= scale; track_y *= scale; cumul_dist *= scale
+
+        turn_fracs = np.array([
+            0.045, 0.085, 0.195, 0.280, 0.310, 0.355, 0.415, 0.455,
+            0.500, 0.535, 0.595, 0.640, 0.685, 0.730, 0.775, 0.810, 0.855, 0.900])
+        turn_indices = (turn_fracs * (n_points - 1)).astype(int)
+
+        dx_g = np.gradient(track_x); dy_g = np.gradient(track_y)
+        ddx_g = np.gradient(dx_g); ddy_g = np.gradient(dy_g)
+        signed_curv = (dx_g * ddy_g - dy_g * ddx_g) / (dx_g**2 + dy_g**2)**1.5
+
+        return {
+            'x': track_x, 'y': track_y, 'dist': cumul_dist,
+            'n_points': n_points, 'total_length': 5615.0,
+            'turn_fractions': turn_fracs, 'turn_indices': turn_indices,
+            'signed_curvature': signed_curv,
+        }
+
+    def _get_turn_speed_limits(self):
+        return {1: 160, 2: 140, 3: 75, 4: 220, 5: 180, 6: 195, 7: 170,
+                8: 190, 9: 155, 10: 120, 11: 100, 12: 90, 13: 85,
+                14: 135, 15: 110, 16: 125, 17: 115, 18: 150}
+
+    # ── Draw static track + setup blit ──
+    def _draw_yeongam_track_static(self):
+        """Draw all static track elements and create dynamic blit artists."""
+        import numpy as np
+
+        ax = self.ax_track
+        ax.clear()
+        ax.set_facecolor('#1A1A2E'); ax.axis('off')
+
+        try:
+            track = self._get_yeongam_track_points()
+        except Exception as e:
+            ax.text(0.5, 0.5, f"트랙 오류: {e}", transform=ax.transAxes,
+                    ha='center', va='center', color='white', fontsize=self.PLOT_FONTS['title'])
+            self.canvas_track.draw_idle()
+            return
+
+        self._ts_track_cache = track
+        tx, ty = track['x'], track['y']
+        n = track['n_points']
+
+        # Static road surface
+        ax.plot(tx, ty, color='#404060', linewidth=22,
+                solid_capstyle='round', zorder=1)
+
+        # Sector coloring (thicker to fill road surface)
+        s1e, s2e = int(0.32 * n), int(0.62 * n)
+        ax.plot(tx[:s1e], ty[:s1e], color='#FFD700', lw=8, alpha=0.8, zorder=2)
+        ax.plot(tx[s1e:s2e], ty[s1e:s2e], color='#DC3545', lw=8, alpha=0.8, zorder=2)
+        ax.plot(tx[s2e:], ty[s2e:], color='#28A745', lw=8, alpha=0.8, zorder=2)
+
+        # ── Heat/stress markers at high-curvature zones ──
+        signed_curv = track['signed_curvature']
+        abs_curv = np.abs(signed_curv)
+        # Normalize curvature for color mapping
+        curv_threshold = np.percentile(abs_curv, 75)  # top 25% curvature = hot zones
+        hot_mask = abs_curv > curv_threshold
+        if np.any(hot_mask):
+            # Color by curvature intensity: yellow → orange → red
+            from matplotlib.colors import Normalize
+            import matplotlib.cm as cm
+            norm_curv = Normalize(vmin=curv_threshold, vmax=np.max(abs_curv))
+            cmap_heat = plt.colormaps['YlOrRd']
+            # Draw heat dots at high-curvature locations
+            hot_idx = np.where(hot_mask)[0]
+            # Subsample for performance (every 5th point in hot zones)
+            hot_idx = hot_idx[::5]
+            colors_heat = cmap_heat(norm_curv(abs_curv[hot_idx]))
+            ax.scatter(tx[hot_idx], ty[hot_idx], c=colors_heat, s=30,
+                       marker='o', alpha=0.7, zorder=3, edgecolors='none')
+
+        # Turn markers
+        for i, idx in enumerate(track['turn_indices']):
+            ax.plot(tx[idx], ty[idx], 'o', color='white', markersize=4,
+                    markeredgecolor='#333', markeredgewidth=0.8, zorder=5)
+            ni = min(idx + 30, n - 1)
+            dx = tx[ni] - tx[idx]; dy = ty[ni] - ty[idx]
+            le = np.sqrt(dx**2 + dy**2)
+            if le > 0:
+                nx_v, ny_v = -dy / le, dx / le
+            else:
+                nx_v, ny_v = 0, 1
+            ax.annotate(f'{i+1:02d}', (tx[idx], ty[idx]),
+                        xytext=(nx_v * 16 + 3, ny_v * 16 + 3),
+                        textcoords='offset points', color='white',
+                        fontsize=self.PLOT_FONTS['title'], fontweight='bold', zorder=6)
+
+        # Start/Finish
+        ax.plot(tx[0], ty[0], 'o', color='#FFD700', markersize=10,
+                markeredgecolor='white', markeredgewidth=1.5, zorder=7)
+        ax.annotate('Start', (tx[0], ty[0]), xytext=(15, -22),
+                    textcoords='offset points', color='#FFD700',
+                    fontsize=self.PLOT_FONTS['title'], fontweight='bold', zorder=7)
+
+        # Direction arrows
+        for frac in [0.15, 0.35, 0.55, 0.75, 0.92]:
+            ai = int(frac * n) % n
+            ni = (ai + 20) % n
+            ax.annotate('', xy=(tx[ni], ty[ni]), xytext=(tx[ai], ty[ai]),
+                        arrowprops=dict(arrowstyle='->', color='#FFFFFFAA',
+                                        lw=2, mutation_scale=18), zorder=4)
+
+        ax.set_title('Korean International Circuit – 영암 (5.615 km)',
+                      color='white', fontsize=self.PLOT_FONTS['title'], fontweight='bold', pad=4)
+
+        from matplotlib.lines import Line2D
+        legend_elements = [
+            Line2D([0], [0], color='#FFD700', lw=4, label='Sector 1 (고속)'),
+            Line2D([0], [0], color='#DC3545', lw=4, label='Sector 2 (기술)'),
+            Line2D([0], [0], color='#28A745', lw=4, label='Sector 3 (중속 굴곡)'),
+        ]
+        ax.legend(handles=legend_elements, loc='lower right', fontsize=self.PLOT_FONTS['label'],
+                  facecolor='#2A2A4A', edgecolor='#606090', labelcolor='white')
+
+        # Tight padding: minimal margin so track fills the available space
+        x_range = max(tx) - min(tx)
+        y_range = max(ty) - min(ty)
+        pad_x = max(x_range * 0.04, 40)
+        pad_y = max(y_range * 0.04, 40)
+        ax.set_xlim(min(tx) - pad_x, max(tx) + pad_x)
+        ax.set_ylim(min(ty) - pad_y, max(ty) + pad_y)
+
+        # ── Dynamic artists for blit ──
+        from matplotlib.collections import LineCollection
+
+        # Car marker
+        self._ts_car_dot, = ax.plot([], [], 'o', color='#FF0000', markersize=10,
+                                     markeredgecolor='white', markeredgewidth=1.5,
+                                     zorder=10)
+        # Car direction arrow head
+        self._ts_car_arrow, = ax.plot([], [], marker=(3, 0, 0), color='#FF0000',
+                                       markersize=12, linestyle='', zorder=11)
+
+        # Trail (LineCollection with alpha gradient)
+        self._ts_trail_len = 80
+        empty_segs = np.zeros((self._ts_trail_len, 2, 2))
+        empty_colors = np.zeros((self._ts_trail_len, 4))
+        self._ts_trail_lc = LineCollection(empty_segs, colors=empty_colors,
+                                            linewidths=3, zorder=8)
+        ax.add_collection(self._ts_trail_lc)
+
+        # HUD text
+        self._ts_hud_speed = ax.text(
+            0.02, 0.98, '', transform=ax.transAxes, fontsize=self.PLOT_FONTS['title'],
+            fontweight='bold', color='#00FF88', family='monospace', va='top',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='#000000CC',
+                      edgecolor='#00FF88', lw=1), zorder=15)
+        self._ts_hud_lap = ax.text(
+            0.98, 0.98, '', transform=ax.transAxes, fontsize=self.PLOT_FONTS['title'],
+            fontweight='bold', color='#FFD700', family='monospace',
+            ha='right', va='top',
+            bbox=dict(boxstyle='round,pad=0.3', facecolor='#000000CC',
+                      edgecolor='#FFD700', lw=1), zorder=15)
+
+        # Collect dynamic artists
+        self._ts_map_dynamic = [
+            self._ts_car_dot, self._ts_car_arrow, self._ts_trail_lc,
+            self._ts_hud_speed, self._ts_hud_lap,
+        ]
+
+        # Cache blit background (hide dynamic artists → draw → cache → show)
+        for a in self._ts_map_dynamic:
+            a.set_visible(False)
+        self.canvas_track.draw()
+        self._ts_map_blit_bg = self.canvas_track.copy_from_bbox(
+            self.fig_track.bbox)
+        for a in self._ts_map_dynamic:
+            a.set_visible(True)
+
+    # ── Pre-compute simplified brush model data (synced with 2D Brush tab) ──
+    def _compute_track_brush_data(self, sa_arr, v_arr, Fz_arr,
+                                   override_ch=None, override_fm=None):
+        """Brush model for all track points using Cold & Hot friction map LUT.
+
+        Uses the ACTUAL friction map (cold/hot LUT) from Cold & Hot Branch tab,
+        and pressure distribution settings from the 2D Brush Model tab.
+        Same calculation logic as _run_brush_transient() for consistency.
+
+        Args:
+            override_ch: explicit cold_hot_results (bypasses Brush tab selection)
+            override_fm: explicit friction_map_results (bypasses Brush tab selection)
+
+        Returns dict of (n, nx, ny) arrays for contour plot display,
+        plus per-point Fy from the brush model.
+        """
+        import numpy as np
+        from scipy.interpolate import interp1d
+        from scipy.ndimage import binary_dilation
+
+        # ── Build Cold/Hot friction LUT from actual data ──
+        lut_cold, lut_hot, lut_cold_3d, lut_hot_3d = self._build_brush_lut(
+            override_ch=override_ch, override_fm=override_fm)
+
+        # Cold→Hot transition distance
+        chr_ = override_ch if override_ch is not None else self.cold_hot_results
+        T0_base = chr_.get('T0', 25.0)
+        try:
+            D_mm = float(self.br_D_macro_var.get())
+            s0 = 0.2 * D_mm * 1e-3
+        except (AttributeError, ValueError):
+            s0 = chr_.get('s0', 0.001)
+
+        # Temperature interpolator from Cold&Hot
+        _dT_arr = chr_.get('delta_T', np.zeros(len(chr_['v'])))
+        dT_interp = interp1d(chr_['v'], _dT_arr, kind='linear',
+                             bounds_error=False,
+                             fill_value=(_dT_arr[0], _dT_arr[-1]))
+
+        # ── Read parameters from 2D Brush Model tab ──
+        try:
+            nx = int(self.br_Nx_var.get())
+            ny = int(self.br_Ny_var.get())
+            L = float(self.br_L_var.get())
+            W = float(self.br_W_var.get())
+            Fz_brush = float(self.br_Fz_var.get())
+            kx = float(self.br_kx_var.get())
+            ky = float(self.br_ky_var.get())
+            friction_scale = float(self.br_friction_scale_var.get())
+            vc_brush = float(self.br_vc_var.get())
+        except (AttributeError, ValueError):
+            nx, ny = 64, 64
+            L, W = 0.15, 0.12
+            Fz_brush = 4000.0
+            kx, ky = 8e5, 6e5
+            friction_scale = 0.5
+            vc_brush = 16.67
+
+        try:
+            ptype = self.br_pressure_type_var.get()
+        except (AttributeError, ValueError):
+            ptype = 'parabolic'
+
+        # Use same resolution as 2D Brush tab (no down-sampling)
+
+        n = len(sa_arr)
+        a, b = L / 2.0, W / 2.0
+
+        se_n = getattr(self, '_ELLIPSE_POWER', 2.5)
+        try:
+            se_n = float(self._br_ellipse_power_var.get())
+        except (AttributeError, ValueError):
+            pass
+
+        x_arr = np.linspace(-a, a, nx)
+        y_arr = np.linspace(-b, b, ny)
+        dx_g = L / max(nx - 1, 1)
+        dy_g = W / max(ny - 1, 1)
+        dA = dx_g * dy_g
+        xx, yy = np.meshgrid(x_arr, y_arr, indexing='ij')  # (nx, ny)
+
+        r_se = np.abs(xx / a)**se_n + np.abs(yy / b)**se_n
+        mask = r_se <= 1.0
+        # Dilated mask for gap-free contour display (matches 2D Brush tab)
+        mask_fill = binary_dilation(mask, iterations=2)
+
+        # ── Base pressure distribution (same as 2D Brush tab) ──
+        if ptype == 'uniform':
+            p_base = np.ones((nx, ny))
+        elif ptype == 'elliptic':
+            p_base = np.sqrt(np.clip(1 - r_se, 0, None))
+        elif ptype == 'dual_peak':
+            lon_env = np.clip(1 - np.abs(2 * xx / L)**se_n, 0, None)
+            y_norm = 2 * yy / W
+            pk_pos, pk_w = 0.40, 0.45
+            p_base = (np.exp(-((y_norm - pk_pos) / pk_w)**2) +
+                      np.exp(-((y_norm + pk_pos) / pk_w)**2)) * lon_env
+            p_base *= mask
+        else:  # parabolic
+            p_base = (np.clip(1 - np.abs(2 * xx / L)**se_n, 0, None) *
+                      np.clip(1 - np.abs(2 * yy / W)**se_n, 0, None))
+
+        # Contact time: rolling right-to-left, leading edge at -L/2
+        t_contact_1d = np.clip((xx + L / 2.0) / max(vc_brush, 0.01), 0, None)
+        t_contact = t_contact_1d  # (nx, ny)
+
+        # Per-node stiffness, scaled by contact area
+        # (same area scaling as _run_brush_transient)
+        _L_ref, _W_ref = 0.15, 0.12  # default footprint dimensions [m]
+        _area_scale = (L * W) / (_L_ref * _W_ref)
+        n_in_mask = max(np.sum(mask), 1)
+        kx_node = (kx * _area_scale) / n_in_mask
+        ky_node = (ky * _area_scale) / n_in_mask
+
+        # Dual-peak components for SA-dependent asymmetry
+        _is_dual_peak = (ptype == 'dual_peak')
+        if _is_dual_peak:
+            lon_env_dp = np.clip(1 - np.abs(2 * xx / L)**se_n, 0, None)
+            y_norm_dp = 2 * yy / W
+            _peak_high = np.exp(-((y_norm_dp - 0.40) / 0.45)**2) * lon_env_dp
+            _peak_low = np.exp(-((y_norm_dp + 0.40) / 0.45)**2) * lon_env_dp
+
+        # ── Allocate output arrays ──
+        is_sliding_all = np.full((n, nx, ny), np.nan)
+        v_slide_all = np.full((n, nx, ny), np.nan)
+        pressure_bar_all = np.full((n, nx, ny), np.nan)
+        temperature_all = np.full((n, nx, ny), np.nan)
+        friction_all = np.full((n, nx, ny), np.nan)
+        Fy_brush = np.zeros(n)
+
+        # ── Per-frame computation (same logic as _run_brush_transient) ──
+        for fi in range(n):
+            sa_deg = sa_arr[fi]
+            vc = max(v_arr[fi], 0.5)
+            Fz_i = Fz_arr[fi]
+            alpha_rad = np.radians(sa_deg)
+
+            # Rim velocity (lateral slip from SA)
+            v_rim_y = vc * np.sin(alpha_rad)
+            v_rim_mag = abs(v_rim_y) + 1e-15
+
+            # Dynamic pressure map with SA-dependent lateral shift
+            sa_factor = -np.clip(sa_deg / 6.0, -1, 1)
+            if _is_dual_peak:
+                _asym_p = self._ASYM_PRESETS.get(
+                    self.br_asym_preset_var.get(), (0.35, 0.40))
+                _ac, _af = _asym_p
+                high_s = max(1.0 + _ac * sa_factor, _af)
+                low_s = max(1.0 - _ac * sa_factor, _af)
+                p_map = high_s * _peak_high + low_s * _peak_low
+            else:
+                p_map = p_base.copy()
+                lat_weight = 1.0 + 0.4 * sa_factor * (2 * yy / W)
+                p_map *= np.clip(lat_weight, 0.1, None)
+
+            p_map *= mask
+            p_total = np.sum(p_map) * dA
+            if p_total > 0:
+                p_map *= Fz_i / p_total
+            Fz_ij = p_map * dA
+
+            # Sliding distance for cold→hot blend
+            s_dist = v_rim_mag * t_contact
+            blend = np.exp(-s_dist / max(s0, 1e-10))
+
+            # 3D LUT: per-cell (T, p, v) lookup if available
+            v_cells = np.full_like(t_contact, v_rim_mag)
+            if lut_cold_3d is not None:
+                T_cells = np.full_like(t_contact, T0_base)
+                p_cells = p_map  # local pressure per cell [Pa]
+                mu_cold_vals = self._lookup_friction_3d(
+                    lut_cold_3d, lut_cold, T_cells, p_cells, v_cells, t_contact.shape)
+                mu_hot_vals = self._lookup_friction_3d(
+                    lut_hot_3d, lut_hot, T_cells, p_cells, v_cells, t_contact.shape)
+            else:
+                mu_cold_vals = lut_cold(v_cells)
+                mu_hot_vals = lut_hot(v_cells)
+            mu_eff = mu_cold_vals * blend + mu_hot_vals * (1.0 - blend)
+
+            # Friction capacity per node
+            F_fric_max = mu_eff * Fz_ij * friction_scale
+
+            # Stick deformation
+            uy_stick = v_rim_y * t_contact
+            Fspring_y = ky_node * uy_stick
+            F_spring_mag = np.abs(Fspring_y)
+
+            # Stick/slip classification
+            is_sliding = (F_spring_mag > F_fric_max) & mask
+
+            # Actual force per node
+            deform_dir_y = np.sign(uy_stick + 1e-20)
+            Fnode_y = np.where(is_sliding,
+                               F_fric_max * deform_dir_y,
+                               Fspring_y)
+            Fnode_y *= mask
+
+            # Total Fy
+            Fy_brush[fi] = np.sum(Fnode_y)
+
+            # Local slip velocity
+            _safe_Fsp = np.where(F_spring_mag > 1e-15, F_spring_mag, 1.0)
+            scale = np.where(F_spring_mag > 1e-15,
+                             np.clip(F_fric_max / _safe_Fsp, 0, 1), 1.0)
+            v_slip = v_rim_mag * (1.0 - scale)
+            v_slip = np.where(is_sliding, v_slip, 0.0) * mask
+
+            # Temperature from Cold&Hot flash temperature model
+            dT_local = dT_interp(np.clip(v_slip.ravel(), 0, None)).reshape(nx, ny)
+            p_mean = np.mean(p_map[mask]) if np.any(mask) else 1.0
+            p_ratio = p_map / max(p_mean, 1e-10)
+            t_max = np.max(t_contact) if np.max(t_contact) > 0 else 1.0
+            t_ratio = np.sqrt(t_contact / t_max)
+            T_contact = T0_base + dT_local * p_ratio * t_ratio
+            T_contact = T_contact * mask + T0_base * (~mask)
+
+            # Store for display — use mask_fill (dilated) to eliminate white gaps
+            # between outline and contour (matches 2D Brush tab approach)
+            is_sliding_all[fi] = np.where(mask_fill, is_sliding.astype(float), np.nan)
+            v_slide_all[fi] = np.where(mask_fill, v_slip, np.nan)
+            pressure_bar_all[fi] = np.where(mask_fill, p_map * 1e-5, np.nan)  # Pa→bar
+            temperature_all[fi] = np.where(mask_fill, T_contact, np.nan)
+            F_node_mag = np.abs(Fnode_y) * mask
+            friction_all[fi] = np.where(mask_fill, F_node_mag, np.nan)  # N/node (matches 2D Brush tab)
+
+        # Edge arrays for pcolormesh
+        dx_e = x_arr[1] - x_arr[0]; dy_e = y_arr[1] - y_arr[0]
+        x_edges = np.concatenate([x_arr - dx_e / 2, [x_arr[-1] + dx_e / 2]])
+        y_edges = np.concatenate([y_arr - dy_e / 2, [y_arr[-1] + dy_e / 2]])
+
+        return {
+            'is_sliding': is_sliding_all,    # (n, nx, ny)
+            'v_slide': v_slide_all,          # (n, nx, ny)
+            'pressure': pressure_bar_all,    # (n, nx, ny) in bar
+            'temperature': temperature_all,  # (n, nx, ny) in °C
+            'friction': friction_all,        # (n, nx, ny) in N/node
+            'Fy_brush': Fy_brush,            # (n,) — brush model Fy [N]
+            'x_edges': x_edges,
+            'y_edges': y_edges,
+            'mask': mask,
+            'mask_fill': mask_fill,          # dilated mask for gap-free display
+            'nx': nx, 'ny': ny,
+            'half_L': a, 'half_W': b,
+            'pressure_type': ptype,
+        }
+
+    # ── Initialize contour plot artists ──
+    def _init_track_contour_artists(self):
+        """Create pcolormesh + SA/Fy plot artists matching 2D Brush Model tab exactly.
+
+        Uses egg-shaped contact patch outline, inset colorbars, clip paths,
+        rolling direction arrows, LE/TE labels, legends — all synced from 2D Brush tab.
+        """
+        import numpy as np
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import BoundaryNorm, ListedColormap
+        from matplotlib.patches import Polygon as MplPolygon, Patch
+        from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+
+        d = self._track_sim_data
+        bd = d['brush_data']
+        xe, ye = bd['x_edges'], bd['y_edges']
+        half_L = bd.get('half_L', 0.075)
+        half_W = bd.get('half_W', 0.06)
+        # Convert to mm for display (matching 2D Brush Model tab)
+        L_mm = half_L * 2 * 1000
+        W_mm = half_W * 2 * 1000
+        xe_mm = xe * 1000
+        ye_mm = ye * 1000
+
+        # ── SA vs Fy plot (proper envelope curve like 2D Brush Model) ──
+        ax_fy = self._ts_ax_fy_sa
+        ax_fy.clear()
+        sa_arr = d['sa_deg']
+        Fy_arr = d['Fy']
+
+        # Overlay 2D Brush model Fy-SA envelope curve (smooth S-curve)
+        _brush_curve_plotted = False
+        if getattr(self, 'brush_results', None) is not None:
+            br = self.brush_results
+            if br.get('mode') == 'cornering' and 'sweep' in br and 'Fy' in br:
+                br_sa_deg = br['sweep']
+                br_fy = br['Fy']
+                sort_idx = np.argsort(br_sa_deg)
+                ax_fy.plot(br_sa_deg[sort_idx], br_fy[sort_idx], '-', color='#FF6B6B',
+                           lw=2.5, alpha=0.85, label='2D Brush Model')
+                _brush_curve_plotted = True
+        if not _brush_curve_plotted and getattr(self, '_brush_frames', None) and len(self._brush_frames) > 2:
+            br_sa = np.array([fr['SA'] for fr in self._brush_frames])
+            br_fy = np.array([fr['Fy'] for fr in self._brush_frames])
+            sort_idx = np.argsort(br_sa)
+            ax_fy.plot(br_sa[sort_idx], br_fy[sort_idx], '-', color='#FF6B6B',
+                       lw=2.0, alpha=0.7, label='2D Brush Model')
+            _brush_curve_plotted = True
+        if not _brush_curve_plotted:
+            # Generate theoretical brush model S-curve as envelope
+            # Use SA range matching actual track data
+            sa_abs_max = max(abs(np.min(sa_arr)), abs(np.max(sa_arr)), 6.0)
+            sa_range = np.linspace(-sa_abs_max, sa_abs_max, 200)
+            try:
+                Fz = float(self.br_Fz_var.get())
+                mu_val = float(self.br_friction_scale_var.get())
+            except (AttributeError, ValueError):
+                Fz = 3000.0
+                mu_val = 0.5
+            Fy_max = mu_val * Fz
+            # Fiala/brush model characteristic: Fy = -Fy_max * (3*x - 3*x^2 + x^3) for |x|<=1
+            sa_crit = max(sa_abs_max * 0.5, 6.0)  # critical slip angle
+            x_norm = np.clip(sa_range / sa_crit, -1, 1)
+            abs_x = np.abs(x_norm)
+            fy_theo = -np.sign(x_norm) * Fy_max * np.where(
+                abs_x < 1.0,
+                3 * abs_x - 3 * abs_x**2 + abs_x**3,
+                1.0)
+            ax_fy.plot(sa_range, fy_theo, '-', color='#FF6B6B',
+                       lw=2.5, alpha=0.85, label='2D Brush Model')
+
+        ax_fy.plot(sa_arr, Fy_arr, 'b-', lw=1.2, alpha=0.6, label='Track Fy')
+        ax_fy.set_xlabel('SA [deg]', fontsize=self.PLOT_FONTS['label'])
+        ax_fy.set_ylabel('Fy [N]', fontsize=self.PLOT_FONTS['label'])
+        _fm_label = d.get('friction_map_name', '')
+        _fy_title = 'Fy vs Slip Angle'
+        if _fm_label and _fm_label != '(현재 계산 결과)':
+            _fy_title += f'  [{_fm_label}]'
+        ax_fy.set_title(_fy_title, fontsize=self.PLOT_FONTS['legend_sm'], fontweight='bold')
+        ax_fy.legend(fontsize=self.PLOT_FONTS['label'], loc='upper left')
+        ax_fy.grid(True, alpha=0.3)
+        # Auto-scale Y axis to fit actual data range with 10% margin
+        all_fy_vals = Fy_arr[np.isfinite(Fy_arr)]
+        if len(all_fy_vals) > 0:
+            fy_min, fy_max = np.min(all_fy_vals), np.max(all_fy_vals)
+            fy_margin = max(abs(fy_max - fy_min) * 0.1, 100)
+            ax_fy.set_ylim(fy_min - fy_margin, fy_max + fy_margin)
+        # Set SA range to actual data range
+        sa_min, sa_max = np.min(sa_arr), np.max(sa_arr)
+        sa_margin = max(abs(sa_max - sa_min) * 0.1, 1)
+        ax_fy.set_xlim(sa_min - sa_margin, sa_max + sa_margin)
+        self._ts_cursor_fy_sa = ax_fy.axvline(x=sa_arr[0], color='k', lw=1.2, alpha=0.7)
+        self._ts_marker_fy_sa, = ax_fy.plot(sa_arr[0], Fy_arr[0], 'ro',
+                                              markersize=8, zorder=5)
+
+        # ── Fy vs Distance plot ──
+        ax_fd = self._ts_ax_fy_dist
+        ax_fd.clear()
+        dist_arr = d['dist']
+        ax_fd.plot(dist_arr, Fy_arr, 'b-', lw=0.8, alpha=0.5)
+        ax_fd.fill_between(dist_arr, Fy_arr, alpha=0.2, color='#1E90FF')
+        ax_fd.set_xlabel('Distance [m]', fontsize=self.PLOT_FONTS['label'])
+        ax_fd.set_ylabel('Fy [N]', fontsize=self.PLOT_FONTS['label'])
+        _fd_title = f'Fy vs Distance  (|Fy|max={np.max(np.abs(Fy_arr)):.0f} N)'
+        ax_fd.set_title(_fd_title, fontsize=self.PLOT_FONTS['label'], fontweight='bold')
+        ax_fd.grid(True, alpha=0.3)
+        # Auto-scale Y axis for Fy vs Distance too
+        if len(all_fy_vals) > 0:
+            ax_fd.set_ylim(fy_min - fy_margin, fy_max + fy_margin)
+        self._ts_cursor_fy_dist = ax_fd.axvline(x=0, color='red', lw=1.5, alpha=0.8)
+        self._ts_fy_canvas.draw()
+
+        # ── Contact patch outline setup (matching 2D Brush Model exactly) ──
+        _AX_MARGIN_MM = 30.0  # fixed margin in mm (matches 2D Brush tab)
+        _AX_X_HALF = L_mm / 2 + _AX_MARGIN_MM
+        _AX_Y_HALF = W_mm / 2 + _AX_MARGIN_MM
+        n_levels = 8  # discrete levels (matching 2D Brush tab)
+
+        self._ts_outline_patches = []
+        self._ts_cbar_axes = {}
+
+        def _add_contact_outline(ax):
+            """Add egg-shaped contact patch outline (matching 2D Brush tab)."""
+            if hasattr(self, '_egg_outline'):
+                verts = self._egg_outline(0, L_mm / 2, W_mm / 2)
+            else:
+                theta = np.linspace(0, 2 * np.pi, 80)
+                verts = np.column_stack([L_mm / 2 * np.cos(theta),
+                                         W_mm / 2 * np.sin(theta)])
+            poly = MplPolygon(verts, closed=True, fill=False,
+                              edgecolor='k', linewidth=1.5, zorder=5)
+            ax.add_patch(poly)
+            self._ts_outline_patches.append(poly)
+            return poly
+
+        def _setup_contour_ax(ax, title):
+            ax.clear()
+            ax.set_title(title, fontsize=self.PLOT_FONTS['title'], fontweight='bold')
+            ax.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label'])
+            ax.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label'])
+            ax.set_xlim(-_AX_X_HALF, _AX_X_HALF)
+            ax.set_ylim(-_AX_Y_HALF, _AX_Y_HALF)
+            ax.tick_params(labelsize=self.PLOT_FONTS['tick'])
+
+        def _make_inset_cb(mappable, ax, key, label='', **extra_kw):
+            """Create inset colorbar (horizontal, bottom-right) matching 2D Brush tab."""
+            cax = inset_axes(ax, width="40%", height="3.5%",
+                             loc='lower right', borderpad=1.5)
+            cb = self._ts_contour_fig.colorbar(mappable, cax=cax,
+                                                orientation='horizontal', **extra_kw)
+            cb.ax.tick_params(labelsize=self.PLOT_FONTS['legend_sm'], length=2, pad=1)
+            if label:
+                cb.set_label(label, fontsize=self.PLOT_FONTS['legend'])
+            self._ts_cbar_axes[key] = cax
+            return cb
+
+        # ── (1) Adhesion / Sliding (matching 2D Brush tab: blue=stick, red=slip) ──
+        _setup_contour_ax(self._ts_ax_stick, 'sliding vs adhesion')
+        cmap_sa = ListedColormap(['#2196F3', '#F44336'])
+        bounds_sa = [0, 0.5, 1.0]
+        norm_sa = BoundaryNorm(bounds_sa, cmap_sa.N)
+        init = bd['is_sliding'][0].T
+        self._ts_pm_stick = self._ts_ax_stick.pcolormesh(
+            xe_mm, ye_mm, init, cmap=cmap_sa, norm=norm_sa, shading='flat', zorder=1)
+        outline1 = _add_contact_outline(self._ts_ax_stick)
+        self._ts_pm_stick.set_clip_path(outline1)
+        # Rolling direction arrow (green, matching 2D Brush tab)
+        _roll_y = -W_mm * 0.55
+        self._ts_ax_stick.annotate('', xy=(-L_mm * 0.35, _roll_y),
+                     xytext=(L_mm * 0.35, _roll_y),
+                     arrowprops=dict(arrowstyle='->', color='#00C853', lw=2.5,
+                                     mutation_scale=16), zorder=7)
+        self._ts_ax_stick.text(0, _roll_y - W_mm * 0.08, '\u2190 Rolling Dir.',
+                 fontsize=self.PLOT_FONTS['title'], ha='center', va='top', color='#00C853',
+                 fontweight='bold', zorder=7)
+        # Friction direction arrow (white, matching 2D Brush tab)
+        self._ts_stick_arrow_line, = self._ts_ax_stick.plot(
+            [], [], '-', color='white', lw=3, zorder=6)
+        self._ts_stick_arrow_head, = self._ts_ax_stick.plot(
+            [], [], marker=(3, 0, 0), color='white', markersize=14,
+            linestyle='', zorder=6)
+        self._ts_stick_arrow_label = self._ts_ax_stick.text(
+            0, W_mm * 0.42, '', fontsize=self.PLOT_FONTS['title'], ha='center',
+            va='bottom', color='white', fontweight='bold', zorder=7)
+        self._ts_stick_arrow_label.set_visible(False)
+        # Legend (matching 2D Brush tab)
+        legend_patches = [Patch(facecolor='#2196F3', edgecolor='k', linewidth=0.5, label='Stick (\ubd80\ucc29)'),
+                          Patch(facecolor='#F44336', edgecolor='k', linewidth=0.5, label='Slip (\ubbf8\ub044\ub7ec)')]
+        self._ts_ax_stick.legend(handles=legend_patches, loc='upper right', fontsize=self.PLOT_FONTS['label'],
+                   framealpha=0.9, edgecolor='#999',
+                   bbox_to_anchor=(0.98, 0.98), borderaxespad=0,
+                   handlelength=2.5, handletextpad=0.8, columnspacing=1.5)
+
+        # ── (2) Sliding Speed (quiver arrows matching 2D Brush tab) ──
+        _setup_contour_ax(self._ts_ax_speed, 'sliding speed')
+        self._ts_ax_speed.set_facecolor('#FFFFFF')
+        outline2 = _add_contact_outline(self._ts_ax_speed)
+        # Quiver grid
+        x_mm_arr = xe_mm[:-1] + np.diff(xe_mm) / 2
+        y_mm_arr = ye_mm[:-1] + np.diff(ye_mm) / 2
+        step_x = max(1, len(x_mm_arr) // 18)
+        step_y = max(1, len(y_mm_arr) // 9)
+        self._ts_speed_step = (step_x, step_y)
+        xx_q, yy_q = np.meshgrid(x_mm_arr[::step_x], y_mm_arr[::step_y], indexing='ij')
+        # Use dilated mask for gap-free quiver display
+        _qmask_src = bd.get('mask_fill', bd['mask'])
+        mask_q = _qmask_src[::step_x, ::step_y]
+        self._ts_speed_mask_q = mask_q
+        self._ts_speed_xx_q = xx_q
+        self._ts_speed_yy_q = yy_q
+        sp_max = max(np.nanmax(bd['v_slide']), 0.01)
+        self._ts_global_sp_max = sp_max          # store for fixed quiver scale
+        sp_boundaries = np.linspace(0, sp_max, n_levels + 1)
+        sp_cmap = plt.colormaps['jet'].resampled(n_levels)
+        sp_norm = BoundaryNorm(sp_boundaries, sp_cmap.N)
+        u_init = np.zeros_like(xx_q)
+        v_init = np.zeros_like(xx_q)
+        mag_init = np.zeros_like(xx_q)
+        self._ts_quiver_speed = self._ts_ax_speed.quiver(
+            xx_q[mask_q], yy_q[mask_q], u_init[mask_q], v_init[mask_q],
+            mag_init[mask_q],
+            cmap=sp_cmap, clim=(0, sp_max), norm=sp_norm,
+            scale=max(sp_max * 5.0, 0.1), headwidth=4, headlength=5, headaxislength=4,
+            linewidth=0.6, alpha=0.9, zorder=3)
+        cb_sp = _make_inset_cb(self._ts_quiver_speed, self._ts_ax_speed, 'speed', label='m/s')
+        sp_centers = 0.5 * (sp_boundaries[:-1] + sp_boundaries[1:])
+        cb_sp.set_ticks(sp_centers[::2])
+        cb_sp.set_ticklabels([f'{v:.1f}' for v in sp_centers[::2]])
+
+        # ── (3) Contact Pressure (pcolormesh with discrete jet levels) ──
+        _setup_contour_ax(self._ts_ax_press, 'contact pressure')
+        pr_max = max(np.nanmax(bd['pressure']), 0.01)
+        pr_boundaries = np.linspace(0, pr_max, n_levels + 1)
+        pr_cmap = plt.colormaps['jet'].resampled(n_levels)
+        pr_norm = BoundaryNorm(pr_boundaries, pr_cmap.N)
+        self._ts_pm_press = self._ts_ax_press.pcolormesh(
+            xe_mm, ye_mm, bd['pressure'][0].T, cmap=pr_cmap, norm=pr_norm,
+            shading='flat', zorder=1)
+        outline3 = _add_contact_outline(self._ts_ax_press)
+        self._ts_pm_press.set_clip_path(outline3)
+        cb_pr = _make_inset_cb(self._ts_pm_press, self._ts_ax_press, 'pressure', label='bar')
+        pr_centers = 0.5 * (pr_boundaries[:-1] + pr_boundaries[1:])
+        cb_pr.set_ticks(pr_centers[::2])
+        cb_pr.set_ticklabels([f'{v:.1f}' for v in pr_centers[::2]])
+        # Rolling direction arrow + LE/TE labels (matching 2D Brush tab)
+        _roll_y3 = -W_mm * 0.55
+        self._ts_ax_press.annotate('', xy=(-L_mm * 0.35, _roll_y3),
+                     xytext=(L_mm * 0.35, _roll_y3),
+                     arrowprops=dict(arrowstyle='->', color='#00C853', lw=2,
+                                     mutation_scale=14), zorder=7)
+        self._ts_ax_press.text(0, _roll_y3 - W_mm * 0.08, '\u2190 Rolling Dir.',
+                 fontsize=self.PLOT_FONTS['title'], ha='center', va='top', color='#00C853',
+                 fontweight='bold', zorder=7)
+        self._ts_ax_press.text(-L_mm * 0.42, 0, 'LE', fontsize=self.PLOT_FONTS['title'], ha='right', va='center',
+                 color='#333', fontweight='bold', fontstyle='italic', zorder=7)
+        self._ts_ax_press.text(L_mm * 0.42, 0, 'TE', fontsize=self.PLOT_FONTS['title'], ha='left', va='center',
+                 color='#333', fontweight='bold', fontstyle='italic', zorder=7)
+
+        # ── (4) Temperature (pcolormesh with discrete jet levels) ──
+        _setup_contour_ax(self._ts_ax_temp, 'temperature')
+        t_min = np.nanmin(bd['temperature'])
+        t_max = max(np.nanmax(bd['temperature']), t_min + 1)
+        t_boundaries = np.linspace(t_min, t_max, n_levels + 1)
+        t_cmap = plt.colormaps['jet'].resampled(n_levels)
+        t_norm = BoundaryNorm(t_boundaries, t_cmap.N)
+        self._ts_pm_temp = self._ts_ax_temp.pcolormesh(
+            xe_mm, ye_mm, bd['temperature'][0].T, cmap=t_cmap, norm=t_norm,
+            shading='flat', zorder=1)
+        outline4 = _add_contact_outline(self._ts_ax_temp)
+        self._ts_pm_temp.set_clip_path(outline4)
+        cb_t = _make_inset_cb(self._ts_pm_temp, self._ts_ax_temp, 'temperature', label='\u00b0C')
+        t_centers = 0.5 * (t_boundaries[:-1] + t_boundaries[1:])
+        cb_t.set_ticks(t_centers[::2])
+        cb_t.set_ticklabels([f'{v:.1f}' for v in t_centers[::2]])
+
+        # ── (5) Friction Force (pcolormesh with discrete jet levels) ──
+        _setup_contour_ax(self._ts_ax_fric, 'friction force')
+        f_max = max(np.nanmax(bd['friction']), 0.01)
+        fric_boundaries = np.linspace(0, f_max, n_levels + 1)
+        fric_cmap = plt.colormaps['jet'].resampled(n_levels)
+        fric_norm = BoundaryNorm(fric_boundaries, fric_cmap.N)
+        self._ts_pm_fric = self._ts_ax_fric.pcolormesh(
+            xe_mm, ye_mm, bd['friction'][0].T, cmap=fric_cmap, norm=fric_norm,
+            shading='flat', zorder=1)
+        outline5 = _add_contact_outline(self._ts_ax_fric)
+        self._ts_pm_fric.set_clip_path(outline5)
+        cb_f = _make_inset_cb(self._ts_pm_fric, self._ts_ax_fric, 'friction', label='N/node')
+        fric_centers = 0.5 * (fric_boundaries[:-1] + fric_boundaries[1:])
+        cb_f.set_ticks(fric_centers[::2])
+        cb_f.set_ticklabels([f'{v:.0e}' for v in fric_centers[::2]])
+
+        # ── Blit setup: list dynamic artists, then cache CLEAN background ──
+        # (Matching 2D Brush tab approach exactly for 120 Hz contour playback)
+        self._ts_contour_dynamic = [
+            self._ts_pm_stick, self._ts_pm_press, self._ts_pm_temp,
+            self._ts_pm_fric, self._ts_quiver_speed,
+            self._ts_stick_arrow_line, self._ts_stick_arrow_head,
+            self._ts_stick_arrow_label,
+        ]
+        # Outlines
+        self._ts_contour_dynamic.extend(self._ts_outline_patches)
+
+        # Hide all dynamic artists → draw clean background → cache → restore
+        _vis_states = []
+        for a in self._ts_contour_dynamic:
+            _vis_states.append(a.get_visible())
+            a.set_visible(False)
+        self._ts_contour_canvas.draw()
+        self._ts_contour_blit_bg = self._ts_contour_canvas.copy_from_bbox(
+            self._ts_contour_fig.bbox)
+        for a, vis in zip(self._ts_contour_dynamic, _vis_states):
+            a.set_visible(vis)
+        self._ts_use_blit = True
+
+    # ── Simulation engine ──
+    def _run_track_simulation(self):
+        self._log('CALC', 'Track Simulation started')
+        """Run lap simulation + pre-compute brush data.
+
+        Requires Cold & Hot Branch friction map data (from earlier tabs).
+        """
+        import numpy as np
+        from tkinter import messagebox
+
+        # ── 이전 애니메이션 중지 (중복 타이머 방지) ──
+        self._track_playing = False
+        if getattr(self, '_track_play_after_id', None) is not None:
+            try:
+                self.root.after_cancel(self._track_play_after_id)
+            except Exception:
+                pass
+            self._track_play_after_id = None
+
+        # ── Validate: Cold & Hot friction map must exist ──
+        # Track Sim에서도 저장된 마찰맵 선택 지원
+        _ts_active_ch = self.cold_hot_results
+        _ts_active_fm = getattr(self, 'friction_map_results', None)
+        _ts_fm_name = '(현재 계산 결과)'  # 선택된 마찰맵 이름 추적
+        ts_fm_sel = getattr(self, '_ts_friction_map_var', None)
+        if ts_fm_sel and ts_fm_sel.get() != '(현재 계산 결과)':
+            _ts_fm_name = ts_fm_sel.get()
+            _fm, _ch = self._get_friction_map_by_name(_ts_fm_name)
+            if _fm is not None:
+                _ts_active_fm = _fm  # 선택된 마찰맵의 3D LUT
+            if _ch is not None:
+                _ts_active_ch = _ch
+                if hasattr(self, '_ts_fm_status_var'):
+                    self._ts_fm_status_var.set(f"마찰맵 '{_ts_fm_name}' 사용 중")
+            elif _fm is not None:
+                # cold_hot_results가 None이면 friction_map_results에서 합성
+                T_sel = None
+                p0_sel = None
+                try:
+                    t_str = getattr(self, '_ts_fm_T_var', None)
+                    if t_str and t_str.get().strip():
+                        T_sel = float(t_str.get())
+                except (ValueError, AttributeError):
+                    pass
+                try:
+                    p_str = getattr(self, '_ts_fm_p0_var', None)
+                    if p_str and p_str.get().strip():
+                        p0_sel = float(p_str.get())
+                except (ValueError, AttributeError):
+                    pass
+                _ch = self._synthesize_cold_hot_from_fm(_fm, T_C=T_sel, p0_MPa=p0_sel)
+                if _ch is not None:
+                    _ts_active_ch = _ch
+                    if hasattr(self, '_ts_fm_status_var'):
+                        self._ts_fm_status_var.set(
+                            f"마찰맵 '{ts_fm_sel.get()}' (T={_ch['T0']:.0f}°C, p₀={_ch['sigma_0']/1e6:.3g} MPa)")
+        if _ts_active_ch is None:
+            messagebox.showerror(
+                "데이터 없음",
+                "Cold & Hot Branch 마찰맵 데이터가 없습니다.\n\n"
+                "Track Simulation을 실행하려면:\n"
+                "  - 저장소에서 마찰맵을 선택하거나\n"
+                "  - Cold & Hot Branch 탭에서 직접 계산하세요.")
+            return
+        # 임시로 cold_hot_results를 선택된 맵으로 교체
+        _orig_ch = self.cold_hot_results
+        self.cold_hot_results = _ts_active_ch
+
+        try:
+            mass = float(self.ts_mass_var.get())
+            power_hp = float(self.ts_power_var.get())
+            cda = float(self.ts_cda_var.get())
+            cla = float(self.ts_cla_var.get())
+            brake_g_max = float(self.ts_brake_g_var.get())
+        except ValueError:
+            self.cold_hot_results = _orig_ch
+            messagebox.showerror("오류", "차량 파라미터를 확인하세요.")
+            return
+
+        power_w = power_hp * 745.7
+        g = 9.81; rho = 1.225
+
+        # ── Build velocity-dependent friction from Cold & Hot Branch data ──
+        # 명시적으로 선택된 마찰맵 데이터를 전달 (Brush 탭 선택과 무관하게 동작)
+        lut_cold, lut_hot, lut_cold_3d, lut_hot_3d = self._build_brush_lut(
+            override_ch=_ts_active_ch, override_fm=_ts_active_fm)
+        chr_ = _ts_active_ch
+        _T0_lap = chr_.get('T0', 25.0)
+        _p0_lap_Pa = chr_.get('sigma_0', 0.3e6)  # representative contact pressure [Pa]
+        try:
+            D_mm = float(self.br_D_macro_var.get())
+            _s0 = 0.2 * D_mm * 1e-3
+        except (AttributeError, ValueError):
+            _s0 = chr_.get('s0', 0.001)
+        try:
+            _L_fp = float(self.br_L_var.get())
+            _fscale = float(self.br_friction_scale_var.get())
+        except (AttributeError, ValueError):
+            _L_fp = 0.15
+            _fscale = 0.5
+
+        def mu_eff_at_v(v_arr):
+            """Effective macro friction coefficient at given speed(s).
+
+            Blends cold/hot friction using average contact-patch sliding
+            distance, then applies friction_scale for macro grip level.
+            Uses 3D LUT (T, p, v) if available for pressure-dependent friction.
+            """
+            v_q = np.atleast_1d(np.asarray(v_arr, dtype=float))
+            if lut_cold_3d is not None:
+                T_q = np.full_like(v_q, _T0_lap)
+                p_q = np.full_like(v_q, _p0_lap_Pa)
+                pts = np.column_stack([T_q, p_q, v_q])
+                try:
+                    mu_c = lut_cold_3d(pts)
+                    mu_h = lut_hot_3d(pts) if lut_hot_3d is not None else mu_c.copy()
+                except Exception:
+                    mu_c = lut_cold(v_q)
+                    mu_h = lut_hot(v_q)
+            else:
+                mu_c = lut_cold(v_q)
+                mu_h = lut_hot(v_q)
+            # Representative sliding speed at grip limit ≈ 10% of vehicle speed
+            v_slide_rep = 0.1 * v_q
+            t_max = _L_fp / np.clip(v_q, 0.5, None)
+            s_max = v_slide_rep * t_max
+            ratio = s_max / max(_s0, 1e-10)
+            avg_blend = np.where(ratio > 1e-6,
+                                 (1.0 - np.exp(-ratio)) / ratio, 1.0)
+            return (mu_c * avg_blend + mu_h * (1.0 - avg_blend)) * _fscale
+
+        track = self._get_yeongam_track_points()
+        turn_speeds = self._get_turn_speed_limits()
+        tx, ty = track['x'], track['y']
+        dist = track['dist']
+        n_pts = track['n_points']
+        signed_curv = track['signed_curvature']
+        curvature = np.clip(np.abs(signed_curv), 1e-6, None)
+        radius = 1.0 / curvature
+
+        # Max cornering speed (velocity-dependent friction from compound data)
+        # Iterative solve: mu depends on v and v depends on mu
+        v_max_corner = np.full(n_pts, 100 / 3.6)  # initial guess
+        for _ in range(4):
+            mu_arr = mu_eff_at_v(v_max_corner)
+            denom = mass / radius - 0.5 * rho * mu_arr * cla
+            valid = denom > 0
+            v_max_corner[valid] = np.sqrt(mu_arr[valid] * mass * g / denom[valid])
+            v_max_corner[~valid] = 500 / 3.6
+
+        turn_idx = track['turn_indices']
+        for i, idx in enumerate(turn_idx):
+            v_turn = turn_speeds[i + 1] / 3.6
+            zone = 60
+            for j in range(max(0, idx - zone), min(n_pts, idx + zone)):
+                d_j = abs(j - idx)
+                blend = np.exp(-0.5 * (d_j / (zone * 0.4))**2)
+                v_max_corner[j] = min(v_max_corner[j],
+                                      v_turn + (v_max_corner[j] - v_turn) * (1 - blend))
+
+        v_max_corner = np.clip(v_max_corner, 0, 320 / 3.6)
+
+        # Forward pass
+        v_fwd = np.zeros(n_pts)
+        v_fwd[0] = min(v_max_corner[0], 150 / 3.6)
+        for i in range(1, n_pts):
+            ds_i = dist[i] - dist[i - 1]
+            if ds_i <= 0: v_fwd[i] = v_fwd[i - 1]; continue
+            v_c = v_fwd[i - 1]
+            mu_v = float(np.asarray(mu_eff_at_v(v_c)).ravel()[0])
+            f_eng = min(power_w / max(v_c, 1), mu_v * mass * g)
+            a_net = max((f_eng - 0.5 * rho * cda * v_c**2) / mass, 0.5)
+            v_fwd[i] = min(np.sqrt(v_c**2 + 2 * a_net * ds_i), v_max_corner[i])
+
+        # Backward pass
+        v_bwd = np.zeros(n_pts); v_bwd[-1] = v_fwd[-1]
+        for i in range(n_pts - 2, -1, -1):
+            ds_i = dist[i + 1] - dist[i]
+            if ds_i <= 0: v_bwd[i] = v_bwd[i + 1]; continue
+            v_bwd[i] = min(np.sqrt(v_bwd[i + 1]**2 + 2 * brake_g_max * g * ds_i),
+                           v_max_corner[i])
+
+        v_final = np.clip(np.minimum(v_fwd, v_bwd), 10 / 3.6, 320 / 3.6)
+
+        # Lap time
+        dt_arr = np.zeros(n_pts - 1)
+        for i in range(n_pts - 1):
+            dt_arr[i] = (dist[i + 1] - dist[i]) / max(0.5 * (v_final[i] + v_final[i + 1]), 0.1)
+        time_arr = np.concatenate([[0], np.cumsum(dt_arr)])
+        lap_time = time_arr[-1]
+
+        dv = np.gradient(v_final); dt_grad = np.gradient(time_arr)
+        dt_grad[dt_grad == 0] = 1e-6
+        accel_g = dv / dt_grad / g
+
+        # SA and Fy
+        # Sign convention (SAE): positive SA → right turn, negative SA → left turn
+        # signed_curv: positive → counter-clockwise (left turn on track)
+        # Therefore negate: left turn on track → negative SA → steering wheel turns left
+        sa_arr = np.zeros(n_pts)
+        for i in range(n_pts):
+            lat_a = v_final[i]**2 * curvature[i]
+            sa_raw = np.degrees(np.arctan2(lat_a, g)) * 0.8
+            sa_arr[i] = -np.sign(signed_curv[i]) * min(sa_raw, 25.0)
+
+        # Fz per tire (total vehicle weight + downforce, divided by 4 tires)
+        Fz_arr = (mass * g + 0.5 * rho * cla * v_final**2) / 4.0
+
+        # Sector times
+        s1i, s2i = int(0.32 * n_pts), int(0.62 * n_pts)
+        sector_times = [time_arr[s1i], time_arr[s2i] - time_arr[s1i],
+                        time_arr[-1] - time_arr[s2i]]
+
+        # Compute effective mu profile along the lap
+        mu_profile = mu_eff_at_v(v_final)
+
+        self.ts_progress_var.set(50)
+        self.root.update_idletasks()
+
+        # Pre-compute brush data (vectorized, fast) — uses 2D Brush tab pressure type
+        # 명시적으로 선택된 마찰맵 전달 (Brush 탭 선택과 무관)
+        brush_data = self._compute_track_brush_data(
+            sa_arr, v_final, Fz_arr,
+            override_ch=_ts_active_ch, override_fm=_ts_active_fm)
+
+        # Use brush-model Fy (integrated from friction map + pressure distribution)
+        # instead of raw centripetal force, so Fy responds to SA and speed properly
+        Fy_arr = brush_data['Fy_brush']
+
+        # ── Refine lap time using 2D Brush model effective mu ──
+        # Extract effective lateral mu from brush model: mu_lat = |Fy_brush| / Fz
+        mu_brush_lat = np.abs(Fy_arr) / np.clip(Fz_arr, 1.0, None)
+        # Use the brush-derived mu for corner speed limits (2nd pass)
+        # This ensures the lap time reflects the brush model's stick/slip mechanics
+        _mu_brush_valid = mu_brush_lat[mu_brush_lat > 0.01]
+        if len(_mu_brush_valid) > 0:
+            # Build per-point effective mu: blend brush mu where cornering is active
+            mu_profile_brush = np.where(
+                np.abs(sa_arr) > 0.3, mu_brush_lat, mu_profile)
+            # Recompute corner speed with brush mu
+            v_max_corner2 = np.full(n_pts, 100 / 3.6)
+            for _ in range(3):
+                mu_arr2 = np.clip(mu_profile_brush, 0.05, 3.0)
+                denom2 = mass / radius - 0.5 * rho * mu_arr2 * cla
+                valid2 = denom2 > 0
+                v_max_corner2[valid2] = np.sqrt(mu_arr2[valid2] * mass * g / denom2[valid2])
+                v_max_corner2[~valid2] = 500 / 3.6
+            # Apply turn speed limits
+            for i_t, idx_t in enumerate(turn_idx):
+                v_turn = turn_speeds[i_t + 1] / 3.6
+                zone = 60
+                for j in range(max(0, idx_t - zone), min(n_pts, idx_t + zone)):
+                    d_j = abs(j - idx_t)
+                    blend_ = np.exp(-0.5 * (d_j / (zone * 0.4))**2)
+                    v_max_corner2[j] = min(v_max_corner2[j],
+                                           v_turn + (v_max_corner2[j] - v_turn) * (1 - blend_))
+            v_max_corner2 = np.clip(v_max_corner2, 0, 320 / 3.6)
+            # Forward pass with brush mu
+            v_fwd2 = np.zeros(n_pts)
+            v_fwd2[0] = min(v_max_corner2[0], 150 / 3.6)
+            for i in range(1, n_pts):
+                ds_i = dist[i] - dist[i - 1]
+                if ds_i <= 0: v_fwd2[i] = v_fwd2[i - 1]; continue
+                v_c = v_fwd2[i - 1]
+                mu_v2 = float(mu_profile_brush[i])
+                f_eng2 = min(power_w / max(v_c, 1), mu_v2 * mass * g)
+                a_net2 = max((f_eng2 - 0.5 * rho * cda * v_c**2) / mass, 0.5)
+                v_fwd2[i] = min(np.sqrt(v_c**2 + 2 * a_net2 * ds_i), v_max_corner2[i])
+            # Backward pass
+            v_bwd2 = np.zeros(n_pts); v_bwd2[-1] = v_fwd2[-1]
+            for i in range(n_pts - 2, -1, -1):
+                ds_i = dist[i + 1] - dist[i]
+                if ds_i <= 0: v_bwd2[i] = v_bwd2[i + 1]; continue
+                v_bwd2[i] = min(np.sqrt(v_bwd2[i + 1]**2 + 2 * brake_g_max * g * ds_i),
+                                v_max_corner2[i])
+            v_final = np.clip(np.minimum(v_fwd2, v_bwd2), 10 / 3.6, 320 / 3.6)
+            # Recompute derived quantities
+            dt_arr = np.zeros(n_pts - 1)
+            for i in range(n_pts - 1):
+                dt_arr[i] = (dist[i + 1] - dist[i]) / max(
+                    0.5 * (v_final[i] + v_final[i + 1]), 0.1)
+            time_arr = np.concatenate([[0], np.cumsum(dt_arr)])
+            lap_time = time_arr[-1]
+            dv = np.gradient(v_final); dt_grad = np.gradient(time_arr)
+            dt_grad[dt_grad == 0] = 1e-6
+            accel_g = dv / dt_grad / g
+            # Recompute SA with updated speeds
+            for i in range(n_pts):
+                lat_a = v_final[i]**2 * curvature[i]
+                sa_raw = np.degrees(np.arctan2(lat_a, g)) * 0.8
+                sa_arr[i] = -np.sign(signed_curv[i]) * min(sa_raw, 25.0)
+            Fz_arr = (mass * g + 0.5 * rho * cla * v_final**2) / 4.0
+            s1i, s2i = int(0.32 * n_pts), int(0.62 * n_pts)
+            sector_times = [time_arr[s1i], time_arr[s2i] - time_arr[s1i],
+                            time_arr[-1] - time_arr[s2i]]
+            mu_profile = mu_profile_brush
+            # Recompute brush data with refined speed profile
+            brush_data = self._compute_track_brush_data(
+                sa_arr, v_final, Fz_arr,
+                override_ch=_ts_active_ch, override_fm=_ts_active_fm)
+            Fy_arr = brush_data['Fy_brush']
+
+        self.ts_progress_var.set(90)
+        self.root.update_idletasks()
+
+        self._track_sim_data = {
+            'track': track,
+            'v_final': v_final, 'v_kmh': v_final * 3.6,
+            'time': time_arr, 'dist': dist,
+            'accel_g': accel_g,
+            'throttle': np.clip(accel_g, 0, None) / (np.clip(accel_g, 0, None).max() + 1e-6),
+            'brake': np.clip(-accel_g, 0, None) / (np.clip(-accel_g, 0, None).max() + 1e-6),
+            'sa_deg': sa_arr, 'Fy': Fy_arr, 'Fz': Fz_arr,
+            'lap_time': lap_time, 'sector_times': sector_times,
+            'max_speed_kmh': np.max(v_final) * 3.6,
+            'min_speed_kmh': np.min(v_final) * 3.6,
+            'avg_speed_kmh': np.mean(v_final) * 3.6,
+            'mu_profile': mu_profile,
+            'mu_avg': float(np.mean(mu_profile)),
+            'mu_min': float(np.min(mu_profile)),
+            'mu_max': float(np.max(mu_profile)),
+            'brush_data': brush_data,
+            'friction_map_name': _ts_fm_name,
+            'Fy_max': float(np.max(np.abs(Fy_arr))),
+            'Fy_mean': float(np.mean(np.abs(Fy_arr))),
+        }
+
+        self.ts_progress_var.set(100)
+        self._update_track_results_text()
+
+        # Re-draw static track + init blit artists
+        self._draw_yeongam_track_static()
+
+        # Init contour artists (SA/Fy + 5 contour plots)
+        self._init_track_contour_artists()
+
+        self._track_frame_idx = 0
+        self._update_track_frame(0)
+        self.ts_time_slider.configure(to=n_pts - 1)
+
+        # Auto-play at ~120 Hz after simulation completes
+        self._track_play()
+
+        # 선택된 마찰맵 사용 후 원래 cold_hot_results 복원
+        self.cold_hot_results = _orig_ch
+
+    def _update_track_results_text(self):
+        d = self._track_sim_data
+        if d is None: return
+        lt = d['lap_time']; m, s = int(lt // 60), lt % 60
+        bd = d.get('brush_data', {})
+        # Show synced 2D Brush parameters
+        brush_info = ""
+        try:
+            brush_info = (
+                f"\n  ── 2D Brush 연동 ──\n"
+                f"  격자: {bd.get('nx','?')}×{bd.get('ny','?')}\n"
+                f"  풋프린트: {bd.get('half_L',0)*2:.3f}×{bd.get('half_W',0)*2:.3f} m\n"
+                f"  압력 분포: {bd.get('pressure_type','?')}\n"
+            )
+        except Exception:
+            pass
+        _fm_name = d.get('friction_map_name', '(현재 계산 결과)')
+        text = (
+            f"═══ 랩타임 결과 ═══\n\n"
+            f"  마찰맵:  {_fm_name}\n\n"
+            f"  총 랩타임:  {m}:{s:06.3f}\n\n"
+            f"  Sector 1:  {d['sector_times'][0]:.3f} s\n"
+            f"  Sector 2:  {d['sector_times'][1]:.3f} s\n"
+            f"  Sector 3:  {d['sector_times'][2]:.3f} s\n\n"
+            f"  최고 속도:  {d['max_speed_kmh']:.1f} km/h\n"
+            f"  최저 속도:  {d['min_speed_kmh']:.1f} km/h\n"
+            f"  평균 속도:  {d['avg_speed_kmh']:.1f} km/h\n\n"
+            f"  ── 컴파운드 마찰 ──\n"
+            f"  μ_eff 평균:  {d.get('mu_avg', 0):.3f}\n"
+            f"  μ_eff 범위:  {d.get('mu_min', 0):.3f} – {d.get('mu_max', 0):.3f}\n\n"
+            f"  ── 횡력 (Brush Model) ──\n"
+            f"  |Fy| 최대:  {d.get('Fy_max', 0):.0f} N\n"
+            f"  |Fy| 평균:  {d.get('Fy_mean', 0):.0f} N\n\n"
+            f"  트랙 길이:  5.615 km  |  18 코너\n"
+            f"{brush_info}"
+        )
+        self.ts_result_text.configure(state='normal')
+        self.ts_result_text.delete('1.0', tk.END)
+        self.ts_result_text.insert('1.0', text)
+        self.ts_result_text.configure(state='disabled')
+
+    # ── Blit-based frame update (120 Hz capable) ──
+    def _update_track_frame(self, idx):
+        """Frame update: blit for track map, direct draw for contour/graph plots."""
+        import numpy as np
+
+        d = self._track_sim_data
+        if d is None: return
+
+        track = d['track']
+        tx, ty = track['x'], track['y']
+        n = track['n_points']
+        idx = int(idx) % n
+        v_kmh = d['v_kmh']
+        t_cur = d['time'][idx]
+        d_cur = d['dist'][idx]
+        sa_cur = d['sa_deg'][idx]
+        Fy_cur = d['Fy'][idx]
+
+        # ══ Track map blit update ══
+        # Car position
+        self._ts_car_dot.set_data([tx[idx]], [ty[idx]])
+
+        # Direction arrow — use more points for smoother direction estimate
+        ni = (idx + 15) % n
+        dx = tx[ni] - tx[idx]; dy = ty[ni] - ty[idx]
+        le = np.sqrt(dx**2 + dy**2)
+        if le > 0:
+            # marker(3,0,angle) draws triangle pointing UP rotated by angle degrees.
+            # arctan2 gives angle from +x axis. Subtract 90° to align triangle tip
+            # with the direction of travel.
+            angle = np.degrees(np.arctan2(dy, dx)) - 90
+            self._ts_car_arrow.set_data([tx[idx] + dx / le * 30],
+                                         [ty[idx] + dy / le * 30])
+            self._ts_car_arrow.set_marker((3, 0, angle))
+
+        # Trail
+        tl = self._ts_trail_len
+        if idx >= tl:
+            tr_x = tx[idx - tl:idx + 1]; tr_y = ty[idx - tl:idx + 1]
+        else:
+            tr_x = np.concatenate([tx[-(tl - idx):], tx[:idx + 1]])
+            tr_y = np.concatenate([ty[-(tl - idx):], ty[:idx + 1]])
+        segs = np.array([[tr_x[j:j + 2], tr_y[j:j + 2]] for j in range(len(tr_x) - 1)])
+        segs = segs.transpose(0, 2, 1)  # (n_seg, 2, 2) → (n_seg, 2_pts, 2_xy)
+        alphas = np.linspace(0.0, 0.7, len(segs))
+        colors = np.column_stack([np.full(len(segs), 1.0),
+                                  np.full(len(segs), 0.3),
+                                  np.full(len(segs), 0.3),
+                                  alphas])
+        self._ts_trail_lc.set_segments(segs)
+        self._ts_trail_lc.set_color(colors)
+
+        # HUD
+        mi, se = int(t_cur // 60), t_cur % 60
+        self._ts_hud_speed.set_text(
+            f"Speed: {v_kmh[idx]:.0f} km/h\n"
+            f"Time:  {mi}:{se:05.2f}\n"
+            f"Dist:  {d_cur:.0f} m\n"
+            f"SA:    {sa_cur:+.1f}°")
+        lt = d['lap_time']
+        self._ts_hud_lap.set_text(f"LAP: {int(lt//60)}:{lt%60:06.3f}")
+
+        # Blit track map
+        if self._ts_map_blit_bg is not None:
+            canvas = self.canvas_track
+            canvas.restore_region(self._ts_map_blit_bg)
+            for artist in self._ts_map_dynamic:
+                try:
+                    artist.axes.draw_artist(artist)
+                except Exception:
+                    pass
+            canvas.blit(self.fig_track.bbox)
+            canvas.flush_events()
+        else:
+            self.canvas_track.draw_idle()
+
+        # ══ Contour/graph update (blit-based — matching 2D Brush tab for 120 Hz) ══
+        _playing = getattr(self, '_track_playing', False)
+
+        if hasattr(self, '_ts_cursor_fy_sa'):
+            bd = d['brush_data']
+
+            # Update SA/Fy cursor + marker
+            self._ts_cursor_fy_sa.set_xdata([sa_cur, sa_cur])
+            self._ts_marker_fy_sa.set_data([sa_cur], [Fy_cur])
+
+            # Update Fy vs distance cursor
+            self._ts_cursor_fy_dist.set_xdata([d_cur, d_cur])
+
+            # Fy graphs are on separate canvas — throttle during playback
+            if not _playing or idx % 4 == 0:
+                self._ts_fy_canvas.draw_idle()
+
+            # ── Update contour pcolormesh arrays ──
+            self._ts_pm_stick.set_array(bd['is_sliding'][idx].T.ravel())
+            self._ts_pm_press.set_array(bd['pressure'][idx].T.ravel())
+            self._ts_pm_temp.set_array(bd['temperature'][idx].T.ravel())
+            self._ts_pm_fric.set_array(bd['friction'][idx].T.ravel())
+
+            # ── Update friction direction arrow on stick/slip contour ──
+            # Friction force opposes the lateral slip velocity:
+            #   SA > 0 (right turn) → slip in +y → friction in -y (arrow DOWN)
+            #   SA < 0 (left turn)  → slip in -y → friction in +y (arrow UP)
+            if hasattr(self, '_ts_stick_arrow_line'):
+                half_L = bd.get('half_L', 0.075)
+                L_mm_a = half_L * 2 * 1000
+                if abs(sa_cur) > 0.2:
+                    arrow_scale = L_mm_a * 0.3
+                    # Primary direction: lateral (opposing slip), with small
+                    # longitudinal component proportional to SA magnitude
+                    sa_norm = np.clip(sa_cur / 12.0, -1, 1)
+                    dx_a = -arrow_scale * 0.15 * sa_norm  # small longitudinal
+                    dy_a = -arrow_scale * np.sign(sa_cur)  # main lateral direction
+                    self._ts_stick_arrow_line.set_data([0, dx_a], [0, dy_a])
+                    self._ts_stick_arrow_line.set_visible(True)
+                    angle_deg = np.degrees(np.arctan2(dy_a, dx_a))
+                    self._ts_stick_arrow_head.set_marker((3, 0, angle_deg - 90))
+                    self._ts_stick_arrow_head.set_data([dx_a], [dy_a])
+                    self._ts_stick_arrow_head.set_visible(True)
+                else:
+                    self._ts_stick_arrow_line.set_visible(False)
+                    self._ts_stick_arrow_head.set_visible(False)
+
+            # ── Update quiver speed arrows (handle NaN properly) ──
+            if hasattr(self, '_ts_quiver_speed'):
+                step_x, step_y = self._ts_speed_step
+                mask_q = self._ts_speed_mask_q
+                v_slide_frame = bd['v_slide'][idx]
+                sa_rad = np.radians(sa_cur)
+                # Replace NaN with 0 before computation to prevent NaN propagation
+                v_full = np.nan_to_num(v_slide_frame[::step_x, ::step_y], nan=0.0)
+                # Arrow direction: friction force opposes slip velocity
+                # SA > 0 → slip in +y → arrows in -y; SA < 0 → arrows in +y
+                u_q = np.where(mask_q, -v_full * np.sin(sa_rad), 0.0)
+                v_q = np.where(mask_q, -v_full * np.cos(sa_rad), 0.0)
+                mag_q = np.where(mask_q, v_full, 0.0)
+                self._ts_quiver_speed.set_UVC(u_q[mask_q], v_q[mask_q], mag_q[mask_q])
+                # Per-frame scale: ensures arrows within each frame clearly show
+                # the gradient from stick/slip boundary (short) to trailing edge
+                # (long).  The longest arrow spans ~1/5 of the axes width.
+                sp_frame_max = float(np.max(v_full[mask_q])) if np.any(mask_q) else 1.0
+                self._ts_quiver_speed.scale = max(sp_frame_max * 5.0, 0.1)
+
+            # ── Update outline patches + clip paths based on current SA ──
+            if hasattr(self, '_ts_outline_patches') and self._ts_outline_patches:
+                half_L = bd.get('half_L', 0.075)
+                half_W = bd.get('half_W', 0.06)
+                verts_mm = self._egg_outline(sa_cur, half_L * 1000, half_W * 1000)
+                for poly in self._ts_outline_patches:
+                    poly.set_xy(verts_mm)
+                # Re-clip pcolormesh to updated outline (matching 2D Brush tab)
+                _pm_list = [self._ts_pm_stick, self._ts_pm_press,
+                            self._ts_pm_temp, self._ts_pm_fric]
+                _outline_list = [self._ts_outline_patches[i]
+                                 for i in (0, 2, 3, 4)
+                                 if i < len(self._ts_outline_patches)]
+                for pm, poly in zip(_pm_list, _outline_list):
+                    try:
+                        pm.set_clip_path(poly)
+                    except Exception:
+                        pass
+
+            # ── Blit render contour canvas (matching 2D Brush tab) ──
+            if getattr(self, '_ts_use_blit', False) and self._ts_contour_blit_bg is not None:
+                c_canvas = self._ts_contour_canvas
+                c_canvas.restore_region(self._ts_contour_blit_bg)
+                for artist in self._ts_contour_dynamic:
+                    try:
+                        artist.axes.draw_artist(artist)
+                    except Exception:
+                        pass
+                c_canvas.blit(self._ts_contour_fig.bbox)
+                if idx % 4 == 0:
+                    c_canvas.flush_events()
+            else:
+                self._ts_contour_canvas.draw_idle()
+
+        # ══ Steering wheel + tire (lower frequency) ══
+        if not _playing or idx % 4 == 0:
+            self._update_track_steering_wheel(sa_cur)
+        if not _playing or idx % 2 == 0:
+            self._update_track_tire_animation(sa_cur, v_kmh[idx])
+
+        # HUD labels
+        self.ts_frame_label_var.set(
+            f"t={t_cur:.2f}s | {v_kmh[idx]:.0f}km/h | {d_cur:.0f}m")
+        self._ts_hud_var.set(f"SA: {sa_cur:+.1f}°  |  Fy: {Fy_cur:+.1f} N")
+
+    # ── Playback: 120 Hz with fractional accumulator ──
+    def _track_play(self):
+        if self._track_sim_data is None:
+            from tkinter import messagebox
+            messagebox.showinfo("알림", "먼저 랩 시뮬레이션을 실행하세요.")
+            return
+        self._track_playing = True
+        self._ts_frame_accum = 0.0
+        self._ts_last_anim_time = None  # reset time-based pacer
+        self._track_animate_step()
+
+    def _track_animate_step(self):
+        """Advance frames — time-based for smooth playback regardless of timer resolution."""
+        if not self._track_playing or self._track_sim_data is None:
+            return
+
+        import time as _time
+        now = _time.perf_counter()
+        n = self._track_sim_data['track']['n_points']
+
+        speed = self._ts_speed_mult.get()
+
+        # Time-based frame advancement
+        last_t = getattr(self, '_ts_last_anim_time', None)
+        if last_t is None:
+            self._ts_last_anim_time = now
+            self._update_track_frame(self._track_frame_idx)
+            self._track_play_after_id = self.root.after(1, self._track_animate_step)
+            return
+
+        dt_wall = now - last_t
+        # Target: real-time playback based on simulation time step
+        t_arr = self._track_sim_data.get('t', None)
+        if t_arr is not None and len(t_arr) > 1:
+            dt_sim = t_arr[1] - t_arr[0]
+        else:
+            dt_sim = 1.0 / 60.0
+
+        frames_due = dt_wall * speed / max(dt_sim, 1e-6)
+        acc = self._ts_frame_accum + frames_due
+        frame_skip = int(acc)
+        self._ts_frame_accum = acc - frame_skip
+
+        if frame_skip < 1:
+            self._track_play_after_id = self.root.after(8, self._track_animate_step)
+            return
+
+        self._ts_last_anim_time = now
+        self._track_frame_idx = (self._track_frame_idx + frame_skip) % n
+
+        # Update slider infrequently
+        if self._track_frame_idx % 4 == 0:
+            self.ts_time_slider.set(self._track_frame_idx)
+
+        self._update_track_frame(self._track_frame_idx)
+
+        # ~120Hz target: 8ms interval minus render time
+        render_time = _time.perf_counter() - now
+        next_delay = max(1, 8 - int(render_time * 1000))
+        self._track_play_after_id = self.root.after(next_delay, self._track_animate_step)
+
+    def _track_pause(self):
+        self._track_playing = False
+        if self._track_play_after_id is not None:
+            try:
+                self.root.after_cancel(self._track_play_after_id)
+            except Exception:
+                pass
+            self._track_play_after_id = None
+
+    def _track_reset(self):
+        self._track_pause()
+        self._track_frame_idx = 0
+        if self._track_sim_data is not None:
+            self._update_track_frame(0)
+            self.ts_time_slider.set(0)
+
+    def _on_track_speed_slider(self, val):
+        self._ts_speed_label_var.set(f"재생 속도: {self._ts_speed_mult.get():.1f}x")
+
+    def _on_track_slider_change(self, val):
+        if self._track_sim_data is None: return
+        self._track_frame_idx = int(float(val))
+        self._update_track_frame(self._track_frame_idx)
+
+
+    def _show_track_brush_sync_info(self):
+        """Display current 2D Brush Model parameters used by Track Simulation."""
+        try:
+            nx = self.br_Nx_var.get()
+            ny = self.br_Ny_var.get()
+            L = self.br_L_var.get()
+            W = self.br_W_var.get()
+            fs = self.br_friction_scale_var.get()
+            ep = getattr(self, '_br_ellipse_power_var', None)
+            ep_val = f"{ep.get():.1f}" if ep else "2.0"
+            self.ts_brush_info_var.set(
+                f"Nx={nx}, Ny={ny}\n"
+                f"L={L} m, W={W} m\n"
+                f"마찰 감도: {fs}\n"
+                f"타원 형상 (n): {ep_val}")
+        except Exception:
+            self.ts_brush_info_var.set("2D Brush 탭 파라미터 읽기 실패")
+
+    # ── Steering wheel (track sim) ──
+    def _init_track_steering_wheel(self):
+        from matplotlib.patches import Polygon as MplPoly
+        ax = self._ts_steer_ax
+        ax.clear()
+        ax.set_xlim(-1.5, 1.5); ax.set_ylim(-1.5, 1.5)
+        ax.set_aspect('equal'); ax.axis('off')
+        ax.set_facecolor('#F8FAFC')
+
+        theta = np.linspace(0, 2 * np.pi, 100)
+        ax.plot(np.cos(theta), np.sin(theta), '-', color='#333', lw=6, zorder=2)
+        ax.plot(0.3 * np.cos(theta), 0.3 * np.sin(theta), '-', color='#555', lw=2, zorder=2)
+        ax.plot(0, 0, 'o', color='#333', markersize=7, zorder=3)
+
+        self._ts_sw_spokes = []
+        for ba in [np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]:
+            sp, = ax.plot([0, 0.85 * np.cos(ba)], [0, 0.85 * np.sin(ba)],
+                          '-', color='#333', lw=3.5, zorder=2)
+            self._ts_sw_spokes.append(sp)
+
+        self._ts_sw_hands = []
+        for ha_deg in [140, 40]:
+            ha_r = np.radians(ha_deg)
+            hcx, hcy = np.cos(ha_r), np.sin(ha_r)
+            tang = ha_r + np.pi / 2
+            hw, hh = 0.18, 0.12
+            t_h = np.linspace(0, 2 * np.pi, 16)
+            rx = hw * np.cos(t_h) * np.cos(tang) - hh * np.sin(t_h) * np.sin(tang) + hcx
+            ry = hw * np.cos(t_h) * np.sin(tang) + hh * np.sin(t_h) * np.cos(tang) + hcy
+            p = MplPoly(np.column_stack([rx, ry]), closed=True,
+                        facecolor='#FFD4A0', edgecolor='#CC8844', lw=1.2, zorder=4)
+            ax.add_patch(p)
+            self._ts_sw_hands.append(p)
+            for fi in range(-1, 2):
+                fang = ha_r + fi * 0.12
+                dot, = ax.plot(1.12 * np.cos(fang), 1.12 * np.sin(fang), 'o',
+                               color='#FFD4A0', markersize=3.5,
+                               markeredgecolor='#CC8844', markeredgewidth=0.6, zorder=4)
+                self._ts_sw_hands.append(dot)
+
+        self._ts_sw_arc, = ax.plot([], [], '-', color='#FF6600', lw=3, alpha=0.8, zorder=5)
+        self._ts_sw_sa_label = ax.text(0, -1.35, 'SA=0.0°', fontsize=self.PLOT_FONTS['title'],
+                                        ha='center', va='top', fontweight='bold', zorder=6)
+        self._ts_sw_L = ax.text(-1.35, 0, 'L', fontsize=self.PLOT_FONTS['title'], ha='center', va='center',
+                                 fontweight='bold', color='#BBB', zorder=6)
+        self._ts_sw_R = ax.text(1.35, 0, 'R', fontsize=self.PLOT_FONTS['title'], ha='center', va='center',
+                                 fontweight='bold', color='#BBB', zorder=6)
+        self._ts_sw_base_angles = [np.radians(140), np.radians(40)]
+        self._ts_steer_canvas.draw()
+
+    def _update_track_steering_wheel(self, sa_deg):
+        steer_rad = -np.radians(sa_deg)
+        for i, ba in enumerate([np.pi / 2, np.pi * 7 / 6, np.pi * 11 / 6]):
+            a = ba + steer_rad
+            self._ts_sw_spokes[i].set_data([0, 0.85 * np.cos(a)],
+                                            [0, 0.85 * np.sin(a)])
+        hand_idx = 0
+        for hi, base_ha in enumerate(self._ts_sw_base_angles):
+            ha_r = base_ha + steer_rad
+            hcx, hcy = np.cos(ha_r), np.sin(ha_r)
+            tang = ha_r + np.pi / 2
+            hw, hh = 0.18, 0.12
+            t_h = np.linspace(0, 2 * np.pi, 16)
+            rx = hw * np.cos(t_h) * np.cos(tang) - hh * np.sin(t_h) * np.sin(tang) + hcx
+            ry = hw * np.cos(t_h) * np.sin(tang) + hh * np.sin(t_h) * np.cos(tang) + hcy
+            self._ts_sw_hands[hand_idx].set_xy(np.column_stack([rx, ry]))
+            hand_idx += 1
+            for fi in range(-1, 2):
+                fang = ha_r + fi * 0.12
+                self._ts_sw_hands[hand_idx].set_data(
+                    [1.12 * np.cos(fang)], [1.12 * np.sin(fang)])
+                hand_idx += 1
+
+        self._ts_sw_sa_label.set_text(f'SA={sa_deg:+.1f}°')
+        if abs(sa_deg) > 0.2:
+            t_arc = np.linspace(np.pi / 2, np.pi / 2 + steer_rad, 30)
+            self._ts_sw_arc.set_data(0.55 * np.cos(t_arc), 0.55 * np.sin(t_arc))
+            self._ts_sw_arc.set_color('#F44336' if sa_deg > 0 else '#2196F3')
+            self._ts_sw_arc.set_visible(True)
+        else:
+            self._ts_sw_arc.set_visible(False)
+
+        if sa_deg > 0.5:
+            self._ts_sw_R.set_color('#F44336'); self._ts_sw_R.set_fontsize(14)
+            self._ts_sw_L.set_color('#CCC'); self._ts_sw_L.set_fontsize(14)
+        elif sa_deg < -0.5:
+            self._ts_sw_L.set_color('#2196F3'); self._ts_sw_L.set_fontsize(14)
+            self._ts_sw_R.set_color('#CCC'); self._ts_sw_R.set_fontsize(14)
+        else:
+            self._ts_sw_L.set_color('#BBB'); self._ts_sw_L.set_fontsize(14)
+            self._ts_sw_R.set_color('#BBB'); self._ts_sw_R.set_fontsize(14)
+        self._ts_steer_canvas.draw_idle()
+
+    # ── Tire animation (track sim) ──
+    def _init_track_tire_animation(self):
+        from matplotlib.patches import Rectangle, Polygon as MplPoly
+        ax = self._ts_tire_ax
+        ax.clear()
+        ax.set_xlim(-3.0, 3.0); ax.set_ylim(-4.0, 4.0)
+        ax.set_aspect('equal'); ax.axis('off'); ax.set_facecolor('#3A3A3A')
+
+        ax.add_patch(Rectangle((-3.0, -4.0), 6.0, 8.0, facecolor='#4A4A4A', zorder=0))
+        ax.plot([-2.5, -2.5], [-4, 4], '-', color='#FFF', lw=2.0, zorder=1)
+        ax.plot([2.5, 2.5], [-4, 4], '-', color='#FFF', lw=2.0, zorder=1)
+
+        self._ts_road_dashes = []
+        for i in range(12):
+            y0 = -6.0 + i * 1.2
+            ln, = ax.plot([0, 0], [y0, y0 + 0.6], '-', color='#FFD54F', lw=2.5, alpha=0.85, zorder=1)
+            self._ts_road_dashes.append(ln)
+
+        car_w, car_h = 1.6, 3.2; hw, hh = car_w / 2, car_h / 2
+        self._ts_car_base = np.array([
+            (-hw, -hh + 0.2), (-hw, hh - 0.5), (-hw + 0.2, hh - 0.15), (-hw * 0.6, hh),
+            (hw * 0.6, hh), (hw - 0.2, hh - 0.15), (hw, hh - 0.5), (hw, -hh + 0.2),
+            (hw - 0.15, -hh), (-hw + 0.15, -hh)])
+        self._ts_car_body = MplPoly(self._ts_car_base, closed=True,
+                                     facecolor='#1565C0', edgecolor='#0D47A1',
+                                     lw=2.0, zorder=5, alpha=0.92)
+        ax.add_patch(self._ts_car_body)
+        self._ts_ws_base = np.array([(-0.50, 0.55), (0.50, 0.55), (0.38, 1.1), (-0.38, 1.1)])
+        self._ts_car_ws = MplPoly(self._ts_ws_base, closed=True,
+                                   facecolor='#90CAF9', edgecolor='#0D47A1', lw=1, zorder=6, alpha=0.8)
+        ax.add_patch(self._ts_car_ws)
+        self._ts_car_w = car_w; self._ts_car_h = car_h
+
+        tw, th = 0.28, 0.60; self._ts_tw = tw; self._ts_th = th
+        wb = 1.2; tk_x = hw + tw * 0.3
+        tire_pos = [(-tk_x, wb), (tk_x, wb), (-tk_x, -wb), (tk_x, -wb)]
+        self._ts_tire_patches = []; self._ts_tire_pos = tire_pos
+        self._ts_tire_base_verts = []; self._ts_tire_treads = []
+        for (tx0, ty0) in tire_pos:
+            verts = np.array([(tx0 - tw / 2, ty0 - th / 2), (tx0 + tw / 2, ty0 - th / 2),
+                              (tx0 + tw / 2, ty0 + th / 2), (tx0 - tw / 2, ty0 + th / 2)])
+            tp = MplPoly(verts, closed=True, facecolor='#1A1A1A', edgecolor='#555', lw=1.0, zorder=8)
+            ax.add_patch(tp)
+            self._ts_tire_patches.append(tp)
+            self._ts_tire_base_verts.append(verts.copy())
+            treads = []
+            for j in range(3):
+                yoff = ty0 - th / 2 + 0.10 + j * (th - 0.20) / 2
+                tl, = ax.plot([tx0 - tw / 2 + 0.03, tx0 + tw / 2 - 0.03],
+                              [yoff, yoff], '-', color='#3A3A3A', lw=0.7, zorder=9)
+                treads.append(tl)
+            self._ts_tire_treads.append(treads)
+
+        self._ts_tire_hud = ax.text(-2.85, 3.7, '', fontsize=self.PLOT_FONTS['title'], ha='left', va='top',
+                                     color='#AAFFAA', fontweight='bold', fontfamily='monospace', zorder=20)
+        ax.text(0, 3.8, 'Racing View', fontsize=self.PLOT_FONTS['title'], ha='center', va='top',
+                fontweight='bold', color='#EEE', zorder=20)
+        self._ts_tire_canvas.draw()
+
+    def _update_track_tire_animation(self, sa_deg, speed_kmh):
+        tw = self._ts_tw; th = self._ts_th
+
+        vc_n = np.clip(speed_kmh / 60.0, 0.05, 5.0) * 0.22
+        self._ts_road_phase += vc_n
+        for i, ln in enumerate(self._ts_road_dashes):
+            y0 = -6.0 + i * 1.2 - (self._ts_road_phase % 1.2)
+            if y0 < -6.0: y0 += 14.4
+            ln.set_data([0, 0], [y0, y0 + 0.6])
+
+        target_yaw = -sa_deg * 0.8
+        self._ts_tire_rotation_deg += 0.18 * (target_yaw - self._ts_tire_rotation_deg)
+        yr = np.radians(self._ts_tire_rotation_deg)
+        cr, sr = np.cos(yr), np.sin(yr)
+
+        def _rot(pts):
+            R = np.array([[cr, -sr], [sr, cr]]); return pts @ R.T
+        def _rot1(x, y):
+            return x * cr - y * sr, x * sr + y * cr
+
+        lat = np.clip(sa_deg / 15.0, -1, 1) * 0.5
+        cx, cy = lat, 0.0
+
+        self._ts_car_body.set_xy(_rot(self._ts_car_base) + [cx, cy])
+        self._ts_car_ws.set_xy(_rot(self._ts_ws_base) + [cx, cy])
+
+        fs = np.radians(-sa_deg * 0.6)
+        self._ts_tire_tread_phase += np.clip(speed_kmh / 60.0, 0.05, 5.0) * 0.18
+        ts_sp = (th - 0.20) / 2
+
+        for ti, (tx0, ty0) in enumerate(self._ts_tire_pos):
+            rx, ry = _rot1(tx0, ty0)
+            tcx, tcy = rx + cx, ry + cy
+            tr = yr + (fs if ti < 2 else 0)
+            ct, st = np.cos(tr), np.sin(tr)
+            lv = self._ts_tire_base_verts[ti] - [tx0, ty0]
+            Rt = np.array([[ct, -st], [st, ct]])
+            self._ts_tire_patches[ti].set_xy(lv @ Rt.T + [tcx, tcy])
+
+            po = (self._ts_tire_tread_phase * ts_sp) % ts_sp
+            for j, tl in enumerate(self._ts_tire_treads[ti]):
+                yoff = -th / 2 + 0.10 + j * ts_sp + po
+                if yoff > th / 2 - 0.06: yoff -= (th - 0.20) + ts_sp
+                p1 = Rt @ np.array([-tw / 2 + 0.03, yoff]) + [tcx, tcy]
+                p2 = Rt @ np.array([tw / 2 - 0.03, yoff]) + [tcx, tcy]
+                tl.set_data([p1[0], p2[0]], [p1[1], p2[1]])
+
+        self._ts_tire_hud.set_text(f'SA {sa_deg:+5.1f}°\nSpeed {speed_kmh:.0f} km/h')
+        self._ts_tire_canvas.draw_idle()
+
+
+
+
     # ====  점탄성 설계 (Viscoelastic Design Advisor) Tab  ====
     # ================================================================
 
@@ -23286,7 +31828,7 @@ class PerssonModelGUI_V2:
         result_frame.pack(fill=tk.X, pady=3, padx=3)
 
         self.ve_result_text = tk.Text(result_frame, height=22, width=60,
-                                      font=('Consolas', 15), wrap=tk.WORD,
+                                      font=('NanumGothicCoding', 12), wrap=tk.WORD,
                                       bg='#F8FAFC', relief='solid', bd=1)
         ve_scroll_r = ttk.Scrollbar(result_frame, orient='vertical',
                                     command=self.ve_result_text.yview)
@@ -23299,7 +31841,7 @@ class PerssonModelGUI_V2:
         plot_frame = ttk.Frame(right_panel)
         plot_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.fig_ve_advisor = Figure(figsize=(14, 8), dpi=100)
+        self.fig_ve_advisor = Figure(figsize=(6, 4), dpi=100)
         gs = self.fig_ve_advisor.add_gridspec(2, 3, hspace=0.38, wspace=0.35)
 
         self.ax_ve_Ep = self.fig_ve_advisor.add_subplot(gs[0, 0])
@@ -23318,7 +31860,7 @@ class PerssonModelGUI_V2:
             (self.ax_ve_temp_Ep, "E'(T) @10Hz"),
             (self.ax_ve_temp_Epp, "E''(T) @10Hz"),
         ]:
-            ax.set_title(title, fontweight='bold', fontsize=11)
+            ax.set_title(title, fontweight='bold', fontsize=self.PLOT_FONTS['title'])
             ax.grid(True, alpha=0.3)
 
         # GridSpec already handles spacing via hspace/wspace, so skip tight_layout
@@ -23809,8 +32351,8 @@ class PerssonModelGUI_V2:
         ax.loglog(f_hz, Ep_sugg, 'r--', linewidth=2, label="제안 E'", alpha=0.8)
         ax.set_xlabel('f (Hz)')
         ax.set_ylabel("E' (Pa)")
-        ax.set_title("E'(f) 저장 탄성률", fontweight='bold', fontsize=11)
-        ax.legend(fontsize=10, loc='best')
+        ax.set_title("E'(f) 저장 탄성률", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        ax.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         ax.grid(True, alpha=0.3)
 
         # ── Plot 2: E''(f) comparison ──
@@ -23829,8 +32371,8 @@ class PerssonModelGUI_V2:
 
         ax.set_xlabel('f (Hz)')
         ax.set_ylabel("E'' (Pa)")
-        ax.set_title("E''(f) 손실 탄성률", fontweight='bold', fontsize=11)
-        ax.legend(fontsize=10, loc='best')
+        ax.set_title("E''(f) 손실 탄성률", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        ax.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         ax.grid(True, alpha=0.3)
 
         # ── Plot 3: Frequency sensitivity W(f) ──
@@ -23847,8 +32389,8 @@ class PerssonModelGUI_V2:
 
         ax.set_xlabel('f (Hz)')
         ax.set_ylabel('W(f) 감도 가중치')
-        ax.set_title("주파수 감도 스펙트럼 W(f)", fontweight='bold', fontsize=11)
-        ax.legend(fontsize=10, loc='best')
+        ax.set_title("주파수 감도 스펙트럼 W(f)", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        ax.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         ax.grid(True, alpha=0.3)
 
         # ── Plot 4: mu_visc comparison ──
@@ -23875,8 +32417,8 @@ class PerssonModelGUI_V2:
 
         ax.set_xlabel('v (m/s)')
         ax.set_ylabel('\u03bc_visc')
-        ax.set_title("\u03bc_visc 현재 vs 제안", fontweight='bold', fontsize=11)
-        ax.legend(fontsize=10, loc='best')
+        ax.set_title("\u03bc_visc 현재 vs 제안", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+        ax.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         ax.grid(True, alpha=0.3)
 
         # ── Plot 5: E'(T) @10Hz ──
@@ -23893,13 +32435,13 @@ class PerssonModelGUI_V2:
                            label=f'핵심 대역 ({T_band_lo:.0f}~{T_band_hi:.0f}\u00b0C)')
             ax.set_xlabel('Temperature (\u00b0C)')
             ax.set_ylabel("E' (Pa)")
-            ax.set_title("E'(T) @10 Hz", fontweight='bold', fontsize=11)
-            ax.legend(fontsize=10, loc='best')
+            ax.set_title("E'(T) @10 Hz", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         else:
             ax.text(0.5, 0.5, 'aT 데이터 필요\n(마스터커브 탭에서 로드)',
                     transform=ax.transAxes, ha='center', va='center',
-                    fontsize=10, color='gray')
-            ax.set_title("E'(T) @10 Hz", fontweight='bold', fontsize=11)
+                    fontsize=self.PLOT_FONTS['title'], color='gray')
+            ax.set_title("E'(T) @10 Hz", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
         ax.grid(True, alpha=0.3)
 
         # ── Plot 6: E''(T) @10Hz ──
@@ -23925,67 +32467,345 @@ class PerssonModelGUI_V2:
 
             ax.set_xlabel('Temperature (\u00b0C)')
             ax.set_ylabel("E'' (Pa)")
-            ax.set_title("E''(T) @10 Hz", fontweight='bold', fontsize=11)
-            ax.legend(fontsize=10, loc='best')
+            ax.set_title("E''(T) @10 Hz", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
+            ax.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
         else:
             ax.text(0.5, 0.5, 'aT 데이터 필요\n(마스터커브 탭에서 로드)',
                     transform=ax.transAxes, ha='center', va='center',
-                    fontsize=10, color='gray')
-            ax.set_title("E''(T) @10 Hz", fontweight='bold', fontsize=11)
+                    fontsize=self.PLOT_FONTS['title'], color='gray')
+            ax.set_title("E''(T) @10 Hz", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
         ax.grid(True, alpha=0.3)
 
         self.fig_ve_advisor.subplots_adjust(left=0.08, right=0.97, top=0.96, bottom=0.06, hspace=0.45)
         self.canvas_ve_advisor.draw()
 
+    # ================================================================
+    # ====  Log Analysis Tab  ====
+    # ================================================================
+
+    def _create_log_analysis_tab(self, parent):
+        """Create Log Analysis tab — displays all computation and playback logs.
+
+        Provides real-time logging of:
+        - Calculation parameters and results
+        - Playback frame rates and timing
+        - Data loading/export events
+        - Error diagnostics
+        """
+        C = self.COLORS
+
+        main = ttk.Frame(parent)
+        main.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
+
+        # ── Toolbar ──
+        toolbar = ttk.Frame(main)
+        toolbar.pack(fill=tk.X, pady=(0, 4))
+
+        ttk.Button(toolbar, text="로그 지우기",
+                   command=self._clear_log_analysis).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="로그 파일 저장",
+                   command=self._export_log_analysis).pack(side=tk.LEFT, padx=2)
+        ttk.Button(toolbar, text="현재 상태 스냅샷",
+                   command=self._log_current_state_snapshot).pack(side=tk.LEFT, padx=2)
+
+        # Filter checkboxes
+        filter_frame = ttk.Frame(toolbar)
+        filter_frame.pack(side=tk.LEFT, padx=20)
+        ttk.Label(filter_frame, text="필터:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self._log_filter_vars = {}
+        for cat in ('CALC', 'PLAYBACK', 'DATA', 'UI', 'ERROR', 'SYSTEM'):
+            var = tk.BooleanVar(value=True)
+            self._log_filter_vars[cat] = var
+            ttk.Checkbutton(filter_frame, text=cat, variable=var,
+                            command=self._refresh_log_display).pack(side=tk.LEFT, padx=3)
+
+        # ── Log stats bar ──
+        stats_frame = ttk.Frame(main)
+        stats_frame.pack(fill=tk.X, pady=(0, 2))
+        self._log_stats_var = tk.StringVar(value="로그 항목: 0개")
+        ttk.Label(stats_frame, textvariable=self._log_stats_var,
+                  font=self.FONTS['small'], foreground='#64748B').pack(side=tk.LEFT)
+
+        # ── Log text widget ──
+        text_frame = ttk.Frame(main)
+        text_frame.pack(fill=tk.BOTH, expand=True)
+
+        scrollbar = ttk.Scrollbar(text_frame, orient='vertical')
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        self._log_analysis_text = tk.Text(
+            text_frame, wrap=tk.NONE, font=('NanumGothicCoding', 12),
+            bg='#1E1E2E', fg='#CDD6F4', insertbackground='white',
+            selectbackground='#45475A', selectforeground='#CDD6F4',
+            yscrollcommand=scrollbar.set, state='normal',
+            padx=8, pady=4)
+        self._log_analysis_text.pack(fill=tk.BOTH, expand=True)
+        scrollbar.config(command=self._log_analysis_text.yview)
+
+        # Horizontal scrollbar
+        hscroll = ttk.Scrollbar(main, orient='horizontal',
+                                command=self._log_analysis_text.xview)
+        hscroll.pack(fill=tk.X)
+        self._log_analysis_text.config(xscrollcommand=hscroll.set)
+
+        # ── Tag colors for categories ──
+        self._log_analysis_text.tag_configure('log_calc',
+            foreground='#A6E3A1')  # green
+        self._log_analysis_text.tag_configure('log_playback',
+            foreground='#89B4FA')  # blue
+        self._log_analysis_text.tag_configure('log_data',
+            foreground='#F9E2AF')  # yellow
+        self._log_analysis_text.tag_configure('log_ui',
+            foreground='#CBA6F7')  # purple
+        self._log_analysis_text.tag_configure('log_error',
+            foreground='#F38BA8')  # red
+        self._log_analysis_text.tag_configure('log_system',
+            foreground='#94E2D5')  # teal
+        self._log_analysis_text.tag_configure('log_header',
+            foreground='#FAB387', font=('NanumGothicCoding', 12, 'bold'))
+
+        # Write initial header
+        self._log_analysis_text.insert('end',
+            "═══════════════════════════════════════════════════════\n"
+            "  NEXEN Rubber Friction Modelling — Log Analysis\n"
+            "═══════════════════════════════════════════════════════\n\n",
+            'log_header')
+
+        # Replay any existing log entries
+        for ts, cat, msg in self._log_entries:
+            tag = f'log_{cat.lower()}'
+            self._log_analysis_text.insert(
+                'end', f"[{ts}] [{cat:>8s}] {msg}\n", tag)
+        self._log_analysis_text.see('end')
+
+    def _clear_log_analysis(self):
+        """Clear all log entries."""
+        self._log_entries.clear()
+        if hasattr(self, '_log_analysis_text') and self._log_analysis_text:
+            self._log_analysis_text.delete('1.0', 'end')
+            self._log_analysis_text.insert('end',
+                "═══════════════════════════════════════════════════════\n"
+                "  Log cleared.\n"
+                "═══════════════════════════════════════════════════════\n\n",
+                'log_header')
+        self._log_stats_var.set("로그 항목: 0개")
+
+    def _refresh_log_display(self):
+        """Re-display log entries with current filter settings."""
+        if not hasattr(self, '_log_analysis_text'):
+            return
+        self._log_analysis_text.delete('1.0', 'end')
+        self._log_analysis_text.insert('end',
+            "═══════════════════════════════════════════════════════\n"
+            "  NEXEN Rubber Friction Modelling — Log Analysis\n"
+            "═══════════════════════════════════════════════════════\n\n",
+            'log_header')
+        shown = 0
+        for ts, cat, msg in self._log_entries:
+            fvar = self._log_filter_vars.get(cat)
+            if fvar and not fvar.get():
+                continue
+            tag = f'log_{cat.lower()}'
+            self._log_analysis_text.insert('end',
+                f"[{ts}] [{cat:>8s}] {msg}\n", tag)
+            shown += 1
+        self._log_analysis_text.see('end')
+        self._log_stats_var.set(f"로그 항목: {shown}/{len(self._log_entries)}개")
+
+    def _export_log_analysis(self):
+        """Export all log entries to a text file."""
+        from tkinter import filedialog
+        filepath = filedialog.asksaveasfilename(
+            defaultextension='.txt',
+            initialfile='friction_model_log.txt',
+            filetypes=[('Text files', '*.txt'), ('All files', '*.*')],
+            title='로그 파일 저장')
+        if not filepath:
+            return
+        try:
+            with open(filepath, 'w', encoding='utf-8') as f:
+                f.write("NEXEN Rubber Friction Modelling — Log Analysis\n")
+                f.write("=" * 60 + "\n\n")
+                for ts, cat, msg in self._log_entries:
+                    f.write(f"[{ts}] [{cat:>8s}] {msg}\n")
+            self._show_status(f"로그 저장 완료: {filepath}", 'success')
+        except Exception as e:
+            self._show_status(f"로그 저장 실패: {e}", 'error')
+
+    def _log_current_state_snapshot(self):
+        """Log a snapshot of the current program state."""
+        import numpy as np
+        self._log('SYSTEM', '─── Current State Snapshot ───')
+
+        # Material data
+        if self.material is not None:
+            self._log('DATA', f'Material loaded: {getattr(self.material, "name", "unknown")}')
+        else:
+            self._log('DATA', 'Material: NOT loaded')
+
+        # PSD model
+        if self.psd_model is not None:
+            self._log('DATA', f'PSD model: loaded')
+        else:
+            self._log('DATA', 'PSD model: NOT loaded')
+
+        # mu_visc results
+        if self.mu_visc_results is not None:
+            self._log('CALC', f'mu_visc: computed')
+        else:
+            self._log('CALC', 'mu_visc: NOT computed')
+
+        # mu_adh results
+        if self.mu_adh_results is not None:
+            self._log('CALC', f'mu_adh: computed')
+        else:
+            self._log('CALC', 'mu_adh: NOT computed')
+
+        # Cold & Hot branch
+        if getattr(self, 'cold_hot_results', None) is not None:
+            self._log('CALC', f'Cold & Hot Branch: computed')
+        else:
+            self._log('CALC', 'Cold & Hot Branch: NOT computed')
+
+        # Friction map
+        if getattr(self, 'friction_map_results', None) is not None:
+            self._log('CALC', f'Friction Map: computed')
+        else:
+            self._log('CALC', 'Friction Map: NOT computed')
+
+        # Friction map store
+        store_count = len(getattr(self, '_friction_map_store', []))
+        self._log('DATA', f'Friction Map Store: {store_count} items')
+
+        # 2D Brush frames
+        brush_frames = getattr(self, '_brush_frames', [])
+        if brush_frames:
+            n = len(brush_frames)
+            self._log('CALC', f'2D Brush frames: {n} frames')
+            f0 = brush_frames[0]
+            self._log('CALC', f'  Time range: {f0["t"]:.3f} ~ {brush_frames[-1]["t"]:.3f} s')
+            self._log('CALC', f'  SA range: {min(f["SA"] for f in brush_frames):.1f} ~ {max(f["SA"] for f in brush_frames):.1f} deg')
+            self._log('CALC', f'  SR range: {min(f["SR"] for f in brush_frames):.1f} ~ {max(f["SR"] for f in brush_frames):.1f} %')
+            self._log('CALC', f'  Fy range: {min(f["Fy"] for f in brush_frames):.1f} ~ {max(f["Fy"] for f in brush_frames):.1f} N')
+            self._log('CALC', f'  Fx range: {min(f["Fx"] for f in brush_frames):.1f} ~ {max(f["Fx"] for f in brush_frames):.1f} N')
+            # Temperature stats
+            all_t = np.concatenate([f['T_contact'][f['_contact_mask']] for f in brush_frames])
+            self._log('CALC', f'  T_contact range: {np.min(all_t):.1f} ~ {np.max(all_t):.1f} °C (mean={np.mean(all_t):.1f})')
+            # Friction force stats
+            all_ff = np.concatenate([f['F_friction'][f['_contact_mask']] for f in brush_frames])
+            self._log('CALC', f'  F_friction range: {np.min(all_ff):.4f} ~ {np.max(all_ff):.4f} N/node')
+            # Sliding ratio
+            total_nodes = sum(np.sum(f['_contact_mask']) for f in brush_frames)
+            sliding_nodes = sum(np.sum(f['is_sliding'] & f['_contact_mask']) for f in brush_frames)
+            self._log('CALC', f'  Sliding ratio: {sliding_nodes}/{total_nodes} ({100*sliding_nodes/max(total_nodes,1):.1f}%)')
+            # Global ranges
+            if hasattr(self, '_br_global_ranges'):
+                gr = self._br_global_ranges
+                self._log('CALC', f'  Colorbar ranges:')
+                for k, (lo, hi) in gr.items():
+                    self._log('CALC', f'    {k}: {lo:.4g} ~ {hi:.4g}')
+        else:
+            self._log('CALC', '2D Brush frames: NONE')
+
+        # PerssonBrush frames
+        pb_frames = getattr(self, '_pb_frames', [])
+        if pb_frames:
+            n = len(pb_frames)
+            self._log('CALC', f'PerssonBrush frames: {n} frames')
+            self._log('CALC', f'  Time range: {pb_frames[0]["t"]:.3f} ~ {pb_frames[-1]["t"]:.3f} s')
+            self._log('CALC', f'  SA range: {min(f["SA"] for f in pb_frames):.1f} ~ {max(f["SA"] for f in pb_frames):.1f} deg')
+            self._log('CALC', f'  SR range: {min(f["SR"] for f in pb_frames):.1f} ~ {max(f["SR"] for f in pb_frames):.1f} %')
+            self._log('CALC', f'  Fy range: {min(f["Fy"] for f in pb_frames):.1f} ~ {max(f["Fy"] for f in pb_frames):.1f} N')
+            self._log('CALC', f'  Fx range: {min(f["Fx"] for f in pb_frames):.1f} ~ {max(f["Fx"] for f in pb_frames):.1f} N')
+            # Temperature stats
+            all_t_pb = np.concatenate([f['T_contact'][f['_contact_mask']] for f in pb_frames])
+            self._log('CALC', f'  T_contact range: {np.min(all_t_pb):.1f} ~ {np.max(all_t_pb):.1f} °C')
+            # Sliding ratio
+            total_pb = sum(np.sum(f['_contact_mask']) for f in pb_frames)
+            sliding_pb = sum(np.sum(f['is_sliding'] & f['_contact_mask']) for f in pb_frames)
+            self._log('CALC', f'  Sliding ratio: {sliding_pb}/{total_pb} ({100*sliding_pb/max(total_pb,1):.1f}%)')
+            if hasattr(self, '_pb_global_ranges'):
+                gr = self._pb_global_ranges
+                self._log('CALC', f'  Colorbar ranges:')
+                for k, v in gr.items():
+                    self._log('CALC', f'    {k}: {v[0]:.4g} ~ {v[1]:.4g}')
+        else:
+            self._log('CALC', 'PerssonBrush frames: NONE')
+
+        # Track simulation
+        if getattr(self, '_track_sim_data', None) is not None:
+            self._log('CALC', f'Track Simulation: computed')
+        else:
+            self._log('CALC', 'Track Simulation: NOT computed')
+
+        self._log('SYSTEM', '─── End Snapshot ───')
+
 
 def _enable_dpi_awareness():
-    """Enable DPI awareness BEFORE any window is created (Windows 10+).
+    """Make the process System DPI Aware so Windows gives us real pixels.
 
-    System DPI Aware (1) is used so that the title bar (non-client area)
-    and application content scale uniformly.  Per-Monitor V2 (2) causes
-    a mismatch where the OS renders the title bar at system DPI while the
-    app content stays at a different scale, making the title bar appear
-    disproportionately large on standard FHD (1920x1080) displays.
+    With System DPI Awareness the app receives actual screen coordinates
+    instead of virtualised ones, preventing Windows from bitmap-upscaling
+    the entire UI (which makes everything look oversized on >100% displays).
+    We then force Tk scaling to 1.0 in main() so font point-sizes always
+    map to 96-DPI pixels.
     """
-    if sys.platform != 'win32':
-        return
     try:
-        from ctypes import windll
-        # System DPI Aware – uniform scaling for title bar and content
-        try:
-            windll.shcore.SetProcessDpiAwareness(1)
-        except Exception:
-            # Legacy fallback (Windows Vista+)
-            try:
-                windll.user32.SetProcessDPIAware()
-            except Exception:
-                pass
+        import ctypes
+        # 1 = PROCESS_SYSTEM_DPI_AWARE  (real pixels on primary monitor)
+        ctypes.windll.shcore.SetProcessDpiAwareness(1)
     except Exception:
-        pass
+        # Not on Windows, or shcore unavailable — silently ignore.
+        try:
+            import ctypes
+            ctypes.windll.user32.SetProcessDPIAware()
+        except Exception:
+            pass
 
 
 def _get_system_dpi_scale():
-    """Return the Windows display scaling factor (e.g. 1.0, 1.25, 1.5, 2.0).
-
-    Must be called AFTER _enable_dpi_awareness() and AFTER tk.Tk().
-    """
-    scale = 1.0
-    if sys.platform != 'win32':
-        return scale
+    """Return the system DPI scale factor (e.g. 1.25 for 125% scaling)."""
     try:
-        from ctypes import windll
-        # GetDpiForSystem requires Windows 10 1607+
-        try:
-            dpi = windll.user32.GetDpiForSystem()
-        except Exception:
-            # Fallback: use device caps
-            hdc = windll.user32.GetDC(0)
-            dpi = windll.gdi32.GetDeviceCaps(hdc, 88)  # LOGPIXELSX
-            windll.user32.ReleaseDC(0, hdc)
-        scale = dpi / 96.0
+        import ctypes
+        hdc = ctypes.windll.user32.GetDC(0)
+        dpi = ctypes.windll.gdi32.GetDeviceCaps(hdc, 88)  # LOGPIXELSX
+        ctypes.windll.user32.ReleaseDC(0, hdc)
+        return dpi / 96.0
     except Exception:
-        pass
-    return scale
+        return 1.0
+
+
+bind_braking_simulation(PerssonModelGUI_V2)
+bind_vehicle_test_matching(PerssonModelGUI_V2)
+
+
+def _compute_hidpi_font_scale(root):
+    """Compute a font scale factor for high-DPI / 4K monitors.
+
+    On monitors with >1920 horizontal pixels the default 10pt fonts become
+    too small to read (because Tk scaling is forced to 1.0).  We scale fonts
+    proportionally to the screen width, capped at a reasonable maximum.
+
+    Returns a multiplier (>= 1.0) that should be applied to every font size
+    and PLOT_FONTS.  Pixel dimensions (DIMS) use a separate linear scale.
+    """
+    try:
+        scr_w = root.winfo_screenwidth()
+        scr_h = root.winfo_screenheight()
+    except Exception:
+        return 1.0
+
+    # Reference resolution: 1920×1080 — fonts designed for this size.
+    _REF_W = 1920
+
+    if scr_w <= _REF_W:
+        return 1.0
+
+    # For a 3840 px (4K) display → scale ≈ 1.5;  2560 px (QHD) → ~1.2
+    raw = scr_w / _REF_W
+    # Smooth: scale proportionally but don't double font sizes
+    scale = 1.0 + (raw - 1.0) * 0.6   # e.g. 4K: 1 + 1.0*0.6 = 1.6
+    return min(max(scale, 1.0), 2.0)   # clamp [1.0, 2.0]
 
 
 def main():
@@ -23995,16 +32815,197 @@ def main():
 
     root = tk.Tk()
 
-    # ── Detect system DPI scaling and adjust Tk scaling factor ──
-    dpi_scale = _get_system_dpi_scale()
-    # With System DPI Aware (1), Tk's default scaling already matches
-    # the system DPI.  We only intervene at extreme scales (≥150%)
-    # to prevent widgets/fonts from becoming excessively large.
-    if dpi_scale >= 1.5:
-        # Cap Tk scaling at 125% equivalent to keep UI usable
-        root.tk.call('tk', 'scaling', 1.25 * 96.0 / 72.0)   # ≈ 1.667
+    # Force Tk scaling to 1.0 so font point-sizes always map to 96-DPI
+    # pixels.  Without this, Tk would scale fonts by the system DPI factor
+    # (e.g. 1.25× on a 125% display), making everything too large.
+    root.tk.call('tk', 'scaling', 1.0)
 
-    app = PerssonModelGUI_V2(root)
+    # ── High-DPI scaling for 4K / QHD monitors ──
+    # Two separate scale factors:
+    #   _font_scale  – damped (fonts don't need 1:1 pixel scaling)
+    #   _dim_scale   – linear (pixel dimensions should keep proportions)
+    _font_scale = _compute_hidpi_font_scale(root)
+    try:
+        _scr_w = root.winfo_screenwidth()
+    except Exception:
+        _scr_w = 1920
+    _dim_scale = min(max(_scr_w / 1920, 1.0), 2.5)
+
+    if _font_scale > 1.05:
+        # --- Scale UI fonts (damped) ---
+        _base = PerssonModelGUI_V2._FONT_SIZE
+        _new_sz = int(round(_base * _font_scale))
+        PerssonModelGUI_V2._FONT_SIZE = _new_sz
+        for key in PerssonModelGUI_V2.FONTS:
+            fam, sz, *rest = PerssonModelGUI_V2.FONTS[key]
+            PerssonModelGUI_V2.FONTS[key] = (fam, _new_sz, *rest)
+        # --- Scale plot fonts (damped) ---
+        for key in PerssonModelGUI_V2.PLOT_FONTS:
+            PerssonModelGUI_V2.PLOT_FONTS[key] = int(round(
+                PerssonModelGUI_V2.PLOT_FONTS[key] * _font_scale))
+
+    if _dim_scale > 1.05:
+        # --- Scale pixel dimensions (linear, preserves screen proportions) ---
+        _D = PerssonModelGUI_V2.DIMS
+        for _dk in ('panel_width', 'header_height', 'statusbar_height',
+                     'log_height', 'log_collapsed', 'logo_height',
+                     'section_pad', 'section_gap_y', 'row_gap_y',
+                     'btn_padx', 'btn_pady', 'toolbar_pady'):
+            _D[_dk] = int(_D[_dk] * _dim_scale)
+
+    # ── Splash screen ──
+    root.withdraw()  # Hide main window completely during loading
+    root.attributes('-alpha', 0)  # Fully transparent even if briefly shown
+
+    splash = tk.Toplevel()
+    splash.overrideredirect(True)
+    scr_w = splash.winfo_screenwidth()
+    scr_h = splash.winfo_screenheight()
+    # Scale splash proportionally: ~42% of screen width (800/1920),
+    # so it looks the same relative size on any resolution/DPI.
+    splash_w = min(800, max(480, int(scr_w * 0.42)))
+    splash_h = int(splash_w * 450 / 800)  # maintain aspect ratio
+    splash.geometry(f'{splash_w}x{splash_h}+{(scr_w-splash_w)//2}+{(scr_h-splash_h)//2}')
+    splash.configure(bg='#16162a')
+    splash.attributes('-topmost', True)
+
+    # ── Drag to move splash window ──
+    _drag_data = {'x': 0, 'y': 0}
+
+    def _on_drag_start(event):
+        _drag_data['x'] = event.x
+        _drag_data['y'] = event.y
+
+    def _on_drag_motion(event):
+        dx = event.x - _drag_data['x']
+        dy = event.y - _drag_data['y']
+        x = splash.winfo_x() + dx
+        y = splash.winfo_y() + dy
+        splash.geometry(f'+{x}+{y}')
+
+    splash.bind('<Button-1>', _on_drag_start)
+    splash.bind('<B1-Motion>', _on_drag_motion)
+
+    # ── Load splash background image ──
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
+    _splash_path = os.path.join(_script_dir, 'assets', 'splash_image.png')
+    if not os.path.exists(_splash_path):
+        _splash_path = os.path.join(_script_dir, 'assets', 'nexen_logo.png')
+
+    _splash_canvas = tk.Canvas(splash, width=splash_w, height=splash_h,
+                               highlightthickness=0, bd=0, bg='#16162a')
+    _splash_canvas.place(x=0, y=0)
+    _splash_img_ref = None  # keep reference to prevent GC
+
+    if os.path.exists(_splash_path):
+        try:
+            from PIL import Image, ImageTk, ImageDraw
+            _pil_img = Image.open(_splash_path).convert('RGBA')
+            # Fit image to splash window (cover)
+            img_w, img_h = _pil_img.size
+            scale = max(splash_w / img_w, splash_h / img_h)
+            new_w, new_h = int(img_w * scale), int(img_h * scale)
+            _pil_img = _pil_img.resize((new_w, new_h), Image.LANCZOS)
+            # Center crop
+            left = (new_w - splash_w) // 2
+            top = (new_h - splash_h) // 2
+            _pil_img = _pil_img.crop((left, top, left + splash_w, top + splash_h))
+            _pil_final = _pil_img.convert('RGB')
+            _splash_img_ref = ImageTk.PhotoImage(_pil_final)
+            _splash_canvas.create_image(0, 0, anchor='nw', image=_splash_img_ref)
+        except ImportError:
+            pass
+
+    # ── Close button (top-right, subtle) ──
+    _close_btn = tk.Label(splash, text='\u00D7', font=('NanumGothic', 12),
+                          fg='#555555', bg='#16162a', cursor='hand2',
+                          padx=4, pady=0)
+    _close_btn.place(relx=1.0, x=-4, y=2, anchor='ne')
+    _close_btn.lift()  # ensure above canvas
+
+    def _on_close_enter(e):
+        _close_btn.config(fg='#cccccc')
+
+    def _on_close_leave(e):
+        _close_btn.config(fg='#555555')
+
+    def _on_close_click(e):
+        splash.destroy()
+        root.destroy()
+        import sys; sys.exit(0)
+
+    _close_btn.bind('<Enter>', _on_close_enter)
+    _close_btn.bind('<Leave>', _on_close_leave)
+    _close_btn.bind('<Button-1>', _on_close_click)
+
+    # ── Percentage text: centered above "NEXEN TIRE R&D" (bottom-right) ──
+    # Position scales with splash size (725/800 ≈ 0.906 of width)
+    _nexen_center_x = int(splash_w * 0.906)
+    _pct_y = splash_h - int(splash_h * 60 / 450)
+    _pct_font = ('NanumGothic', 18, 'bold italic')
+
+    # Fixed percentage text (anchor='se' — right-aligned, doesn't shift)
+    _pct_text_id = _splash_canvas.create_text(
+        _nexen_center_x, _pct_y,
+        text="0%", anchor='s',
+        font=_pct_font, fill='white')
+
+    # Separate dots text (anchor='sw' — grows rightward from % end)
+    _dots_text_id = _splash_canvas.create_text(
+        _nexen_center_x, _pct_y,
+        text="", anchor='sw',
+        font=_pct_font, fill='white')
+
+    def _update_dots_position():
+        """Place dots right after the % text bounding box."""
+        bbox = _splash_canvas.bbox(_pct_text_id)
+        if bbox:
+            # bbox = (x1, y1, x2, y2); place dots at right edge, same baseline
+            _splash_canvas.coords(_dots_text_id, bbox[2] + 1, _pct_y)
+
+    splash.update()
+
+    # ── Animated dots after percentage ──
+    _dot_counter = [0]
+    _dot_anim_id = [None]
+
+    def _animate_dots():
+        try:
+            _dot_counter[0] = (_dot_counter[0] + 1) % 4
+            dots = '.' * _dot_counter[0]
+            _splash_canvas.itemconfig(_dots_text_id, text=dots)
+            splash.update()
+            _dot_anim_id[0] = splash.after(400, _animate_dots)
+        except tk.TclError:
+            pass
+
+    _animate_dots()
+
+    def _splash_update(msg, pct):
+        try:
+            _splash_canvas.itemconfig(_pct_text_id, text=f"{int(pct)}%")
+            _update_dots_position()
+            splash.update()
+        except tk.TclError:
+            pass
+
+    app = PerssonModelGUI_V2(root, splash_callback=_splash_update)
+
+    # Stop dot animation and show final state
+    try:
+        if _dot_anim_id[0] is not None:
+            splash.after_cancel(_dot_anim_id[0])
+        _splash_canvas.itemconfig(_pct_text_id, text="100%")
+        _splash_canvas.itemconfig(_dots_text_id, text="")
+        splash.update()
+        import time; time.sleep(0.5)
+    except tk.TclError:
+        pass
+
+    # Fully ready → show main window at once
+    splash.destroy()
+    root.attributes('-alpha', 1)  # Restore opacity
+    root.deiconify()
     root.mainloop()
 
 
