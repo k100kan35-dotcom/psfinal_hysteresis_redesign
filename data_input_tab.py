@@ -477,7 +477,7 @@ class DataInputTab:
         if not fp:
             return
         try:
-            omega, E_stor, E_loss = load_dma_from_file(fp)
+            omega, E_stor, E_loss = self._read_dma_auto_unit(fp)
             smoothed = smooth_dma_data(omega, E_stor, E_loss)
             material = create_material_from_dma(
                 smoothed['omega'],
@@ -1124,9 +1124,39 @@ class DataInputTab:
         self._refresh_dataset_list()
         self._dataset_combo_var.set('(선택)')
 
+    # ── DMA unit auto-detection ──
+    @staticmethod
+    def _read_dma_auto_unit(fp):
+        """Load DMA file with automatic unit detection from header.
+
+        마스터커브 탭 프리셋과 동일한 방식:
+        - 헤더에 '(Pa)' → Pa 단위 (변환 없음)
+        - 헤더에 '(MPa)' 또는 단위 표기 없음 → MPa 단위 (×1e6)
+        - 헤더에 '(GPa)' → GPa 단위 (×1e9)
+        """
+        # Read header to detect unit
+        modulus_unit = 'MPa'  # default
+        with open(fp, 'r', encoding='utf-8-sig', errors='replace') as f:
+            for line in f:
+                line_lower = line.lower().strip()
+                if not line_lower or not line_lower.startswith('#'):
+                    break
+                if '(pa)' in line_lower and '(mpa)' not in line_lower and '(gpa)' not in line_lower:
+                    modulus_unit = 'Pa'
+                    break
+                elif '(gpa)' in line_lower:
+                    modulus_unit = 'GPa'
+                    break
+                elif '(mpa)' in line_lower:
+                    modulus_unit = 'MPa'
+                    break
+
+        omega, E_stor, E_loss = load_dma_from_file(fp, modulus_unit=modulus_unit)
+        return omega, E_stor, E_loss
+
     # ── Path-based loaders (for dataset preset, no file dialog) ──
     def _load_dma_from_path(self, idx, fp):
-        omega, E_stor, E_loss = load_dma_from_file(fp)
+        omega, E_stor, E_loss = self._read_dma_auto_unit(fp)
         smoothed = smooth_dma_data(omega, E_stor, E_loss)
         material = create_material_from_dma(
             smoothed['omega'], smoothed['E_storage_smooth'], smoothed['E_loss_smooth'],
