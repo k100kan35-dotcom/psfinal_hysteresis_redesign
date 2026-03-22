@@ -366,7 +366,7 @@ class PSDEnsemble:
         ax1.set_xlabel('log10(q)  [q in 1/m]')
         ax1.set_ylabel('log10(C(q))  [C in m^4]')
         ax1.set_title('PSD Ensemble')
-        ax1.legend(loc='upper right', fontsize=9)
+        ax1.legend(loc='upper right', fontsize=12)
         ax1.grid(True, alpha=0.3)
 
         # --- Right: Principal Components ---
@@ -384,7 +384,7 @@ class PSDEnsemble:
         ax2.set_xlabel('log10(q)  [q in 1/m]')
         ax2.set_ylabel('Eigenvector amplitude')
         ax2.set_title('Principal Components (log-space)')
-        ax2.legend(loc='best', fontsize=9)
+        ax2.legend(loc='best', fontsize=12)
         ax2.grid(True, alpha=0.3)
 
         fig.tight_layout()

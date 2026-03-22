@@ -1426,6 +1426,29 @@ class PerssonModelGUI_V2:
 
         return fig, canvas
 
+    def _finalize_plot(self, fig_attr, fig, canvas):
+        """플롯 업데이트 후 Figure 크기를 위젯에 맞추고 레이아웃 재계산."""
+        try:
+            widget = canvas.get_tk_widget()
+            w = widget.winfo_width()
+            h = widget.winfo_height()
+            if w > 1 and h > 1:
+                fig.set_size_inches(w / fig.dpi, h / fig.dpi, forward=False)
+                params = self._FIXED_SUBPLOT_PARAMS.get(fig_attr)
+                if params:
+                    fig.subplots_adjust(**params)
+                else:
+                    try:
+                        fig.tight_layout()
+                    except Exception:
+                        pass
+            canvas.draw_idle()
+        except Exception:
+            try:
+                canvas.draw_idle()
+            except Exception:
+                pass
+
     def _bind_canvas_auto_resize(self, fig, canvas):
         """Bind <Configure> to a canvas widget so the figure fills it on resize."""
         widget = canvas.get_tk_widget()
@@ -1962,8 +1985,7 @@ class PerssonModelGUI_V2:
                                       label=f'Top (φ={phi:.2f})')
         self.ax_profile_hist.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
-        self.fig_psd_profile.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08, hspace=0.50, wspace=0.35)
-        self.canvas_psd_profile.draw()
+        self._finalize_plot('fig_psd_profile', self.fig_psd_profile, self.canvas_psd_profile)
 
     def _calculate_profile_psd(self):
         """Calculate PSD from profile data."""
@@ -2113,8 +2135,7 @@ class PerssonModelGUI_V2:
         self.ax_psd_2d.grid(True, alpha=0.3, which='both')
         self.ax_psd_2d.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
-        self.fig_psd_profile.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08, hspace=0.50, wspace=0.35)
-        self.canvas_psd_profile.draw()
+        self._finalize_plot('fig_psd_profile', self.fig_psd_profile, self.canvas_psd_profile)
 
         # Auto-register graph data
         if C_full_2d is not None:
@@ -3206,8 +3227,7 @@ class PerssonModelGUI_V2:
         if len(temps) <= 8:
             self.ax_mc_raw.legend(fontsize=self.PLOT_FONTS['label'], loc='best', ncol=2)
 
-        self.fig_mc.tight_layout()
-        self.canvas_mc.draw()
+        self._finalize_plot('fig_mc', self.fig_mc, self.canvas_mc)
 
     def _load_persson_master_curve(self):
         """Load pre-generated master curve in Persson format (f, E', E'')."""
@@ -3476,8 +3496,7 @@ class PerssonModelGUI_V2:
             self.ax_mc_bT.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_mc_bT.set_title('시프트 팩터 aT (Persson)', fontweight='bold', fontsize=self.PLOT_FONTS['title'])
 
-        self.fig_mc.tight_layout()
-        self.canvas_mc.draw()
+        self._finalize_plot('fig_mc', self.fig_mc, self.canvas_mc)
 
     def _load_psd_direct(self):
         """Load PSD data directly (q, C(q) format)."""
@@ -3641,8 +3660,7 @@ class PerssonModelGUI_V2:
         self.ax_mc_aT.grid(True, alpha=0.3)
         self.ax_mc_aT.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5)
 
-        self.fig_mc.tight_layout()
-        self.canvas_mc.draw()
+        self._finalize_plot('fig_mc', self.fig_mc, self.canvas_mc)
 
     def _apply_smoothing_to_persson(self):
         """Apply smoothing to loaded Persson master curve."""
@@ -3804,8 +3822,7 @@ class PerssonModelGUI_V2:
         self.ax_mc_aT.grid(True, alpha=0.3)
         self.ax_mc_aT.axhline(y=1.0, color='gray', linestyle='--', alpha=0.5)
 
-        self.fig_mc.tight_layout()
-        self.canvas_mc.draw()
+        self._finalize_plot('fig_mc', self.fig_mc, self.canvas_mc)
 
     def _plot_master_curve_comparison(self):
         """Plot comparison between Persson master curve and generated master curve."""
@@ -3912,8 +3929,7 @@ class PerssonModelGUI_V2:
                               ha='center', va='center', fontsize=self.PLOT_FONTS['title'], transform=self.ax_mc_bT.transAxes)
             self.ax_mc_bT.set_title("E'' 비율 비교", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
 
-        self.fig_mc.tight_layout()
-        self.canvas_mc.draw()
+        self._finalize_plot('fig_mc', self.fig_mc, self.canvas_mc)
 
         self.status_var.set("마스터 커브 비교 플롯 완료")
 
@@ -4102,8 +4118,7 @@ class PerssonModelGUI_V2:
         self.ax_mc_bT.axvline(T_ref, color='green', linestyle='--', alpha=0.5)
         self.ax_mc_bT.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
 
-        self.fig_mc.tight_layout()
-        self.canvas_mc.draw()
+        self._finalize_plot('fig_mc', self.fig_mc, self.canvas_mc)
 
         # Auto-register graph data for master curve
         if master_curve is not None and 'f' in master_curve:
@@ -4235,8 +4250,7 @@ class PerssonModelGUI_V2:
                                   'k--', linewidth=2, label="E'' (Master)")
 
         self.ax_mc_master.legend(fontsize=self.PLOT_FONTS['label'], loc='best')
-        self.fig_mc.tight_layout()
-        self.canvas_mc.draw()
+        self._finalize_plot('fig_mc', self.fig_mc, self.canvas_mc)
 
     def _update_mc_shift_table(self):
         """Update shift factor table."""
@@ -6263,8 +6277,7 @@ class PerssonModelGUI_V2:
                                           ha='center', va='center', fontsize=self.PLOT_FONTS['title'],
                                           color='#CBD5E1', fontweight='light')
 
-                self.fig_calc_progress.subplots_adjust(**self._FIXED_SUBPLOT_PARAMS['fig_calc_progress'])
-                self.canvas_calc_progress.draw()
+                self._finalize_plot('fig_calc_progress', self.fig_calc_progress, self.canvas_calc_progress)
             except Exception as e:
                 print(f"Error initializing plots: {e}")
                 import traceback
@@ -6470,8 +6483,7 @@ class PerssonModelGUI_V2:
 
                 # Redraw canvas once per callback
                 try:
-                    self.fig_calc_progress.subplots_adjust(**self._FIXED_SUBPLOT_PARAMS['fig_calc_progress'])
-                    self.canvas_calc_progress.draw()
+                    self._finalize_plot('fig_calc_progress', self.fig_calc_progress, self.canvas_calc_progress)
                 except Exception:
                     pass
 
@@ -6525,8 +6537,7 @@ class PerssonModelGUI_V2:
                     foreground='#059669'
                 )
 
-                self.fig_calc_progress.subplots_adjust(**self._FIXED_SUBPLOT_PARAMS['fig_calc_progress'])
-                self.canvas_calc_progress.draw()
+                self._finalize_plot('fig_calc_progress', self.fig_calc_progress, self.canvas_calc_progress)
             except Exception as e:
                 print(f"Error clearing highlights: {e}")
 
@@ -6943,8 +6954,7 @@ class PerssonModelGUI_V2:
             ax6.set_title('(f) Parseval 정리', fontweight='bold', fontsize=TITLE_FONT, pad=TITLE_PAD)
 
         self.fig_results.suptitle('G(q,v) 2D 행렬 계산 결과', fontweight='bold', fontsize=self.PLOT_FONTS['title'], y=0.98)
-        self.fig_results.subplots_adjust(left=0.08, right=0.95, top=0.92, bottom=0.06, hspace=0.55, wspace=0.38)
-        self.canvas_results.draw()
+        self._finalize_plot('fig_results', self.fig_results, self.canvas_results)
 
     def _save_detailed_csv(self):
         """Save detailed CSV results."""
@@ -9208,8 +9218,7 @@ class PerssonModelGUI_V2:
         self.ax_psd_ref.set_yscale('log')
         self.ax_psd_ref.grid(True, alpha=0.3)
 
-        self.fig_rms.subplots_adjust(left=0.14, right=0.95, top=0.92, bottom=0.08, hspace=0.62, wspace=0.38)
-        self.canvas_rms.draw()
+        self._finalize_plot('fig_rms', self.fig_rms, self.canvas_rms)
 
     def _sync_target_xi_from_tab2(self):
         """Sync target h'rms from Tab 2 to Tab 4 display and update target_xi."""
@@ -9451,8 +9460,7 @@ class PerssonModelGUI_V2:
             verticalalignment='bottom',
             bbox=dict(boxstyle='round,pad=0.3', facecolor='#FEF9C3', alpha=0.9))
 
-        self.fig_rms.subplots_adjust(left=0.14, right=0.88, top=0.92, bottom=0.08, hspace=0.62, wspace=0.38)
-        self.canvas_rms.draw()
+        self._finalize_plot('fig_rms', self.fig_rms, self.canvas_rms)
 
     def _update_rms_result_text(self):
         """Update RMS slope result text."""
@@ -10049,7 +10057,7 @@ class PerssonModelGUI_V2:
             self.ax_flash_area_compare.legend(fontsize=self.PLOT_FONTS['label'])
             self.ax_flash_area_compare.grid(True, alpha=0.3)
 
-            self.canvas_flash_temp.draw_idle()
+            self._finalize_plot('fig_flash_temp', self.fig_flash_temp, self.canvas_flash_temp)
 
             # === Update flash result text ===
             self.flash_result_text.delete(1.0, tk.END)
@@ -11559,7 +11567,7 @@ class PerssonModelGUI_V2:
         self.ax_fg_curves.set_ylim(0, 1.1)
         self.ax_fg_curves.legend(loc='best', fontsize=self.PLOT_FONTS['label'], ncol=2)
 
-        self.canvas_mu_visc.draw()
+        self._finalize_plot('fig_mu_visc', self.fig_mu_visc, self.canvas_mu_visc)
 
     def _export_fg_curves(self):
         """Export f,g curves to CSV file with proper column separation."""
@@ -12039,7 +12047,7 @@ class PerssonModelGUI_V2:
         self.ax_fg_curves.set_xlim(0, x_max)
         self.ax_fg_curves.set_ylim(0, 1.1)
 
-        self.canvas_mu_visc.draw()
+        self._finalize_plot('fig_mu_visc', self.fig_mu_visc, self.canvas_mu_visc)
 
     def _apply_temperature_shift(self):
         """Apply temperature shift to master curve using aT (and bT) and recalculate G."""
@@ -13868,7 +13876,7 @@ class PerssonModelGUI_V2:
             # Apply checkbox visibility states
             self._apply_mu_plot_visibility()
 
-            self.canvas_mu_visc.draw()
+            self._finalize_plot('fig_mu_visc', self.fig_mu_visc, self.canvas_mu_visc)
 
             # Auto-register graph data for friction results
             self._register_graph_data(
@@ -14007,7 +14015,7 @@ class PerssonModelGUI_V2:
 
             self.ax_mu_v.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_mu_cumulative.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
-            self.canvas_mu_visc.draw()
+            self._finalize_plot('fig_mu_visc', self.fig_mu_visc, self.canvas_mu_visc)
         except Exception as e:
             print(f"[DEBUG] _plot_ref_datasets_on_initial_axes error: {e}")
 
@@ -14046,7 +14054,7 @@ class PerssonModelGUI_V2:
             self.ax_ps.set_xscale('log')
             self.ax_ps.grid(True, alpha=0.3)
 
-            self.canvas_mu_visc.draw()
+            self._finalize_plot('fig_mu_visc', self.fig_mu_visc, self.canvas_mu_visc)
         except Exception as e:
             print(f"[DEBUG] _reset_mu_visc_axes error: {e}")
 
@@ -15821,8 +15829,7 @@ class PerssonModelGUI_V2:
                    ha='center', va='center', transform=ax.transAxes,
                    fontsize=self.PLOT_FONTS['title'], color='gray')
 
-        self.fig_strain_map.subplots_adjust(left=0.08, right=0.95, top=0.96, bottom=0.06, hspace=0.45, wspace=0.30)
-        self.canvas_strain_map.draw()
+        self._finalize_plot('fig_strain_map', self.fig_strain_map, self.canvas_strain_map)
 
     def _calculate_strain_map(self):
         """Calculate and visualize local strain map."""
@@ -16437,8 +16444,7 @@ class PerssonModelGUI_V2:
             ax.set_ylim(q_crop_min, q_crop_max)
             ax.set_facecolor('white')  # 크롭 후 회색 배경 제거
 
-        self.fig_strain_map.subplots_adjust(left=0.08, right=0.95, top=0.96, bottom=0.06, hspace=0.45, wspace=0.30)
-        self.canvas_strain_map.draw()
+        self._finalize_plot('fig_strain_map', self.fig_strain_map, self.canvas_strain_map)
 
     def _export_strain_map_csv(self):
         """Export Local Strain Map data to CSV files with selection dialog."""
@@ -16979,8 +16985,7 @@ class PerssonModelGUI_V2:
                 self.freq_range_text.insert(tk.END, f"  {omega_dma_min:.2e} ~ {omega_dma_max:.2e} rad/s\n")
 
             self.integrand_progress_var.set(100)
-            self.fig_integrand.subplots_adjust(left=0.12, right=0.95, top=0.96, bottom=0.08, hspace=0.55, wspace=0.40)
-            self.canvas_integrand.draw()
+            self._finalize_plot('fig_integrand', self.fig_integrand, self.canvas_integrand)
 
             self.status_var.set("피적분함수 계산 완료")
 
@@ -19835,9 +19840,7 @@ class PerssonModelGUI_V2:
             self.ax_adh_area.grid(True, alpha=0.3)
             self.ax_adh_area.axhline(y=0, color='gray', linestyle=':', alpha=0.5)
 
-            self.fig_mu_adh.subplots_adjust(left=0.10, right=0.90, top=0.96, bottom=0.08,
-                                             hspace=0.50, wspace=0.45)
-            self.canvas_mu_adh.draw()
+            self._finalize_plot('fig_mu_adh', self.fig_mu_adh, self.canvas_mu_adh)
 
         except Exception as e:
             print(f"μ_adh plot update error: {e}")
@@ -21435,9 +21438,7 @@ class PerssonModelGUI_V2:
             self.ax_ch_total.legend(loc='best', fontsize=self.PLOT_FONTS['label'])
             self.ax_ch_total.grid(True, alpha=0.3)
 
-            self.fig_cold_hot.subplots_adjust(left=0.10, right=0.90, top=0.96, bottom=0.08,
-                                               hspace=0.50, wspace=0.40)
-            self.canvas_cold_hot.draw()
+            self._finalize_plot('fig_cold_hot', self.fig_cold_hot, self.canvas_cold_hot)
 
         except Exception as e:
             print(f"Cold & Hot plot update error: {e}")
@@ -26168,7 +26169,7 @@ class PerssonModelGUI_V2:
         f0 = self._pb_frames[0]
         mask_fill = f0.get('_mask_fill', f0.get('_contact_mask'))
         nan_base = np.where(mask_fill, 0.0, np.nan)
-        _fs = 9
+        _fs = 12
 
         # ── All 5 plots use pcolormesh for fast set_array() animation ──
         self._pb_pm_artists = {}
@@ -26224,10 +26225,10 @@ class PerssonModelGUI_V2:
         ax2.set_title('Slip Velocity [m/s]', fontsize=_fs, fontweight='bold')
         ax2.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label_sm'])
         ax2.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label_sm'])
-        ax2.tick_params(labelsize=6)
+        ax2.tick_params(labelsize=12)
         cax2 = inset_axes(ax2, width="40%", height="5%", loc='lower right', borderpad=1.2)
         self.fig_pb.colorbar(pm_sp, cax=cax2, orientation='horizontal')
-        cax2.tick_params(labelsize=5, length=2, pad=1)
+        cax2.tick_params(labelsize=12, length=2, pad=1)
         self._pb_cbar_axes['speed'] = cax2
         self._pb_pm_artists['speed'] = pm_sp
 
@@ -26244,10 +26245,10 @@ class PerssonModelGUI_V2:
         ax3.set_title('contact pressure [bar]', fontsize=_fs, fontweight='bold')
         ax3.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label_sm'])
         ax3.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label_sm'])
-        ax3.tick_params(labelsize=6)
+        ax3.tick_params(labelsize=12)
         cax3 = inset_axes(ax3, width="40%", height="5%", loc='lower right', borderpad=1.2)
         self.fig_pb.colorbar(pm_pr, cax=cax3, orientation='horizontal')
-        cax3.tick_params(labelsize=5, length=2, pad=1)
+        cax3.tick_params(labelsize=12, length=2, pad=1)
         self._pb_cbar_axes['pressure'] = cax3
         self._pb_pm_artists['pressure'] = pm_pr
 
@@ -26265,10 +26266,10 @@ class PerssonModelGUI_V2:
         ax4.set_title('temperature [\u00b0C]', fontsize=_fs, fontweight='bold')
         ax4.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label_sm'])
         ax4.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label_sm'])
-        ax4.tick_params(labelsize=6)
+        ax4.tick_params(labelsize=12)
         cax4 = inset_axes(ax4, width="40%", height="5%", loc='lower right', borderpad=1.2)
         self.fig_pb.colorbar(pm_t, cax=cax4, orientation='horizontal')
-        cax4.tick_params(labelsize=5, length=2, pad=1)
+        cax4.tick_params(labelsize=12, length=2, pad=1)
         self._pb_cbar_axes['temperature'] = cax4
         self._pb_pm_artists['temperature'] = pm_t
 
@@ -26285,10 +26286,10 @@ class PerssonModelGUI_V2:
         ax5.set_title('friction force', fontsize=_fs, fontweight='bold')
         ax5.set_xlabel('length [mm]', fontsize=self.PLOT_FONTS['label_sm'])
         ax5.set_ylabel('width [mm]', fontsize=self.PLOT_FONTS['label_sm'])
-        ax5.tick_params(labelsize=6)
+        ax5.tick_params(labelsize=12)
         cax5 = inset_axes(ax5, width="40%", height="5%", loc='lower right', borderpad=1.2)
         self.fig_pb.colorbar(pm_f, cax=cax5, orientation='horizontal')
-        cax5.tick_params(labelsize=5, length=2, pad=1)
+        cax5.tick_params(labelsize=12, length=2, pad=1)
         self._pb_cbar_axes['friction'] = cax5
         self._pb_pm_artists['friction'] = pm_f
 
@@ -26400,7 +26401,7 @@ class PerssonModelGUI_V2:
         ax_fy.set_title('Fy vs Slip Angle', fontsize=self.PLOT_FONTS['legend'], fontweight='bold')
         ax_fy.set_xlabel('SA [deg]', fontsize=self.PLOT_FONTS['legend']); ax_fy.set_ylabel('Fy [N]', fontsize=self.PLOT_FONTS['legend'])
         ax_fy.tick_params(labelsize=self.PLOT_FONTS['legend_sm']); ax_fy.grid(True, alpha=0.3)
-        ax_fy.legend(fontsize=6, loc='best')
+        ax_fy.legend(fontsize=12, loc='best')
         self._pb_cursor_fy = ax_fy.axvline(x=0, color='k', lw=1.2, alpha=0.7)
 
         ax_fx = self.ax_pb_fx_sr
@@ -32476,8 +32477,7 @@ class PerssonModelGUI_V2:
             ax.set_title("E''(T) @10 Hz", fontweight='bold', fontsize=self.PLOT_FONTS['title'])
         ax.grid(True, alpha=0.3)
 
-        self.fig_ve_advisor.subplots_adjust(left=0.08, right=0.97, top=0.96, bottom=0.06, hspace=0.45)
-        self.canvas_ve_advisor.draw()
+        self._finalize_plot('fig_ve_advisor', self.fig_ve_advisor, self.canvas_ve_advisor)
 
     # ================================================================
     # ====  Log Analysis Tab  ====
