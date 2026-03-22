@@ -2010,7 +2010,7 @@ class PerssonModelGUI_V2:
                 detrend_method=detrend,
                 calculate_top=calc_top,
                 apply_binning=apply_binning,
-                n_bins=n_bins
+                points_per_decade=n_bins
             )
 
             # Plot results
