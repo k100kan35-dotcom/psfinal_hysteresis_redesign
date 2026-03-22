@@ -6102,32 +6102,6 @@ class PerssonModelGUI_V2:
             poisson = float(self.poisson_var.get())
             temperature = float(self.temperature_var.get())
 
-            # ── DEBUG: _run_calculation 파라미터 전체 출력 ──
-            print("=" * 70)
-            print("[_run_calculation] ★ G(q,v) 계산 파라미터 ★")
-            print(f"  σ₀ = {sigma_0:.3e} Pa ({self.sigma_0_var.get()} MPa)")
-            print(f"  q_min = {q_min:.3e}, q_max = {q_max:.3e}")
-            print(f"  v_min = {v_min:.3e}, v_max = {v_max:.3e}")
-            print(f"  n_v = {n_v}, n_q = {n_q}")
-            print(f"  poisson = {poisson}, T = {temperature}°C")
-            print(f"  PSD model: {type(self.psd_model).__name__}")
-            if hasattr(self.psd_model, 'q_data'):
-                print(f"  PSD q range: {self.psd_model.q_data[0]:.3e} ~ {self.psd_model.q_data[-1]:.3e}")
-                print(f"  PSD C range: {self.psd_model.C_data[0]:.3e} ~ {self.psd_model.C_data[-1]:.3e}")
-                print(f"  PSD n_pts: {len(self.psd_model.q_data)}")
-                print(f"  PSD interp: log-log={getattr(self.psd_model, '_log_interp', 'N/A')}")
-            # Material modulus at test frequencies
-            test_omega = 2 * np.pi * np.array([1.0, 100.0, 1e6])
-            for w_test in test_omega:
-                E_test = self.material.get_modulus(w_test, temperature=temperature)
-                print(f"  E*(ω={w_test:.1e}) = {abs(E_test):.3e} Pa (phase={np.angle(E_test)*180/np.pi:.1f}°)")
-            # PSD at test q values
-            test_q = np.array([q_min, (q_min*q_max)**0.5, q_max])
-            test_C = self.psd_model(test_q)
-            for q_t, c_t in zip(test_q, test_C):
-                print(f"  C(q={q_t:.3e}) = {c_t:.3e} m^4")
-            print("=" * 70)
-
             # Create arrays
             v_array = np.logspace(np.log10(v_min), np.log10(v_max), n_v)
             q_array = np.logspace(np.log10(q_min), np.log10(q_max), n_q)
@@ -6550,21 +6524,6 @@ class PerssonModelGUI_V2:
                 'temperature': temperature,
                 'poisson': poisson
             }
-
-            # ── DEBUG: G 계산 결과 요약 ──
-            G_mat = results_2d['G_matrix']
-            P_mat = results_2d['P_matrix']
-            print("=" * 70)
-            print("[_run_calculation] ★ G(q,v) 결과 요약 ★")
-            print(f"  G_matrix shape: {G_mat.shape}")
-            print(f"  G_max (전체): {G_mat.max():.6e}")
-            print(f"  G_min (전체): {G_mat[G_mat > 0].min():.6e}" if np.any(G_mat > 0) else "  G_min: 0")
-            # 최종 q에서의 G (G(q_max)) — 각 속도별
-            G_final = G_mat[-1, :]  # G at q_max for each velocity
-            print(f"  G(q_max) range: {G_final.min():.6e} ~ {G_final.max():.6e}")
-            print(f"  P(q_max) range: {P_mat[-1,:].min():.6e} ~ {P_mat[-1,:].max():.6e}")
-            print(f"  norm_factor: {self.g_calculator.PSD_NORMALIZATION_FACTOR}")
-            print("=" * 70)
 
             # Plot results
             self._plot_g_results()
