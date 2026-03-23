@@ -1663,7 +1663,7 @@ class PerssonModelGUI_V2:
         detrend_row = ttk.Frame(calc_frame)
         detrend_row.pack(fill=tk.X, pady=2)
         ttk.Label(detrend_row, text="Detrend:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.profile_detrend_var = tk.StringVar(value="linear")
+        self.profile_detrend_var = tk.StringVar(value="mean")
         ttk.Combobox(detrend_row, textvariable=self.profile_detrend_var,
                      values=['none', 'mean', 'linear', 'quadratic'], width=10, state='readonly', font=self.FONTS['body']).pack(side=tk.LEFT, padx=5)
 
@@ -1671,9 +1671,33 @@ class PerssonModelGUI_V2:
         window_row = ttk.Frame(calc_frame)
         window_row.pack(fill=tk.X, pady=2)
         ttk.Label(window_row, text="Window:", font=self.FONTS['body']).pack(side=tk.LEFT)
-        self.profile_window_var = tk.StringVar(value="none")
+        self.profile_window_var = tk.StringVar(value="multitaper")
         ttk.Combobox(window_row, textvariable=self.profile_window_var,
-                     values=['none', 'hanning', 'hamming', 'blackman'], width=10, state='readonly', font=self.FONTS['body']).pack(side=tk.LEFT, padx=5)
+                     values=['multitaper', 'welch', 'hann', 'hamming', 'blackman', 'none'],
+                     width=10, state='readonly', font=self.FONTS['body']).pack(side=tk.LEFT, padx=5)
+
+        # sinc² correction
+        sinc2_row = ttk.Frame(calc_frame)
+        sinc2_row.pack(fill=tk.X, pady=2)
+        self.sinc2_correct_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(sinc2_row, text="sinc² 보정 (Nyquist 근처)",
+                        variable=self.sinc2_correct_var).pack(side=tk.LEFT)
+
+        # 1D→2D Conversion method
+        conv_row = ttk.Frame(calc_frame)
+        conv_row.pack(fill=tk.X, pady=2)
+        ttk.Label(conv_row, text="1D→2D:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.conversion_method_var = tk.StringVar(value="sqrt")
+        ttk.Combobox(conv_row, textvariable=self.conversion_method_var,
+                     values=['sqrt', 'gamma', 'standard', 'none'],
+                     width=10, state='readonly', font=self.FONTS['body']).pack(side=tk.LEFT, padx=5)
+
+        # Hurst exponent
+        hurst_row = ttk.Frame(calc_frame)
+        hurst_row.pack(fill=tk.X, pady=2)
+        ttk.Label(hurst_row, text="Hurst H:", font=self.FONTS['body']).pack(side=tk.LEFT)
+        self.hurst_var = tk.StringVar(value="0.80")
+        ttk.Entry(hurst_row, textvariable=self.hurst_var, width=6, font=self.FONTS['body']).pack(side=tk.LEFT, padx=5)
 
         # PSD type selection
         psd_type_frame = ttk.Frame(calc_frame)
@@ -1683,7 +1707,7 @@ class PerssonModelGUI_V2:
         ttk.Checkbutton(psd_type_frame, text="Full PSD",
                         variable=self.calc_full_psd_var).pack(side=tk.LEFT)
 
-        self.calc_top_psd_var = tk.BooleanVar(value=True)
+        self.calc_top_psd_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(psd_type_frame, text="Top PSD",
                         variable=self.calc_top_psd_var).pack(side=tk.LEFT, padx=10)
 
@@ -1998,11 +2022,17 @@ class PerssonModelGUI_V2:
             detrend = self.profile_detrend_var.get()
             calc_top = self.calc_top_psd_var.get()
             apply_binning = self.apply_binning_var.get()
+            sinc2_correct = self.sinc2_correct_var.get()
+            conversion_method = self.conversion_method_var.get()
 
             try:
                 n_bins = int(self.n_bins_var.get())
             except ValueError:
                 n_bins = 88
+            try:
+                hurst = float(self.hurst_var.get())
+            except ValueError:
+                hurst = 0.80
 
             # Calculate PSD with logarithmic binning
             self.profile_psd_analyzer.calculate_psd(
@@ -2010,7 +2040,10 @@ class PerssonModelGUI_V2:
                 detrend_method=detrend,
                 calculate_top=calc_top,
                 apply_binning=apply_binning,
-                points_per_decade=n_bins
+                n_bins=n_bins,
+                sinc2_correct=sinc2_correct,
+                conversion_method=conversion_method,
+                hurst=hurst,
             )
 
             # Plot results
@@ -2478,7 +2511,7 @@ class PerssonModelGUI_V2:
             if self.profile_psd_analyzer.q is not None:
                 n_raw = len(self.profile_psd_analyzer.q_raw) if self.profile_psd_analyzer.q_raw is not None else 0
                 n_binned = len(self.profile_psd_analyzer.q)
-                nbins = self.profile_psd_analyzer.points_per_decade
+                nbins = getattr(self.profile_psd_analyzer, 'n_bins', 88)
                 if n_raw != n_binned:
                     lines.append(f"\n[로그 구간 평균화]")
                     lines.append(f"  Raw 점: {n_raw} → Binned 점: {n_binned}")
